@@ -88,12 +88,12 @@ return function()
     Assert.equal(
         decoded.lastSlowChunk.buildingsMs,
         121,
-        "expected flushed telemetry JSON to preserve the last slow chunk hotspot details"
+        "expected flushed telemetry JSON to preserve the populated slow chunk hotspot details"
     )
     Assert.equal(
         decoded.recentEvents[#decoded.recentEvents].event,
         "preview_invalidation_deferred",
-        "expected flushed telemetry JSON to preserve the newest event"
+        "expected flushed telemetry JSON to preserve the newest event before a new sync starts"
     )
     Assert.equal(
         decoded.projectFacts.preview.build_active,
@@ -104,6 +104,27 @@ return function()
         decoded.projectFacts.full_bake.last_result,
         "success",
         "expected flushed telemetry JSON to preserve compact full-bake facts"
+    )
+
+    AustinPreviewTelemetry.record(state, "sync_started", {
+        buildToken = "build-2",
+    })
+    snapshot = AustinPreviewTelemetry.snapshot(state)
+    Assert.equal(snapshot.lastSlowChunk.chunkId, nil, "expected a new sync to clear stale slow chunk telemetry")
+
+    AustinPreviewTelemetry.flushToWorkspace(state, Workspace)
+    encoded = Workspace:GetAttribute(AustinPreviewTelemetry.WORKSPACE_ATTR)
+    Assert.truthy(type(encoded) == "string" and encoded ~= "", "expected telemetry flush to keep writing JSON after sync restarts")
+    decoded = HttpService:JSONDecode(encoded)
+    Assert.equal(
+        decoded.lastSlowChunk.chunkId,
+        nil,
+        "expected flushed telemetry JSON to clear stale slow chunk telemetry after a new sync starts"
+    )
+    Assert.equal(
+        decoded.recentEvents[#decoded.recentEvents].event,
+        "sync_started",
+        "expected flushed telemetry JSON to preserve the newest event after a new sync starts"
     )
 
     Workspace:SetAttribute(AustinPreviewTelemetry.WORKSPACE_ATTR, nil)

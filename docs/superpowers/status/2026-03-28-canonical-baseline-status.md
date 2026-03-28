@@ -13,20 +13,13 @@ The active fidelity/observability stack is:
 
 ## Purpose
 
-This is the completed rolling status and handoff document for the canonical baseline tranche.
+This file preserves the completed status trail for the canonical baseline tranche. Do not use it for current execution or current handoff.
 
-Use this file as the active status trail for:
-
-- what has landed
-- what was verified locally
-- what still requires remote Studio validation
-- measured residual gaps after each meaningful slice
-
-The active implementation plan for this tranche is:
+The paired historical implementation plan for this tranche is:
 
 - `docs/superpowers/plans/2026-03-28-canonical-baseline-and-single-source-of-truth.md`
 
-The active design spec for this tranche is:
+The paired historical design spec for this tranche is:
 
 - `docs/superpowers/specs/2026-03-28-canonical-baseline-and-single-source-of-truth-design.md`
 

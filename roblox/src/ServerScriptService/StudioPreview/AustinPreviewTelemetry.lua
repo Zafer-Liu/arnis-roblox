@@ -147,6 +147,10 @@ function AustinPreviewTelemetry.record(state, eventName, fields)
         state.chunkTotals.unloaded += event.unloaded
     end
 
+    if eventName == "sync_started" then
+        state.lastSlowChunk = {}
+    end
+
     if eventName == "sync_complete" or eventName == "sync_cancelled" then
         state.lastSync = cloneValue(event)
     elseif eventName == "slow_chunk" then

@@ -10,10 +10,11 @@ The active follow-on design is:
 - `docs/superpowers/specs/2026-03-28-play-fidelity-and-observability-design.md`
 
 This is the completed design spec for the canonical-baseline tranche.
-Use the paired implementation plan and rolling status document as the current execution and handoff surfaces:
+For current execution and handoff, use the active play-fidelity stack instead:
 
-- `docs/superpowers/plans/2026-03-28-canonical-baseline-and-single-source-of-truth.md`
-- `docs/superpowers/status/2026-03-28-canonical-baseline-status.md`
+- `docs/superpowers/specs/2026-03-28-play-fidelity-and-observability-design.md`
+- `docs/superpowers/plans/2026-03-28-play-fidelity-and-observability.md`
+- `docs/superpowers/status/2026-03-28-play-fidelity-and-observability-status.md`
 
 ## Goal
 

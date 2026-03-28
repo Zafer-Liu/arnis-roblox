@@ -17,7 +17,7 @@ The active follow-on plan is:
 **Tech Stack:** Luau, Python unittest, Bash harness scripts, existing Roblox Studio remote harness wrapper, current canonical-world and convergence tests
 
 This is the completed implementation plan for the canonical-baseline tranche.
-For current state, use the `Execution Status` section below and the rolling status file first; the red/green step text under each task is preserved as execution history and task structure, not as a claim that every step is still pending today.
+For current execution, use the active play-fidelity stack instead; the `Execution Status` section below is preserved as historical progress, and the red/green step text under each task is execution history rather than a claim that the work is still pending.
 
 ## Execution Status
 

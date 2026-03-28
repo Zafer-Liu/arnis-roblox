@@ -14,7 +14,7 @@ Treat `tertiary` as the preferred current proof lane on this workstation, but st
 - Use `scripts/remote_studio_profiles.example.sh` as the starting template.
 - Treat `primary` and `tertiary` as profile aliases and machine roles, not as committed transport details.
 - Prefer direct development on the chosen dev machine when possible.
-- Use the remote harness wrapper when Studio must run on another machine from the one holding your current worktree.
+- Use the remote harness wrapper when Studio must run on another machine from the one holding your current worktree, but fall back to direct SSH on the remote clone if wrapper transport is unhealthy on the current workstation.
 
 ## Direct Development On The Active Dev Machine
 
@@ -65,6 +65,12 @@ cp scripts/remote_studio_profiles.example.sh scripts/remote_studio_profiles.loca
 ```bash
 bash scripts/run_studio_harness_remote.sh --remote-profile primary -- --no-play --edit-tests
 bash scripts/run_studio_harness_remote.sh --remote-profile tertiary -- --no-play --edit-tests
+```
+
+If the wrapper is unstable on the current workstation, run the harness directly on the remote clone over SSH instead and record that lane in the active status file:
+
+```bash
+ssh tertiary 'cd ~/.codex-remote-studio/arnis-roblox && bash scripts/run_studio_harness.sh --no-play --edit-tests'
 ```
 
 ## Notes

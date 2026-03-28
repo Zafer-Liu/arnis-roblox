@@ -37,9 +37,9 @@ The active design spec for this tranche is:
 - On `tertiary`, gameplay-ready play telemetry now resolves support as terrain at the sampled spawn (`supportSurfaceRole=terrain`, `groundMaterial=Enum.Material.Grass`, `supportY=5.1`, `terrainY=5.1`) instead of the earlier `unknown` read.
 - On `tertiary`, gameplay-ready play telemetry now also shows nearby shell evidence at spawn (`nearbyWallParts=4`, `nearestWallDistanceStuds=2.2`, `overheadRoofParts=2`, `overheadRoofMinClearanceStuds=12.4`), so the old wall/support probe blind spot is no longer the active signal.
 - The biggest current measured hotspot is still preview/edit builder cost on `tertiary`: one slow building-heavy chunk around `166ms`, and full preview sync around `17.3s` for the current `80`-chunk bounded scene.
-- The manifest audit is now stronger for terrain complaints: it reports area-weighted terrain material coverage, dominant-material ratio, terrain area by `cellSizeStuds`, and coarse-granularity findings instead of only chunk-level single-material monotony.
+- The manifest audit is now stronger for terrain complaints: it reports area-weighted terrain material coverage, dominant-material ratio, terrain area by `cellSizeStuds`, coarse-granularity findings, and focused local-zone terrain accounting clipped to included terrain cells instead of whole intersecting chunks.
 - The scene fidelity audit now carries the same manifest terrain granularity/material context into edit/play artifacts, so terrain complaints can be interpreted next to the same render/audit output used for parity and play-proof debugging.
-- Preview telemetry now preserves the most recent slow chunk as structured state and the preview telemetry summary now prints compact hotspot timing (`last_sync_elapsed_ms`, `slow_chunk`, `slow_chunk_total_ms`, `slow_chunk_buildings_ms`, `slow_chunk_terrain_ms`, `slow_chunk_roads_ms`, `slow_chunk_landuse_terrain_fill_ms`, `slow_chunk_artifacts`) instead of hiding that data in raw Studio logs only.
+- Preview telemetry now preserves the current slow chunk as structured state, clears stale `lastSlowChunk` state on `sync_started`, and the preview telemetry summary now prints compact hotspot timing (`last_sync_elapsed_ms`, `slow_chunk`, `slow_chunk_total_ms`, `slow_chunk_buildings_ms`, `slow_chunk_terrain_ms`, `slow_chunk_roads_ms`, `slow_chunk_landuse_terrain_fill_ms`, `slow_chunk_artifacts`) instead of hiding that data in raw Studio logs only.
 
 ## Verification Snapshot
 
@@ -87,6 +87,7 @@ The active design spec for this tranche is:
 - `bash scripts/run_studio_harness_remote.sh --remote-profile tertiary --remote-host tertiary -- --no-play --edit-tests --spec-filter AustinPreviewTelemetry.spec.lua --edit-wait 30 --pattern-wait 120`
   - passed on 2026-03-28 against `tertiary`
   - remote edit action reported `total=1 passed=1 failed=0`
+  - verifies both that a populated `lastSlowChunk` survives the compact workspace JSON flush and that `sync_started` clears stale hotspot state before the next flush
   - the wrapper again lingered after success, so cleanup was completed directly over SSH and `tertiary` was left clean afterward
 - `bash scripts/run_studio_harness.sh --takeover --hard-restart --skip-edit-tests --play-wait 30 --pattern-wait 120`
   - rerun on 2026-03-28 from the remote clone
@@ -161,15 +162,16 @@ The active design spec for this tranche is:
 - Strengthened `scripts/manifest_quality_audit.py` so terrain complaints are no longer evaluated only by chunk-level unique-material monotony.
 - Added area-weighted terrain summary fields: dominant material ratio, terrain material area distribution, terrain area by `cellSizeStuds`, and coarse-granularity chunk ratio.
 - Added terrain-specific findings for dominant-material collapse and coarse authored terrain granularity.
+- Tightened focused local-zone terrain accounting so reports only credit included terrain cells instead of whole intersecting chunks.
 - Carried the same terrain context into `scripts/scene_fidelity_audit.py`, so edit/play scene audit artifacts now expose manifest-side terrain granularity/material truth directly.
 - Verified locally with `python3 -m unittest scripts.tests.test_manifest_quality_audit scripts.tests.test_scene_fidelity_audit -v`.
 - Result: the audit surface is more useful for the current “boxy/default terrain” complaints, and the next missing telemetry is now clearer: local terrain roughness/coverage metrics in play plus structured preview slow-chunk hotspot export.
 
 ### 2026-03-28: Structured Preview Slow-Chunk Telemetry
 
-- Updated `AustinPreviewTelemetry.lua` so `slow_chunk` events persist as `lastSlowChunk` in the compact preview snapshot alongside `lastSync`.
+- Updated `AustinPreviewTelemetry.lua` so `slow_chunk` events persist as `lastSlowChunk` in the compact preview snapshot alongside `lastSync`, and `sync_started` clears stale slow-chunk state before the next run.
 - Updated `AustinPreviewBuilder.lua` so the slow-chunk path records a structured telemetry event instead of only logging text.
 - Updated `preview_telemetry_summary.py` so operators see `last_sync_elapsed_ms` plus the current slow-chunk timing breakdown directly in the summary line.
 - Verified locally with `python3 -m unittest scripts.tests.test_preview_telemetry_summary -v`.
-- Verified remotely on `tertiary` with `AustinPreviewTelemetry.spec.lua`, which passed through the edit-only harness lane.
+- Verified remotely on `tertiary` with `AustinPreviewTelemetry.spec.lua`, which now passes through the edit-only harness lane while covering both the populated hotspot flush path and the stale-hotspot reset path.
 - Result: preview hotspot timing is now available as compact structured state, but it still needs to be joined into the higher-level edit/play audit reports.

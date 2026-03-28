@@ -2809,6 +2809,60 @@ class ManifestQualityAuditTests(unittest.TestCase):
             self.assertEqual(zone_report["zone"]["focus_x"], 0.0)
             self.assertEqual(zone_report["zone"]["focus_z"], 0.0)
 
+    def test_report_focus_zone_clips_terrain_cells_instead_of_crediting_full_chunk(self) -> None:
+        audit = load_module()
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            manifest_path = root / "fixture-manifest.json"
+
+            manifest = {
+                "schemaVersion": "0.4.0",
+                "meta": {
+                    "worldName": "TerrainZoneTown",
+                    "generator": "test",
+                    "source": "pipeline-export",
+                    "metersPerStud": 1.0,
+                    "chunkSizeStuds": 256,
+                    "bbox": {
+                        "minLat": 30.0,
+                        "minLon": -97.0,
+                        "maxLat": 30.01,
+                        "maxLon": -96.99,
+                    },
+                    "totalFeatures": 0,
+                },
+                "chunks": [
+                    {
+                        "id": "0_0",
+                        "originStuds": {"x": 0, "y": 0, "z": 0},
+                        "terrain": {
+                            "cellSizeStuds": 4,
+                            "width": 4,
+                            "depth": 4,
+                            "heights": [0] * 16,
+                            "materials": ["Grass"] + ["Sand"] * 15,
+                            "material": "Grass",
+                        },
+                        "roads": [],
+                        "buildings": [],
+                        "water": [],
+                        "props": [],
+                        "landuse": [],
+                        "barriers": [],
+                        "rails": [],
+                    }
+                ],
+            }
+            manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
+
+            report = audit.build_report(manifest_path, [], focus_x=2.0, focus_z=2.0, radius=3.0)
+
+            self.assertEqual(report["summary"]["terrain_area_studs2_total"], 16.0)
+            self.assertEqual(report["summary"]["terrain_material_area_distribution"], {"Grass": 16.0})
+            self.assertEqual(report["summary"]["terrain_dominant_material"], "Grass")
+            self.assertEqual(report["summary"]["terrain_area_by_cell_size_studs"], {"4": 16.0})
+
     def test_current_austin_manifest_surfaces_known_quality_risks(self) -> None:
         audit = load_module()
         manifest_path = ROOT / "rust" / "out" / "austin-manifest.json"

@@ -2322,6 +2322,40 @@ def build_report(
         closest_z = max(min_z, min(focus_z, max_z))
         return _point_in_zone(closest_x, closest_z, focus_x=focus_x, focus_z=focus_z, radius=radius)
 
+    def iter_terrain_material_cells(chunk: dict[str, Any], terrain: dict[str, Any]) -> list[str]:
+        width = max(int(_safe_float(terrain.get("width"), 0.0)), 0)
+        depth = max(int(_safe_float(terrain.get("depth"), 0.0)), 0)
+        if width <= 0 or depth <= 0:
+            return []
+        cell_size = _safe_float(terrain.get("cellSizeStuds"), 0.0)
+        origin = chunk.get("originStuds") if isinstance(chunk.get("originStuds"), dict) else {}
+        origin_x = _safe_float(origin.get("x"))
+        origin_z = _safe_float(origin.get("z"))
+        material_list = terrain.get("materials") if isinstance(terrain.get("materials"), list) else None
+        fallback_material = str(terrain.get("material")) if terrain.get("material") else None
+        included_materials: list[str] = []
+        for cell_index in range(width * depth):
+            if material_list:
+                if cell_index >= len(material_list):
+                    continue
+                material_name = material_list[cell_index]
+                if not material_name:
+                    continue
+                material_name = str(material_name)
+            elif fallback_material is not None:
+                material_name = fallback_material
+            else:
+                continue
+            if focus_x is not None and focus_z is not None and radius is not None and cell_size > 0.0:
+                cell_x = cell_index % width
+                cell_z = cell_index // width
+                center_x = origin_x + (cell_x + 0.5) * cell_size
+                center_z = origin_z + (cell_z + 0.5) * cell_size
+                if not _point_in_zone(center_x, center_z, focus_x=focus_x, focus_z=focus_z, radius=radius):
+                    continue
+            included_materials.append(material_name)
+        return included_materials
+
     for chunk in chunks:
         for building in chunk.get("buildings", []) or []:
             building_id = str(building.get("id") or "")
@@ -2349,31 +2383,23 @@ def build_report(
 
         terrain = chunk.get("terrain")
         if isinstance(terrain, dict):
-            chunks_with_terrain += 1
             terrain_cell_size = _safe_float(terrain.get("cellSizeStuds"))
             terrain_cell_area = terrain_cell_size * terrain_cell_size if terrain_cell_size > 0.0 else 1.0
-            width = max(int(_safe_float(terrain.get("width"), 1.0)), 1)
-            depth = max(int(_safe_float(terrain.get("depth"), 1.0)), 1)
-            if terrain_cell_size > 0.0:
-                terrain_label = _metric_label(terrain_cell_size)
-                terrain_cell_size_distribution[terrain_label] += 1
-                terrain_cell_size_values.append(terrain_cell_size)
-                terrain_area_by_cell_size_studs[terrain_label] += width * depth * terrain_cell_area
-                if terrain_cell_size >= 4.0:
-                    terrain_coarse_chunk_count += 1
-            materials = terrain.get("materials")
-            unique_materials: set[str] = set()
-            if isinstance(materials, list) and materials:
-                terrain_material_cells = [str(material) for material in materials if material]
-                unique_materials = set(terrain_material_cells)
+            terrain_material_cells = iter_terrain_material_cells(chunk, terrain)
+            unique_materials = set(terrain_material_cells)
+            if terrain_material_cells:
+                chunks_with_terrain += 1
+                if terrain_cell_size > 0.0:
+                    terrain_label = _metric_label(terrain_cell_size)
+                    terrain_cell_size_distribution[terrain_label] += 1
+                    terrain_cell_size_values.append(terrain_cell_size)
+                    terrain_area_by_cell_size_studs[terrain_label] += len(terrain_material_cells) * terrain_cell_area
+                    if terrain_cell_size >= 4.0:
+                        terrain_coarse_chunk_count += 1
                 for material_name in terrain_material_cells:
                     terrain_material_area_distribution[material_name] += terrain_cell_area
-            elif terrain.get("material"):
-                material_name = str(terrain["material"])
-                unique_materials = {material_name}
-                terrain_material_area_distribution[material_name] += max(width * depth, 1) * terrain_cell_area
 
-            if len(unique_materials) == 1 and unique_materials:
+            if terrain_material_cells and len(unique_materials) == 1:
                 terrain_single_material_chunk_count += 1
                 chunk_has_monotone_terrain = True
             terrain_material_distribution.update(unique_materials)
