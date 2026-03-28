@@ -1,7 +1,9 @@
 local HttpService = game:GetService("HttpService")
 local Players = game:GetService("Players")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local RunService = game:GetService("RunService")
 local Workspace = game:GetService("Workspace")
+local WorldProbeGeometry = require(ReplicatedStorage.Shared.WorldProbeGeometry)
 
 local player = Players.LocalPlayer
 
@@ -290,13 +292,15 @@ local function summarizeWorld(rootPart, worldRoot, worldRootName)
                 end
 
                 if shellFolder and descendant:IsDescendantOf(shellFolder) and not isRoofPart and not isRoofClosureDeck then
-                    if horizontalPartDistance <= NEARBY_WALL_RADIUS then
+                    local isNearbyShellWall, nearestShellWallDistanceStuds =
+                        WorldProbeGeometry.isNearbyShellWall(descendant, rootPosition, NEARBY_WALL_RADIUS)
+                    if isNearbyShellWall then
                         nearbyWallParts += 1
                         if descendant.CanCollide then
                             collidableWallPartsNearby += 1
                         end
-                        if nearestWallDistanceStuds == nil or horizontalPartDistance < nearestWallDistanceStuds then
-                            nearestWallDistanceStuds = horizontalPartDistance
+                        if nearestWallDistanceStuds == nil or nearestShellWallDistanceStuds < nearestWallDistanceStuds then
+                            nearestWallDistanceStuds = nearestShellWallDistanceStuds
                         end
                     end
                     continue

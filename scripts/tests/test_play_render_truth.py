@@ -60,6 +60,18 @@ class PlayRenderTruthTests(unittest.TestCase):
             "expected runtime import to gate RoomBuilder.BuildAll behind EnableRoomInteriors",
         )
 
+    def test_shell_mesh_rooms_skip_shell_terrain_fill_when_interiors_are_enabled(self) -> None:
+        source = BUILDING_BUILDER.read_text(encoding="utf-8")
+
+        self.assertIn("shouldFillTerrainInterior", source)
+        self.assertIn("config.EnableRoomInteriors ~= false", source)
+        self.assertIn("building.rooms", source)
+        self.assertRegex(
+            source,
+            r"if\s+shouldFillTerrainInterior\(building,\s*config\)\s+then[\s\S]*fillInterior\(",
+            "expected shell-mesh roomed buildings to skip shell terrain fill when interiors are enabled",
+        )
+
     def test_terrain_plan_preserves_requested_sampling_intent_while_staying_on_roblox_write_resolution(self) -> None:
         source = TERRAIN_BUILDER.read_text(encoding="utf-8")
 

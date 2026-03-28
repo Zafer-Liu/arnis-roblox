@@ -606,6 +606,15 @@ local function fillInterior(footprintXZ, holeXZ, bounds, baseY, material)
     end
 end
 
+local function shouldFillTerrainInterior(building, config)
+    local rooms = if type(building) == "table" then building.rooms else nil
+    if config and config.EnableRoomInteriors ~= false and type(rooms) == "table" and #rooms > 0 then
+        return false
+    end
+
+    return true
+end
+
 local function buildWallLoopParts(
     shellFolder,
     bldgName,
@@ -2473,13 +2482,15 @@ function BuildingBuilder.MeshBuildAll(parent, buildings, originStuds, chunk, con
             end
 
             -- Fill interior with terrain
-            fillInterior(
-                footprintData.footprintXZ,
-                footprintData.holeXZ,
-                footprintData,
-                baseY,
-                getFloorMaterial(building)
-            )
+            if shouldFillTerrainInterior(building, config) then
+                fillInterior(
+                    footprintData.footprintXZ,
+                    footprintData.holeXZ,
+                    footprintData,
+                    baseY,
+                    getFloorMaterial(building)
+                )
+            end
 
             if not preferSimpleShellDetail then
                 buildRooftopEquipment(detailFolder, building, baseY, height, worldPts)
