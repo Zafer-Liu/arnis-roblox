@@ -13,6 +13,7 @@ local AustinPreviewFolder = script.Parent
 local AustinPreviewRequest = require(AustinPreviewFolder:WaitForChild("AustinPreviewRequest"))
 local AustinPreviewTelemetry = require(AustinPreviewFolder:WaitForChild("AustinPreviewTelemetry"))
 local DefaultWorldConfig = require(ReplicatedStorage.Shared.WorldConfig)
+local StreamingRuntimeConfig = require(ReplicatedStorage.Shared.StreamingRuntimeConfig)
 local Logger = require(ReplicatedStorage.Shared.Logger)
 
 local AustinPreviewBuilder = {}
@@ -61,9 +62,10 @@ local previewProjectFacts = {
         last_result = nil,
     },
 }
+local previewWorldConfig = StreamingRuntimeConfig.Resolve(DefaultWorldConfig)
 
 local function getPreviewSubplanRollout()
-    return SubplanRollout.Describe(DefaultWorldConfig)
+    return SubplanRollout.Describe(previewWorldConfig)
 end
 
 local function sortPendingSubplans(pending)
@@ -96,7 +98,7 @@ local function sortPendingSubplans(pending)
 end
 
 local function getPendingPreviewSubplans(chunkRef, options)
-    local allowedSubplans = SubplanRollout.GetFullySchedulableSubplans(chunkRef, DefaultWorldConfig)
+    local allowedSubplans = SubplanRollout.GetFullySchedulableSubplans(chunkRef, previewWorldConfig)
     if allowedSubplans == nil then
         return nil
     end
@@ -368,7 +370,7 @@ function applyPreviewWorldState(manifestSource, stateEpoch)
 
     local ok, err = pcall(function()
         local worldStateApplier = require(script.Parent.Parent.ImportService.WorldStateApplier)
-        worldStateApplier.Apply(resolvedManifestSource, DefaultWorldConfig, {
+        worldStateApplier.Apply(resolvedManifestSource, previewWorldConfig, {
             startMinimap = false,
             hideLoadingScreen = false,
             worldRootName = AustinPreviewBuilder.WORLD_ROOT_NAME,
@@ -1045,6 +1047,7 @@ local function syncChunkBatch(
                 meshCollisionPolicy = meshCollisionPolicy,
                 nonBlocking = true,
                 frameBudgetSeconds = AustinPreviewBuilder.FRAME_BUDGET_SECONDS,
+                config = previewWorldConfig,
                 shouldCancel = function()
                     return shouldCancelBuild(buildToken)
                 end,
@@ -1058,6 +1061,7 @@ local function syncChunkBatch(
                 meshCollisionPolicy = meshCollisionPolicy,
                 nonBlocking = true,
                 frameBudgetSeconds = AustinPreviewBuilder.FRAME_BUDGET_SECONDS,
+                config = previewWorldConfig,
                 shouldCancel = function()
                     return shouldCancelBuild(buildToken)
                 end,

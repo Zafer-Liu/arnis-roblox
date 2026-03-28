@@ -243,6 +243,7 @@ holdingPad.Parent = Workspace
 local runtimeWorldConfig = StreamingRuntimeConfig.Resolve(WorldConfig)
 
 local result = RunAustin.run({
+    config = runtimeWorldConfig,
     phaseReporter = setBootstrapState,
 })
 if result == nil then

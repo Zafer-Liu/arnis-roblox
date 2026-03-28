@@ -56,6 +56,17 @@ def _normalize_client_world(report: dict[str, Any]) -> dict[str, Any] | None:
         "overheadRoofParts",
         "groundMaterial",
         "bootstrapState",
+        "supportSurfaceRole",
+        "supportY",
+        "terrainY",
+        "supportMinusTerrainYStuds",
+        "nearbyWallParts",
+        "collidableWallPartsNearby",
+        "nearestWallDistanceStuds",
+        "overheadRoofMinClearanceStuds",
+        "localSupport",
+        "localEnclosure",
+        "localRoofCover",
     ):
         if key not in client_world:
             continue
@@ -65,8 +76,18 @@ def _normalize_client_world(report: dict[str, Any]) -> dict[str, Any] | None:
             "nearbyMergedBuildingMeshParts",
             "nearbyRoofParts",
             "overheadRoofParts",
+            "nearbyWallParts",
+            "collidableWallPartsNearby",
         }:
             normalized[key] = _normalize_json_value(int(value or 0))
+        elif key in {
+            "supportY",
+            "terrainY",
+            "supportMinusTerrainYStuds",
+            "nearestWallDistanceStuds",
+            "overheadRoofMinClearanceStuds",
+        }:
+            normalized[key] = _normalize_json_value(float(value or 0))
         else:
             normalized[key] = _normalize_json_value(value)
     return normalized

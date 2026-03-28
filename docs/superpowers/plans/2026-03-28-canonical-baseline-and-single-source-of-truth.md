@@ -1,5 +1,13 @@
 # Canonical Baseline And Single Source Of Truth Implementation Plan
 
+Status: Completed
+
+This plan is now historical as the completed baseline tranche.
+
+The active follow-on plan is:
+
+- `docs/superpowers/plans/2026-03-28-play-fidelity-and-observability.md`
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Establish one clean baseline for current repo truth by consolidating docs and handoff state, canonicalizing bootstrap and world-root ownership, extending preview-vs-play parity coverage, and proving the cleaned baseline through remote Studio validation on the operator-selected profile for this workstation, expected to be `tertiary`.
@@ -8,7 +16,7 @@
 
 **Tech Stack:** Luau, Python unittest, Bash harness scripts, existing Roblox Studio remote harness wrapper, current canonical-world and convergence tests
 
-This is the active implementation plan for the current canonical-baseline tranche.
+This is the completed implementation plan for the canonical-baseline tranche.
 For current state, use the `Execution Status` section below and the rolling status file first; the red/green step text under each task is preserved as execution history and task structure, not as a claim that every step is still pending today.
 
 ## Execution Status

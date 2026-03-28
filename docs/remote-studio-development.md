@@ -4,7 +4,9 @@ Use this repo so Studio execution can move between machines without committing m
 
 For the current workstation setup, remote Studio validation commonly runs on the local profile alias `tertiary`. That is an operator default only, not a committed repo dependency.
 
-Treat `tertiary` as the preferred current proof lane on this workstation, but still verify Studio/MCP helper readiness before relying on it for authoritative validation. The isolated edit-mode contract slice, the play-world proof slice, and the corrected raw-log parity proof are all green there for the current `1500`-radius baseline. For parity work, use separate clean edit-only and play-only runs on `tertiary`, then rebuild reports from the raw Studio logs before comparing them.
+Treat `tertiary` as the preferred current proof lane on this workstation, but still verify Studio/MCP helper readiness before relying on it for authoritative validation. For current proof state and active follow-on work, use the active rolling status file instead of duplicating volatile results here:
+
+- `docs/superpowers/status/2026-03-28-play-fidelity-and-observability-status.md`
 
 ## Rules
 
@@ -74,10 +76,4 @@ bash scripts/run_studio_harness_remote.sh --remote-profile tertiary -- --no-play
 - Do not disable SSH host-key verification in committed scripts. Accept or rotate host keys out-of-band on each operator machine before using a new remote profile.
 - If a host has no local profile config, the wrapper should fail early with a clear configuration error instead of guessing.
 - If a remote Studio lane is selected as the current proof surface, verify Studio launch and MCP/helper readiness there first; do not assume a configured `tertiary` profile is automatically green beyond the specific proof slices already verified.
-- Current `tertiary` proof status on 2026-03-28:
-  - remote edit proof is green
-  - remote play-world proof is green
-  - raw-log edit/play parity under the intended `bounded_preview` vs `runtime_resident` contract is green (`21/21`) for the corrected `1500`-radius preview baseline
-  - the earlier `5/21` raw-log result belongs to the old truthful-but-misaligned `1024` preview radius and is historical, not the current baseline
-  - use the raw-log rebuild artifacts when rechecking parity semantics; the older truncated scene JSON under `/tmp/arnis-scene-audit-20260328-full/arnis-scene-fidelity-*.json` is not the authoritative parity input
-  - current follow-on work on `tertiary` is no longer parity proof; it is preview/edit fidelity, upstream source-truth preservation, and targeted performance hotspot validation from the clean baseline
+- Current `tertiary` proof state is intentionally tracked only in the active rolling status file above.

@@ -2,7 +2,10 @@ local ImportService = require(script.Parent)
 local AustinSpawn = require(script.Parent.AustinSpawn)
 local CanonicalWorldContract = require(script.Parent.CanonicalWorldContract)
 local Profiler = require(script.Parent.Profiler)
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local Workspace = game:GetService("Workspace")
+local DefaultWorldConfig = require(ReplicatedStorage.Shared.WorldConfig)
+local StreamingRuntimeConfig = require(ReplicatedStorage.Shared.StreamingRuntimeConfig)
 
 local RunAustin = {}
 RunAustin.LOAD_RADIUS = 1500
@@ -84,6 +87,10 @@ end
 
 function RunAustin.run(options)
     options = options or {}
+    local runtimeWorldConfig = options.config
+    if type(runtimeWorldConfig) ~= "table" then
+        runtimeWorldConfig = StreamingRuntimeConfig.Resolve(DefaultWorldConfig)
+    end
     setPerfAttribute("Status", "loading")
     reportPhase(options, "loading_manifest")
     print(("[RunAustin] Starting run for manifest %s"):format(RunAustin.getManifestName()))
@@ -144,6 +151,7 @@ function RunAustin.run(options)
         clearFirst = true,
         worldRootName = "GeneratedWorld_Austin",
         printReport = true,
+        config = runtimeWorldConfig,
         loadRadius = RunAustin.LOAD_RADIUS, -- studs around the manifest focus point
         loadCenter = loadCenter,
         nonBlocking = true,

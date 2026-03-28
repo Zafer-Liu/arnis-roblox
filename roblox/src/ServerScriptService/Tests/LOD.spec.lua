@@ -305,7 +305,9 @@ return function()
     local originalImportChunk = ImportService.ImportChunk
     local importCalls = 0
     ImportService.ImportChunk = function(chunk, options)
-        importCalls += 1
+        if type(options) == "table" and options.worldRootName == testOptions.worldRootName then
+            importCalls += 1
+        end
         return originalImportChunk(chunk, options)
     end
 

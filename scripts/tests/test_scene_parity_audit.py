@@ -45,6 +45,14 @@ class SceneParityAuditTests(unittest.TestCase):
                 "overheadRoofParts": 4,
                 "groundMaterial": "Enum.Material.Concrete",
                 "bootstrapState": "gameplay_ready",
+                "supportSurfaceRole": "road",
+                "supportY": 12.5,
+                "terrainY": 11.0,
+                "supportMinusTerrainYStuds": 1.5,
+                "nearbyWallParts": 10,
+                "collidableWallPartsNearby": 10,
+                "nearestWallDistanceStuds": 4.0,
+                "overheadRoofMinClearanceStuds": 12.0,
             },
         }
         play_report = {
@@ -67,6 +75,14 @@ class SceneParityAuditTests(unittest.TestCase):
                 "overheadRoofParts": 2,
                 "groundMaterial": "Enum.Material.Asphalt",
                 "bootstrapState": "gameplay_ready",
+                "supportSurfaceRole": "terrain",
+                "supportY": 10.0,
+                "terrainY": 10.0,
+                "supportMinusTerrainYStuds": 0.0,
+                "nearbyWallParts": 2,
+                "collidableWallPartsNearby": 2,
+                "nearestWallDistanceStuds": 18.0,
+                "overheadRoofMinClearanceStuds": 24.0,
             },
         }
 
@@ -78,6 +94,8 @@ class SceneParityAuditTests(unittest.TestCase):
         self.assertEqual(report["comparisons"]["clientWorld"]["play"]["groundMaterial"], "Enum.Material.Asphalt")
         self.assertEqual(report["comparisons"]["clientWorld"]["edit"]["nearbyRoofParts"], 14)
         self.assertEqual(report["comparisons"]["clientWorld"]["play"]["overheadRoofParts"], 2)
+        self.assertEqual(report["comparisons"]["clientWorld"]["edit"]["supportSurfaceRole"], "road")
+        self.assertEqual(report["comparisons"]["clientWorld"]["play"]["nearestWallDistanceStuds"], 18.0)
 
     def test_build_report_accepts_contract_aligned_preview_subset_and_world_identity(self) -> None:
         audit = load_module()

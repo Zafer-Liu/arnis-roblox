@@ -77,6 +77,8 @@ return function()
 
     local closureDeck = shellFolder:FindFirstChild("gable_closure_house_roof_closure")
     Assert.truthy(closureDeck, "expected shaped gabled roof path to emit a closure deck")
+    Assert.equal(closureDeck:GetAttribute("ArnisRoofClosureDeck"), true, "expected closure deck attribute for audit truth")
+    Assert.equal(closureDeck.Transparency, 1, "expected shaped roof closure deck to remain internal support")
 
     local localCenter =
         closureDeck.CFrame:PointToObjectSpace(Vector3.new(12, closureDeck.Position.Y, 8))

@@ -1,9 +1,15 @@
 # Canonical Baseline And Single Source Of Truth Design
 
 Date: 2026-03-28
-Status: Active
+Status: Completed
 
-This is the active design spec for the current canonical-baseline tranche.
+This design is now historical as the completed March 28 baseline tranche.
+
+The active follow-on design is:
+
+- `docs/superpowers/specs/2026-03-28-play-fidelity-and-observability-design.md`
+
+This is the completed design spec for the canonical-baseline tranche.
 Use the paired implementation plan and rolling status document as the current execution and handoff surfaces:
 
 - `docs/superpowers/plans/2026-03-28-canonical-baseline-and-single-source-of-truth.md`

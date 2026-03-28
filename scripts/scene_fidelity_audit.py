@@ -1427,10 +1427,18 @@ def write_html_report(report: dict[str, Any], html_path: Path) -> None:
     client_metric_keys = [
         "worldRootName",
         "groundMaterial",
+        "supportSurfaceRole",
+        "supportY",
+        "terrainY",
+        "supportMinusTerrainYStuds",
         "nearbyBuildingModels",
         "nearbyMergedBuildingMeshParts",
+        "nearbyWallParts",
+        "collidableWallPartsNearby",
+        "nearestWallDistanceStuds",
         "nearbyRoofParts",
         "overheadRoofParts",
+        "overheadRoofMinClearanceStuds",
         "bootstrapState",
     ]
     client_metrics_html = "".join(

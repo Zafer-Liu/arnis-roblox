@@ -439,6 +439,85 @@ class SceneFidelityAuditTests(unittest.TestCase):
             self.assertEqual(report["clientWorld"]["bootstrapState"], "gameplay_ready")
             self.assertEqual(report["clientWorld"]["nearestBuildingSourceIds"], ["osm_952130555", "osm_93135618"])
 
+    def test_report_preserves_structured_local_support_and_enclosure_client_world_fields(self) -> None:
+        audit = load_module()
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            manifest_path = root / "manifest.json"
+            log_path = root / "studio.log"
+
+            manifest = {
+                "schemaVersion": "0.4.0",
+                "meta": {
+                    "worldName": "SupportTown",
+                    "metersPerStud": 0.3,
+                    "chunkSizeStuds": 256,
+                },
+                "chunks": [],
+            }
+            manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
+
+            scene_payload = {
+                "phase": "play",
+                "focus": {"x": 0.0, "z": 0.0},
+                "radius": 64.0,
+                "rootName": "GeneratedWorld_Austin",
+                "worldIdentity": "AustinManifestIndex",
+                "chunkEnvelopeKind": "runtime_resident",
+                "scene": {"chunkCount": 0, "buildingModelCount": 0},
+            }
+            client_world = {
+                "worldRootName": "GeneratedWorld_Austin",
+                "worldRootExists": True,
+                "nearbyBuildingModels": 4,
+                "nearbyMergedBuildingMeshParts": 1,
+                "nearbyRoofParts": 6,
+                "overheadRoofParts": 2,
+                "groundMaterial": "Enum.Material.Concrete",
+                "supportSurfaceRole": "road",
+                "supportY": 12.5,
+                "terrainY": 11.0,
+                "supportMinusTerrainYStuds": 1.5,
+                "nearbyWallParts": 8,
+                "collidableWallPartsNearby": 7,
+                "nearestWallDistanceStuds": 4.25,
+                "overheadRoofMinClearanceStuds": 13.5,
+                "localSupport": {
+                    "surfaceRole": "road",
+                    "supportY": 12.5,
+                    "terrainY": 11.0,
+                    "supportMinusTerrainYStuds": 1.5,
+                },
+                "localEnclosure": {
+                    "nearbyWallParts": 8,
+                    "collidableWallPartsNearby": 7,
+                    "nearestWallDistanceStuds": 4.25,
+                },
+                "localRoofCover": {
+                    "nearbyRoofParts": 6,
+                    "overheadRoofParts": 2,
+                    "overheadRoofMinClearanceStuds": 13.5,
+                },
+            }
+            log_path.write_text(
+                "\n".join(
+                    [
+                        "ARNIS_SCENE_PLAY " + json.dumps(scene_payload, separators=(",", ":")),
+                        "ARNIS_CLIENT_WORLD_COMPACT " + json.dumps(client_world, separators=(",", ":")),
+                    ]
+                ),
+                encoding="utf-8",
+            )
+
+            report = audit.build_report(manifest_path, log_path, marker="ARNIS_SCENE_PLAY")
+
+            self.assertEqual(report["clientWorld"]["supportSurfaceRole"], "road")
+            self.assertEqual(report["clientWorld"]["supportMinusTerrainYStuds"], 1.5)
+            self.assertEqual(report["clientWorld"]["localSupport"]["surfaceRole"], "road")
+            self.assertEqual(report["clientWorld"]["localEnclosure"]["nearbyWallParts"], 8)
+            self.assertEqual(report["clientWorld"]["localRoofCover"]["overheadRoofMinClearanceStuds"], 13.5)
+
     def test_main_can_render_html_from_precomputed_report_json(self) -> None:
         audit = load_module()
 

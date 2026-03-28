@@ -10,6 +10,7 @@ local SAMPLE_INTERVAL = 1.5
 local NEARBY_BUILDING_RADIUS = 260
 local OVERHEAD_ROOF_RADIUS = 220
 local OVERHEAD_MIN_DELTA_Y = 12
+local NEARBY_WALL_RADIUS = 180
 local RESAMPLE_DISTANCE = 24
 local MAX_BUILDING_IDS = 6
 local MAX_OVERHEAD_IDS = 6
@@ -66,11 +67,82 @@ local function isDecorativeRoadDetailDescendant(hitInstance)
     return false
 end
 
-local function sampleGroundMaterial(rootPart)
+local function roundTenths(value)
+    if type(value) ~= "number" then
+        return nil
+    end
+    return math.round(value * 10) / 10
+end
+
+local function isRoofClosureDeckPart(part)
+    if part == nil then
+        return false
+    end
+    if part:GetAttribute("ArnisRoofClosureDeck") == true then
+        return true
+    end
+
+    return string.find(string.lower(part.Name), "roof_closure", 1, true) ~= nil
+end
+
+local function classifySupportSurfaceRole(hitInstance)
+    if hitInstance == nil then
+        return "unknown"
+    end
+    if hitInstance:IsA("Terrain") then
+        return "terrain"
+    end
+
+    local nameLower = string.lower(hitInstance.Name)
+    if string.find(nameLower, "sidewalk", 1, true) then
+        return "sidewalk"
+    end
+    if string.find(nameLower, "crosswalk", 1, true) or string.find(nameLower, "crossing", 1, true) then
+        return "crossing"
+    end
+    if string.find(nameLower, "curb", 1, true) then
+        return "curb"
+    end
+    if string.find(nameLower, "roof", 1, true) then
+        return "roof"
+    end
+
+    local node = hitInstance
+    while node and node.Parent do
+        if node.Name == "Roads" then
+            return "road"
+        end
+        if node.Name == "Water" then
+            return "water"
+        end
+        if node.Name == "Buildings" or node.Name == "Rooms" then
+            return "building_shell"
+        end
+        node = node.Parent
+    end
+
+    return "unknown"
+end
+
+local function findNearestSourceId(hitInstance)
+    local node = hitInstance
+    while node and node.Parent do
+        if node:IsA("Model") then
+            local sourceId = node:GetAttribute("ArnisImportSourceId")
+            if type(sourceId) == "string" and sourceId ~= "" then
+                return sourceId
+            end
+        end
+        node = node.Parent
+    end
+    return nil
+end
+
+local function raycastGroundSupport(rootPart, ignore)
     local character = player.Character
-    local ignore = {}
+    ignore = ignore or {}
     if character then
-        ignore[1] = character
+        table.insert(ignore, 1, character)
     end
     local raycastParams = RaycastParams.new()
     raycastParams.FilterType = Enum.RaycastFilterType.Exclude
@@ -81,17 +153,56 @@ local function sampleGroundMaterial(rootPart)
         local direction = Vector3.new(0, -(GROUND_SAMPLE_HEIGHT + GROUND_SAMPLE_DEPTH), 0)
         local rayResult = Workspace:Raycast(origin, direction, raycastParams)
         if not rayResult then
-            return nil, nil
+            return nil
         end
         if isDecorativeRoadDetailDescendant(rayResult.Instance) then
             ignore[#ignore + 1] = rayResult.Instance
             raycastParams.FilterDescendantsInstances = ignore
         else
-            return tostring(rayResult.Material), rayResult.Instance and rayResult.Instance:GetFullName() or nil
+            return rayResult
         end
     end
 
-    return nil, nil
+    return nil
+end
+
+local function sampleGroundSupport(rootPart)
+    local rayResult = raycastGroundSupport(rootPart)
+    if not rayResult then
+        return {
+            groundMaterial = nil,
+            groundInstance = nil,
+            supportSurfaceRole = "unknown",
+            supportY = nil,
+            terrainY = nil,
+            supportMinusTerrainYStuds = nil,
+            supportSourceIds = {},
+        }
+    end
+
+    local supportInstance = rayResult.Instance
+    local supportSourceId = findNearestSourceId(supportInstance)
+    local supportY = roundTenths(rayResult.Position.Y)
+    local supportSurfaceRole = classifySupportSurfaceRole(supportInstance)
+    local terrainY = nil
+    if supportSurfaceRole ~= "terrain" and supportSurfaceRole ~= "water" then
+        local beneathResult = raycastGroundSupport(rootPart, { supportInstance })
+        if beneathResult and classifySupportSurfaceRole(beneathResult.Instance) == "terrain" then
+            terrainY = roundTenths(beneathResult.Position.Y)
+        end
+    else
+        terrainY = supportY
+    end
+
+    return {
+        groundMaterial = tostring(rayResult.Material),
+        groundInstance = supportInstance and supportInstance:GetFullName() or nil,
+        supportSurfaceRole = supportSurfaceRole,
+        supportY = supportY,
+        terrainY = terrainY,
+        supportMinusTerrainYStuds = if supportY ~= nil and terrainY ~= nil then roundTenths(supportY - terrainY) else nil,
+        supportSourceIds = if supportSourceId ~= nil then { supportSourceId } else {},
+    }
 end
 
 local function summarizeWorld(rootPart, worldRoot, worldRootName)
@@ -100,10 +211,14 @@ local function summarizeWorld(rootPart, worldRoot, worldRootName)
     local nearbyMergedBuildingMeshParts = 0
     local nearbyRoofParts = 0
     local overheadRoofParts = 0
+    local overheadRoofMinClearanceStuds = nil
+    local nearbyWallParts = 0
+    local collidableWallPartsNearby = 0
+    local nearestWallDistanceStuds = nil
     local nearestBuildingSourceIds = {}
     local overheadRoofSourceIds = {}
     local nearestBuildingDetails = {}
-    local groundMaterial, groundInstance = sampleGroundMaterial(rootPart)
+    local groundSupport = sampleGroundSupport(rootPart)
 
     for _, chunkFolder in ipairs(worldRoot:GetChildren()) do
         local buildingsFolder = chunkFolder:FindFirstChild("Buildings")
@@ -138,6 +253,7 @@ local function summarizeWorld(rootPart, worldRoot, worldRootName)
             local roofShape = model:GetAttribute("ArnisImportRoofShape")
             local buildingTopY = model:GetAttribute("ArnisImportBuildingTopY")
             local buildingUsage = model:GetAttribute("ArnisImportBuildingUsage")
+            local shellFolder = model:FindFirstChild("Shell")
 
             local pivotPosition = model:GetPivot().Position
             local offset = pivotPosition - rootPosition
@@ -160,19 +276,44 @@ local function summarizeWorld(rootPart, worldRoot, worldRootName)
                     continue
                 end
 
+                local partOffset = descendant.Position - rootPosition
                 local nameLower = string.lower(descendant.Name)
-                if not string.find(nameLower, "roof", 1, true) then
+                local horizontalPartDistance = Vector2.new(partOffset.X, partOffset.Z).Magnitude
+                local isRoofClosureDeck = descendant:GetAttribute("ArnisRoofClosureDeck") == true
+                    or isRoofClosureDeckPart(descendant)
+                local isRoofPart = string.find(nameLower, "roof", 1, true) ~= nil and not isRoofClosureDeck
+
+                if descendant:IsA("MeshPart") and shellFolder and descendant:IsDescendantOf(shellFolder) then
+                    if horizontalPartDistance <= NEARBY_BUILDING_RADIUS and not isRoofPart and not isRoofClosureDeck then
+                        nearbyMergedBuildingMeshParts += 1
+                    end
+                end
+
+                if shellFolder and descendant:IsDescendantOf(shellFolder) and not isRoofPart and not isRoofClosureDeck then
+                    if horizontalPartDistance <= NEARBY_WALL_RADIUS then
+                        nearbyWallParts += 1
+                        if descendant.CanCollide then
+                            collidableWallPartsNearby += 1
+                        end
+                        if nearestWallDistanceStuds == nil or horizontalPartDistance < nearestWallDistanceStuds then
+                            nearestWallDistanceStuds = horizontalPartDistance
+                        end
+                    end
+                    continue
+                end
+                if not isRoofPart then
                     continue
                 end
 
                 nearbyRoofParts += 1
 
-                local partOffset = descendant.Position - rootPosition
-                local horizontalRoofDistance = Vector2.new(partOffset.X, partOffset.Z).Magnitude
                 local verticalDelta = partOffset.Y
-                if horizontalRoofDistance <= OVERHEAD_ROOF_RADIUS and verticalDelta >= OVERHEAD_MIN_DELTA_Y then
+                if horizontalPartDistance <= OVERHEAD_ROOF_RADIUS and verticalDelta >= OVERHEAD_MIN_DELTA_Y then
                     overheadRoofParts += 1
                     appendLimited(overheadRoofSourceIds, sourceId, MAX_OVERHEAD_IDS)
+                    if overheadRoofMinClearanceStuds == nil or verticalDelta < overheadRoofMinClearanceStuds then
+                        overheadRoofMinClearanceStuds = verticalDelta
+                    end
                 end
             end
         end
@@ -184,15 +325,42 @@ local function summarizeWorld(rootPart, worldRoot, worldRootName)
         nearbyMergedBuildingMeshParts = nearbyMergedBuildingMeshParts,
         nearbyRoofParts = nearbyRoofParts,
         overheadRoofParts = overheadRoofParts,
+        overheadRoofMinClearanceStuds = roundTenths(overheadRoofMinClearanceStuds),
+        nearbyWallParts = nearbyWallParts,
+        collidableWallPartsNearby = collidableWallPartsNearby,
+        nearestWallDistanceStuds = roundTenths(nearestWallDistanceStuds),
         nearestBuildingSourceIds = nearestBuildingSourceIds,
         nearestBuildingDetails = nearestBuildingDetails,
         overheadRoofSourceIds = overheadRoofSourceIds,
-        groundMaterial = groundMaterial,
-        groundInstance = groundInstance,
+        groundMaterial = groundSupport.groundMaterial,
+        groundInstance = groundSupport.groundInstance,
+        supportSurfaceRole = groundSupport.supportSurfaceRole,
+        supportY = groundSupport.supportY,
+        terrainY = groundSupport.terrainY,
+        supportMinusTerrainYStuds = groundSupport.supportMinusTerrainYStuds,
+        supportSourceIds = groundSupport.supportSourceIds,
+        localSupport = {
+            surfaceRole = groundSupport.supportSurfaceRole,
+            supportY = groundSupport.supportY,
+            terrainY = groundSupport.terrainY,
+            supportMinusTerrainYStuds = groundSupport.supportMinusTerrainYStuds,
+            sourceIds = groundSupport.supportSourceIds,
+        },
+        localEnclosure = {
+            nearbyWallParts = nearbyWallParts,
+            collidableWallPartsNearby = collidableWallPartsNearby,
+            nearestWallDistanceStuds = roundTenths(nearestWallDistanceStuds),
+        },
+        localRoofCover = {
+            nearbyRoofParts = nearbyRoofParts,
+            overheadRoofParts = overheadRoofParts,
+            overheadRoofMinClearanceStuds = roundTenths(overheadRoofMinClearanceStuds),
+            overheadRoofSourceIds = overheadRoofSourceIds,
+        },
         characterPosition = {
-            x = math.round(rootPosition.X * 10) / 10,
-            y = math.round(rootPosition.Y * 10) / 10,
-            z = math.round(rootPosition.Z * 10) / 10,
+            x = roundTenths(rootPosition.X),
+            y = roundTenths(rootPosition.Y),
+            z = roundTenths(rootPosition.Z),
         },
     }
 end
@@ -220,6 +388,18 @@ local function publishWorldTelemetry()
         overheadRoofSourceIds = {},
         groundMaterial = nil,
         groundInstance = nil,
+        supportSurfaceRole = "unknown",
+        supportY = nil,
+        terrainY = nil,
+        supportMinusTerrainYStuds = nil,
+        supportSourceIds = {},
+        nearbyWallParts = 0,
+        collidableWallPartsNearby = 0,
+        nearestWallDistanceStuds = nil,
+        overheadRoofMinClearanceStuds = nil,
+        localSupport = nil,
+        localEnclosure = nil,
+        localRoofCover = nil,
         characterPosition = nil,
         bootstrapAttemptId = bootstrapPayload.bootstrapAttemptId,
         bootstrapState = bootstrapPayload.bootstrapState,
@@ -237,6 +417,17 @@ local function publishWorldTelemetry()
         nearestBuildingSourceIds = {},
         overheadRoofSourceIds = {},
         groundMaterial = nil,
+        supportSurfaceRole = "unknown",
+        supportY = nil,
+        terrainY = nil,
+        supportMinusTerrainYStuds = nil,
+        nearbyWallParts = 0,
+        collidableWallPartsNearby = 0,
+        nearestWallDistanceStuds = nil,
+        overheadRoofMinClearanceStuds = nil,
+        localSupport = nil,
+        localEnclosure = nil,
+        localRoofCover = nil,
         bootstrapAttemptId = bootstrapPayload.bootstrapAttemptId,
         bootstrapState = bootstrapPayload.bootstrapState,
         bootstrapStateTrace = bootstrapPayload.bootstrapStateTrace,
@@ -256,6 +447,17 @@ local function publishWorldTelemetry()
         compactPayload.nearestBuildingSourceIds = payload.nearestBuildingSourceIds
         compactPayload.overheadRoofSourceIds = payload.overheadRoofSourceIds
         compactPayload.groundMaterial = payload.groundMaterial
+        compactPayload.supportSurfaceRole = payload.supportSurfaceRole
+        compactPayload.supportY = payload.supportY
+        compactPayload.terrainY = payload.terrainY
+        compactPayload.supportMinusTerrainYStuds = payload.supportMinusTerrainYStuds
+        compactPayload.nearbyWallParts = payload.nearbyWallParts
+        compactPayload.collidableWallPartsNearby = payload.collidableWallPartsNearby
+        compactPayload.nearestWallDistanceStuds = payload.nearestWallDistanceStuds
+        compactPayload.overheadRoofMinClearanceStuds = payload.overheadRoofMinClearanceStuds
+        compactPayload.localSupport = payload.localSupport
+        compactPayload.localEnclosure = payload.localEnclosure
+        compactPayload.localRoofCover = payload.localRoofCover
     end
 
     setPlayerAttributeIfChanged("ArnisClientWorldRootName", payload.worldRootName)
@@ -265,6 +467,7 @@ local function publishWorldTelemetry()
     setPlayerAttributeIfChanged("ArnisClientNearbyRoofParts", payload.nearbyRoofParts)
     setPlayerAttributeIfChanged("ArnisClientOverheadRoofParts", payload.overheadRoofParts)
     setPlayerAttributeIfChanged("ArnisClientGroundMaterial", payload.groundMaterial)
+    setPlayerAttributeIfChanged("ArnisClientSupportSurfaceRole", payload.supportSurfaceRole)
     local bootstrapPayloadJson = HttpService:JSONEncode(bootstrapPayload)
     if bootstrapPayloadJson ~= lastBootstrapPayloadJson then
         lastBootstrapPayloadJson = bootstrapPayloadJson

@@ -14,6 +14,10 @@ SIGNATURES_PATH = ROOT / "roblox" / "src" / "ServerScriptService" / "ImportServi
 WORLD_PROBE_PATH = ROOT / "roblox" / "src" / "StarterPlayer" / "StarterPlayerScripts" / "WorldProbe.client.lua"
 WORLD_STATE_APPLIER_PATH = ROOT / "roblox" / "src" / "ServerScriptService" / "ImportService" / "WorldStateApplier.lua"
 MINIMAP_SERVICE_PATH = ROOT / "roblox" / "src" / "ServerScriptService" / "ImportService" / "MinimapService.lua"
+PREVIEW_BUILDER_PATH = ROOT / "roblox" / "src" / "ServerScriptService" / "StudioPreview" / "AustinPreviewBuilder.lua"
+BUILDING_BUILDER_PATH = (
+    ROOT / "roblox" / "src" / "ServerScriptService" / "ImportService" / "Builders" / "BuildingBuilder.lua"
+)
 
 
 class AustinRuntimeContractTests(unittest.TestCase):
@@ -27,6 +31,8 @@ class AustinRuntimeContractTests(unittest.TestCase):
         cls.world_probe_text = WORLD_PROBE_PATH.read_text(encoding="utf-8") if WORLD_PROBE_PATH.exists() else ""
         cls.world_state_applier_text = WORLD_STATE_APPLIER_PATH.read_text(encoding="utf-8")
         cls.minimap_service_text = MINIMAP_SERVICE_PATH.read_text(encoding="utf-8")
+        cls.preview_builder_text = PREVIEW_BUILDER_PATH.read_text(encoding="utf-8")
+        cls.building_builder_text = BUILDING_BUILDER_PATH.read_text(encoding="utf-8")
 
     def test_bootstrap_guards_against_duplicate_runtime_execution(self) -> None:
         self.assertIn(
@@ -166,6 +172,61 @@ class AustinRuntimeContractTests(unittest.TestCase):
         self.assertIn('if runtimeWorldConfig.EnableMinimap ~= false and Workspace:GetAttribute("ArnisMinimapEnabled") ~= true then', self.bootstrap_text)
         self.assertIn('setBootstrapState("minimap_ready")', self.bootstrap_text)
         self.assertIn('setBootstrapState("gameplay_ready")', self.bootstrap_text)
+
+    def test_preview_and_play_share_one_resolved_world_config_contract(self) -> None:
+        self.assertIn(
+            "local StreamingRuntimeConfig = require(ReplicatedStorage.Shared.StreamingRuntimeConfig)",
+            self.preview_builder_text,
+        )
+        self.assertIn(
+            "local previewWorldConfig = StreamingRuntimeConfig.Resolve(DefaultWorldConfig)",
+            self.preview_builder_text,
+        )
+        self.assertIn(
+            "worldStateApplier.Apply(resolvedManifestSource, previewWorldConfig, {",
+            self.preview_builder_text,
+        )
+        self.assertIn(
+            "local runtimeWorldConfig = options.config",
+            self.run_austin_text,
+        )
+        self.assertIn(
+            "config = runtimeWorldConfig,",
+            self.run_austin_text,
+        )
+        self.assertIn(
+            "local result = RunAustin.run({",
+            self.bootstrap_text,
+        )
+        self.assertIn(
+            "config = runtimeWorldConfig,",
+            self.bootstrap_text,
+        )
+
+    def test_client_world_probe_exposes_support_wall_and_roof_cover_observability(self) -> None:
+        self.assertIn("supportSurfaceRole =", self.world_probe_text)
+        self.assertIn("supportY =", self.world_probe_text)
+        self.assertIn("terrainY =", self.world_probe_text)
+        self.assertIn("supportMinusTerrainYStuds =", self.world_probe_text)
+        self.assertIn("nearbyWallParts =", self.world_probe_text)
+        self.assertIn("collidableWallPartsNearby =", self.world_probe_text)
+        self.assertIn("nearestWallDistanceStuds =", self.world_probe_text)
+        self.assertIn("overheadRoofMinClearanceStuds =", self.world_probe_text)
+        self.assertIn("localSupport =", self.world_probe_text)
+        self.assertIn("localEnclosure =", self.world_probe_text)
+        self.assertIn("localRoofCover =", self.world_probe_text)
+        self.assertIn('local shellFolder = model:FindFirstChild("Shell")', self.world_probe_text)
+        self.assertIn("local isRoofClosureDeck = descendant:GetAttribute(\"ArnisRoofClosureDeck\") == true", self.world_probe_text)
+        self.assertIn("if descendant:IsA(\"MeshPart\") and shellFolder and descendant:IsDescendantOf(shellFolder)", self.world_probe_text)
+        self.assertIn(
+            "if shellFolder and descendant:IsDescendantOf(shellFolder) and not isRoofPart and not isRoofClosureDeck then",
+            self.world_probe_text,
+        )
+
+    def test_shaped_roof_closure_decks_are_marked_internal_support_not_visible_roof_truth(self) -> None:
+        self.assertIn("local function applyRoofPartOptions(part, partOptions)", self.building_builder_text)
+        self.assertIn("ArnisRoofClosureDeck = true", self.building_builder_text)
+        self.assertIn("part.Transparency = partOptions.transparency", self.building_builder_text)
 
 
 if __name__ == "__main__":

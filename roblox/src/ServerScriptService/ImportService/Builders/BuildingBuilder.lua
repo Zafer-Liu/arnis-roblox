@@ -761,7 +761,8 @@ local function tryBuildSimpleFlatRoof(
     maxZ,
     color,
     mat,
-    parent
+    parent,
+    partOptions
 )
     local uniquePoints = collectUniqueRoofPoints(roofPoly)
     if #uniquePoints ~= 4 then
@@ -812,9 +813,35 @@ local function tryBuildSimpleFlatRoof(
     roof.Color = color
     roof.Size = Vector3.new(width, ROOF_THICKNESS, depth)
     roof.CFrame = CFrame.lookAt(worldCenter, worldCenter + forwardAxis)
+    if partOptions then
+        if partOptions.transparency ~= nil then
+            roof.Transparency = partOptions.transparency
+        end
+        if partOptions.attributes then
+            for attributeName, attributeValue in pairs(partOptions.attributes) do
+                roof:SetAttribute(attributeName, attributeValue)
+            end
+        end
+    end
     roof.Parent = parent
 
     return true
+end
+
+local function applyRoofPartOptions(part, partOptions)
+    if not partOptions then
+        return
+    end
+
+    if partOptions.transparency ~= nil then
+        part.Transparency = partOptions.transparency
+    end
+
+    if partOptions.attributes then
+        for attributeName, attributeValue in pairs(partOptions.attributes) do
+            part:SetAttribute(attributeName, attributeValue)
+        end
+    end
 end
 
 local function buildFlatRoofFromFootprint(
@@ -827,7 +854,8 @@ local function buildFlatRoofFromFootprint(
     parent,
     roofColor,
     roofMat,
-    partNameBase
+    partNameBase,
+    partOptions
 )
     local effectiveColor = roofColor or color
     local effectiveMat = roofMat or mat
@@ -892,7 +920,8 @@ local function buildFlatRoofFromFootprint(
             maxZ,
             effectiveColor,
             effectiveMat,
-            parent
+            parent,
+            partOptions
         )
     then
         return
@@ -911,6 +940,7 @@ local function buildFlatRoofFromFootprint(
         strip.Color = effectiveColor
         strip.Size = Vector3.new(width, ROOF_THICKNESS, runEndZ - runStartZ + gridSize)
         strip.CFrame = CFrame.lookAt(worldCenter, worldCenter + forwardAxis)
+        applyRoofPartOptions(strip, partOptions)
         strip.Parent = parent
     end
 
@@ -1002,6 +1032,7 @@ local function buildFlatRoofFromFootprint(
         roof.Color = effectiveColor
         roof.Size = Vector3.new(math.max(1, maxX - minX), ROOF_THICKNESS, math.max(1, maxZ - minZ))
         roof.CFrame = CFrame.lookAt(worldCenter, worldCenter + forwardAxis)
+        applyRoofPartOptions(roof, partOptions)
         roof.Parent = parent
     end
 end
@@ -1017,7 +1048,13 @@ local function buildRoofClosureDeck(bldgName, footprint, holeLoops, topY, roofCo
         parent,
         roofColor,
         roofMat,
-        bldgName .. "_roof_closure"
+        bldgName .. "_roof_closure",
+        {
+            transparency = 1,
+            attributes = {
+                ArnisRoofClosureDeck = true,
+            },
+        }
     )
 end
 
@@ -1042,7 +1079,13 @@ local function buildFallbackFlatClosureRoof(
         parent,
         roofColor,
         roofMat,
-        bldgName .. "_roof_closure"
+        bldgName .. "_roof_closure",
+        {
+            transparency = 1,
+            attributes = {
+                ArnisRoofClosureDeck = true,
+            },
+        }
     )
 end
 

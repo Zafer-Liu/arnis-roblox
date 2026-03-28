@@ -1,5 +1,15 @@
 # Play/Preview/Export Convergence Design
 
+Status: Historical
+
+This March 26 design is historical context only.
+
+Use the current March 28 docs stack instead:
+
+- `docs/superpowers/specs/2026-03-28-play-fidelity-and-observability-design.md`
+- `docs/superpowers/plans/2026-03-28-play-fidelity-and-observability.md`
+- `docs/superpowers/status/2026-03-28-play-fidelity-and-observability-status.md`
+
 ## Goal
 
 Make edit preview, play mode, and baked export consume the same canonical full-bake world truth so that

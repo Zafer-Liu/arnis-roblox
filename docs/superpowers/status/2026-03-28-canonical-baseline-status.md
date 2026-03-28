@@ -1,11 +1,19 @@
 # Canonical Baseline Status
 
 Date: 2026-03-28
-Status: Active
+Status: Completed
+
+This tranche is complete and now historical as the baseline handoff for March 28.
+
+The active fidelity/observability stack is:
+
+- `docs/superpowers/specs/2026-03-28-play-fidelity-and-observability-design.md`
+- `docs/superpowers/plans/2026-03-28-play-fidelity-and-observability.md`
+- `docs/superpowers/status/2026-03-28-play-fidelity-and-observability-status.md`
 
 ## Purpose
 
-This is the current rolling status and handoff document for the canonical baseline tranche.
+This is the completed rolling status and handoff document for the canonical baseline tranche.
 
 Use this file as the active status trail for:
 
