@@ -235,6 +235,14 @@ def _safe_float(value: Any, default: float = 0.0) -> float:
         return default
 
 
+def _metric_label(value: Any) -> str:
+    numeric = _safe_float(value, math.nan)
+    if not math.isnan(numeric):
+        return str(int(numeric)) if float(numeric).is_integer() else str(round(numeric, 4))
+    normalized = str(value).strip()
+    return normalized or "unknown"
+
+
 def _normalize_source_pedestrian_signal(signal: str) -> str:
     if not signal.startswith("sidewalk:"):
         return signal
@@ -2234,6 +2242,9 @@ def build_report(
     manifest_rail_signal_distribution: Counter[str] = Counter()
     road_surface_distribution: Counter[str | None] = Counter()
     terrain_material_distribution: Counter[str | None] = Counter()
+    terrain_material_area_distribution: Counter[str] = Counter()
+    terrain_cell_size_distribution: Counter[str] = Counter()
+    terrain_area_by_cell_size_studs: Counter[str] = Counter()
     landuse_distribution: Counter[str | None] = Counter()
     prop_kind_distribution: Counter[str | None] = Counter()
     tree_species_distribution: Counter[str | None] = Counter()
@@ -2258,7 +2269,9 @@ def build_report(
     unique_road_ids: set[str] = set()
     unique_building_ids: set[str] = set()
     chunks_with_terrain = 0
+    terrain_coarse_chunk_count = 0
     terrain_single_material_chunk_count = 0
+    terrain_cell_size_values: list[float] = []
     building_heights: list[float] = []
     building_areas: list[float] = []
     suspicious_material_assignments: list[dict[str, Any]] = []
@@ -2337,12 +2350,28 @@ def build_report(
         terrain = chunk.get("terrain")
         if isinstance(terrain, dict):
             chunks_with_terrain += 1
+            terrain_cell_size = _safe_float(terrain.get("cellSizeStuds"))
+            terrain_cell_area = terrain_cell_size * terrain_cell_size if terrain_cell_size > 0.0 else 1.0
+            width = max(int(_safe_float(terrain.get("width"), 1.0)), 1)
+            depth = max(int(_safe_float(terrain.get("depth"), 1.0)), 1)
+            if terrain_cell_size > 0.0:
+                terrain_label = _metric_label(terrain_cell_size)
+                terrain_cell_size_distribution[terrain_label] += 1
+                terrain_cell_size_values.append(terrain_cell_size)
+                terrain_area_by_cell_size_studs[terrain_label] += width * depth * terrain_cell_area
+                if terrain_cell_size >= 4.0:
+                    terrain_coarse_chunk_count += 1
             materials = terrain.get("materials")
             unique_materials: set[str] = set()
             if isinstance(materials, list) and materials:
-                unique_materials = {str(material) for material in materials if material}
+                terrain_material_cells = [str(material) for material in materials if material]
+                unique_materials = set(terrain_material_cells)
+                for material_name in terrain_material_cells:
+                    terrain_material_area_distribution[material_name] += terrain_cell_area
             elif terrain.get("material"):
-                unique_materials = {str(terrain["material"])}
+                material_name = str(terrain["material"])
+                unique_materials = {material_name}
+                terrain_material_area_distribution[material_name] += max(width * depth, 1) * terrain_cell_area
 
             if len(unique_materials) == 1 and unique_materials:
                 terrain_single_material_chunk_count += 1
@@ -2580,6 +2609,19 @@ def build_report(
     material_diversity_score = _normalized_entropy(building_material_distribution)
     road_surface_diversity_score = _normalized_entropy(road_surface_distribution)
     terrain_material_diversity_score = _normalized_entropy(terrain_material_distribution)
+    terrain_area_studs2_total = round(sum(terrain_material_area_distribution.values()), 4)
+    terrain_dominant_material = None
+    terrain_dominant_material_area_studs2 = 0.0
+    terrain_dominant_material_ratio = 0.0
+    if terrain_material_area_distribution:
+        terrain_dominant_material, terrain_dominant_material_area_studs2 = terrain_material_area_distribution.most_common(1)[0]
+        terrain_dominant_material_ratio = _ratio(terrain_dominant_material_area_studs2, terrain_area_studs2_total)
+    terrain_coarse_chunk_ratio = _ratio(terrain_coarse_chunk_count, chunks_with_terrain)
+    terrain_min_cell_size_studs = min(terrain_cell_size_values) if terrain_cell_size_values else 0.0
+    terrain_max_cell_size_studs = max(terrain_cell_size_values) if terrain_cell_size_values else 0.0
+    terrain_average_cell_size_studs = (
+        sum(terrain_cell_size_values) / len(terrain_cell_size_values) if terrain_cell_size_values else 0.0
+    )
     osm_summary = _build_osm_summary(source_paths)
     source_summary, source_bounds, canonical_source_buildings, raw_source_buildings = _build_source_summary(
         source_paths,
@@ -3326,10 +3368,22 @@ def build_report(
         "road_surface_distribution": dict(road_surface_distribution.most_common(20)),
         "road_surface_diversity_score": road_surface_diversity_score,
         "terrain_chunk_count": chunks_with_terrain,
+        "terrain_coarse_chunk_count": terrain_coarse_chunk_count,
+        "terrain_coarse_chunk_ratio": terrain_coarse_chunk_ratio,
         "terrain_single_material_chunk_count": terrain_single_material_chunk_count,
         "terrain_single_material_ratio": terrain_single_material_ratio,
         "terrain_material_distribution": dict(terrain_material_distribution.most_common(20)),
+        "terrain_material_area_distribution": dict(terrain_material_area_distribution.most_common(20)),
+        "terrain_area_studs2_total": terrain_area_studs2_total,
+        "terrain_dominant_material": terrain_dominant_material,
+        "terrain_dominant_material_area_studs2": round(terrain_dominant_material_area_studs2, 4),
+        "terrain_dominant_material_ratio": round(terrain_dominant_material_ratio, 4),
         "terrain_material_diversity_score": terrain_material_diversity_score,
+        "terrain_cell_size_distribution": dict(terrain_cell_size_distribution.most_common(20)),
+        "terrain_area_by_cell_size_studs": dict(terrain_area_by_cell_size_studs.most_common(20)),
+        "terrain_min_cell_size_studs": round(terrain_min_cell_size_studs, 4),
+        "terrain_max_cell_size_studs": round(terrain_max_cell_size_studs, 4),
+        "terrain_average_cell_size_studs": round(terrain_average_cell_size_studs, 4),
         "landuse_distribution": dict(landuse_distribution.most_common(20)),
         "prop_kind_distribution": dict(prop_kind_distribution.most_common(20)),
         "tree_species_distribution": dict(tree_species_distribution.most_common(20)),
@@ -3742,6 +3796,26 @@ def build_report(
             metric="terrain_single_material_ratio",
             value=round(terrain_single_material_ratio, 4),
             threshold=">= 0.95",
+        )
+    if terrain_area_studs2_total >= 1024.0 and terrain_dominant_material_ratio >= 0.85:
+        _add_finding(
+            findings,
+            severity="warning",
+            code="terrain_material_dominance",
+            message="Terrain surface area is dominated by one material, so ground-detail variety is likely collapsing before import.",
+            metric="terrain_dominant_material_ratio",
+            value=round(terrain_dominant_material_ratio, 4),
+            threshold=">= 0.85 with at least 1024 studs^2 of terrain area",
+        )
+    if chunks_with_terrain >= 1 and terrain_coarse_chunk_ratio >= 0.95 and terrain_min_cell_size_studs >= 4.0:
+        _add_finding(
+            findings,
+            severity="warning",
+            code="terrain_granularity_coarse",
+            message="Terrain chunks are authored at 4+ stud cells across nearly the whole zone, so fine-grained terrain detail is already coarse before Roblox import.",
+            metric="terrain_coarse_chunk_ratio",
+            value=round(terrain_coarse_chunk_ratio, 4),
+            threshold=">= 0.95 with min terrain cell size >= 4",
         )
     if roads_count >= 10 and roads_missing_surface_ratio >= 0.40:
         _add_finding(
@@ -4211,6 +4285,8 @@ def write_html_report(report: dict[str, Any], destination: Path) -> None:
         metric("Flat Roofs", fmtPct.format(report.summary.flat_roof_ratio || 0)),
         metric("Generic Usage", fmtPct.format(report.summary.generic_usage_ratio || 0)),
         metric("Terrain Monotony", fmtPct.format(report.summary.terrain_single_material_ratio || 0)),
+        metric("Terrain Dominance", fmtPct.format(report.summary.terrain_dominant_material_ratio || 0)),
+        metric("Terrain Cell Size", fmtNum.format(report.summary.terrain_average_cell_size_studs || 0)),
       ].join("");
       document.getElementById("score-strip").innerHTML = Object.entries(report.summary.quality_scores || {{}})
         .map(([key, value]) => metric(key.replaceAll("_", " "), fmtNum.format(value)))
@@ -4292,6 +4368,8 @@ def write_html_report(report: dict[str, Any], destination: Path) -> None:
       const propKinds = Object.entries(report.summary.prop_kind_distribution || {{}}).slice(0, 8);
       const treeSpecies = Object.entries(report.summary.tree_species_distribution || {{}}).slice(0, 8);
       const vegetationSignals = Object.entries(report.summary.vegetation_signal_distribution || {{}}).slice(0, 8);
+      const terrainMaterials = Object.entries(report.summary.terrain_material_area_distribution || {{}}).slice(0, 8);
+      const terrainCellSizes = Object.entries(report.summary.terrain_area_by_cell_size_studs || {{}}).slice(0, 8);
       const glassByUsage = Object.entries(report.summary.glass_material_by_usage || {{}}).slice(0, 8);
       const glassBySignal = Object.entries(report.summary.suspicious_material_assignment_by_signal || {{}}).slice(0, 8);
       const suspicious = (report.summary.suspicious_material_assignments || []).slice(0, 8);
@@ -4323,6 +4401,8 @@ def write_html_report(report: dict[str, Any], destination: Path) -> None:
         ...waterBySource.flatMap(([key, value]) => Object.entries(value || {{}}).slice(0, 2).map(([waterKey, count]) => `<li><span>water by source · <code>${{key}} / ${{waterKey}}</code></span><span>${{fmtInt.format(count)}}</span></li>`)),
         ...sourceWaterSignals.map(([key, value]) => `<li><span>source water · <code>${{key}}</code></span><span>${{fmtInt.format(value)}}</span></li>`),
         ...sourceWaterGeometry.map(([key, value]) => `<li><span>source water geometry · <code>${{key}}</code></span><span>${{fmtInt.format(value)}}</span></li>`),
+        ...terrainMaterials.map(([key, value]) => `<li><span>terrain material area · <code>${{key}}</code></span><span>${{fmtNum.format(value)}}</span></li>`),
+        ...terrainCellSizes.map(([key, value]) => `<li><span>terrain cell size · <code>${{key}}</code></span><span>${{fmtNum.format(value)}}</span></li>`),
       ];
       document.getElementById("distribution-list").innerHTML = lines.join("");
       document.getElementById("pedestrian-diagnostics-list").innerHTML = [

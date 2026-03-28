@@ -21,6 +21,16 @@ return function()
         unloaded = 0,
         elapsedMs = 42,
     })
+    AustinPreviewTelemetry.record(state, "slow_chunk", {
+        chunkId = "7_5",
+        phase = "preview",
+        totalMs = 166,
+        buildingsMs = 121,
+        terrainMs = 18,
+        roadsMs = 9,
+        landuseTerrainFillMs = 6,
+        artifactCount = 2,
+    })
     AustinPreviewTelemetry.record(state, "state_apply_succeeded", {
         stateEpoch = 9,
     })
@@ -46,6 +56,8 @@ return function()
     Assert.equal(snapshot.chunkTotals.imported, 2, "expected chunk totals to accumulate imported chunk counts")
     Assert.equal(snapshot.chunkTotals.skipped, 1, "expected chunk totals to accumulate skipped chunk counts")
     Assert.equal(snapshot.lastSync.elapsedMs, 42, "expected the last sync summary to preserve elapsed time")
+    Assert.equal(snapshot.lastSlowChunk.chunkId, "7_5", "expected the last slow chunk summary to preserve chunk identity")
+    Assert.equal(snapshot.lastSlowChunk.totalMs, 166, "expected the last slow chunk summary to preserve total cost")
     Assert.equal(
         snapshot.lastStateApply.stateEpoch,
         9,
@@ -54,7 +66,7 @@ return function()
     Assert.equal(#snapshot.recentEvents, 3, "expected recent events to honor the bounded history size")
     Assert.equal(
         snapshot.recentEvents[1].event,
-        "sync_complete",
+        "slow_chunk",
         "expected older events to roll off once the bounded history is full"
     )
     Assert.equal(
@@ -73,6 +85,11 @@ return function()
     Assert.truthy(type(encoded) == "string" and encoded ~= "", "expected telemetry flush to write JSON")
     local decoded = HttpService:JSONDecode(encoded)
     Assert.equal(decoded.chunkTotals.imported, 2, "expected flushed telemetry JSON to preserve aggregate chunk totals")
+    Assert.equal(
+        decoded.lastSlowChunk.buildingsMs,
+        121,
+        "expected flushed telemetry JSON to preserve the last slow chunk hotspot details"
+    )
     Assert.equal(
         decoded.recentEvents[#decoded.recentEvents].event,
         "preview_invalidation_deferred",

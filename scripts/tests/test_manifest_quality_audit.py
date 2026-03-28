@@ -266,6 +266,8 @@ class ManifestQualityAuditTests(unittest.TestCase):
             self.assertIn("OpenStreetMap", html)
             self.assertIn("OSM Source Summary", html)
             self.assertIn("Scale Alignment", html)
+            self.assertIn("Terrain Dominance", html)
+            self.assertIn("terrain cell size", html.lower())
             self.assertNotIn('class="card"', html)
             self.assertIn("metric-strip", html)
             self.assertIn('id="report-data"', html)
@@ -274,6 +276,91 @@ class ManifestQualityAuditTests(unittest.TestCase):
             self.assertIn("Usage Drift", html)
             self.assertIn('data-finding-code="roof_shape_collapse"', html)
             self.assertIn("const report =", html)
+
+    def test_report_quantifies_area_weighted_terrain_truth_and_granularity(self) -> None:
+        audit = load_module()
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            manifest_path = root / "fixture-manifest.json"
+
+            manifest = {
+                "schemaVersion": "0.4.0",
+                "meta": {
+                    "worldName": "TerrainAuditTown",
+                    "generator": "test",
+                    "source": "pipeline-export",
+                    "metersPerStud": 1.0,
+                    "chunkSizeStuds": 256,
+                    "bbox": {
+                        "minLat": 30.0,
+                        "minLon": -97.0,
+                        "maxLat": 30.01,
+                        "maxLon": -96.99,
+                    },
+                    "totalFeatures": 0,
+                },
+                "chunks": [
+                    {
+                        "id": "0_0",
+                        "originStuds": {"x": 0, "y": 0, "z": 0},
+                        "terrain": {
+                            "cellSizeStuds": 4,
+                            "width": 10,
+                            "depth": 10,
+                            "heights": [0] * 100,
+                            "materials": ["Grass"] * 92 + ["Asphalt"] * 8,
+                            "material": "Grass",
+                        },
+                        "roads": [],
+                        "buildings": [],
+                        "water": [],
+                        "props": [],
+                        "landuse": [],
+                        "barriers": [],
+                        "rails": [],
+                    },
+                    {
+                        "id": "1_0",
+                        "originStuds": {"x": 256, "y": 0, "z": 0},
+                        "terrain": {
+                            "cellSizeStuds": 8,
+                            "width": 4,
+                            "depth": 4,
+                            "heights": [0] * 16,
+                            "materials": ["Grass"] * 16,
+                            "material": "Grass",
+                        },
+                        "roads": [],
+                        "buildings": [],
+                        "water": [],
+                        "props": [],
+                        "landuse": [],
+                        "barriers": [],
+                        "rails": [],
+                    },
+                ],
+            }
+            manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
+
+            report = audit.build_report(manifest_path, [])
+            codes = {finding["code"] for finding in report["findings"]}
+
+            self.assertEqual(report["summary"]["terrain_area_studs2_total"], 2624.0)
+            self.assertEqual(report["summary"]["terrain_material_area_distribution"]["Grass"], 2496.0)
+            self.assertEqual(report["summary"]["terrain_material_area_distribution"]["Asphalt"], 128.0)
+            self.assertEqual(report["summary"]["terrain_dominant_material"], "Grass")
+            self.assertEqual(report["summary"]["terrain_dominant_material_area_studs2"], 2496.0)
+            self.assertAlmostEqual(report["summary"]["terrain_dominant_material_ratio"], 2496 / 2624, places=4)
+            self.assertEqual(report["summary"]["terrain_cell_size_distribution"], {"4": 1, "8": 1})
+            self.assertEqual(report["summary"]["terrain_area_by_cell_size_studs"], {"4": 1600.0, "8": 1024.0})
+            self.assertEqual(report["summary"]["terrain_min_cell_size_studs"], 4.0)
+            self.assertEqual(report["summary"]["terrain_max_cell_size_studs"], 8.0)
+            self.assertAlmostEqual(report["summary"]["terrain_average_cell_size_studs"], 6.0, places=4)
+            self.assertEqual(report["summary"]["terrain_coarse_chunk_count"], 2)
+            self.assertEqual(report["summary"]["terrain_coarse_chunk_ratio"], 1.0)
+            self.assertIn("terrain_material_dominance", codes)
+            self.assertIn("terrain_granularity_coarse", codes)
 
     def test_report_flags_suspicious_glass_landmark_assignments(self) -> None:
         audit = load_module()

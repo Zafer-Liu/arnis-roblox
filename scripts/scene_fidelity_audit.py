@@ -24,6 +24,14 @@ def _safe_float(value: Any, default: float = 0.0) -> float:
         return default
 
 
+def _metric_label(value: Any) -> str:
+    numeric = _safe_float(value, float("nan"))
+    if not isinstance(numeric, float) or numeric != numeric:
+        normalized = str(value).strip()
+        return normalized or "unknown"
+    return str(int(numeric)) if float(numeric).is_integer() else str(round(numeric, 4))
+
+
 def _chunk_center(chunk: dict[str, Any], chunk_size: float) -> tuple[float, float]:
     origin = chunk.get("originStuds") if isinstance(chunk.get("originStuds"), dict) else {}
     origin_x = _safe_float(origin.get("x"))
@@ -550,6 +558,10 @@ def _build_manifest_zone_summary(manifest: dict[str, Any], payload: dict[str, An
     road_ids_with_attached_sidewalk: list[str] = []
     water_ids_by_kind: dict[str, list[str]] = {}
     water_ids_by_type: dict[str, list[str]] = {}
+    terrain_cell_size_distribution: dict[str, int] = {}
+    terrain_area_by_cell_size_studs: dict[str, float] = {}
+    terrain_material_area_distribution: dict[str, float] = {}
+    terrain_cell_size_values: list[float] = []
 
     chunks = manifest.get("chunks")
     if not isinstance(chunks, list):
@@ -584,12 +596,39 @@ def _build_manifest_zone_summary(manifest: dict[str, Any], payload: dict[str, An
         buildings = chunk.get("buildings") if isinstance(chunk.get("buildings"), list) else []
         props = chunk.get("props") if isinstance(chunk.get("props"), list) else []
         waters = chunk.get("water") if isinstance(chunk.get("water"), list) else []
+        terrain = chunk.get("terrain") if isinstance(chunk.get("terrain"), dict) else None
 
         road_count += len(roads)
         rail_count += len(rails)
         building_count += len(buildings)
         prop_count += len(props)
         water_count += len(waters)
+        if terrain is not None:
+            terrain_cell_size = _safe_float(terrain.get("cellSizeStuds"))
+            terrain_cell_area = terrain_cell_size * terrain_cell_size if terrain_cell_size > 0.0 else 1.0
+            width = max(int(_safe_float(terrain.get("width"), 1.0)), 1)
+            depth = max(int(_safe_float(terrain.get("depth"), 1.0)), 1)
+            if terrain_cell_size > 0.0:
+                label = _metric_label(terrain_cell_size)
+                terrain_cell_size_distribution[label] = terrain_cell_size_distribution.get(label, 0) + 1
+                terrain_area_by_cell_size_studs[label] = round(
+                    terrain_area_by_cell_size_studs.get(label, 0.0) + width * depth * terrain_cell_area,
+                    4,
+                )
+                terrain_cell_size_values.append(terrain_cell_size)
+            materials = terrain.get("materials") if isinstance(terrain.get("materials"), list) else None
+            if materials:
+                for material_name in (str(material) for material in materials if material):
+                    terrain_material_area_distribution[material_name] = round(
+                        terrain_material_area_distribution.get(material_name, 0.0) + terrain_cell_area,
+                        4,
+                    )
+            elif terrain.get("material"):
+                material_name = str(terrain.get("material"))
+                terrain_material_area_distribution[material_name] = round(
+                    terrain_material_area_distribution.get(material_name, 0.0) + width * depth * terrain_cell_area,
+                    4,
+                )
         chunk_vegetation_count = 0
         if roads:
             chunks_with_roads += 1
@@ -676,6 +715,20 @@ def _build_manifest_zone_summary(manifest: dict[str, Any], payload: dict[str, An
                 _append_bucket_id(water_ids_by_type, water_type, water.get("id") if isinstance(water, dict) else None)
                 _append_bucket_id(water_ids_by_kind, water_kind, water.get("id") if isinstance(water, dict) else None)
 
+    terrain_area_studs2_total = round(sum(terrain_material_area_distribution.values()), 4)
+    terrain_dominant_material = None
+    terrain_dominant_material_area_studs2 = 0.0
+    terrain_dominant_material_ratio = 0.0
+    if terrain_material_area_distribution:
+        terrain_dominant_material, terrain_dominant_material_area_studs2 = max(
+            terrain_material_area_distribution.items(),
+            key=lambda item: item[1],
+        )
+        terrain_dominant_material_ratio = round(
+            _ratio(terrain_dominant_material_area_studs2, terrain_area_studs2_total),
+            4,
+        )
+
     return {
         "chunkCount": chunk_count,
         "chunkIds": chunk_ids,
@@ -716,6 +769,21 @@ def _build_manifest_zone_summary(manifest: dict[str, Any], payload: dict[str, An
         "waterCountByKind": water_count_by_kind,
         "waterIdsByType": water_ids_by_type,
         "waterIdsByKind": water_ids_by_kind,
+        "terrainCellSizeDistribution": terrain_cell_size_distribution,
+        "terrainAreaByCellSizeStuds": terrain_area_by_cell_size_studs,
+        "terrainMaterialAreaDistribution": terrain_material_area_distribution,
+        "terrainAreaStuds2Total": terrain_area_studs2_total,
+        "terrainDominantMaterial": terrain_dominant_material,
+        "terrainDominantMaterialAreaStuds2": round(terrain_dominant_material_area_studs2, 4),
+        "terrainDominantMaterialRatio": terrain_dominant_material_ratio,
+        "terrainMinCellSizeStuds": round(min(terrain_cell_size_values), 4) if terrain_cell_size_values else 0.0,
+        "terrainMaxCellSizeStuds": round(max(terrain_cell_size_values), 4) if terrain_cell_size_values else 0.0,
+        "terrainAverageCellSizeStuds": round(
+            sum(terrain_cell_size_values) / len(terrain_cell_size_values),
+            4,
+        )
+        if terrain_cell_size_values
+        else 0.0,
     }
 
 
@@ -1449,6 +1517,23 @@ def write_html_report(report: dict[str, Any], html_path: Path) -> None:
         for key in client_metric_keys
         if key in client_world
     )
+    manifest_metrics = report.get("manifest") if isinstance(report.get("manifest"), dict) else {}
+    manifest_metric_keys = [
+        "terrainDominantMaterial",
+        "terrainDominantMaterialRatio",
+        "terrainAverageCellSizeStuds",
+        "terrainMinCellSizeStuds",
+        "terrainMaxCellSizeStuds",
+        "terrainCellSizeDistribution",
+    ]
+    manifest_metrics_html = "".join(
+        (
+            f"<div class=\"metric\"><div class=\"metric-label\">manifest_{escape(_to_metric_label(key))}</div>"
+            f"<div class=\"metric-value\">{escape(str(manifest_metrics[key]))}</div></div>"
+        )
+        for key in manifest_metric_keys
+        if key in manifest_metrics
+    )
 
     findings_html = "".join(
         (
@@ -1814,6 +1899,7 @@ def write_html_report(report: dict[str, Any], html_path: Path) -> None:
     </div>
     {"<div class=\"metric-strip\">" + scene_metrics_html + "</div>" if scene_metrics_html else ""}
     {"<div class=\"metric-strip\">" + client_metrics_html + "</div>" if client_metrics_html else ""}
+    {"<div class=\"metric-strip\">" + manifest_metrics_html + "</div>" if manifest_metrics_html else ""}
 
     <h2>Findings</h2>
     <table>

@@ -550,6 +550,16 @@ local function recordSlowChunkSample(phaseName, sample)
         ambientMs = math.floor((tonumber(sample.ambientMs) or 0) + 0.5),
         artifactCount = tonumber(sample.artifactCount) or 0,
     })
+    recordPreviewTelemetry("slow_chunk", {
+        phase = phaseName,
+        chunkId = sample.chunkId,
+        totalMs = math.floor(totalMs + 0.5),
+        terrainMs = math.floor((tonumber(sample.terrainMs) or 0) + 0.5),
+        roadsMs = math.floor((tonumber(sample.roadsMs) or 0) + 0.5),
+        buildingsMs = math.floor((tonumber(sample.buildingsMs) or 0) + 0.5),
+        landuseTerrainFillMs = math.floor((tonumber(sample.landuseTerrainFillMs) or 0) + 0.5),
+        artifactCount = tonumber(sample.artifactCount) or 0,
+    })
 end
 
 function getPreviewRoot()

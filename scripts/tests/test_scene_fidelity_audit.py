@@ -518,6 +518,89 @@ class SceneFidelityAuditTests(unittest.TestCase):
             self.assertEqual(report["clientWorld"]["localEnclosure"]["nearbyWallParts"], 8)
             self.assertEqual(report["clientWorld"]["localRoofCover"]["overheadRoofMinClearanceStuds"], 13.5)
 
+    def test_report_carries_manifest_terrain_granularity_context(self) -> None:
+        audit = load_module()
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            manifest_path = root / "manifest.json"
+            log_path = root / "studio.log"
+            html_path = root / "report.html"
+
+            manifest = {
+                "schemaVersion": "0.4.0",
+                "meta": {
+                    "worldName": "TerrainSceneTown",
+                    "metersPerStud": 1.0,
+                    "chunkSizeStuds": 256,
+                },
+                "chunks": [
+                    {
+                        "id": "0_0",
+                        "originStuds": {"x": 0, "y": 0, "z": 0},
+                        "terrain": {
+                            "cellSizeStuds": 4,
+                            "width": 4,
+                            "depth": 4,
+                            "heights": [0] * 16,
+                            "materials": ["Grass"] * 12 + ["Sand"] * 4,
+                            "material": "Grass",
+                        },
+                        "roads": [],
+                        "rails": [],
+                        "buildings": [],
+                        "props": [],
+                        "water": [],
+                    },
+                    {
+                        "id": "1_0",
+                        "originStuds": {"x": 256, "y": 0, "z": 0},
+                        "terrain": {
+                            "cellSizeStuds": 8,
+                            "width": 2,
+                            "depth": 2,
+                            "heights": [0] * 4,
+                            "materials": ["Grass"] * 4,
+                            "material": "Grass",
+                        },
+                        "roads": [],
+                        "rails": [],
+                        "buildings": [],
+                        "props": [],
+                        "water": [],
+                    },
+                ],
+            }
+            manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
+
+            scene_payload = {
+                "phase": "play",
+                "focus": {"x": 0.0, "z": 0.0},
+                "radius": 1024.0,
+                "rootName": "GeneratedWorld_Austin",
+                "worldIdentity": "AustinManifestIndex",
+                "chunkEnvelopeKind": "runtime_resident",
+                "scene": {"chunkCount": 2, "buildingModelCount": 0},
+            }
+            log_path.write_text(
+                "ARNIS_SCENE_PLAY " + json.dumps(scene_payload, separators=(",", ":")),
+                encoding="utf-8",
+            )
+
+            report = audit.build_report(manifest_path, log_path, marker="ARNIS_SCENE_PLAY")
+
+            self.assertEqual(report["manifest"]["terrainCellSizeDistribution"], {"4": 1, "8": 1})
+            self.assertEqual(report["manifest"]["terrainAreaByCellSizeStuds"], {"4": 256.0, "8": 256.0})
+            self.assertEqual(report["manifest"]["terrainMaterialAreaDistribution"]["Grass"], 448.0)
+            self.assertEqual(report["manifest"]["terrainMaterialAreaDistribution"]["Sand"], 64.0)
+            self.assertEqual(report["manifest"]["terrainDominantMaterial"], "Grass")
+            self.assertAlmostEqual(report["manifest"]["terrainDominantMaterialRatio"], 448.0 / 512.0, places=4)
+
+            audit.write_html_report(report, html_path)
+            html = html_path.read_text(encoding="utf-8")
+            self.assertIn("manifest_terrain_dominant_material_ratio", html)
+            self.assertIn("manifest_terrain_cell_size_distribution", html)
+
     def test_main_can_render_html_from_precomputed_report_json(self) -> None:
         audit = load_module()
 

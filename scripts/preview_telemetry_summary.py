@@ -20,6 +20,8 @@ def summarize_plugin_state(data: dict[str, Any]) -> str:
     project_snapshot = data.get("preview_project_snapshot") or {}
     project_counters = project_snapshot.get("counters") or {}
     project_chunks = project_snapshot.get("chunkTotals") or {}
+    last_sync = project_snapshot.get("lastSync") or {}
+    last_slow_chunk = project_snapshot.get("lastSlowChunk") or {}
 
     runtime_parts = [
         f"connected={_as_bool_flag(runtime.get('studio_connected'))}",
@@ -49,6 +51,22 @@ def summarize_plugin_state(data: dict[str, Any]) -> str:
                 f"unloaded={project_chunks.get('unloaded', 0)}",
             ]
         )
+        if last_sync.get("elapsedMs") is not None:
+            project_parts.append(f"last_sync_elapsed_ms={last_sync.get('elapsedMs')}")
+        slow_chunk_id = last_slow_chunk.get("chunkId")
+        if slow_chunk_id is not None:
+            project_parts.extend(
+                [
+                    f"slow_chunk={slow_chunk_id}",
+                    f"slow_chunk_phase={last_slow_chunk.get('phase', 'unknown')}",
+                    f"slow_chunk_total_ms={last_slow_chunk.get('totalMs', 0)}",
+                    f"slow_chunk_buildings_ms={last_slow_chunk.get('buildingsMs', 0)}",
+                    f"slow_chunk_terrain_ms={last_slow_chunk.get('terrainMs', 0)}",
+                    f"slow_chunk_roads_ms={last_slow_chunk.get('roadsMs', 0)}",
+                    f"slow_chunk_landuse_terrain_fill_ms={last_slow_chunk.get('landuseTerrainFillMs', 0)}",
+                    f"slow_chunk_artifacts={last_slow_chunk.get('artifactCount', 0)}",
+                ]
+            )
     else:
         full_bake_last_result = project_full_bake.get("last_result")
         if full_bake_last_result is not None:

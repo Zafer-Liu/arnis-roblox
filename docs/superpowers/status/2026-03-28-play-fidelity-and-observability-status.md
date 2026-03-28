@@ -37,6 +37,9 @@ The active design spec for this tranche is:
 - On `tertiary`, gameplay-ready play telemetry now resolves support as terrain at the sampled spawn (`supportSurfaceRole=terrain`, `groundMaterial=Enum.Material.Grass`, `supportY=5.1`, `terrainY=5.1`) instead of the earlier `unknown` read.
 - On `tertiary`, gameplay-ready play telemetry now also shows nearby shell evidence at spawn (`nearbyWallParts=4`, `nearestWallDistanceStuds=2.2`, `overheadRoofParts=2`, `overheadRoofMinClearanceStuds=12.4`), so the old wall/support probe blind spot is no longer the active signal.
 - The biggest current measured hotspot is still preview/edit builder cost on `tertiary`: one slow building-heavy chunk around `166ms`, and full preview sync around `17.3s` for the current `80`-chunk bounded scene.
+- The manifest audit is now stronger for terrain complaints: it reports area-weighted terrain material coverage, dominant-material ratio, terrain area by `cellSizeStuds`, and coarse-granularity findings instead of only chunk-level single-material monotony.
+- The scene fidelity audit now carries the same manifest terrain granularity/material context into edit/play artifacts, so terrain complaints can be interpreted next to the same render/audit output used for parity and play-proof debugging.
+- Preview telemetry now preserves the most recent slow chunk as structured state and the preview telemetry summary now prints compact hotspot timing (`last_sync_elapsed_ms`, `slow_chunk`, `slow_chunk_total_ms`, `slow_chunk_buildings_ms`, `slow_chunk_terrain_ms`, `slow_chunk_roads_ms`, `slow_chunk_landuse_terrain_fill_ms`, `slow_chunk_artifacts`) instead of hiding that data in raw Studio logs only.
 
 ## Verification Snapshot
 
@@ -48,6 +51,12 @@ The active design spec for this tranche is:
 - `python3 -m unittest scripts.tests.test_austin_runtime_contract scripts.tests.test_scene_parity_audit scripts.tests.test_scene_fidelity_audit -v`
   - passed on 2026-03-28
   - verifies shared resolved config, roof-closure support truth, and richer client-world observability contracts
+- `python3 -m unittest scripts.tests.test_manifest_quality_audit scripts.tests.test_scene_fidelity_audit -v`
+  - passed on 2026-03-28
+  - verifies area-weighted terrain audit fields/findings and scene-fidelity propagation of manifest terrain granularity/material context
+- `python3 -m unittest scripts.tests.test_manifest_quality_audit scripts.tests.test_scene_fidelity_audit scripts.tests.test_preview_telemetry_summary -v`
+  - passed on 2026-03-28
+  - verifies area-weighted terrain audit fields/findings, scene-fidelity propagation of manifest terrain context, and compact preview slow-chunk summary formatting
 - `git diff --check`
   - passed on 2026-03-28
 
@@ -75,6 +84,10 @@ The active design spec for this tranche is:
   - passed on 2026-03-28 in the remote clone
   - `PASS WorldProbeSupport.spec`
   - `ARNIS_MCP_EDIT_ACTION` reported `total=1 passed=1 failed=0`
+- `bash scripts/run_studio_harness_remote.sh --remote-profile tertiary --remote-host tertiary -- --no-play --edit-tests --spec-filter AustinPreviewTelemetry.spec.lua --edit-wait 30 --pattern-wait 120`
+  - passed on 2026-03-28 against `tertiary`
+  - remote edit action reported `total=1 passed=1 failed=0`
+  - the wrapper again lingered after success, so cleanup was completed directly over SSH and `tertiary` was left clean afterward
 - `bash scripts/run_studio_harness.sh --takeover --hard-restart --skip-edit-tests --play-wait 30 --pattern-wait 120`
   - rerun on 2026-03-28 from the remote clone
   - authoritative play proof remained green
@@ -85,7 +98,9 @@ The active design spec for this tranche is:
 ## Residual Gaps
 
 - Terrain fidelity still needs dedicated work; explicit material collapse is fixed, but the current observed issue set still includes inherent 4-stud write-grid boxiness and broader detail questions that this tranche has not yet resolved.
+- Terrain observability is better, but runtime/player-local terrain roughness is still under-instrumented; we still do not emit structured local terrain step/height-range metrics or runtime voxel-material coverage from play.
 - Interior work still needs a dedicated follow-up pass; shell terrain fill and top-floor ceiling overshoot are fixed, but richer traversal/interior detail and any remaining multi-level ceiling/roof edge cases are still open.
+- Preview/edit hotspot export is better, but still incomplete; the last slow chunk is now structured, yet it is not joined into scene parity/fidelity outputs or chunk-level hotspot comparison reports yet.
 - Remote screenshot capture on `tertiary` is still best-effort only.
 
 ## Status Notes
@@ -140,3 +155,21 @@ The active design spec for this tranche is:
 - Re-ran `WorldProbeSupport.spec.lua` on `tertiary`; it passed.
 - Re-ran the play-only proof on `tertiary`; gameplay-ready telemetry now resolves `supportSurfaceRole=terrain` with `groundMaterial=Enum.Material.Grass`, `nearbyWallParts=4`, and nonzero roof cover at the sampled spawn.
 - Result: the earlier gameplay-ready `supportSurfaceRole = "unknown"` symptom is corrected at the probe layer, and the active measured play truth is terrain-backed support rather than an unclassified hit.
+
+### 2026-03-28: Area-Weighted Terrain Audit And Scene Carry-Through
+
+- Strengthened `scripts/manifest_quality_audit.py` so terrain complaints are no longer evaluated only by chunk-level unique-material monotony.
+- Added area-weighted terrain summary fields: dominant material ratio, terrain material area distribution, terrain area by `cellSizeStuds`, and coarse-granularity chunk ratio.
+- Added terrain-specific findings for dominant-material collapse and coarse authored terrain granularity.
+- Carried the same terrain context into `scripts/scene_fidelity_audit.py`, so edit/play scene audit artifacts now expose manifest-side terrain granularity/material truth directly.
+- Verified locally with `python3 -m unittest scripts.tests.test_manifest_quality_audit scripts.tests.test_scene_fidelity_audit -v`.
+- Result: the audit surface is more useful for the current “boxy/default terrain” complaints, and the next missing telemetry is now clearer: local terrain roughness/coverage metrics in play plus structured preview slow-chunk hotspot export.
+
+### 2026-03-28: Structured Preview Slow-Chunk Telemetry
+
+- Updated `AustinPreviewTelemetry.lua` so `slow_chunk` events persist as `lastSlowChunk` in the compact preview snapshot alongside `lastSync`.
+- Updated `AustinPreviewBuilder.lua` so the slow-chunk path records a structured telemetry event instead of only logging text.
+- Updated `preview_telemetry_summary.py` so operators see `last_sync_elapsed_ms` plus the current slow-chunk timing breakdown directly in the summary line.
+- Verified locally with `python3 -m unittest scripts.tests.test_preview_telemetry_summary -v`.
+- Verified remotely on `tertiary` with `AustinPreviewTelemetry.spec.lua`, which passed through the edit-only harness lane.
+- Result: preview hotspot timing is now available as compact structured state, but it still needs to be joined into the higher-level edit/play audit reports.

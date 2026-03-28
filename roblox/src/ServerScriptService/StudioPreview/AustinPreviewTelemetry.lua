@@ -63,6 +63,7 @@ function AustinPreviewTelemetry.newState(options)
         projectFacts = defaultProjectFacts(),
         lastEvent = nil,
         lastSync = {},
+        lastSlowChunk = {},
         lastStateApply = {},
     }
 end
@@ -76,6 +77,7 @@ function AustinPreviewTelemetry.snapshot(state)
         projectFacts = cloneValue(state.projectFacts or defaultProjectFacts()),
         lastEvent = cloneValue(state.lastEvent),
         lastSync = cloneValue(state.lastSync or {}),
+        lastSlowChunk = cloneValue(state.lastSlowChunk or {}),
         lastStateApply = cloneValue(state.lastStateApply or {}),
     }
 end
@@ -147,6 +149,8 @@ function AustinPreviewTelemetry.record(state, eventName, fields)
 
     if eventName == "sync_complete" or eventName == "sync_cancelled" then
         state.lastSync = cloneValue(event)
+    elseif eventName == "slow_chunk" then
+        state.lastSlowChunk = cloneValue(event)
     elseif eventName == "state_apply_succeeded" or eventName == "state_apply_failed" then
         state.lastStateApply = cloneValue(event)
     end
