@@ -80,6 +80,16 @@ class PlayRenderTruthTests(unittest.TestCase):
         self.assertIn("writeResolution = TERRAIN_WRITE_RESOLUTION", source)
         self.assertIn("-- Roblox terrain requires a 4-stud write resolution.", source)
 
+    def test_sub_4_stud_terrain_materials_quantize_to_center_owning_source_cells(self) -> None:
+        source = TERRAIN_BUILDER.read_text(encoding="utf-8")
+
+        self.assertIn("local voxelCenterCellX = table.create(dimX)", source)
+        self.assertIn("local voxelCenterCellZ = table.create(dimZ)", source)
+        self.assertIn("voxelCenterCellX = voxelCenterCellX", source)
+        self.assertIn("voxelCenterCellZ = voxelCenterCellZ", source)
+        self.assertIn("if voxelCenterCellX[ix] ~= cellX then", source)
+        self.assertIn("if voxelCenterCellZ[globalIz] ~= cellZ then", source)
+
 
 if __name__ == "__main__":
     unittest.main()

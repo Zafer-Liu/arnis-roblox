@@ -173,6 +173,12 @@ local function buildChunkPlan(chunk)
         }
     end
 
+    local voxelCenterCellX = table.create(dimX)
+    for ix = 1, dimX do
+        local voxelWorldX = rMinX + (ix - 0.5) * TERRAIN_WRITE_RESOLUTION
+        voxelCenterCellX[ix] = math.max(0, math.min(gridW - 1, math.floor((voxelWorldX - origin.x) / cellSize)))
+    end
+
     local cellZRanges = table.create(gridD)
     local cellMaterials = table.create(gridD)
     for cellZ = 0, gridD - 1 do
@@ -189,6 +195,12 @@ local function buildChunkPlan(chunk)
             materialRow[cellX + 1] = getMat(cellX, cellZ)
         end
         cellMaterials[cellZ + 1] = materialRow
+    end
+
+    local voxelCenterCellZ = table.create(dimZ)
+    for iz = 1, dimZ do
+        local voxelWorldZ = rMinZ + (iz - 0.5) * TERRAIN_WRITE_RESOLUTION
+        voxelCenterCellZ[iz] = math.max(0, math.min(gridD - 1, math.floor((voxelWorldZ - origin.z) / cellSize)))
     end
 
     return {
@@ -214,6 +226,8 @@ local function buildChunkPlan(chunk)
         cellXRanges = cellXRanges,
         cellZRanges = cellZRanges,
         cellMaterials = cellMaterials,
+        voxelCenterCellX = voxelCenterCellX,
+        voxelCenterCellZ = voxelCenterCellZ,
         sampleInterpolatedHeight = sampleInterpolatedHeight,
     }
 end
@@ -265,6 +279,8 @@ function TerrainBuilder.Build(_parent, chunk, preparedPlan)
     local cellXRanges = plan.cellXRanges
     local cellZRanges = plan.cellZRanges
     local cellMaterials = plan.cellMaterials
+    local voxelCenterCellX = plan.voxelCenterCellX
+    local voxelCenterCellZ = plan.voxelCenterCellZ
     local sampleInterpolatedHeight = plan.sampleInterpolatedHeight
 
     -- Strip-based WriteVoxels: process 16 Z-voxels at a time so peak memory is
@@ -330,10 +346,16 @@ function TerrainBuilder.Build(_parent, chunk, preparedPlan)
                 local vx1 = xRange.vx1
 
                 for ix = vx0, vx1 do
+                    if voxelCenterCellX[ix] ~= cellX then
+                        continue
+                    end
                     local voxelWorldX = rMinX + (ix - 0.5) * TERRAIN_WRITE_RESOLUTION
                     local fracX = math.clamp((voxelWorldX - wx0) / cellSize, 0, 1)
 
                     for globalIz = stripVz0, stripVz1 do
+                        if voxelCenterCellZ[globalIz] ~= cellZ then
+                            continue
+                        end
                         local localIz = globalIz - izBase + 1 -- 1-indexed within strip
 
                         local voxelWorldZ = rMinZ + (globalIz - 0.5) * TERRAIN_WRITE_RESOLUTION

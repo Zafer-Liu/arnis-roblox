@@ -13,7 +13,9 @@ Status: Active
 - 2026-03-28: Shell-mesh play telemetry improved on `tertiary` (`nearbyMergedBuildingMeshParts` moved from `0` to `5` at gameplay-ready spawn), but nearby wall counts are still `0` at the sampled spawn.
 - 2026-03-28: The remaining wall-gap signal was reproduced as a `WorldProbe` centroid artifact, not a shell-generation failure; `WorldProbeGeometry.spec.lua` now passes on `tertiary` after switching shell-wall proximity to surface-distance checks.
 - 2026-03-28: The first room-overlap fix landed; `RoomInteriorShellFillTruth.spec.lua` now passes on `tertiary` after skipping shell terrain fill for room-authored `shellMesh` buildings when interiors are enabled.
-- 2026-03-28: Terrain remains the next measured builder-fidelity slice; current evidence points to 4-stud write-grid quantization and last-writer-wins material collapse rather than a play-only renderer split.
+- 2026-03-28: Terrain explicit-material truth now quantizes by voxel-center source-cell ownership instead of last-writer-wins overlap writes; `TerrainQuantizedMaterialTruth.spec.lua` passes on `tertiary`.
+- 2026-03-28: Ground-support observability now skips the hidden runtime spawn, skips decorative road detail, and trusts explicit road surface roles; `WorldProbeSupport.spec.lua` passes on `tertiary`.
+- 2026-03-28: Gameplay-ready play telemetry on `tertiary` now resolves to `supportSurfaceRole="terrain"` with `groundMaterial=Enum.Material.Grass`, `nearbyWallParts=4`, and nonzero roof cover, so the old `unknown` support signal is no longer the active truth.
 
 ## Tasks
 
@@ -21,5 +23,5 @@ Status: Active
 - [x] Mark shaped roof-closure decks as internal support rather than visible roof truth.
 - [x] Improve shell-mesh player-local telemetry in `WorldProbe`.
 - [x] Reproduce and classify the remaining wall-gap signal on `tertiary`: actual missing walls vs. spawn/radius/classification artifact.
-- [ ] Measure and reduce the next high-signal fidelity gaps: terrain material/detail truth and the remaining room/floor/roof overlap work after the shell-fill fix.
+- [ ] Measure and reduce the next high-signal fidelity gaps: remaining terrain geometry/detail limits and the remaining room/floor/roof overlap work after the shell-fill fix.
 - [ ] Keep the rolling status file current after each meaningful remote run, then commit and push the tranche.

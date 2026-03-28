@@ -4,6 +4,7 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local RunService = game:GetService("RunService")
 local Workspace = game:GetService("Workspace")
 local WorldProbeGeometry = require(ReplicatedStorage.Shared.WorldProbeGeometry)
+local WorldProbeSupport = require(ReplicatedStorage.Shared.WorldProbeSupport)
 
 local player = Players.LocalPlayer
 
@@ -57,18 +58,6 @@ local function appendLimited(list, value, limit)
     list[#list + 1] = value
 end
 
-local function isDecorativeRoadDetailDescendant(hitInstance)
-    local node = hitInstance
-    while node and node.Parent do
-        if node.Name == "Detail" and node.Parent and node.Parent.Name == "Roads" then
-            return true
-        end
-        node = node.Parent
-    end
-
-    return false
-end
-
 local function roundTenths(value)
     if type(value) ~= "number" then
         return nil
@@ -87,45 +76,6 @@ local function isRoofClosureDeckPart(part)
     return string.find(string.lower(part.Name), "roof_closure", 1, true) ~= nil
 end
 
-local function classifySupportSurfaceRole(hitInstance)
-    if hitInstance == nil then
-        return "unknown"
-    end
-    if hitInstance:IsA("Terrain") then
-        return "terrain"
-    end
-
-    local nameLower = string.lower(hitInstance.Name)
-    if string.find(nameLower, "sidewalk", 1, true) then
-        return "sidewalk"
-    end
-    if string.find(nameLower, "crosswalk", 1, true) or string.find(nameLower, "crossing", 1, true) then
-        return "crossing"
-    end
-    if string.find(nameLower, "curb", 1, true) then
-        return "curb"
-    end
-    if string.find(nameLower, "roof", 1, true) then
-        return "roof"
-    end
-
-    local node = hitInstance
-    while node and node.Parent do
-        if node.Name == "Roads" then
-            return "road"
-        end
-        if node.Name == "Water" then
-            return "water"
-        end
-        if node.Name == "Buildings" or node.Name == "Rooms" then
-            return "building_shell"
-        end
-        node = node.Parent
-    end
-
-    return "unknown"
-end
-
 local function findNearestSourceId(hitInstance)
     local node = hitInstance
     while node and node.Parent do
@@ -140,7 +90,7 @@ local function findNearestSourceId(hitInstance)
     return nil
 end
 
-local function raycastGroundSupport(rootPart, ignore)
+local function raycastGroundSupport(rootPart, worldRoot, ignore)
     local character = player.Character
     ignore = ignore or {}
     if character then
@@ -157,7 +107,7 @@ local function raycastGroundSupport(rootPart, ignore)
         if not rayResult then
             return nil
         end
-        if isDecorativeRoadDetailDescendant(rayResult.Instance) then
+        if WorldProbeSupport.shouldIgnoreGroundHit(rayResult.Instance, worldRoot, ignore) then
             ignore[#ignore + 1] = rayResult.Instance
             raycastParams.FilterDescendantsInstances = ignore
         else
@@ -168,8 +118,8 @@ local function raycastGroundSupport(rootPart, ignore)
     return nil
 end
 
-local function sampleGroundSupport(rootPart)
-    local rayResult = raycastGroundSupport(rootPart)
+local function sampleGroundSupport(rootPart, worldRoot)
+    local rayResult = raycastGroundSupport(rootPart, worldRoot)
     if not rayResult then
         return {
             groundMaterial = nil,
@@ -185,11 +135,11 @@ local function sampleGroundSupport(rootPart)
     local supportInstance = rayResult.Instance
     local supportSourceId = findNearestSourceId(supportInstance)
     local supportY = roundTenths(rayResult.Position.Y)
-    local supportSurfaceRole = classifySupportSurfaceRole(supportInstance)
+    local supportSurfaceRole = WorldProbeSupport.classifySupportSurfaceRole(supportInstance)
     local terrainY = nil
     if supportSurfaceRole ~= "terrain" and supportSurfaceRole ~= "water" then
-        local beneathResult = raycastGroundSupport(rootPart, { supportInstance })
-        if beneathResult and classifySupportSurfaceRole(beneathResult.Instance) == "terrain" then
+        local beneathResult = raycastGroundSupport(rootPart, worldRoot, { supportInstance })
+        if beneathResult and WorldProbeSupport.classifySupportSurfaceRole(beneathResult.Instance) == "terrain" then
             terrainY = roundTenths(beneathResult.Position.Y)
         end
     else
@@ -220,7 +170,7 @@ local function summarizeWorld(rootPart, worldRoot, worldRootName)
     local nearestBuildingSourceIds = {}
     local overheadRoofSourceIds = {}
     local nearestBuildingDetails = {}
-    local groundSupport = sampleGroundSupport(rootPart)
+    local groundSupport = sampleGroundSupport(rootPart, worldRoot)
 
     for _, chunkFolder in ipairs(worldRoot:GetChildren()) do
         local buildingsFolder = chunkFolder:FindFirstChild("Buildings")

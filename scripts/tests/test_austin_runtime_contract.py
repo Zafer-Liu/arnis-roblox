@@ -12,6 +12,7 @@ STREAMING_SERVICE_PATH = ROOT / "roblox" / "src" / "ServerScriptService" / "Impo
 IMPORT_SERVICE_PATH = ROOT / "roblox" / "src" / "ServerScriptService" / "ImportService" / "init.lua"
 SIGNATURES_PATH = ROOT / "roblox" / "src" / "ServerScriptService" / "ImportService" / "ImportSignatures.lua"
 WORLD_PROBE_PATH = ROOT / "roblox" / "src" / "StarterPlayer" / "StarterPlayerScripts" / "WorldProbe.client.lua"
+WORLD_PROBE_SUPPORT_PATH = ROOT / "roblox" / "src" / "ReplicatedStorage" / "Shared" / "WorldProbeSupport.lua"
 WORLD_STATE_APPLIER_PATH = ROOT / "roblox" / "src" / "ServerScriptService" / "ImportService" / "WorldStateApplier.lua"
 MINIMAP_SERVICE_PATH = ROOT / "roblox" / "src" / "ServerScriptService" / "ImportService" / "MinimapService.lua"
 PREVIEW_BUILDER_PATH = ROOT / "roblox" / "src" / "ServerScriptService" / "StudioPreview" / "AustinPreviewBuilder.lua"
@@ -29,6 +30,9 @@ class AustinRuntimeContractTests(unittest.TestCase):
         cls.import_service_text = IMPORT_SERVICE_PATH.read_text(encoding="utf-8")
         cls.signatures_text = SIGNATURES_PATH.read_text(encoding="utf-8") if SIGNATURES_PATH.exists() else ""
         cls.world_probe_text = WORLD_PROBE_PATH.read_text(encoding="utf-8") if WORLD_PROBE_PATH.exists() else ""
+        cls.world_probe_support_text = (
+            WORLD_PROBE_SUPPORT_PATH.read_text(encoding="utf-8") if WORLD_PROBE_SUPPORT_PATH.exists() else ""
+        )
         cls.world_state_applier_text = WORLD_STATE_APPLIER_PATH.read_text(encoding="utf-8")
         cls.minimap_service_text = MINIMAP_SERVICE_PATH.read_text(encoding="utf-8")
         cls.preview_builder_text = PREVIEW_BUILDER_PATH.read_text(encoding="utf-8")
@@ -137,8 +141,6 @@ class AustinRuntimeContractTests(unittest.TestCase):
         self.assertIn('local WORLD_ROOT_ATTR = "ArnisWorldRootName"', self.world_probe_text)
         self.assertIn('local worldRootName = Workspace:GetAttribute(WORLD_ROOT_ATTR)', self.world_probe_text)
         self.assertIn('local worldRoot = Workspace:FindFirstChild(worldRootName)', self.world_probe_text)
-        self.assertIn("local function isDecorativeRoadDetailDescendant(hitInstance)", self.world_probe_text)
-        self.assertIn("if isDecorativeRoadDetailDescendant(rayResult.Instance) then", self.world_probe_text)
         self.assertIn('model:GetAttribute("ArnisImportSourceId")', self.world_probe_text)
         self.assertIn('model:GetAttribute("ArnisImportRoofShape")', self.world_probe_text)
         self.assertIn('model:GetAttribute("ArnisImportBuildingTopY")', self.world_probe_text)
@@ -153,6 +155,9 @@ class AustinRuntimeContractTests(unittest.TestCase):
         self.assertIn('bootstrapStateTrace = Workspace:GetAttribute("ArnisAustinBootstrapStateTrace")', self.world_probe_text)
         self.assertIn('bootstrapDuplicateCount = Workspace:GetAttribute("ArnisAustinBootstrapDuplicateCount")', self.world_probe_text)
         self.assertIn('bootstrapLastScriptPath = Workspace:GetAttribute("ArnisAustinBootstrapLastScriptPath")', self.world_probe_text)
+        self.assertIn("local WorldProbeSupport = require(ReplicatedStorage.Shared.WorldProbeSupport)", self.world_probe_text)
+        self.assertIn("WorldProbeSupport.shouldIgnoreGroundHit(rayResult.Instance, worldRoot, ignore)", self.world_probe_text)
+        self.assertIn("local function isDecorativeRoadDetailDescendant(hitInstance, worldRoot)", self.bootstrap_text)
 
     def test_world_root_publication_is_owned_outside_minimap_startup(self) -> None:
         self.assertIn('local WORLD_ROOT_ATTR = "ArnisWorldRootName"', self.world_state_applier_text)
@@ -222,6 +227,12 @@ class AustinRuntimeContractTests(unittest.TestCase):
             "if shellFolder and descendant:IsDescendantOf(shellFolder) and not isRoofPart and not isRoofClosureDeck then",
             self.world_probe_text,
         )
+        self.assertIn("WorldProbeSupport.shouldIgnoreGroundHit", self.world_probe_text)
+        self.assertIn("WorldProbeSupport.classifySupportSurfaceRole", self.world_probe_text)
+        self.assertIn("function WorldProbeSupport.classifySupportSurfaceRole(hitInstance)", self.world_probe_support_text)
+        self.assertIn("function WorldProbeSupport.shouldIgnoreGroundHit(hitInstance, worldRoot, ignoredRoots)", self.world_probe_support_text)
+        self.assertIn('if hitInstance:IsA("SpawnLocation") then', self.world_probe_support_text)
+        self.assertIn('local surfaceRole = node:GetAttribute("ArnisRoadSurfaceRole")', self.world_probe_support_text)
 
     def test_shaped_roof_closure_decks_are_marked_internal_support_not_visible_roof_truth(self) -> None:
         self.assertIn("local function applyRoofPartOptions(part, partOptions)", self.building_builder_text)
