@@ -121,6 +121,8 @@ class SceneFidelityAuditTests(unittest.TestCase):
                 "focus": {"x": 64.0, "z": 64.0},
                 "radius": 350.0,
                 "rootName": "GeneratedWorld_Austin",
+                "worldIdentity": "StaleWorldIdentity",
+                "chunkEnvelopeKind": "runtime_resident",
                 "scene": {
                     "chunkCount": 1,
                     "buildingModelCount": 1,
@@ -134,6 +136,8 @@ class SceneFidelityAuditTests(unittest.TestCase):
                 "focus": {"x": 128.0, "z": 128.0},
                 "radius": 400.0,
                 "rootName": "GeneratedWorld_Austin",
+                "worldIdentity": "AustinManifestIndex",
+                "chunkEnvelopeKind": "runtime_resident",
                 "scene": {
                     "chunkCount": 2,
                     "buildingModelCount": 1,
@@ -261,6 +265,9 @@ class SceneFidelityAuditTests(unittest.TestCase):
             report = audit.build_report(manifest_path, log_path, marker="ARNIS_SCENE_PLAY")
             codes = {finding["code"] for finding in report["findings"]}
 
+            self.assertEqual(report["rootName"], "GeneratedWorld_Austin")
+            self.assertEqual(report["worldIdentity"], "AustinManifestIndex")
+            self.assertEqual(report["chunkEnvelopeKind"], "runtime_resident")
             self.assertEqual(report["scene"]["chunkCount"], 2)
             self.assertEqual(report["scene"]["chunkIds"], ["0_0", "1_0"])
             self.assertEqual(report["scene"]["buildingModelCount"], 1)

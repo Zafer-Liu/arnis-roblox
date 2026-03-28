@@ -6,6 +6,21 @@ return function()
     local ManifestLoader = require(script.Parent.Parent.ImportService.ManifestLoader)
     local RunAustin = require(script.Parent.Parent.ImportService.RunAustin)
 
+    local function assertDeepEqual(actual, expected, message)
+        Assert.equal(type(actual), type(expected), message)
+        if type(actual) ~= "table" then
+            Assert.equal(actual, expected, message)
+            return
+        end
+
+        for key, expectedValue in pairs(expected) do
+            assertDeepEqual(actual[key], expectedValue, message)
+        end
+        for key, _ in pairs(actual) do
+            Assert.truthy(expected[key] ~= nil, message)
+        end
+    end
+
     local canonicalFamily = CanonicalWorldContract.resolveCanonicalManifestFamily("preview")
     Assert.equal(
         canonicalFamily,
@@ -123,6 +138,16 @@ return function()
     Assert.truthy(
         type(canonicalEnvelope.chunkIds) == "table" and #canonicalEnvelope.chunkIds > 0,
         "expected the canonical full-bake family to retain a non-empty chunk slice"
+    )
+    assertDeepEqual(
+        previewHandle.meta.identitySummary,
+        canonicalHandle.meta.identitySummary,
+        "expected preview and full-bake routes to preserve the same source identities"
+    )
+    assertDeepEqual(
+        previewHandle.meta.minimapBasis,
+        canonicalHandle.meta.minimapBasis,
+        "expected preview and full-bake routes to preserve the same minimap transform basis"
     )
 
     local canonicalChunkIds = {}

@@ -3,7 +3,8 @@ local Workspace = game:GetService("Workspace")
 
 local MinimapService = {}
 
-local WORLD_ROOT_ATTR = "ArnisMinimapWorldRootName"
+local WORLD_ROOT_ATTR = "ArnisWorldRootName"
+local MINIMAP_WORLD_ROOT_ATTR = "ArnisMinimapWorldRootName"
 local ENABLED_ATTR = "ArnisMinimapEnabled"
 local CHUNK_JSON_ATTR = "ArnisMinimapChunkJson"
 local CHUNK_ID_ATTR = "ArnisMinimapChunkId"
@@ -99,13 +100,16 @@ end
 
 function MinimapService.Start(options)
     local resolvedOptions = options or {}
+    local worldRootName = Workspace:GetAttribute(WORLD_ROOT_ATTR)
+        or resolvedOptions.worldRootName
+        or "GeneratedWorld"
     Workspace:SetAttribute(ENABLED_ATTR, true)
-    Workspace:SetAttribute(WORLD_ROOT_ATTR, resolvedOptions.worldRootName or "GeneratedWorld")
+    Workspace:SetAttribute(MINIMAP_WORLD_ROOT_ATTR, Workspace:GetAttribute(WORLD_ROOT_ATTR) or worldRootName)
 end
 
 function MinimapService.Stop()
     Workspace:SetAttribute(ENABLED_ATTR, false)
-    Workspace:SetAttribute(WORLD_ROOT_ATTR, nil)
+    Workspace:SetAttribute(MINIMAP_WORLD_ROOT_ATTR, nil)
 end
 
 return MinimapService

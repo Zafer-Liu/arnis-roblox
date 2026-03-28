@@ -38,6 +38,7 @@ pub struct ChunkSubplan {
     pub layer: String,
     pub feature_count: usize,
     pub streaming_cost: f64,
+    pub estimated_memory_cost: Option<f64>,
     pub bounds: Option<SubplanBounds>,
 }
 
@@ -48,17 +49,20 @@ pub struct ChunkRef {
     pub origin_studs: Vec3,
     pub feature_count: usize,
     pub streaming_cost: f64,
+    pub estimated_memory_cost: Option<f64>,
     pub partition_version: String,
     pub subplans: Vec<ChunkSubplan>,
 }
 
 pub fn derive_chunk_ref(chunk: &Chunk) -> ChunkRef {
     let subplans = derive_coarse_subplans(chunk);
+    let streaming_cost = chunk_streaming_cost(chunk);
     ChunkRef {
         id: chunk.id.label(),
         origin_studs: chunk.origin_studs,
         feature_count: chunk_feature_count(chunk),
-        streaming_cost: chunk_streaming_cost(chunk),
+        streaming_cost,
+        estimated_memory_cost: Some(streaming_cost),
         partition_version: PARTITION_VERSION.to_string(),
         subplans,
     }
@@ -75,6 +79,11 @@ pub fn derive_coarse_subplans(chunk: &Chunk) -> Vec<ChunkSubplan> {
             } else {
                 0.0
             },
+            estimated_memory_cost: Some(if chunk.terrain.is_some() {
+                TERRAIN_STREAMING_COST
+            } else {
+                0.0
+            }),
             bounds: None,
         },
         ChunkSubplan {
@@ -82,6 +91,7 @@ pub fn derive_coarse_subplans(chunk: &Chunk) -> Vec<ChunkSubplan> {
             layer: "roads".to_string(),
             feature_count: chunk.roads.len(),
             streaming_cost: chunk.roads.len() as f64 * ROAD_STREAMING_COST,
+            estimated_memory_cost: Some(chunk.roads.len() as f64 * ROAD_STREAMING_COST),
             bounds: None,
         },
     ];
@@ -95,6 +105,7 @@ pub fn derive_coarse_subplans(chunk: &Chunk) -> Vec<ChunkSubplan> {
                 layer: "landuse".to_string(),
                 feature_count: chunk.landuse.len(),
                 streaming_cost: chunk.landuse.len() as f64 * LANDUSE_STREAMING_COST,
+                estimated_memory_cost: Some(chunk.landuse.len() as f64 * LANDUSE_STREAMING_COST),
                 bounds: None,
             },
         );
@@ -111,6 +122,7 @@ pub fn derive_coarse_subplans(chunk: &Chunk) -> Vec<ChunkSubplan> {
             layer: "buildings".to_string(),
             feature_count: chunk.buildings.len(),
             streaming_cost: chunk.buildings.len() as f64 * BUILDING_STREAMING_COST,
+            estimated_memory_cost: Some(chunk.buildings.len() as f64 * BUILDING_STREAMING_COST),
             bounds: None,
         });
     } else {
@@ -123,6 +135,7 @@ pub fn derive_coarse_subplans(chunk: &Chunk) -> Vec<ChunkSubplan> {
             layer: "water".to_string(),
             feature_count: chunk.water.len(),
             streaming_cost: chunk.water.len() as f64 * WATER_STREAMING_COST,
+            estimated_memory_cost: Some(chunk.water.len() as f64 * WATER_STREAMING_COST),
             bounds: None,
         },
         ChunkSubplan {
@@ -130,6 +143,7 @@ pub fn derive_coarse_subplans(chunk: &Chunk) -> Vec<ChunkSubplan> {
             layer: "props".to_string(),
             feature_count: chunk.props.len(),
             streaming_cost: chunk.props.len() as f64 * PROP_STREAMING_COST,
+            estimated_memory_cost: Some(chunk.props.len() as f64 * PROP_STREAMING_COST),
             bounds: None,
         },
     ]);
@@ -279,6 +293,7 @@ fn push_landuse_subplan(
         layer: "landuse".to_string(),
         feature_count,
         streaming_cost: feature_count as f64 * LANDUSE_STREAMING_COST,
+        estimated_memory_cost: Some(feature_count as f64 * LANDUSE_STREAMING_COST),
         bounds: Some(SubplanBounds {
             min_x: bounds.min_x,
             min_y: bounds.min_y,
@@ -344,6 +359,7 @@ fn derive_building_subplans(chunk: &Chunk) -> Vec<ChunkSubplan> {
                 layer: "buildings".to_string(),
                 feature_count: count,
                 streaming_cost: count as f64 * BUILDING_STREAMING_COST,
+                estimated_memory_cost: Some(count as f64 * BUILDING_STREAMING_COST),
                 bounds: Some(SubplanBounds {
                     min_x,
                     min_y,

@@ -93,6 +93,18 @@ REMOTE_ARNIS_DIR="$REMOTE_ROOT/arnis-roblox"
 REMOTE_VSYNC_DIR="$REMOTE_ROOT/vertigo-sync"
 RSYNC_REMOTE_ARNIS_DIR="$(render_rsync_remote_path "$REMOTE_ARNIS_DIR")"
 RSYNC_REMOTE_VSYNC_DIR="$(render_rsync_remote_path "$REMOTE_VSYNC_DIR")"
+REMOTE_HARNESS_ACTIVE=0
+
+cleanup_remote_harness() {
+  local exit_code="${1:-$?}"
+  trap - EXIT INT TERM
+  if [[ $REMOTE_HARNESS_ACTIVE -eq 1 ]]; then
+    ssh "$REMOTE_HOST" 'pkill -f "bash scripts/run_studio_harness.sh" || true; pkill -f "rbx-studio-mcp --stdio" || true; pkill -f "vertigo-sync/target/debug/vsync serve" || true; rm -rf /tmp/arnis-studio-harness.lock' >/dev/null 2>&1 || true
+  fi
+  exit "$exit_code"
+}
+
+trap 'cleanup_remote_harness' EXIT INT TERM
 
 usage() {
   cat <<EOF
@@ -241,6 +253,7 @@ if [[ $SYNC_STAGE -eq 1 ]]; then
   sync_repo_snapshot "$LOCAL_VSYNC_DIR" "$REMOTE_VSYNC_DIR" "$RSYNC_REMOTE_VSYNC_DIR"
 fi
 
+REMOTE_HARNESS_ACTIVE=1
 ssh "$REMOTE_HOST" 'bash -s' -- "$SYNC_STAGE" "$REMOTE_ARNIS_DIR" "$REMOTE_VSYNC_DIR" "$REMOTE_VSYNC_TARGET_DIR" "${HARNESS_ARGS[@]}" <<'SH'
 set -euo pipefail
 expand_remote_path() {
@@ -314,6 +327,7 @@ VSYNC_REPO_DIR="$remote_vsync_dir" \
 VSYNC_BIN="$remote_vsync_target_dir/debug/vsync" \
 bash scripts/run_studio_harness.sh "$@"
 SH
+REMOTE_HARNESS_ACTIVE=0
 
 remote_latest_log="$(ssh "$REMOTE_HOST" 'latest=$(ls -1t "$HOME"/Library/Logs/Roblox/*_Studio_*_last.log 2>/dev/null | head -n 1 || true); printf "%s" "$latest"')"
 if [[ -n "$remote_latest_log" ]]; then

@@ -273,6 +273,31 @@ def _normalized_pedestrian_signal_distribution(raw_distribution: dict[str, Any] 
     return normalized
 
 
+def _normalize_bool_signal(value: Any) -> bool | None:
+    if isinstance(value, bool):
+        return value
+    normalized = str(value or "").strip().lower()
+    if normalized in {"yes", "true", "1"}:
+        return True
+    if normalized in {"no", "false", "0"}:
+        return False
+    return None
+
+
+def _normalize_optional_int(value: Any) -> int | None:
+    try:
+        normalized = str("" if value is None else value).strip()
+        if normalized == "":
+            return None
+        return int(normalized)
+    except (TypeError, ValueError):
+        return None
+
+
+def _normalize_optional_str(value: Any) -> str:
+    return str(value or "").strip().lower()
+
+
 def _manifest_rail_signal(rail: dict[str, Any]) -> str | None:
     kind = str(rail.get("kind") or rail.get("railway") or "").strip().lower()
     if not kind:
@@ -768,9 +793,10 @@ def _bucket_keys_for_bounds(
 
 def _canonicalize_source_buildings(
     source_buildings: list[dict[str, Any]]
-) -> tuple[list[dict[str, Any]], dict[str, int]]:
+) -> tuple[list[dict[str, Any]], dict[str, int], list[dict[str, Any]]]:
     canonical: list[dict[str, Any]] = []
     duplicate_counts = {"overture_dropped_as_duplicate": 0}
+    duplicate_provenance_records: list[dict[str, Any]] = []
     spatial_index: dict[tuple[int, int], list[int]] = {}
 
     for source_building in sorted(source_buildings, key=lambda item: 0 if item.get("source") == "osm" else 1):
@@ -787,11 +813,33 @@ def _canonicalize_source_buildings(
         for bucket_key in _bucket_keys_for_bounds(bounds):
             candidate_indices.update(spatial_index.get(bucket_key, []))
 
-        if source_building.get("source") == "overture" and any(
-            _footprints_substantially_overlap(canonical[index].get("projected", []), projected)
+        overlapping_canonical_records = [
+            canonical[index]
             for index in candidate_indices
-        ):
+            if _footprints_substantially_overlap(canonical[index].get("projected", []), projected)
+        ]
+
+        if source_building.get("source") == "overture" and overlapping_canonical_records:
             duplicate_counts["overture_dropped_as_duplicate"] += 1
+            duplicate_provenance_records.append(
+                {
+                    "source": str(source_building.get("source") or ""),
+                    "source_id": str(source_building.get("source_id") or ""),
+                    "name": str(source_building.get("name") or ""),
+                    "source_usage_signal": str(source_building.get("source_usage_signal") or ""),
+                    "source_material_signal": str(source_building.get("source_material_signal") or ""),
+                    "duplicate_matches": [
+                        {
+                            "source": str(record.get("source") or ""),
+                            "source_id": str(record.get("source_id") or ""),
+                            "name": str(record.get("name") or ""),
+                            "source_usage_signal": str(record.get("source_usage_signal") or ""),
+                            "source_material_signal": str(record.get("source_material_signal") or ""),
+                        }
+                        for record in overlapping_canonical_records[:3]
+                    ],
+                }
+            )
             continue
 
         source_building = dict(source_building)
@@ -801,7 +849,7 @@ def _canonicalize_source_buildings(
         for bucket_key in _bucket_keys_for_bounds(bounds):
             spatial_index.setdefault(bucket_key, []).append(canonical_index)
 
-    return canonical, duplicate_counts
+    return canonical, duplicate_counts, duplicate_provenance_records
 
 
 def _point_in_zone(
@@ -1003,6 +1051,15 @@ def _identity_record_key(source_record: dict[str, Any]) -> str | None:
     if normalized_name:
         return f"name:{normalized_name}"
     return None
+
+
+def _infer_manifest_building_source(record: dict[str, Any]) -> str:
+    record_id = str(record.get("id") or "")
+    if record_id.startswith("osm_"):
+        return "osm"
+    if record_id.startswith("ov_"):
+        return "overture"
+    return "unknown"
 
 
 def _build_record_spatial_index(
@@ -1400,12 +1457,13 @@ def _build_source_summary(
     focus_x: float | None = None,
     focus_z: float | None = None,
     radius: float | None = None,
-) -> tuple[dict[str, Any], dict[str, float | None], list[dict[str, Any]]]:
+ ) -> tuple[dict[str, Any], dict[str, float | None], list[dict[str, Any]], list[dict[str, Any]]]:
     source_summary: dict[str, Any] = {}
     full_bounds = _new_bounds()
     bounded_bounds = _new_bounds()
     bounds_bbox = bounds_bbox or bbox
     source_buildings: list[dict[str, Any]] = []
+    source_road_records: list[dict[str, Any]] = []
     source_rail_records: list[dict[str, Any]] = []
     osm_rail_signal_distribution_total: Counter[str] = Counter()
     source_tree_records: list[dict[str, Any]] = []
@@ -1677,6 +1735,27 @@ def _build_source_summary(
                             osm_source_material_signal_distribution[material_signal["family"]] += 1
                     if "highway" in tags and coords_bbox_intersects_bbox(coords) and coords_bbox_intersects_zone(coords):
                         osm_road_geometry_count += 1
+                        source_road_records.append(
+                            {
+                                "source": "osm",
+                                "source_id": f"osm_{element.get('id')}",
+                                "kind": _normalize_optional_str(tags.get("highway")),
+                                "subkind": _normalize_optional_str(
+                                    tags.get("footway")
+                                    or tags.get("cycleway")
+                                    or tags.get("path")
+                                    or tags.get("crossing")
+                                ),
+                                "sidewalk": _normalize_optional_str(tags.get("sidewalk")),
+                                "surface": _normalize_optional_str(tags.get("surface")),
+                                "lit": _normalize_bool_signal(tags.get("lit")),
+                                "oneway": _normalize_bool_signal(tags.get("oneway")),
+                                "layer": _normalize_optional_int(tags.get("layer")),
+                                "maxspeed": _normalize_optional_int(
+                                    str(tags.get("maxspeed") or "").replace("mph", "").strip()
+                                ),
+                            }
+                        )
                     if "railway" in tags and coords_bbox_intersects_bbox(coords) and coords_bbox_intersects_zone(coords):
                         rail_signal = _manifest_rail_signal(tags)
                         if rail_signal:
@@ -1818,6 +1897,10 @@ def _build_source_summary(
                 "source_tree_species_distribution": dict(osm_tree_species_distribution_total.most_common(30)),
                 "records": source_tree_records,
             }
+            source_summary["osm_roads"] = {
+                "road_count": len(source_road_records),
+                "records": source_road_records,
+            }
             source_summary["osm_rails"] = {
                 "rail_count": len(source_rail_records),
                 "source_rail_signal_distribution": dict(osm_rail_signal_distribution_total.most_common(30)),
@@ -1908,7 +1991,9 @@ def _build_source_summary(
                 "class_counts": dict(class_counts.most_common(20)),
             }
 
-    canonical_source_buildings, duplicate_counts = _canonicalize_source_buildings(source_buildings)
+    canonical_source_buildings, duplicate_counts, duplicate_provenance_records = _canonicalize_source_buildings(
+        source_buildings
+    )
     canonical_source_breakdown = Counter(str(item.get("source") or "unknown") for item in canonical_source_buildings)
     canonical_source_area = sum(_polygon_area(item.get("projected", [])) for item in canonical_source_buildings)
     source_summary["canonical_buildings"] = {
@@ -1916,6 +2001,7 @@ def _build_source_summary(
         "building_footprint_area": round(canonical_source_area, 2),
         "source_breakdown": dict(canonical_source_breakdown),
         "duplicate_overlap_counts": duplicate_counts,
+        "duplicate_provenance_records": duplicate_provenance_records[:HOTSPOT_LIMIT],
         "raw_building_geometry_count": len(source_buildings),
     }
     source_summary["bounds"] = {
@@ -1923,7 +2009,7 @@ def _build_source_summary(
         "in_bbox": bounded_bounds,
     }
 
-    return source_summary, full_bounds, canonical_source_buildings
+    return source_summary, full_bounds, canonical_source_buildings, source_buildings
 
 
 def _build_manifest_bounds(
@@ -2020,6 +2106,82 @@ def _build_height_alignment(chunks: list[dict[str, Any]], meters_per_stud: float
     }
 
 
+def _build_chunk_ref_alignment_summary(
+    manifest: dict[str, Any],
+    chunks: list[dict[str, Any]],
+) -> dict[str, Any]:
+    chunk_refs = manifest.get("chunkRefs")
+    if not isinstance(chunk_refs, list):
+        chunk_refs = []
+
+    manifest_chunk_ids = sorted(
+        str(chunk.get("id") or "") for chunk in chunks if str(chunk.get("id") or "").strip()
+    )
+    chunk_ref_ids = sorted(
+        str(chunk_ref.get("id") or "") for chunk_ref in chunk_refs if str(chunk_ref.get("id") or "").strip()
+    )
+    manifest_chunk_id_set = set(manifest_chunk_ids)
+    chunk_ref_id_set = set(chunk_ref_ids)
+
+    chunk_refs_missing_feature_count = 0
+    chunk_refs_missing_streaming_cost = 0
+    chunk_refs_missing_estimated_memory_cost = 0
+    chunk_refs_missing_partition_version_with_subplans = 0
+    chunk_refs_with_subplans = 0
+    chunk_refs_without_subplans = 0
+    subplan_count = 0
+    subplans_missing_estimated_memory_cost = 0
+    subplan_layer_distribution: Counter[str] = Counter()
+
+    for chunk_ref in chunk_refs:
+        if not isinstance(chunk_ref, dict):
+            continue
+        if chunk_ref.get("featureCount") is None:
+            chunk_refs_missing_feature_count += 1
+        if chunk_ref.get("streamingCost") is None:
+            chunk_refs_missing_streaming_cost += 1
+        if chunk_ref.get("estimatedMemoryCost") is None:
+            chunk_refs_missing_estimated_memory_cost += 1
+
+        subplans = chunk_ref.get("subplans")
+        if isinstance(subplans, list) and subplans:
+            chunk_refs_with_subplans += 1
+            if chunk_ref.get("partitionVersion") is None:
+                chunk_refs_missing_partition_version_with_subplans += 1
+            for subplan in subplans:
+                if not isinstance(subplan, dict):
+                    continue
+                subplan_count += 1
+                if subplan.get("estimatedMemoryCost") is None:
+                    subplans_missing_estimated_memory_cost += 1
+                layer = str(subplan.get("layer") or "").strip()
+                if layer:
+                    subplan_layer_distribution[layer] += 1
+        else:
+            chunk_refs_without_subplans += 1
+
+    aligned_chunk_ref_count = len(manifest_chunk_id_set & chunk_ref_id_set)
+    return {
+        "manifest_chunk_count": len(manifest_chunk_ids),
+        "chunk_ref_count": len(chunk_ref_ids),
+        "aligned_chunk_ref_count": aligned_chunk_ref_count,
+        "chunk_ref_alignment_ratio": round(_ratio(aligned_chunk_ref_count, len(manifest_chunk_ids)), 4),
+        "missing_chunk_ref_ids": sorted(manifest_chunk_id_set - chunk_ref_id_set),
+        "orphan_chunk_ref_ids": sorted(chunk_ref_id_set - manifest_chunk_id_set),
+        "chunk_refs_missing_feature_count": chunk_refs_missing_feature_count,
+        "chunk_refs_missing_streaming_cost": chunk_refs_missing_streaming_cost,
+        "chunk_refs_missing_estimated_memory_cost": chunk_refs_missing_estimated_memory_cost,
+        "chunk_refs_missing_partition_version_with_subplans": (
+            chunk_refs_missing_partition_version_with_subplans
+        ),
+        "chunk_refs_with_subplans": chunk_refs_with_subplans,
+        "chunk_refs_without_subplans": chunk_refs_without_subplans,
+        "subplan_count": subplan_count,
+        "subplans_missing_estimated_memory_cost": subplans_missing_estimated_memory_cost,
+        "subplan_layer_distribution": dict(subplan_layer_distribution.most_common(20)),
+    }
+
+
 def _add_finding(
     findings: list[dict[str, Any]],
     *,
@@ -2103,10 +2265,12 @@ def build_report(
     suspicious_material_assignment_by_signal: Counter[str] = Counter()
     glass_material_by_usage: Counter[str | None] = Counter()
     manifest_water_records: list[dict[str, Any]] = []
+    manifest_road_records: list[dict[str, Any]] = []
     manifest_rail_records: list[dict[str, Any]] = []
     manifest_tree_records: list[dict[str, Any]] = []
     manifest_building_records: list[dict[str, Any]] = []
     global_manifest_record_ids: set[str] = set()
+    seen_manifest_road_record_ids: set[str] = set()
     chunk_rows: list[dict[str, Any]] = []
     filtered_chunk_count = 0
 
@@ -2209,6 +2373,22 @@ def build_report(
                 roads_missing_surface_count += 1
             if road.get("widthStuds") in (8, 10):
                 roads_default_width_count += 1
+            if road_id and road_id not in seen_manifest_road_record_ids:
+                seen_manifest_road_record_ids.add(road_id)
+                manifest_road_records.append(
+                    {
+                        "id": road_id,
+                        "kind": _normalize_optional_str(road.get("kind")),
+                        "subkind": _normalize_optional_str(road.get("subkind")),
+                        "sidewalk": _normalize_optional_str(road.get("sidewalk")),
+                        "surface": _normalize_optional_str(road.get("surface")),
+                        "lit": _normalize_bool_signal(road.get("lit")),
+                        "oneway": _normalize_bool_signal(road.get("oneway")),
+                        "layer": _normalize_optional_int(road.get("layer")),
+                        "maxspeed": _normalize_optional_int(road.get("maxspeed")),
+                        "chunk_id": chunk_id,
+                    }
+                )
 
         for rail in chunk.get("rails", []) or []:
             origin = chunk.get("originStuds") if isinstance(chunk.get("originStuds"), dict) else {}
@@ -2401,7 +2581,7 @@ def build_report(
     road_surface_diversity_score = _normalized_entropy(road_surface_distribution)
     terrain_material_diversity_score = _normalized_entropy(terrain_material_distribution)
     osm_summary = _build_osm_summary(source_paths)
-    source_summary, source_bounds, canonical_source_buildings = _build_source_summary(
+    source_summary, source_bounds, canonical_source_buildings, raw_source_buildings = _build_source_summary(
         source_paths,
         bbox=source_bbox,
         bounds_bbox=location_meta["bbox"],
@@ -2422,6 +2602,7 @@ def build_report(
     source_bounds_metrics = _bounds_metrics(source_bounds_for_scale)
     source_full_bounds_metrics = _bounds_metrics(source_bounds)
     height_alignment = _build_height_alignment(chunks, meters_per_stud)
+    chunk_ref_alignment = _build_chunk_ref_alignment_summary(manifest, chunks)
 
     raw_source_building_geometry_count = (
         int((source_summary.get("osm_geometry") or {}).get("building_geometry_count", 0))
@@ -2454,6 +2635,9 @@ def build_report(
     source_duplicate_overlap_counts = (source_summary.get("canonical_buildings") or {}).get(
         "duplicate_overlap_counts"
     ) or {}
+    duplicate_provenance_records = (source_summary.get("canonical_buildings") or {}).get(
+        "duplicate_provenance_records"
+    ) or []
     osm_source_usage_signal_distribution = (
         (source_summary.get("osm_geometry") or {}).get("source_usage_signal_distribution") or {}
     )
@@ -2473,11 +2657,13 @@ def build_report(
     source_material_mismatches: list[dict[str, Any]] = []
     source_identity_loss_records: list[dict[str, Any]] = []
     source_identity_transform_records: list[dict[str, Any]] = []
+    cross_source_provenance_loss_records: list[dict[str, Any]] = []
     inner_non_building_relation_identity_loss_records: list[dict[str, Any]] = []
     strong_source_building_count = 0
     seen_strong_identity_keys: set[str] = set()
     seen_loss_identity_keys: set[str] = set()
     seen_transform_identity_keys: set[str] = set()
+    seen_cross_source_provenance_loss_keys: set[str] = set()
     seen_inner_non_building_relation_identity_loss_keys: set[str] = set()
     source_material_comparable_count = 0
     source_material_match_count = 0
@@ -2641,6 +2827,90 @@ def build_report(
                         ),
                     }
                 )
+    for duplicate_record in duplicate_provenance_records:
+        source_name = str(duplicate_record.get("source") or "")
+        if source_name not in {"osm", "overture"}:
+            continue
+        cross_source_matches = []
+        for match in duplicate_record.get("duplicate_matches") or []:
+            match_source = str(match.get("source") or "")
+            if match_source == source_name or not match_source:
+                continue
+            cross_source_matches.append(
+                {
+                    "id": str(match.get("source_id") or ""),
+                    "source": match_source,
+                    "name": str(match.get("name") or ""),
+                    "usage": str(match.get("source_usage_signal") or ""),
+                    "material": str(match.get("source_material_signal") or ""),
+                    "chunk_id": "",
+                    "match_stage": "canonical_source_dedup",
+                }
+            )
+        if not cross_source_matches:
+            continue
+        identity_key = _identity_record_key(duplicate_record)
+        if identity_key and identity_key in seen_cross_source_provenance_loss_keys:
+            continue
+        if identity_key:
+            seen_cross_source_provenance_loss_keys.add(identity_key)
+        cross_source_provenance_loss_records.append(
+            {
+                "source": source_name,
+                "source_id": str(duplicate_record.get("source_id") or ""),
+                "name": str(duplicate_record.get("name") or ""),
+                "source_usage_signal": str(duplicate_record.get("source_usage_signal") or ""),
+                "source_material_signal": str(duplicate_record.get("source_material_signal") or ""),
+                "manifest_matches": cross_source_matches[:3],
+                "provenance_stage": "canonical_source_dedup",
+            }
+        )
+    for source_record in raw_source_buildings:
+        source_name = str(source_record.get("source") or "")
+        if source_name not in {"osm", "overture"}:
+            continue
+        source_id = str(source_record.get("source_id") or "")
+        if source_id and source_id in global_manifest_record_ids:
+            continue
+        projected = source_record.get("projected")
+        if not isinstance(projected, list) or len(projected) < 3:
+            continue
+        overlapping_records = _find_overlapping_records(projected, manifest_spatial_index)
+        if not overlapping_records:
+            continue
+        cross_source_matches = []
+        for record in overlapping_records:
+            manifest_source = _infer_manifest_building_source(record)
+            if manifest_source == "unknown" or manifest_source == source_name:
+                continue
+            cross_source_matches.append(
+                {
+                    "id": str(record.get("id") or ""),
+                    "source": manifest_source,
+                    "name": str(record.get("name") or ""),
+                    "usage": str(record.get("usage") or ""),
+                    "material": str(record.get("material") or ""),
+                    "chunk_id": str(record.get("chunk_id") or ""),
+                }
+            )
+        if not cross_source_matches:
+            continue
+        identity_key = _identity_record_key(source_record)
+        if identity_key and identity_key in seen_cross_source_provenance_loss_keys:
+            continue
+        if identity_key:
+            seen_cross_source_provenance_loss_keys.add(identity_key)
+        cross_source_provenance_loss_records.append(
+            {
+                "source": source_name,
+                "source_id": source_id,
+                "name": str(source_record.get("name") or ""),
+                "source_usage_signal": str(source_record.get("source_usage_signal") or ""),
+                "source_material_signal": str(source_record.get("source_material_signal") or ""),
+                "manifest_matches": cross_source_matches[:3],
+                "provenance_stage": "manifest_overlap",
+            }
+        )
     manifest_building_footprint_area = sum(building_areas)
     manifest_unique_building_geometry_count = len(unique_building_ids)
     manifest_unique_road_geometry_count = len(unique_road_ids)
@@ -2678,6 +2948,11 @@ def build_report(
         for record in source_identity_transform_records
         for reason in (record.get("identity_reasons") or [])
     )
+    cross_source_provenance_loss_by_source_pair = Counter(
+        f"{record.get('source') or 'unknown'}->{match.get('source') or 'unknown'}"
+        for record in cross_source_provenance_loss_records
+        for match in (record.get("manifest_matches") or [])[:1]
+    )
     source_tree_records_by_id = {
         str(record.get("source_id") or ""): record
         for record in ((source_summary.get("osm_trees") or {}).get("records") or [])
@@ -2708,6 +2983,11 @@ def build_report(
     source_water_signal_distribution = Counter(
         (source_summary.get("osm") or {}).get("source_water_signal_distribution") or {}
     )
+    source_road_records_by_id = {
+        str(record.get("source_id") or ""): record
+        for record in ((source_summary.get("osm_roads") or {}).get("records") or [])
+        if isinstance(record, dict) and str(record.get("source_id") or "")
+    }
     source_rail_records_by_id = {
         str(record.get("source_id") or ""): record
         for record in ((source_summary.get("osm_rails") or {}).get("records") or [])
@@ -2716,6 +2996,11 @@ def build_report(
     source_rail_signal_distribution = Counter(
         (source_summary.get("osm") or {}).get("source_rail_signal_distribution") or {}
     )
+    manifest_road_records_by_id = {
+        str(record.get("id") or ""): record
+        for record in manifest_road_records
+        if str(record.get("id") or "")
+    }
     manifest_rail_records_by_id = {
         str(record.get("id") or ""): record
         for record in manifest_rail_records
@@ -2790,6 +3075,37 @@ def build_report(
             }
         )
         pedestrian_signal_mismatch_count += abs(source_count - manifest_count)
+    road_signal_record_mismatches: list[dict[str, Any]] = []
+    comparison_fields = (
+        "kind",
+        "subkind",
+        "sidewalk",
+        "surface",
+        "lit",
+        "oneway",
+        "layer",
+        "maxspeed",
+    )
+    for source_id, source_record in sorted(source_road_records_by_id.items()):
+        manifest_record = manifest_road_records_by_id.get(source_id)
+        mismatched_fields: list[str] = []
+        for field in comparison_fields:
+            source_value = source_record.get(field)
+            manifest_value = manifest_record.get(field) if manifest_record is not None else None
+            if source_value != manifest_value:
+                mismatched_fields.append(field)
+        if not mismatched_fields:
+            continue
+        row: dict[str, Any] = {
+            "id": source_id,
+            "mismatched_fields": mismatched_fields,
+        }
+        for field in comparison_fields:
+            row[f"source_{field}"] = source_record.get(field)
+            row[f"manifest_{field}"] = manifest_record.get(field) if manifest_record is not None else None
+        if manifest_record is not None:
+            row["chunk_id"] = manifest_record.get("chunk_id")
+        road_signal_record_mismatches.append(row)
     source_water_geometry_type_distribution: Counter[str] = Counter()
     for source_signal, count in source_water_signal_distribution.items():
         source_water_geometry_type_distribution[_water_geometry_type_for_signal(str(source_signal))] += int(count)
@@ -2969,6 +3285,11 @@ def build_report(
         "source_identity_transform_by_usage": dict(source_identity_transform_by_usage.most_common(20)),
         "source_identity_transform_by_reason": dict(source_identity_transform_by_reason.most_common(20)),
         "source_identity_alignment_ratio": round(source_identity_alignment_ratio, 4),
+        "cross_source_provenance_loss_count": len(cross_source_provenance_loss_records),
+        "cross_source_provenance_loss_by_source_pair": dict(
+            cross_source_provenance_loss_by_source_pair.most_common(20)
+        ),
+        "cross_source_provenance_loss_records": cross_source_provenance_loss_records[:HOTSPOT_LIMIT],
         "inner_non_building_relation_identity_loss_count": len(inner_non_building_relation_identity_loss_records),
         "inner_non_building_relation_identity_loss_records": inner_non_building_relation_identity_loss_records[
             :HOTSPOT_LIMIT
@@ -3000,6 +3321,8 @@ def build_report(
         "manifest_pedestrian_signal_distribution": dict(manifest_pedestrian_signal_distribution.most_common(20)),
         "pedestrian_signal_mismatch_count": pedestrian_signal_mismatch_count,
         "pedestrian_signal_mismatches": pedestrian_signal_mismatches[:HOTSPOT_LIMIT],
+        "road_signal_record_mismatch_count": len(road_signal_record_mismatches),
+        "road_signal_record_mismatches": road_signal_record_mismatches[:HOTSPOT_LIMIT],
         "road_surface_distribution": dict(road_surface_distribution.most_common(20)),
         "road_surface_diversity_score": road_surface_diversity_score,
         "terrain_chunk_count": chunks_with_terrain,
@@ -3058,6 +3381,7 @@ def build_report(
             "building_height": _numeric_stats(building_heights),
             "building_footprint_area": _numeric_stats(building_areas),
         },
+        "chunk_ref_alignment": chunk_ref_alignment,
         "source_alignment": {
             "source_building_geometry_count": canonical_source_building_geometry_count,
             "raw_source_building_geometry_count": raw_source_building_geometry_count,
@@ -3108,6 +3432,46 @@ def build_report(
             metric="flat_roof_ratio",
             value=round(flat_roof_ratio, 4),
             threshold=">= 0.95",
+        )
+    if chunk_ref_alignment["missing_chunk_ref_ids"] or chunk_ref_alignment["orphan_chunk_ref_ids"]:
+        _add_finding(
+            findings,
+            severity="error",
+            code="chunk_ref_alignment_gap",
+            message="Manifest chunks and chunkRefs diverged; scheduler metadata is missing for one or more chunks or references orphaned chunk ids.",
+            metric="chunk_ref_alignment_ratio",
+            value=chunk_ref_alignment["chunk_ref_alignment_ratio"],
+            threshold="== 1.0 with no missing/orphan chunk refs",
+        )
+    if chunk_ref_alignment["chunk_refs_missing_estimated_memory_cost"] > 0:
+        _add_finding(
+            findings,
+            severity="warning",
+            code="chunk_ref_estimated_memory_cost_missing",
+            message="One or more chunkRefs are missing estimatedMemoryCost, so streaming admission can lose its deterministic memory hint.",
+            metric="chunk_refs_missing_estimated_memory_cost",
+            value=chunk_ref_alignment["chunk_refs_missing_estimated_memory_cost"],
+            threshold="== 0",
+        )
+    if chunk_ref_alignment["chunk_refs_missing_partition_version_with_subplans"] > 0:
+        _add_finding(
+            findings,
+            severity="error",
+            code="chunk_ref_partition_version_missing",
+            message="One or more chunkRefs include subplans without partitionVersion, breaking scheduler partition provenance.",
+            metric="chunk_refs_missing_partition_version_with_subplans",
+            value=chunk_ref_alignment["chunk_refs_missing_partition_version_with_subplans"],
+            threshold="== 0",
+        )
+    if chunk_ref_alignment["subplans_missing_estimated_memory_cost"] > 0:
+        _add_finding(
+            findings,
+            severity="warning",
+            code="chunk_subplan_estimated_memory_cost_missing",
+            message="One or more chunk subplans are missing estimatedMemoryCost, so subplan-level memory admission cannot be trusted.",
+            metric="subplans_missing_estimated_memory_cost",
+            value=chunk_ref_alignment["subplans_missing_estimated_memory_cost"],
+            threshold="== 0",
         )
     if large_building_candidate_count >= 10 and building_hole_count == 0:
         _add_finding(
@@ -3168,6 +3532,16 @@ def build_report(
             metric="manifest_to_source_overture_building_ratio",
             value=round(_ratio(manifest_overture_building_count, source_overture_building_geometry_count), 4),
             threshold="> 1.25",
+        )
+    if source_duplicate_overlap_counts.get("overture_dropped_as_duplicate", 0) > 0:
+        _add_finding(
+            findings,
+            severity="warning",
+            code="source_to_manifest_overture_overlap_loss",
+            message="Overlapping Overture buildings were dropped during canonicalization, so the source overlap signal is not preserved one-for-one.",
+            metric="overture_dropped_as_duplicate",
+            value=source_duplicate_overlap_counts["overture_dropped_as_duplicate"],
+            threshold="= 0",
         )
     if source_building_footprint_area > 0 and manifest_building_footprint_area / source_building_footprint_area > 1.25:
         _add_finding(
@@ -3269,6 +3643,16 @@ def build_report(
             value=pedestrian_signal_mismatch_count,
             threshold="== 0",
         )
+    if road_signal_record_mismatches:
+        _add_finding(
+            findings,
+            severity="warning",
+            code="source_to_manifest_road_signal_drift",
+            message="Manifest road records diverged from source road semantics for one or more stable road ids.",
+            metric="road_signal_record_mismatch_count",
+            value=len(road_signal_record_mismatches),
+            threshold="== 0",
+        )
     if rail_signal_mismatches:
         _add_finding(
             findings,
@@ -3327,6 +3711,16 @@ def build_report(
             message="Strongly-signaled source buildings survived only as transformed nearby shells without exact identity retention.",
             metric="source_identity_transform_count",
             value=len(source_identity_transform_records),
+            threshold="== 0",
+        )
+    if cross_source_provenance_loss_records:
+        _add_finding(
+            findings,
+            severity="warning",
+            code="source_to_manifest_cross_source_provenance_loss",
+            message="A source building from one provider survives only as overlap with a manifest building emitted from another provider, so multi-source provenance was collapsed before manifest emission.",
+            metric="cross_source_provenance_loss_count",
+            value=len(cross_source_provenance_loss_records),
             threshold="== 0",
         )
     if inner_non_building_relation_identity_loss_records:

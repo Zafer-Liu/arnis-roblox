@@ -1,8 +1,10 @@
 local gameLighting = game:GetService("Lighting")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local Workspace = game:GetService("Workspace")
 
 local WorldStateApplier = {}
 local WorldStateConfig = require(ReplicatedStorage.Shared.WorldStateConfig)
+local WORLD_ROOT_ATTR = "ArnisWorldRootName"
 
 local function resolveConfigValue(config, key)
     if type(config) == "table" and config[key] ~= nil then
@@ -78,6 +80,7 @@ end
 
 function WorldStateApplier.Apply(manifest, config, options)
     local resolvedOptions = options or {}
+    Workspace:SetAttribute(WORLD_ROOT_ATTR, resolvedOptions.worldRootName or "GeneratedWorld")
 
     if resolveConfigValue(config, "EnableAtmosphere") ~= false then
         applyAtmosphere()

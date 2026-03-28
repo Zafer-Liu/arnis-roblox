@@ -367,6 +367,37 @@ fn subplans_layer_feature_counts_and_streaming_costs_match_canonical_chunk_conte
 }
 
 #[test]
+fn subplans_author_estimated_memory_costs_from_streaming_costs() {
+    let manifests = [
+        build_test_manifest(),
+        build_test_manifest_with_rails_and_barriers(),
+        build_heavy_building_manifest(),
+        build_heavy_landuse_manifest(),
+        build_recursive_heavy_landuse_manifest(),
+    ];
+
+    for manifest in manifests {
+        for chunk_ref in &manifest.chunk_refs {
+            assert_eq!(
+                chunk_ref.estimated_memory_cost,
+                Some(chunk_ref.streaming_cost),
+                "chunkRef {} should author estimated memory cost from streaming cost",
+                chunk_ref.id
+            );
+
+            for subplan in &chunk_ref.subplans {
+                assert_eq!(
+                    subplan.estimated_memory_cost,
+                    Some(subplan.streaming_cost),
+                    "subplan {} should author estimated memory cost from streaming cost",
+                    subplan.id
+                );
+            }
+        }
+    }
+}
+
+#[test]
 fn subplans_emission_preserves_canonical_counts_identity_and_semantics() {
     let manifest = build_test_manifest();
     let chunks = &manifest.chunks;

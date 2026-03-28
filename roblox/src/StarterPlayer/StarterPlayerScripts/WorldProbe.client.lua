@@ -5,7 +5,7 @@ local Workspace = game:GetService("Workspace")
 
 local player = Players.LocalPlayer
 
-local WORLD_ROOT_ATTR = "ArnisMinimapWorldRootName"
+local WORLD_ROOT_ATTR = "ArnisWorldRootName"
 local SAMPLE_INTERVAL = 1.5
 local NEARBY_BUILDING_RADIUS = 260
 local OVERHEAD_ROOF_RADIUS = 220
@@ -17,6 +17,8 @@ local GROUND_SAMPLE_HEIGHT = 24
 local GROUND_SAMPLE_DEPTH = 256
 
 local lastPayloadJson = nil
+local lastBootstrapPayloadJson = nil
+local lastCompactPayloadJson = nil
 local lastSampleAt = 0
 local lastSamplePosition = nil
 local lastSampleWorldRootName = nil
@@ -37,7 +39,7 @@ local function getCharacterRootPart()
 end
 
 local function getWorldRoot()
-    local worldRootName = Workspace:GetAttribute("ArnisMinimapWorldRootName")
+    local worldRootName = Workspace:GetAttribute(WORLD_ROOT_ATTR)
     if type(worldRootName) ~= "string" or worldRootName == "" then
         return nil, nil
     end
@@ -198,6 +200,15 @@ end
 local function publishWorldTelemetry()
     local rootPart = getCharacterRootPart()
     local worldRoot, worldRootName = getWorldRoot()
+    local bootstrapPayload = {
+        worldRootName = worldRootName,
+        worldRootExists = worldRoot ~= nil,
+        bootstrapAttemptId = Workspace:GetAttribute("ArnisAustinBootstrapAttemptId"),
+        bootstrapState = Workspace:GetAttribute("ArnisAustinBootstrapState"),
+        bootstrapStateTrace = Workspace:GetAttribute("ArnisAustinBootstrapStateTrace"),
+        bootstrapDuplicateCount = Workspace:GetAttribute("ArnisAustinBootstrapDuplicateCount"),
+        bootstrapLastScriptPath = Workspace:GetAttribute("ArnisAustinBootstrapLastScriptPath"),
+    }
     local payload = {
         worldRootName = worldRootName,
         worldRootExists = worldRoot ~= nil,
@@ -210,11 +221,41 @@ local function publishWorldTelemetry()
         groundMaterial = nil,
         groundInstance = nil,
         characterPosition = nil,
+        bootstrapAttemptId = bootstrapPayload.bootstrapAttemptId,
+        bootstrapState = bootstrapPayload.bootstrapState,
+        bootstrapStateTrace = bootstrapPayload.bootstrapStateTrace,
+        bootstrapDuplicateCount = bootstrapPayload.bootstrapDuplicateCount,
+        bootstrapLastScriptPath = bootstrapPayload.bootstrapLastScriptPath,
+    }
+    local compactPayload = {
+        worldRootName = worldRootName,
+        worldRootExists = worldRoot ~= nil,
+        nearbyBuildingModels = 0,
+        nearbyMergedBuildingMeshParts = 0,
+        nearbyRoofParts = 0,
+        overheadRoofParts = 0,
+        nearestBuildingSourceIds = {},
+        overheadRoofSourceIds = {},
+        groundMaterial = nil,
+        bootstrapAttemptId = bootstrapPayload.bootstrapAttemptId,
+        bootstrapState = bootstrapPayload.bootstrapState,
+        bootstrapStateTrace = bootstrapPayload.bootstrapStateTrace,
+        bootstrapDuplicateCount = bootstrapPayload.bootstrapDuplicateCount,
+        bootstrapLastScriptPath = bootstrapPayload.bootstrapLastScriptPath,
     }
 
     if rootPart and worldRoot then
         payload = summarizeWorld(rootPart, worldRoot, worldRootName)
         payload.worldRootExists = true
+        compactPayload.worldRootName = payload.worldRootName
+        compactPayload.worldRootExists = payload.worldRootExists
+        compactPayload.nearbyBuildingModels = payload.nearbyBuildingModels
+        compactPayload.nearbyMergedBuildingMeshParts = payload.nearbyMergedBuildingMeshParts
+        compactPayload.nearbyRoofParts = payload.nearbyRoofParts
+        compactPayload.overheadRoofParts = payload.overheadRoofParts
+        compactPayload.nearestBuildingSourceIds = payload.nearestBuildingSourceIds
+        compactPayload.overheadRoofSourceIds = payload.overheadRoofSourceIds
+        compactPayload.groundMaterial = payload.groundMaterial
     end
 
     setPlayerAttributeIfChanged("ArnisClientWorldRootName", payload.worldRootName)
@@ -224,6 +265,16 @@ local function publishWorldTelemetry()
     setPlayerAttributeIfChanged("ArnisClientNearbyRoofParts", payload.nearbyRoofParts)
     setPlayerAttributeIfChanged("ArnisClientOverheadRoofParts", payload.overheadRoofParts)
     setPlayerAttributeIfChanged("ArnisClientGroundMaterial", payload.groundMaterial)
+    local bootstrapPayloadJson = HttpService:JSONEncode(bootstrapPayload)
+    if bootstrapPayloadJson ~= lastBootstrapPayloadJson then
+        lastBootstrapPayloadJson = bootstrapPayloadJson
+        print("ARNIS_CLIENT_BOOTSTRAP " .. bootstrapPayloadJson)
+    end
+    local compactPayloadJson = HttpService:JSONEncode(compactPayload)
+    if compactPayloadJson ~= lastCompactPayloadJson then
+        lastCompactPayloadJson = compactPayloadJson
+        print("ARNIS_CLIENT_WORLD_COMPACT " .. compactPayloadJson)
+    end
 
     local payloadJson = HttpService:JSONEncode(payload)
     if payloadJson == lastPayloadJson then

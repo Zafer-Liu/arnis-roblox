@@ -12,6 +12,8 @@ STREAMING_SERVICE_PATH = ROOT / "roblox" / "src" / "ServerScriptService" / "Impo
 IMPORT_SERVICE_PATH = ROOT / "roblox" / "src" / "ServerScriptService" / "ImportService" / "init.lua"
 SIGNATURES_PATH = ROOT / "roblox" / "src" / "ServerScriptService" / "ImportService" / "ImportSignatures.lua"
 WORLD_PROBE_PATH = ROOT / "roblox" / "src" / "StarterPlayer" / "StarterPlayerScripts" / "WorldProbe.client.lua"
+WORLD_STATE_APPLIER_PATH = ROOT / "roblox" / "src" / "ServerScriptService" / "ImportService" / "WorldStateApplier.lua"
+MINIMAP_SERVICE_PATH = ROOT / "roblox" / "src" / "ServerScriptService" / "ImportService" / "MinimapService.lua"
 
 
 class AustinRuntimeContractTests(unittest.TestCase):
@@ -23,29 +25,43 @@ class AustinRuntimeContractTests(unittest.TestCase):
         cls.import_service_text = IMPORT_SERVICE_PATH.read_text(encoding="utf-8")
         cls.signatures_text = SIGNATURES_PATH.read_text(encoding="utf-8") if SIGNATURES_PATH.exists() else ""
         cls.world_probe_text = WORLD_PROBE_PATH.read_text(encoding="utf-8") if WORLD_PROBE_PATH.exists() else ""
+        cls.world_state_applier_text = WORLD_STATE_APPLIER_PATH.read_text(encoding="utf-8")
+        cls.minimap_service_text = MINIMAP_SERVICE_PATH.read_text(encoding="utf-8")
 
     def test_bootstrap_guards_against_duplicate_runtime_execution(self) -> None:
-        self.assertIn('local BOOTSTRAP_STATE_ATTR = "ArnisAustinBootstrapState"', self.bootstrap_text)
-        self.assertIn('local BOOTSTRAP_STATE_TRACE_ATTR = "ArnisAustinBootstrapStateTrace"', self.bootstrap_text)
-        self.assertIn('local BOOTSTRAP_DUPLICATE_COUNT_ATTR = "ArnisAustinBootstrapDuplicateCount"', self.bootstrap_text)
-        self.assertIn('local BOOTSTRAP_ENTRY_COUNT_ATTR = "ArnisAustinBootstrapEntryCount"', self.bootstrap_text)
-        self.assertIn('local BOOTSTRAP_LAST_SCRIPT_PATH_ATTR = "ArnisAustinBootstrapLastScriptPath"', self.bootstrap_text)
-        self.assertIn("local function setBootstrapState(state)", self.bootstrap_text)
-        self.assertIn('Workspace:SetAttribute(BOOTSTRAP_STATE_TRACE_ATTR, table.concat(trace, ","))', self.bootstrap_text)
-        self.assertIn("Workspace:SetAttribute(BOOTSTRAP_ENTRY_COUNT_ATTR, entryCount)", self.bootstrap_text)
-        self.assertIn('Workspace:SetAttribute(BOOTSTRAP_LAST_SCRIPT_PATH_ATTR, script:GetFullName())', self.bootstrap_text)
-        self.assertIn('local existingBootstrapState = Workspace:GetAttribute(BOOTSTRAP_STATE_ATTR)', self.bootstrap_text)
-        self.assertIn('if existingBootstrapState == "failed" then', self.bootstrap_text)
-        self.assertIn('Workspace:SetAttribute(BOOTSTRAP_STATE_ATTR, nil)', self.bootstrap_text)
-        self.assertIn('Workspace:SetAttribute(BOOTSTRAP_STATE_TRACE_ATTR, nil)', self.bootstrap_text)
+        self.assertIn(
+            "local BootstrapStateMachine = require(script.Parent.ImportService.BootstrapStateMachine)",
+            self.bootstrap_text,
+        )
+        self.assertIn("local BOOTSTRAP_STATE_ATTR = BootstrapStateMachine.STATE_ATTR", self.bootstrap_text)
+        self.assertIn("local BOOTSTRAP_STATE_TRACE_ATTR = BootstrapStateMachine.STATE_TRACE_ATTR", self.bootstrap_text)
+        self.assertIn(
+            "local BOOTSTRAP_DUPLICATE_COUNT_ATTR = BootstrapStateMachine.DUPLICATE_COUNT_ATTR",
+            self.bootstrap_text,
+        )
+        self.assertIn("local BOOTSTRAP_ENTRY_COUNT_ATTR = BootstrapStateMachine.ENTRY_COUNT_ATTR", self.bootstrap_text)
+        self.assertIn(
+            "local BOOTSTRAP_LAST_SCRIPT_PATH_ATTR = BootstrapStateMachine.LAST_SCRIPT_PATH_ATTR",
+            self.bootstrap_text,
+        )
+        self.assertIn(
+            'local BOOTSTRAP_ATTEMPT_ID_ATTR = "ArnisAustinBootstrapAttemptId"',
+            self.bootstrap_text,
+        )
+        self.assertIn("local bootstrapMachine, duplicateAttempt = BootstrapStateMachine.begin(", self.bootstrap_text)
+        self.assertIn("BootstrapStateMachine.transition(bootstrapMachine, state)", self.bootstrap_text)
+        self.assertIn("BootstrapStateMachine.fail(bootstrapMachine)", self.bootstrap_text)
         self.assertIn('reportPhase(options, "loading_manifest")', self.run_austin_text)
         self.assertIn('reportPhase(options, "importing_startup")', self.run_austin_text)
         self.assertIn('setBootstrapState("world_ready")', self.bootstrap_text)
         self.assertIn('setBootstrapState("streaming_ready")', self.bootstrap_text)
         self.assertIn('setBootstrapState("minimap_ready")', self.bootstrap_text)
         self.assertIn('setBootstrapState("gameplay_ready")', self.bootstrap_text)
-        self.assertIn('setBootstrapState("failed")', self.bootstrap_text)
-        self.assertIn('Workspace:SetAttribute(BOOTSTRAP_DUPLICATE_COUNT_ATTR, duplicateCount)', self.bootstrap_text)
+        self.assertIn("BootstrapStateMachine.fail(bootstrapMachine)", self.bootstrap_text)
+        self.assertIn(
+            'Workspace:GetAttribute(BOOTSTRAP_ATTEMPT_ID_ATTR)',
+            self.bootstrap_text,
+        )
         self.assertIn('"[BootstrapAustin] Duplicate bootstrap attempt ignored. state="', self.bootstrap_text)
 
     def test_bootstrap_lifts_characters_above_spawn_surface_before_pivoting(self) -> None:
@@ -110,7 +126,10 @@ class AustinRuntimeContractTests(unittest.TestCase):
 
     def test_client_world_probe_publishes_nearby_building_and_overhead_roof_telemetry(self) -> None:
         self.assertIn('print("ARNIS_CLIENT_WORLD " .. HttpService:JSONEncode(', self.world_probe_text)
-        self.assertIn('local worldRootName = Workspace:GetAttribute("ArnisMinimapWorldRootName")', self.world_probe_text)
+        self.assertIn('print("ARNIS_CLIENT_WORLD_COMPACT " .. compactPayloadJson)', self.world_probe_text)
+        self.assertIn('print("ARNIS_CLIENT_BOOTSTRAP " .. bootstrapPayloadJson)', self.world_probe_text)
+        self.assertIn('local WORLD_ROOT_ATTR = "ArnisWorldRootName"', self.world_probe_text)
+        self.assertIn('local worldRootName = Workspace:GetAttribute(WORLD_ROOT_ATTR)', self.world_probe_text)
         self.assertIn('local worldRoot = Workspace:FindFirstChild(worldRootName)', self.world_probe_text)
         self.assertIn("local function isDecorativeRoadDetailDescendant(hitInstance)", self.world_probe_text)
         self.assertIn("if isDecorativeRoadDetailDescendant(rayResult.Instance) then", self.world_probe_text)
@@ -123,9 +142,23 @@ class AustinRuntimeContractTests(unittest.TestCase):
         self.assertIn("groundMaterial =", self.world_probe_text)
         self.assertIn('overheadRoofParts', self.world_probe_text)
         self.assertIn('nearbyBuildingModels', self.world_probe_text)
+        self.assertIn('bootstrapAttemptId = Workspace:GetAttribute("ArnisAustinBootstrapAttemptId")', self.world_probe_text)
+        self.assertIn('bootstrapState = Workspace:GetAttribute("ArnisAustinBootstrapState")', self.world_probe_text)
+        self.assertIn('bootstrapStateTrace = Workspace:GetAttribute("ArnisAustinBootstrapStateTrace")', self.world_probe_text)
+        self.assertIn('bootstrapDuplicateCount = Workspace:GetAttribute("ArnisAustinBootstrapDuplicateCount")', self.world_probe_text)
+        self.assertIn('bootstrapLastScriptPath = Workspace:GetAttribute("ArnisAustinBootstrapLastScriptPath")', self.world_probe_text)
+
+    def test_world_root_publication_is_owned_outside_minimap_startup(self) -> None:
+        self.assertIn('local WORLD_ROOT_ATTR = "ArnisWorldRootName"', self.world_state_applier_text)
+        self.assertIn('Workspace:SetAttribute(WORLD_ROOT_ATTR, resolvedOptions.worldRootName or "GeneratedWorld")', self.world_state_applier_text)
+        self.assertIn('local WORLD_ROOT_ATTR = "ArnisWorldRootName"', self.minimap_service_text)
+        self.assertIn('Workspace:GetAttribute(WORLD_ROOT_ATTR)', self.minimap_service_text)
+        self.assertIn('Workspace:SetAttribute(MINIMAP_WORLD_ROOT_ATTR, Workspace:GetAttribute(WORLD_ROOT_ATTR)', self.minimap_service_text)
+        self.assertNotIn('Workspace:SetAttribute(WORLD_ROOT_ATTR, resolvedOptions.worldRootName or Workspace:GetAttribute(WORLD_ROOT_ATTR) or "GeneratedWorld")', self.minimap_service_text)
+        self.assertNotIn('Workspace:SetAttribute(WORLD_ROOT_ATTR, "GeneratedWorld_Austin")', self.run_austin_text)
 
     def test_runtime_contract_exposes_bootstrap_state_trace_for_ordered_readiness_assertions(self) -> None:
-        self.assertIn('local BOOTSTRAP_STATE_TRACE_ATTR = "ArnisAustinBootstrapStateTrace"', self.bootstrap_text)
+        self.assertIn("local BOOTSTRAP_STATE_TRACE_ATTR = BootstrapStateMachine.STATE_TRACE_ATTR", self.bootstrap_text)
         self.assertIn('reportPhase(options, "loading_manifest")', self.run_austin_text)
         self.assertIn('reportPhase(options, "importing_startup")', self.run_austin_text)
         self.assertIn('setBootstrapState("world_ready")', self.bootstrap_text)

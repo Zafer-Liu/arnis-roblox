@@ -70,13 +70,41 @@ def run_code_in_play_session(
     allow_is_error: bool = True,
     timeout_seconds: int | None = None,
 ) -> Any:
-    ensure_play_mode(client, requested_mode=requested_mode, allow_is_error=allow_is_error)
-    return client.call_tool(
-        "run_code",
-        {"command": command},
-        allow_is_error=allow_is_error,
-        timeout_seconds=timeout_seconds,
-    )
+    arguments: dict[str, Any] = {
+        "code": command,
+        "mode": requested_mode,
+    }
+    if timeout_seconds is not None:
+        arguments["timeout"] = timeout_seconds
+
+    def invoke() -> Any:
+        ensure_play_mode(client, requested_mode=requested_mode, allow_is_error=allow_is_error)
+        return client.call_tool(
+            "run_script_in_play_mode",
+            arguments,
+            allow_is_error=allow_is_error,
+            timeout_seconds=timeout_seconds,
+        )
+
+    result = invoke()
+    if result_indicates_stale_play_session(result):
+        client.call_tool(
+            "start_stop_play",
+            {"mode": "stop"},
+            allow_is_error=True,
+            timeout_seconds=timeout_seconds,
+        )
+        result = invoke()
+    return result
+
+
+def result_indicates_stale_play_session(result: Any) -> bool:
+    if not isinstance(result, dict) or not result.get("isError"):
+        return False
+    for text in collect_strings(result):
+        if "Previous call to start play session has not been completed" in text:
+            return True
+    return False
 
 
 class HttpProxyClient:
@@ -147,8 +175,14 @@ def build_mcp_client(
     protocol_version: str,
     client_name: str,
 ) -> Any:
+    use_proxy = os.environ.get("HARNESS_USE_MCP_PROXY", "").strip().lower() in {
+        "1",
+        "true",
+        "yes",
+        "on",
+    }
     proxy_url = os.environ.get("MCP_PROXY_URL", "").strip()
-    if proxy_url:
+    if use_proxy and proxy_url:
         return HttpProxyClient(proxy_url, timeout_seconds=timeout_seconds)
     return direct_client_cls(
         mcp_bin,

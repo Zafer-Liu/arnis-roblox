@@ -1,4 +1,4 @@
-# KODEX.md
+# CLAUDE.md
 
 Kodex should read `AGENTS.md` first.
 
@@ -23,15 +23,7 @@ Kodex should read `AGENTS.md` first.
 - `arnis-roblox` owns canonical world truth, manifest semantics, and scene extraction adapters.
 - `vertigo-sync` owns edit/full-bake orchestration and export-3d user-facing orchestration.
 - Do not add new parallel preview/play/full-bake world-definition paths in `RunAustin.lua`, `AustinPreviewBuilder.lua`, `BootstrapAustin.server.lua`, or `AustinSpawn.lua`.
-- When work is happening under an active spec or implementation plan, append dated status notes as debugging/verification slices complete so another agent can resume without reconstructing chat history.
-- Keep remote Studio hosts and machine-specific paths in ignored local config or env, not in committed repo scripts.
-- Treat `primary` and `tertiary` as local profile aliases only; the committed repo must stay portable across direct-dev and remote-executor machines.
-
-## Convergence guardrails
-
-- `arnis-roblox` owns canonical world truth, manifest semantics, and scene extraction adapters.
-- `vertigo-sync` owns edit/full-bake orchestration and export-3d user-facing orchestration.
-- Do not add new parallel preview/play/full-bake world-definition paths in `RunAustin.lua`, `AustinPreviewBuilder.lua`, `BootstrapAustin.server.lua`, or `AustinSpawn.lua`.
+- For the current baseline tranche, treat `docs/superpowers/specs/2026-03-28-canonical-baseline-and-single-source-of-truth-design.md`, `docs/superpowers/plans/2026-03-28-canonical-baseline-and-single-source-of-truth.md`, and `docs/superpowers/status/2026-03-28-canonical-baseline-status.md` as the active docs stack; older `docs/superpowers/` plans/specs are context unless that status file says otherwise.
 - When work is happening under an active spec or implementation plan, append dated status notes as debugging/verification slices complete so another agent can resume without reconstructing chat history.
 - Keep remote Studio hosts and machine-specific paths in ignored local config or env, not in committed repo scripts.
 - Treat `primary` and `tertiary` as local profile aliases only; the committed repo must stay portable across direct-dev and remote-executor machines.

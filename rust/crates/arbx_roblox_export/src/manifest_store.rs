@@ -29,6 +29,7 @@ pub struct StoredChunkRecord {
     pub origin_studs: Vec3,
     pub feature_count: usize,
     pub streaming_cost: f64,
+    pub estimated_memory_cost: Option<f64>,
     pub partition_version: String,
     pub subplans_json: String,
     pub chunk_json: String,
@@ -129,6 +130,7 @@ pub fn write_manifest_sqlite(manifest: &ChunkManifest, path: &Path) -> ManifestS
             origin_z REAL NOT NULL,
             feature_count INTEGER NOT NULL,
             streaming_cost REAL NOT NULL,
+            estimated_memory_cost REAL,
             partition_version TEXT NOT NULL,
             subplans_json TEXT NOT NULL,
             chunk_json TEXT NOT NULL
@@ -191,10 +193,11 @@ pub fn write_manifest_sqlite(manifest: &ChunkManifest, path: &Path) -> ManifestS
             origin_z,
             feature_count,
             streaming_cost,
+            estimated_memory_cost,
             partition_version,
             subplans_json,
             chunk_json
-        ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)
+        ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)
         ",
     )?;
 
@@ -212,6 +215,7 @@ pub fn write_manifest_sqlite(manifest: &ChunkManifest, path: &Path) -> ManifestS
             chunk.origin_studs.z,
             chunk_ref.feature_count as i64,
             chunk_ref.streaming_cost,
+            chunk_ref.estimated_memory_cost,
             chunk_ref.partition_version,
             subplans_json,
             chunk.to_json_pretty(),
@@ -239,6 +243,7 @@ pub fn read_manifest_sqlite_subset(
             origin_z,
             feature_count,
             streaming_cost,
+            estimated_memory_cost,
             partition_version,
             subplans_json,
             chunk_json
@@ -256,9 +261,10 @@ pub fn read_manifest_sqlite_subset(
                     origin_studs: Vec3::new(row.get(1)?, row.get(2)?, row.get(3)?),
                     feature_count: row.get::<_, i64>(4)? as usize,
                     streaming_cost: row.get(5)?,
-                    partition_version: row.get(6)?,
-                    subplans_json: row.get(7)?,
-                    chunk_json: row.get(8)?,
+                    estimated_memory_cost: row.get(6)?,
+                    partition_version: row.get(7)?,
+                    subplans_json: row.get(8)?,
+                    chunk_json: row.get(9)?,
                 })
             })
             .optional()?
@@ -287,6 +293,7 @@ pub fn read_manifest_sqlite_all(path: &Path) -> ManifestStoreResult<StoredManife
             origin_z,
             feature_count,
             streaming_cost,
+            estimated_memory_cost,
             partition_version,
             subplans_json,
             chunk_json
@@ -301,9 +308,10 @@ pub fn read_manifest_sqlite_all(path: &Path) -> ManifestStoreResult<StoredManife
                 origin_studs: Vec3::new(row.get(1)?, row.get(2)?, row.get(3)?),
                 feature_count: row.get::<_, i64>(4)? as usize,
                 streaming_cost: row.get(5)?,
-                partition_version: row.get(6)?,
-                subplans_json: row.get(7)?,
-                chunk_json: row.get(8)?,
+                estimated_memory_cost: row.get(6)?,
+                partition_version: row.get(7)?,
+                subplans_json: row.get(8)?,
+                chunk_json: row.get(9)?,
             })
         })?
         .collect::<Result<Vec<_>, _>>()?;

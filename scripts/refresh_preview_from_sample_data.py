@@ -60,7 +60,7 @@ CANONICAL_SHARDS = CANONICAL_SAMPLE_DATA_DIR / "AustinCanonicalManifestChunks"
 MAX_PREVIEW_BYTES = 199_998
 
 TARGET_CHUNK_IDS = ["-1_-1", "0_-1", "-1_0", "0_0"]
-PREVIEW_LOAD_RADIUS_STUDS = 1024
+PREVIEW_LOAD_RADIUS_STUDS = 1500
 PREVIEW_SELECTION_GUTTER_STUDS = 256
 DEFAULT_CHUNK_SIZE_STUDS = 256
 AUSTIN_SOUTH_OF_CAPITOL_OFFSET_STUDS = -256
@@ -87,6 +87,7 @@ ROAD_PRIORITY = {
 SCHEMA_RE = re.compile(r'return \{schemaVersion="(?P<schema>[^"]+)"')
 CHUNK_SIZE_RE = re.compile(r"\bchunkSizeStuds\s*=\s*(?P<chunk_size>-?\d+(?:\.\d+)?)")
 NUMERIC_STRING_RE = re.compile(r"^-?\d+(?:\.\d+)?$")
+LUA_IDENTIFIER_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
 JSON_WHITESPACE = b" \t\r\n"
 
 
@@ -208,7 +209,7 @@ def _parse_chunk_ref_entries(index_text: str) -> list[dict[str, Any]]:
 
 def _format_lua_value(value: Any) -> str:
     if isinstance(value, dict):
-        return "{ " + ", ".join(f"{key} = {_format_lua_value(nested)}" for key, nested in value.items()) + " }"
+        return "{ " + ", ".join(f"{_format_lua_table_key(key)} = {_format_lua_value(nested)}" for key, nested in value.items()) + " }"
     if isinstance(value, list):
         return "{ " + ", ".join(_format_lua_value(item) for item in value) + " }"
     if isinstance(value, bool):
@@ -220,6 +221,12 @@ def _format_lua_value(value: Any) -> str:
     if isinstance(value, str):
         return '"' + value.replace("\\", "\\\\").replace('"', '\\"') + '"'
     return str(value)
+
+
+def _format_lua_table_key(key: Any) -> str:
+    if isinstance(key, str) and LUA_IDENTIFIER_RE.match(key):
+        return key
+    return f"[{_format_lua_value(key)}]"
 
 
 def _skip_json_whitespace(buffer: mmap.mmap, position: int) -> int:
@@ -492,6 +499,8 @@ def parse_source_index(source_text: str) -> tuple[str, dict[str, dict[str, Any]]
             chunk_refs[chunk_id]["featureCount"] = entry["featureCount"]
         if entry.get("streamingCost") is not None:
             chunk_refs[chunk_id]["streamingCost"] = entry["streamingCost"]
+        if entry.get("estimatedMemoryCost") is not None:
+            chunk_refs[chunk_id]["estimatedMemoryCost"] = entry["estimatedMemoryCost"]
         if entry.get("partitionVersion") is not None:
             chunk_refs[chunk_id]["partitionVersion"] = entry["partitionVersion"]
         if entry.get("subplans") is not None:
@@ -714,6 +723,69 @@ def compute_preview_total_features(
     return total_features
 
 
+def _feature_identity_for_summary(chunk_id: str, family: str, feature: Any, index: int) -> str:
+    if isinstance(feature, dict):
+        for key in ("sourceId", "id"):
+            value = feature.get(key)
+            if value not in (None, ""):
+                return str(value)
+    return f"{chunk_id}:{family}:{index + 1}"
+
+
+def build_identity_summary(
+    chunk_ids: list[str], source_chunks: dict[str, dict[str, Any]]
+) -> dict[str, Any]:
+    by_family: dict[str, list[str]] = {}
+    by_chunk: dict[str, dict[str, list[str]]] = {}
+    terrain_chunk_ids: list[str] = []
+
+    for chunk_id in chunk_ids:
+        chunk = source_chunks[chunk_id]
+        chunk_summary: dict[str, list[str]] = {}
+        if isinstance(chunk.get("terrain"), dict):
+            terrain_chunk_ids.append(chunk_id)
+        for family in COUNTED_FEATURE_FIELDS:
+            raw_features = chunk.get(family)
+            if not isinstance(raw_features, list) or not raw_features:
+                continue
+            family_ids = sorted(
+                _feature_identity_for_summary(chunk_id, family, feature, index)
+                for index, feature in enumerate(raw_features)
+            )
+            chunk_summary[family] = family_ids
+            by_family.setdefault(family, []).extend(family_ids)
+        if chunk_summary:
+            by_chunk[chunk_id] = chunk_summary
+
+    for family, family_ids in by_family.items():
+        by_family[family] = sorted(family_ids)
+
+    return {
+        "chunkIds": list(chunk_ids),
+        "terrainChunkIds": terrain_chunk_ids,
+        "byFamily": by_family,
+        "byChunk": by_chunk,
+    }
+
+
+def build_minimap_basis_summary(
+    chunk_ids: list[str], *, canonical_anchor_position: tuple[float, float, float], chunk_size_studs: float
+) -> dict[str, Any]:
+    anchor_x, anchor_y, anchor_z = canonical_anchor_position
+    return {
+        "chunkIds": list(chunk_ids),
+        "chunkSizeStuds": chunk_size_studs,
+        "canonicalAnchor": {
+            "positionStuds": {
+                "x": round(anchor_x, 4),
+                "y": round(anchor_y, 4),
+                "z": round(anchor_z, 4),
+            },
+            "lookDirectionStuds": {"x": 0, "y": 0, "z": 1},
+        },
+    }
+
+
 def write_preview_index(
     schema_version: str,
     total_features: int,
@@ -725,6 +797,8 @@ def write_preview_index(
     output_path: Path | None = None,
     world_name: str = "AustinPreviewDowntown",
     shard_folder: str = "AustinPreviewManifestChunks",
+    identity_summary: dict[str, Any] | None = None,
+    minimap_basis: dict[str, Any] | None = None,
     notes: tuple[str, str] = (
         "studio preview subset derived from rust/out/austin-manifest.json",
         "kept in sync with runtime sample-data generation to avoid stale preview drift",
@@ -756,10 +830,18 @@ def write_preview_index(
         f'            "{notes[0]}",',
         f'            "{notes[1]}",',
         "        },",
-        "    },",
-        f'    shardFolder = "{shard_folder}",',
-        "    shards = {",
     ]
+    if identity_summary is not None:
+        lines.append(f"        identitySummary = {_format_lua_value(identity_summary)},")
+    if minimap_basis is not None:
+        lines.append(f"        minimapBasis = {_format_lua_value(minimap_basis)},")
+    lines.extend(
+        [
+            "    },",
+            f'    shardFolder = "{shard_folder}",',
+            "    shards = {",
+        ]
+    )
 
     for shard_name in shard_names:
         lines.append(f'        "{shard_name}",')
@@ -788,6 +870,8 @@ def write_preview_index(
             lines.append(f'            featureCount = {chunk_ref["featureCount"]},')
         if "streamingCost" in chunk_ref:
             lines.append(f'            streamingCost = {chunk_ref["streamingCost"]},')
+        if "estimatedMemoryCost" in chunk_ref:
+            lines.append(f'            estimatedMemoryCost = {chunk_ref["estimatedMemoryCost"]},')
         if chunk_ref.get("subplans") is not None:
             lines.append(f'            subplans = {_format_lua_value(chunk_ref["subplans"])},')
         chunk_shards = chunk_ref["shards"]
@@ -984,6 +1068,8 @@ def main() -> int:
             preview_chunk_ref["featureCount"] = chunk_ref["featureCount"]
         if chunk_ref.get("streamingCost") is not None:
             preview_chunk_ref["streamingCost"] = chunk_ref["streamingCost"]
+        if chunk_ref.get("estimatedMemoryCost") is not None:
+            preview_chunk_ref["estimatedMemoryCost"] = chunk_ref["estimatedMemoryCost"]
         if chunk_ref.get("partitionVersion") is not None:
             preview_chunk_ref["partitionVersion"] = chunk_ref["partitionVersion"]
         if chunk_ref.get("subplans") is not None:
@@ -997,6 +1083,12 @@ def main() -> int:
 
     preview_chunk_refs_for_index = clone_chunk_ref_entries(preview_chunk_refs)
     canonical_chunk_refs_for_index = clone_chunk_ref_entries(preview_chunk_refs)
+    identity_summary = build_identity_summary(preview_chunk_ids, source_chunks)
+    minimap_basis = build_minimap_basis_summary(
+        preview_chunk_ids,
+        canonical_anchor_position=canonical_anchor_position,
+        chunk_size_studs=chunk_size_studs,
+    )
     shard_names = write_preview_style_shards(
         preview_chunk_refs_for_index,
         source_chunks,
@@ -1018,6 +1110,8 @@ def main() -> int:
         canonical_anchor_position=canonical_anchor_position,
         chunk_size_studs=chunk_size_studs,
         output_path=PREVIEW_INDEX,
+        identity_summary=identity_summary,
+        minimap_basis=minimap_basis,
     )
     write_preview_index(
         schema_version,
@@ -1029,6 +1123,8 @@ def main() -> int:
         output_path=CANONICAL_INDEX,
         world_name="AustinCanonicalBounded",
         shard_folder="AustinCanonicalManifestChunks",
+        identity_summary=identity_summary,
+        minimap_basis=minimap_basis,
         notes=(
             "bounded canonical full-bake subset derived from rust/out/austin-manifest.json",
             "kept in sync with Studio preview generation to prevent edit/play/export drift",

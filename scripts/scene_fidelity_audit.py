@@ -1363,6 +1363,8 @@ def build_report(manifest_path: Path, log_path: Path, *, marker: str) -> dict[st
         "logPath": str(log_path),
         "phase": payload.get("phase"),
         "rootName": payload.get("rootName"),
+        "worldIdentity": payload.get("worldIdentity"),
+        "chunkEnvelopeKind": payload.get("chunkEnvelopeKind"),
         "focus": payload.get("focus"),
         "radius": payload.get("radius"),
         "scene": scene,

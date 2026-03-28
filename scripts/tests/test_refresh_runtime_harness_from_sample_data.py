@@ -150,10 +150,10 @@ class RefreshRuntimeHarnessFromSampleDataTests(unittest.TestCase):
                 "\n".join(
                     [
                         'return {schemaVersion="0.4.0",meta={chunkSizeStuds=256},chunkRefs={',
-                        '{id="-1_-1",originStuds={x=-256,y=1,z=-256},featureCount=2,streamingCost=10,shards={"AustinManifestIndex_001"}},',
-                        '{id="0_-1",originStuds={x=0,y=2,z=-256},featureCount=2,streamingCost=10,shards={"AustinManifestIndex_002"}},',
-                        '{id="-1_0",originStuds={x=-256,y=3,z=0},featureCount=2,streamingCost=10,shards={"AustinManifestIndex_003"}},',
-                        '{id="0_0",originStuds={x=0,y=4,z=0},featureCount=3,streamingCost=12,partitionVersion="subplans.v1",subplans={{id="terrain",layer="terrain",featureCount=1,streamingCost=8}},shards={"AustinManifestIndex_004"}},',
+                        '{id="-1_-1",originStuds={x=-256,y=1,z=-256},featureCount=2,streamingCost=10,estimatedMemoryCost=40,shards={"AustinManifestIndex_001"}},',
+                        '{id="0_-1",originStuds={x=0,y=2,z=-256},featureCount=2,streamingCost=10,estimatedMemoryCost=41,shards={"AustinManifestIndex_002"}},',
+                        '{id="-1_0",originStuds={x=-256,y=3,z=0},featureCount=2,streamingCost=10,estimatedMemoryCost=42,shards={"AustinManifestIndex_003"}},',
+                        '{id="0_0",originStuds={x=0,y=4,z=0},featureCount=3,streamingCost=12,estimatedMemoryCost=55,partitionVersion="subplans.v1",subplans={{id="terrain",layer="terrain",featureCount=1,streamingCost=8}},shards={"AustinManifestIndex_004"}},',
                         "}}",
                     ]
                 ),
@@ -194,10 +194,63 @@ class RefreshRuntimeHarnessFromSampleDataTests(unittest.TestCase):
             self.assertIn('shardFolder = "AustinHarnessManifestChunks"', written)
             self.assertIn("totalFeatures = 9", written)
             self.assertIn('partitionVersion = "subplans.v1"', written)
+            self.assertIn("estimatedMemoryCost = 55", written)
             self.assertIn("positionStuds =", written)
             self.assertNotIn("positionOffsetFromHeuristicStuds =", written)
             self.assertTrue(harness_shards.exists())
             self.assertGreaterEqual(len(list(harness_shards.glob("*.lua"))), 1)
+
+    def test_write_runtime_harness_index_emits_identity_and_minimap_basis_metadata(self) -> None:
+        module = load_module()
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            harness_index = Path(temp_dir) / "AustinHarnessManifestIndex.lua"
+            original_harness_index = module.RUNTIME_HARNESS_INDEX
+            module.RUNTIME_HARNESS_INDEX = harness_index
+            try:
+                module.write_runtime_harness_index(
+                    "0.4.0",
+                    13,
+                    [
+                        (
+                            "0_0",
+                            {
+                                "x": "0",
+                                "y": "1",
+                                "z": "2",
+                                "featureCount": "13",
+                                "streamingCost": "62",
+                                "shards": ["AustinHarnessManifestIndex_001"],
+                            },
+                        )
+                    ],
+                    ["AustinHarnessManifestIndex_001"],
+                    canonical_anchor_position=(10.5, 20.25, -30.75),
+                    chunk_size_studs=256,
+                    identity_summary={
+                        "chunkIds": ["0_0"],
+                        "terrainChunkIds": ["0_0"],
+                        "byFamily": {"roads": ["road_a"]},
+                        "byChunk": {"0_0": {"roads": ["road_a"]}},
+                    },
+                    minimap_basis={
+                        "chunkIds": ["0_0"],
+                        "chunkSizeStuds": 256,
+                        "canonicalAnchor": {
+                            "positionStuds": {"x": 10.5, "y": 20.25, "z": -30.75},
+                            "lookDirectionStuds": {"x": 0, "y": 0, "z": 1},
+                        },
+                    },
+                )
+            finally:
+                module.RUNTIME_HARNESS_INDEX = original_harness_index
+
+            written = harness_index.read_text(encoding="utf-8")
+            self.assertIn("identitySummary = {", written)
+            self.assertIn('roads = { "road_a" }', written)
+            self.assertIn('["0_0"] = { roads = { "road_a" } }', written)
+            self.assertIn("minimapBasis = {", written)
+            self.assertIn("chunkSizeStuds = 256", written)
 
 
 if __name__ == "__main__":

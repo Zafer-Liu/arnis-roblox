@@ -18,7 +18,7 @@ local Logger = require(ReplicatedStorage.Shared.Logger)
 local AustinPreviewBuilder = {}
 
 AustinPreviewBuilder.WORLD_ROOT_NAME = "GeneratedWorld_AustinPreview"
-AustinPreviewBuilder.LOAD_RADIUS = 1024
+AustinPreviewBuilder.LOAD_RADIUS = 1500
 AustinPreviewBuilder.FOREGROUND_LOAD_RADIUS = 448
 AustinPreviewBuilder.STARTUP_CHUNK_COUNT = 2
 AustinPreviewBuilder.FRAME_BUDGET_SECONDS = 1 / 240
@@ -371,6 +371,7 @@ function applyPreviewWorldState(manifestSource, stateEpoch)
         worldStateApplier.Apply(resolvedManifestSource, DefaultWorldConfig, {
             startMinimap = false,
             hideLoadingScreen = false,
+            worldRootName = AustinPreviewBuilder.WORLD_ROOT_NAME,
         })
     end)
     if not ok then

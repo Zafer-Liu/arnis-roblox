@@ -21,6 +21,16 @@ DOC_EXPECTATIONS = {
     ],
 }
 
+BASELINE_STATUS_PATH = ROOT / "docs" / "superpowers" / "status" / "2026-03-28-canonical-baseline-status.md"
+HISTORICAL_PLAN_EXPECTATIONS = {
+    ROOT / "docs" / "superpowers" / "plans" / "2026-03-26-play-preview-convergence.md": "Status: Historical",
+    ROOT
+    / "docs"
+    / "superpowers"
+    / "plans"
+    / "2026-03-26-play-preview-export-convergence-implementation.md": "Status: Historical",
+}
+
 ENTRYPOINT_RULES = {
     ROOT / "roblox" / "src" / "ServerScriptService" / "ImportService" / "RunAustin.lua": {
         "required": [
@@ -125,6 +135,18 @@ class ConvergenceGuardrailTests(unittest.TestCase):
                         text,
                         f"{path} must not introduce a parallel world-definition/export path: {snippet}",
                     )
+
+    def test_baseline_status_trail_exists(self) -> None:
+        self.assertTrue(
+            BASELINE_STATUS_PATH.exists(),
+            f"expected baseline status trail to exist at {BASELINE_STATUS_PATH}",
+        )
+
+    def test_stale_convergence_plans_are_marked_historical(self) -> None:
+        for path, marker in HISTORICAL_PLAN_EXPECTATIONS.items():
+            with self.subTest(path=path):
+                text = path.read_text(encoding="utf-8")
+                self.assertIn(marker, text, f"{path} must be marked historical to avoid stale handoff drift")
 
 
 if __name__ == "__main__":

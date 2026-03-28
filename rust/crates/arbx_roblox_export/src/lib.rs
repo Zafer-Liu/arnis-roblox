@@ -460,6 +460,36 @@ mod tests {
     }
 
     #[test]
+    fn manifest_store_preserves_estimated_memory_cost() {
+        let manifest = build_sample_multi_chunk(2, 2);
+        let db_path = unique_temp_db_path("estimated_memory_cost");
+
+        crate::manifest_store::write_manifest_sqlite(&manifest, &db_path).unwrap();
+        let subset = crate::manifest_store::read_manifest_sqlite_all(&db_path).unwrap();
+
+        assert_eq!(subset.chunks.len(), manifest.chunk_refs.len());
+        let chunk_ref_by_id: std::collections::HashMap<_, _> = manifest
+            .chunk_refs
+            .iter()
+            .map(|chunk_ref| (chunk_ref.id.as_str(), chunk_ref))
+            .collect();
+        for stored_chunk in &subset.chunks {
+            let chunk_ref = chunk_ref_by_id
+                .get(stored_chunk.chunk_id.as_str())
+                .expect("stored chunk should have a matching chunkRef");
+            assert_eq!(
+                stored_chunk.estimated_memory_cost,
+                chunk_ref.estimated_memory_cost
+            );
+            assert!(stored_chunk
+                .subplans_json
+                .contains("\"estimatedMemoryCost\""));
+        }
+
+        let _ = std::fs::remove_file(db_path);
+    }
+
+    #[test]
     fn feature_export_keeps_buildings() {
         let features = vec![Feature::Building(BuildingFeature {
             id: "b1".to_string(),

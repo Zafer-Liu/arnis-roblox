@@ -9,6 +9,7 @@ import unittest
 ROOT = Path(__file__).resolve().parents[2]
 HARNESS_PATH = ROOT / "scripts" / "run_studio_harness.sh"
 POLICY_PATH = ROOT / "scripts" / "studio_harness_policy.py"
+PROXY_LIB_PATH = ROOT / "scripts" / "studio_mcp_proxy_lib.py"
 
 
 class RunStudioHarnessTests(unittest.TestCase):
@@ -16,6 +17,7 @@ class RunStudioHarnessTests(unittest.TestCase):
     def setUpClass(cls) -> None:
         cls.text = HARNESS_PATH.read_text(encoding="utf-8")
         cls.policy_text = POLICY_PATH.read_text(encoding="utf-8")
+        cls.proxy_lib_text = PROXY_LIB_PATH.read_text(encoding="utf-8")
 
     def test_capture_mcp_probe_uses_shared_stop_decision_policy(self) -> None:
         match = re.search(
@@ -76,6 +78,8 @@ class RunStudioHarnessTests(unittest.TestCase):
 
     def test_cleanup_guards_late_defined_helpers_for_early_exit_paths(self) -> None:
         self.assertIn("run_cleanup_helper_if_defined()", self.text)
+        self.assertIn("cleanup_on_signal()", self.text)
+        self.assertIn("terminate_owned_child_processes()", self.text)
         self.assertIn('declare -F "$helper_name" >/dev/null 2>&1', self.text)
         self.assertIn("run_cleanup_helper_if_defined stop_log_pipe", self.text)
         self.assertIn("run_cleanup_helper_if_defined stop_memory_monitor", self.text)
@@ -87,6 +91,10 @@ class RunStudioHarnessTests(unittest.TestCase):
         self.assertIn("run_cleanup_helper_if_defined restore_foreign_plugins", self.text)
         self.assertIn('if declare -F studio_session_status_value >/dev/null 2>&1; then', self.text)
         self.assertIn('if [[ "$should_close" == "true" ]] && declare -F quit_studio >/dev/null 2>&1; then', self.text)
+        self.assertIn("trap - EXIT INT TERM", self.text)
+        self.assertIn('ps -o pid= -ax -o ppid= |', self.text)
+        self.assertIn('kill -TERM $child_pids', self.text)
+        self.assertIn("cleanup \"$exit_code\"", self.text)
 
     def test_edit_action_reconciles_against_log_backed_success(self) -> None:
         self.assertIn("edit_action_completed_successfully_in_log()", self.text)
@@ -174,6 +182,28 @@ class RunStudioHarnessTests(unittest.TestCase):
         self.assertIn("if [[ $RUNALL_EDIT_ENABLED -ne 0 ]]; then", self.text)
         self.assertIn('if [[ -n "$RUNALL_SPEC_FILTER" ]]; then', self.text)
 
+    def test_play_focused_runs_skip_live_vsync_server_startup(self) -> None:
+        self.assertIn("should_start_live_vsync_server()", self.text)
+        self.assertIn("if should_start_live_vsync_server; then", self.text)
+        self.assertIn("ensure_vsync_server_running", self.text)
+        self.assertIn('log "skipping live Vertigo Sync server startup for play-focused harness run"', self.text)
+
+    def test_stop_play_mode_falls_back_to_ui_when_mcp_stop_fails(self) -> None:
+        stop_block = re.search(
+            r"stop_play_mode\(\) \{\n(?P<body>.*?)\n\}\n\nrun_play_probe_via_mcp",
+            self.text,
+            re.DOTALL,
+        )
+        self.assertIsNotNone(stop_block, "stop_play_mode function not found")
+        body = stop_block.group("body")
+        self.assertIn('local mcp_stop_exit_code=0', body)
+        self.assertIn('python3 - <<\'PY\' >/dev/null 2>&1 || mcp_stop_exit_code=$?', body)
+        self.assertIn('if [[ $mcp_stop_exit_code -eq 0 ]]; then', body)
+        self.assertIn('log "MCP stop-play request failed; falling back to Studio UI stop controls"', body)
+        self.assertNotIn("python3 - <<'PY' >/dev/null 2>&1 || true", body)
+        self.assertIn('python3 "$STUDIO_UI_CONTROL" stop-test-session >/dev/null 2>&1', body)
+        self.assertIn('click_menu_item "Test" "Stop"', body)
+
     def test_edit_mode_does_not_pass_unsupported_readiness_argument_to_mcp_run_code(self) -> None:
         self.assertIn("readiness = build_readiness_expectation(readiness_record)", self.text)
         self.assertIn('print(f"[harness-mcp] phase=edit readiness={json.dumps(readiness, separators=(\',\', \':\'))}")', self.text)
@@ -201,9 +231,20 @@ class RunStudioHarnessTests(unittest.TestCase):
 
     def test_harness_runs_persistent_mcp_sidecar_for_plugin_relay(self) -> None:
         self.assertIn("mcp_sidecar_port_open()", self.text)
+        self.assertIn("mcp_sidecar_listener_owned_by_binary()", self.text)
+        self.assertIn("terminate_stale_mcp_sidecar_listener()", self.text)
+        self.assertIn("cleanup_orphan_mcp_helpers()", self.text)
         self.assertIn("start_mcp_sidecar()", self.text)
         self.assertIn("stop_mcp_sidecar()", self.text)
         self.assertIn('"$MCP_BINARY" --stdio', self.text)
+        self.assertIn('["ps", "-Ao", "pid=,ppid=,command="]', self.text)
+        self.assertIn('command != f"{binary} --stdio"', self.text)
+        self.assertIn('if ppid_text != "1":', self.text)
+        self.assertIn('log "cleaning orphaned Studio MCP helpers: $orphan_pids"', self.text)
+        self.assertIn('lsof -nP -iTCP:44755 -sTCP:LISTEN -t', self.text)
+        self.assertIn('log "refusing to reuse non-harness Studio MCP listener on port 44755', self.text)
+        self.assertIn('log "stopping stale Studio MCP listener on port 44755', self.text)
+        self.assertIn("cleanup_orphan_mcp_helpers\nstart_mcp_sidecar || true", self.text)
         self.assertIn('start_mcp_sidecar || true', self.text)
         self.assertIn('log "started Studio MCP sidecar on localhost:44755"', self.text)
         self.assertIn('log "Studio MCP sidecar failed to expose localhost:44755; continuing without persistent relay"', self.text)
@@ -212,6 +253,31 @@ class RunStudioHarnessTests(unittest.TestCase):
         self.assertGreaterEqual(cleanup_index, 0)
         self.assertGreaterEqual(trap_index, 0)
         self.assertLess(cleanup_index, trap_index)
+
+    def test_cleanup_closes_harness_owned_studio_by_default_instead_of_preserving_it(self) -> None:
+        self.assertIn('if [[ "$should_close" == "true" ]] && declare -F quit_studio >/dev/null 2>&1; then', self.text)
+        self.assertIn('graceful Studio cleanup left the harness-owned session running; force quitting it', self.text)
+        self.assertIn('if [[ "$post_quit_status" != "not_running" ]] && declare -F force_quit_studio >/dev/null 2>&1; then', self.text)
+        self.assertIn('force_quit_studio || true', self.text)
+        self.assertNotIn('log "preserving harness-owned Studio session on exit', self.text)
+        self.assertIn('return {"should_close": True, "reason": "failed_run_cleanup"}', self.policy_text)
+        self.assertIn('return {"should_close": True, "reason": "transitioning_cleanup"}', self.policy_text)
+
+    def test_signal_trap_runs_cleanup_instead_of_plain_exit(self) -> None:
+        self.assertIn("cleanup_on_signal()", self.text)
+        self.assertIn('trap \'cleanup_on_signal 130\' INT TERM', self.text)
+        self.assertNotIn('trap \'exit 130\' INT TERM', self.text)
+
+    def test_harness_uses_proxy_only_when_explicitly_requested(self) -> None:
+        self.assertIn('use_proxy = os.environ.get("HARNESS_USE_MCP_PROXY", "").strip().lower() in {', self.proxy_lib_text)
+        self.assertIn("if use_proxy and proxy_url:", self.proxy_lib_text)
+        self.assertIn('HARNESS_USE_MCP_PROXY=1 \\', self.text)
+        self.assertIn('MCP_BINARY_PATH="$MCP_BINARY" HARNESS_USE_MCP_PROXY=1 MCP_PROXY_URL="$(mcp_proxy_url_for_harness)"', self.text)
+
+    def test_proxy_backed_mcp_snippets_do_not_require_direct_client_module(self) -> None:
+        self.assertIn('JsonRpcStdioClient = None', self.text)
+        self.assertIn('if not use_proxy:', self.text)
+        self.assertIn("from studio_mcp_direct_lib import JsonRpcStdioClient", self.text)
 
     def test_vsync_readiness_policy_builds_authoritative_mcp_expectation(self) -> None:
         self.assertIn("def fetch_readiness(", self.policy_text)
@@ -371,6 +437,10 @@ class RunStudioHarnessTests(unittest.TestCase):
         self.assertIn('local plugin_artifact=""', self.text)
         self.assertIn('plugin_artifact="$(resolve_mcp_plugin_artifact || true)"', self.text)
         self.assertIn('log "installing Roblox Studio MCP plugin from built artifact"', self.text)
+        self.assertIn(
+            'log "requested MCP plugin refresh but no built artifact was found; keeping existing installed plugin"',
+            self.text,
+        )
         self.assertIn('"$MCP_BINARY" >/dev/null', self.text)
         self.assertIn('log "installing Roblox Studio MCP plugin via MCP binary installer"', self.text)
         self.assertIn('ensure_mcp_plugin_installed || {', self.text)
@@ -390,32 +460,81 @@ class RunStudioHarnessTests(unittest.TestCase):
         self.assertIn('elif ! should_run_edit_probe_best_effort; then', self.text)
         self.assertIn('log "skipping redundant edit MCP probe for isolated non-preview spec"', self.text)
 
-    def test_play_probe_avoids_full_scene_audit_in_play_mode(self) -> None:
-        self.assertNotIn('emitSceneMarkers("ARNIS_SCENE_PLAY"', self.text)
-        self.assertNotIn('SceneAudit.summarizeWorld(Workspace:FindFirstChild("GeneratedWorld_Austin"))', self.text)
+    def test_play_probe_emits_scene_markers_via_shared_scene_audit_helper(self) -> None:
+        play_probe_block = re.search(
+            r"run_play_probe_via_mcp\(\) \{\n(?P<body>.*?)\n\}\n\nlog_effective_play_camera_state",
+            self.text,
+            re.DOTALL,
+        )
+        self.assertIsNotNone(play_probe_block, "run_play_probe_via_mcp function not found")
+        body = play_probe_block.group("body")
+        self.assertIn('scene_marker_luau = os.environ["SCENE_MARKER_LUAU"]', body)
+        self.assertIn("local SceneAudit = require(ServerScriptService.ImportService.SceneAudit)", body)
+        self.assertIn("local CanonicalWorldContract = require(ServerScriptService.ImportService.CanonicalWorldContract)", body)
+        self.assertIn("local function resolvePlayWorldRoot()", body)
+        self.assertIn("local firstScene = SceneAudit.summarizeWorld(resolvePlayWorldRoot())", body)
+        self.assertIn('emitSceneMarkers(\n    "ARNIS_SCENE_PLAY",\n    "play",', body)
+        self.assertIn('worldIdentity = CanonicalWorldContract.resolveCanonicalManifestFamily("play")', body)
+        self.assertIn('chunkEnvelopeKind = "runtime_resident"', body)
 
     def test_play_probe_reports_world_root_candidates_and_counts(self) -> None:
         self.assertIn("local function summarizeWorldRoot(root)", self.text)
+        self.assertIn('local canonicalWorldRootName = Workspace:GetAttribute("ArnisWorldRootName")', self.text)
+        self.assertIn('local canonicalRoot = canonicalWorldRootName and Workspace:FindFirstChild(canonicalWorldRootName) or nil', self.text)
         self.assertIn('local generatedAustin = Workspace:FindFirstChild("GeneratedWorld_Austin")', self.text)
         self.assertIn('local generatedGeneric = Workspace:FindFirstChild("GeneratedWorld")', self.text)
-        self.assertIn('generatedRoot = summarizeWorldRoot(generatedAustin or generatedGeneric)', self.text)
-        self.assertIn('generatedAustin = summarizeWorldRoot(generatedAustin)', self.text)
-        self.assertIn('generatedGeneric = summarizeWorldRoot(generatedGeneric)', self.text)
+        self.assertIn('generatedRoot = summarizeWorldRoot(canonicalRoot or generatedAustin or generatedGeneric)', self.text)
         self.assertIn('payload.austinStatus = Workspace:GetAttribute("VertigoAustinStatus")', self.text)
         self.assertIn('payload.austinManifestName = Workspace:GetAttribute("VertigoAustinManifestName")', self.text)
         self.assertIn('payload.austinWorldRootName = Workspace:GetAttribute("VertigoAustinWorldRootName")', self.text)
         self.assertIn('payload.austinWorldRootChildCount = Workspace:GetAttribute("VertigoAustinWorldRootChildCount")', self.text)
         self.assertIn('payload.austinWorldRootDescendantCount = Workspace:GetAttribute("VertigoAustinWorldRootDescendantCount")', self.text)
+        self.assertIn('payload.canonicalWorldRootName = Workspace:GetAttribute("ArnisWorldRootName")', self.text)
         self.assertIn('payload.bootstrapState = Workspace:GetAttribute("ArnisAustinBootstrapState")', self.text)
         self.assertIn('payload.bootstrapStateTrace = Workspace:GetAttribute("ArnisAustinBootstrapStateTrace")', self.text)
         self.assertIn('payload.bootstrapDuplicateCount = Workspace:GetAttribute("ArnisAustinBootstrapDuplicateCount")', self.text)
         self.assertIn('payload.bootstrapEntryCount = Workspace:GetAttribute("ArnisAustinBootstrapEntryCount")', self.text)
         self.assertIn('payload.bootstrapLastScriptPath = Workspace:GetAttribute("ArnisAustinBootstrapLastScriptPath")', self.text)
 
+    def test_edit_probe_prefers_canonical_world_root_name_over_preview_constant(self) -> None:
+        self.assertIn("local CanonicalWorldContract = require(ServerScriptService.ImportService.CanonicalWorldContract)", self.text)
+        self.assertIn("local AustinPreviewBuilder = require(ServerScriptService.StudioPreview.AustinPreviewBuilder)", self.text)
+        self.assertIn('local canonicalWorldRootName = Workspace:GetAttribute("ArnisWorldRootName")', self.text)
+        self.assertIn('local root = canonicalWorldRootName and Workspace:FindFirstChild(canonicalWorldRootName)', self.text)
+        self.assertIn('emitSceneMarkers(\n    "ARNIS_SCENE_EDIT",\n    "edit",', self.text)
+        self.assertIn('canonicalWorldRootName or "GeneratedWorld_AustinPreview"', self.text)
+        self.assertIn('worldIdentity = CanonicalWorldContract.resolveCanonicalManifestFamily("edit")', self.text)
+        self.assertIn('chunkEnvelopeKind = "bounded_preview"', self.text)
+        self.assertIn('AustinPreviewBuilder.LOAD_RADIUS', self.text)
+
+    def test_edit_action_path_emits_contract_metadata_in_scene_marker(self) -> None:
+        self.assertIn('local CanonicalWorldContract = require(ServerScriptService.ImportService.CanonicalWorldContract)', self.text)
+        self.assertIn('local AustinPreviewBuilder = require(previewBuilderModule)', self.text)
+        self.assertIn('local previewLoadRadius = AustinPreviewBuilder.LOAD_RADIUS', self.text)
+        self.assertIn('emitSceneMarkers("ARNIS_SCENE_EDIT", "edit", resolvePreviewWorldRootName(), previewLoadRadius, scene, {', self.text)
+        self.assertNotIn('emitSceneMarkers("ARNIS_SCENE_EDIT", "edit", resolvePreviewWorldRootName(), 1024, scene)', self.text)
+        self.assertIn('worldIdentity = CanonicalWorldContract.resolveCanonicalManifestFamily("edit")', self.text)
+        self.assertIn('chunkEnvelopeKind = "bounded_preview"', self.text)
+
+    def test_play_action_path_emits_runtime_load_radius_from_runaustin(self) -> None:
+        self.assertIn("local RunAustin = require(ServerScriptService.ImportService.RunAustin)", self.text)
+        self.assertIn('local runtimeLoadRadius = RunAustin.LOAD_RADIUS', self.text)
+        self.assertIn('emitSceneMarkers(\n    "ARNIS_SCENE_PLAY",\n    "play",', self.text)
+        self.assertIn("runtimeLoadRadius,", self.text)
+        self.assertNotIn('emitSceneMarkers(\n    "ARNIS_SCENE_PLAY",\n    "play",\n    firstSample.canonicalWorldRootName or firstSample.austinWorldRootName or "GeneratedWorld_Austin",\n    1024,', self.text)
+
     def test_play_probe_captures_ordered_bootstrap_state_trace(self) -> None:
+        self.assertIn('payload.bootstrapStateTrace = Workspace:GetAttribute("ArnisAustinBootstrapStateTrace")', self.text)
+        self.assertIn('payload.bootstrapDuplicateCount = Workspace:GetAttribute("ArnisAustinBootstrapDuplicateCount")', self.text)
+        self.assertIn('payload.bootstrapAttemptId = Workspace:GetAttribute("ArnisAustinBootstrapAttemptId")', self.text)
+        self.assertIn('payload.bootstrapState = Workspace:GetAttribute("ArnisAustinBootstrapState")', self.text)
+        self.assertIn('payload.bootstrapLastScriptPath = Workspace:GetAttribute("ArnisAustinBootstrapLastScriptPath")', self.text)
         self.assertIn('payload.bootstrapStateTrace = Workspace:GetAttribute("ArnisAustinBootstrapStateTrace")', self.text)
         self.assertIn("validate_play_bootstrap_trace()", self.text)
         self.assertIn('validate_play_bootstrap_trace "$ACTIVE_LOG"', self.text)
+        self.assertIn('rg -q "ARNIS_CLIENT_BOOTSTRAP " "$summary_source"', self.text)
+        self.assertIn('client_bootstrap_json="${latest_client_bootstrap#*ARNIS_CLIENT_BOOTSTRAP }"', self.text)
+        self.assertIn('payload = json.loads(sys.argv[1])', self.text)
         self.assertIn('trace_text = payload.get("bootstrapStateTrace")', self.text)
         self.assertIn('duplicate_count = payload.get("bootstrapDuplicateCount")', self.text)
         self.assertIn('if duplicate_count not in (None, 0):', self.text)
@@ -445,11 +564,7 @@ class RunStudioHarnessTests(unittest.TestCase):
         self.assertIn('local humanoid = character and character:FindFirstChildOfClass("Humanoid")', self.text)
         self.assertIn('cameraType = camera and tostring(camera.CameraType) or nil', self.text)
         self.assertIn('cameraSubject = camera and camera.CameraSubject and camera.CameraSubject:GetFullName() or nil', self.text)
-        self.assertIn('cameraFocus = camera and vectorToTable(camera.Focus.Position) or nil', self.text)
-        self.assertIn('cameraPosition = camera and vectorToTable(camera.CFrame.Position) or nil', self.text)
         self.assertIn('humanoidState = humanoid and tostring(humanoid:GetState()) or nil', self.text)
-        self.assertIn('humanoidFloorMaterial = humanoid and tostring(humanoid.FloorMaterial) or nil', self.text)
-        self.assertIn('humanoidHealth = humanoid and humanoid.Health or nil', self.text)
         self.assertIn('clientCameraType = player and player:GetAttribute("ArnisClientCameraType") or nil', self.text)
         self.assertIn('clientCameraSubject = player and player:GetAttribute("ArnisClientCameraSubject") or nil', self.text)
         self.assertIn('clientCameraSubjectClass = player and player:GetAttribute("ArnisClientCameraSubjectClass") or nil', self.text)
@@ -460,11 +575,22 @@ class RunStudioHarnessTests(unittest.TestCase):
         self.assertIn('minimapSnapshotCount = player and player:GetAttribute("ArnisMinimapSnapshotCount") or nil', self.text)
         self.assertIn('minimapFullscreen = player and player:GetAttribute("ArnisMinimapFullscreen") or nil', self.text)
         self.assertIn('minimapError = player and player:GetAttribute("ArnisMinimapError") or nil', self.text)
-        self.assertIn('vehicleControllerReady = player and player:GetAttribute("ArnisVehicleControllerReady") or nil', self.text)
-        self.assertIn("local function summarizeNearbyOverheadRoofParts(worldRoot, origin, excludeInstances)", self.text)
-        self.assertIn("local function summarizeNearbyBuildingModels(worldRoot, origin)", self.text)
-        self.assertIn('payload.nearbyOverheadRoofParts = summarizeNearbyOverheadRoofParts(', self.text)
-        self.assertIn('payload.nearbyBuildingModels = summarizeNearbyBuildingModels(', self.text)
+
+    def test_play_probe_server_fallback_payload_stays_compact_for_log_json(self) -> None:
+        self.assertNotIn("local function summarizeNearbyOverheadRoofParts(worldRoot, origin, excludeInstances)", self.text)
+        self.assertNotIn("local function summarizeNearbyBuildingModels(worldRoot, origin)", self.text)
+        self.assertNotIn('payload.nearbyOverheadRoofParts = summarizeNearbyOverheadRoofParts(', self.text)
+        self.assertNotIn('payload.nearbyBuildingModels = summarizeNearbyBuildingModels(', self.text)
+        self.assertIn('generatedRoot = summarizeWorldRoot(canonicalRoot or generatedAustin or generatedGeneric)', self.text)
+        self.assertNotIn('generatedAustin = summarizeWorldRoot(generatedAustin)', self.text)
+        self.assertNotIn('generatedGeneric = summarizeWorldRoot(generatedGeneric)', self.text)
+        self.assertNotIn('path = root:GetFullName()', self.text)
+        self.assertNotIn('childNames = childNames', self.text)
+        self.assertNotIn('cameraFocus = camera and vectorToTable(camera.Focus.Position) or nil', self.text)
+        self.assertNotIn('cameraPosition = camera and vectorToTable(camera.CFrame.Position) or nil', self.text)
+        self.assertNotIn('humanoidFloorMaterial = humanoid and tostring(humanoid.FloorMaterial) or nil', self.text)
+        self.assertNotIn('humanoidHealth = humanoid and humanoid.Health or nil', self.text)
+        self.assertNotIn('vehicleControllerReady = player and player:GetAttribute("ArnisVehicleControllerReady") or nil', self.text)
 
     def test_play_screenshot_is_captured_after_probe_settles(self) -> None:
         play_block = self.text.split('log "entering Play mode"', 1)[1]
@@ -472,6 +598,24 @@ class RunStudioHarnessTests(unittest.TestCase):
             play_block.index('run_probe_best_effort "play" 8'),
             play_block.index('capture_studio_screenshot "play"'),
         )
+
+    def test_play_transition_stops_live_vsync_before_entering_play(self) -> None:
+        play_block = self.text.split("elif [[ $DO_PLAY -eq 1 ]]; then", 1)[1]
+        self.assertIn('log "stopping Vertigo Sync server before Play to avoid duplicate bootstrap materialization"', play_block)
+        self.assertIn("stop_vsync_server", play_block)
+        self.assertIn('log "entering Play mode"', play_block)
+        self.assertLess(
+            play_block.index('log "stopping Vertigo Sync server before Play to avoid duplicate bootstrap materialization"'),
+            play_block.index('log "entering Play mode"'),
+        )
+
+    def test_successful_play_probe_skips_redundant_best_effort_play_probe(self) -> None:
+        play_block = self.text.split("elif [[ $DO_PLAY -eq 1 ]]; then", 1)[1]
+        self.assertIn("play_probe_completed_via_mcp=0", play_block)
+        self.assertIn("play_probe_completed_via_mcp=1", play_block)
+        self.assertIn('if [[ $play_probe_completed_via_mcp -eq 1 ]]; then', play_block)
+        self.assertIn('log "skipping redundant play MCP probe after successful authoritative play proof"', play_block)
+        self.assertIn('run_probe_best_effort "play" 8', play_block)
 
     def test_play_probe_keeps_play_session_alive_until_harness_capture(self) -> None:
         self.assertIn("play_probe_succeeded = False", self.text)
@@ -510,11 +654,27 @@ class RunStudioHarnessTests(unittest.TestCase):
 
     def test_harness_treats_client_world_marker_as_authoritative_play_signal(self) -> None:
         self.assertIn('log_effective_play_world_state()', self.text)
-        self.assertIn('rg -q "ARNIS_CLIENT_WORLD " "$summary_source"', self.text)
-        self.assertIn('grep -E "ARNIS_CLIENT_WORLD " "$summary_source" | tail -n 1', self.text)
+        self.assertIn('rg -q "ARNIS_CLIENT_WORLD_COMPACT " "$summary_source"', self.text)
+        self.assertIn('grep -E "ARNIS_CLIENT_WORLD_COMPACT " "$summary_source" | tail -n 1', self.text)
         self.assertIn('play world verdict (authoritative client):', self.text)
         self.assertIn('play world verdict (server fallback):', self.text)
-        self.assertIn('ARNIS_CLIENT_WORLD|ARNIS_CLIENT_CAMERA|ARNIS_CLIENT_MINIMAP|ARNIS_MCP_PLAY|ARNIS_MCP_PLAY_LATE', self.text)
+        self.assertIn('ARNIS_CLIENT_WORLD_COMPACT|ARNIS_CLIENT_WORLD|ARNIS_CLIENT_CAMERA|ARNIS_CLIENT_MINIMAP|ARNIS_MCP_PLAY|ARNIS_MCP_PLAY_LATE', self.text)
+        self.assertIn('bootstrapStateTrace', self.text)
+        self.assertIn('bootstrapDuplicateCount', self.text)
+
+    def test_harness_treats_client_bootstrap_marker_as_authoritative_bootstrap_signal(self) -> None:
+        self.assertIn('ARNIS_CLIENT_BOOTSTRAP ', self.text)
+        self.assertIn('grep -E "ARNIS_CLIENT_BOOTSTRAP " "$summary_source" | tail -n 1', self.text)
+        self.assertIn('play bootstrap trace verdict (authoritative client bootstrap marker): valid', self.text)
+        self.assertIn('ARNIS_CLIENT_BOOTSTRAP|ARNIS_CLIENT_WORLD_COMPACT|ARNIS_CLIENT_WORLD|ARNIS_CLIENT_CAMERA|ARNIS_CLIENT_MINIMAP|ARNIS_MCP_PLAY|ARNIS_MCP_PLAY_LATE', self.text)
+
+    def test_embedded_python_uses_harness_root_env_not_machine_specific_repo_paths(self) -> None:
+        self.assertNotIn("/Users/adpena/Projects/arnis-roblox", self.text)
+        self.assertNotIn("/Users/adpena/Projects/vertigo", self.text)
+        self.assertIn('HARNESS_ROOT_DIR="$ROOT_DIR"', self.text)
+        self.assertIn('HARNESS_VSYNC_REPO_DIR="$VSYNC_REPO_DIR"', self.text)
+        self.assertIn('root = Path(os.environ["HARNESS_ROOT_DIR"])', self.text)
+        self.assertIn('vsync_root = Path(os.environ["HARNESS_VSYNC_REPO_DIR"])', self.text)
 
     def test_play_probe_wall_timeout_exceeds_inner_mcp_budget(self) -> None:
         self.assertIn('local mcp_wall_timeout=$((PLAY_WAIT_SECONDS + 55))', self.text)
@@ -644,6 +804,13 @@ class RunStudioHarnessTests(unittest.TestCase):
         self.assertIn('local edit_html="$scene_audit_dir/arnis-scene-fidelity-edit.html"', self.text)
         self.assertIn('local play_json="$scene_audit_dir/arnis-scene-fidelity-play.json"', self.text)
         self.assertIn('local play_html="$scene_audit_dir/arnis-scene-fidelity-play.html"', self.text)
+        self.assertIn('local parity_json="$scene_audit_dir/arnis-scene-parity.json"', self.text)
+        self.assertIn('local parity_html="$scene_audit_dir/arnis-scene-parity.html"', self.text)
+
+    def test_scene_fidelity_audits_use_raw_studio_log_instead_of_slice_file(self) -> None:
+        self.assertIn('local audit_log="$ACTIVE_LOG"', self.text)
+        self.assertNotIn('audit_log="$LOG_SLICE_FILE"', self.text)
+        self.assertIn('--log "$audit_log" \\', self.text)
 
     def test_scene_fidelity_audits_prefer_sqlite_manifest_store_when_available(self) -> None:
         self.assertIn('local manifest_sqlite_path="$ROOT_DIR/rust/out/austin-manifest.sqlite"', self.text)
@@ -651,6 +818,20 @@ class RunStudioHarnessTests(unittest.TestCase):
         self.assertIn('manifest_scene_index_args=(--manifest-sqlite "$manifest_sqlite_path")', self.text)
         self.assertIn('manifest_scene_index_args=(--manifest "$manifest_path")', self.text)
         self.assertIn('"${manifest_scene_index_args[@]}"', self.text)
+
+    def test_scene_fidelity_audits_emit_edit_play_parity_when_both_reports_exist(self) -> None:
+        self.assertIn('local parity_script="$ROOT_DIR/scripts/scene_parity_audit.py"', self.text)
+        self.assertIn('if rg -q "ARNIS_SCENE_EDIT " "$audit_log"; then', self.text)
+        self.assertIn('if rg -q "ARNIS_SCENE_PLAY " "$audit_log"; then', self.text)
+        self.assertNotIn('if rg -q "^ARNIS_SCENE_EDIT " "$audit_log"; then', self.text)
+        self.assertNotIn('if rg -q "^ARNIS_SCENE_PLAY " "$audit_log"; then', self.text)
+        self.assertIn('if [[ -f "$edit_json" && -f "$play_json" && -f "$parity_script" ]]; then', self.text)
+        self.assertIn('log "writing scene parity artifact"', self.text)
+        self.assertIn('python3 "$parity_script" \\', self.text)
+        self.assertIn('--edit-report "$edit_json" \\', self.text)
+        self.assertIn('--play-report "$play_json" \\', self.text)
+        self.assertIn('--json-out "$parity_json" \\', self.text)
+        self.assertIn('--html-out "$parity_html"', self.text)
 
     def test_harness_fails_fast_on_heavy_preview_source_unless_explicitly_allowed(self) -> None:
         self.assertIn("preview_source_looks_heavy()", self.text)

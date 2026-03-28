@@ -116,8 +116,9 @@ Generated Lua shard indexes carry the same metadata plus `shards` for lazy loadi
 
 - `featureCount`: optional coarse aggregate hint for chunk-level authored content
 - `streamingCost`: optional aggregate hint for weighted import cost used by chunk scheduling
+- `estimatedMemoryCost`: optional aggregate hint for memory-aware scheduling and residency guards
 - `partitionVersion`: scheduling-layer contract tag for the attached subplans
-- `subplans`: ordered scheduling metadata with per-subplan `id`, `layer`, `featureCount`, `streamingCost`, and optional `bounds`
+- `subplans`: ordered scheduling metadata with per-subplan `id`, `layer`, `featureCount`, `streamingCost`, optional `estimatedMemoryCost`, and optional `bounds`
 
 These fields do not change manifest truth or chunk contents. They exist so preview/runtime loaders
 can choose a better import order without dropping any source geometry or metadata. `partitionVersion`

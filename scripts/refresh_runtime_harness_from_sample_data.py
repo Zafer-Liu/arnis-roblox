@@ -30,6 +30,8 @@ from refresh_preview_from_sample_data import (  # noqa: E402
     TARGET_CHUNK_IDS,
     _coerce_feature_count,
     _format_lua_value,
+    build_identity_summary,
+    build_minimap_basis_summary,
     count_chunk_features,
     derive_preview_chunk_ids,
     fragment_preview_chunk,
@@ -274,6 +276,8 @@ def write_runtime_harness_index(
     *,
     canonical_anchor_position: tuple[float, float, float],
     chunk_size_studs: float,
+    identity_summary: dict[str, Any] | None = None,
+    minimap_basis: dict[str, Any] | None = None,
 ) -> None:
     anchor_x, anchor_y, anchor_z = canonical_anchor_position
     lines = [
@@ -299,10 +303,18 @@ def write_runtime_harness_index(
         '            "runtime harness subset derived from rust/out/austin-manifest.json",',
         '            "used only for bounded Studio play harness runs; full Austin manifests remain runtime fallbacks",',
         "        },",
-        "    },",
-        f'    shardFolder = "{RUNTIME_HARNESS_SHARD_FOLDER}",',
-        "    shards = {",
     ]
+    if identity_summary is not None:
+        lines.append(f"        identitySummary = {_format_lua_value(identity_summary)},")
+    if minimap_basis is not None:
+        lines.append(f"        minimapBasis = {_format_lua_value(minimap_basis)},")
+    lines.extend(
+        [
+            "    },",
+            f'    shardFolder = "{RUNTIME_HARNESS_SHARD_FOLDER}",',
+            "    shards = {",
+        ]
+    )
 
     for shard_name in shard_names:
         lines.append(f'        "{shard_name}",')
@@ -331,6 +343,8 @@ def write_runtime_harness_index(
             lines.append(f'            featureCount = {chunk_ref["featureCount"]},')
         if "streamingCost" in chunk_ref:
             lines.append(f'            streamingCost = {chunk_ref["streamingCost"]},')
+        if "estimatedMemoryCost" in chunk_ref:
+            lines.append(f'            estimatedMemoryCost = {chunk_ref["estimatedMemoryCost"]},')
         if chunk_ref.get("subplans") is not None:
             lines.append(f'            subplans = {_format_lua_value(chunk_ref["subplans"])},')
         shard_list = ", ".join(f'"{shard_name}"' for shard_name in chunk_ref["shards"])
@@ -381,7 +395,7 @@ def main() -> int:
             "z": origin_studs["z"],
             "shards": [],
         }
-        for key in ("featureCount", "streamingCost", "partitionVersion", "subplans"):
+        for key in ("featureCount", "streamingCost", "estimatedMemoryCost", "partitionVersion", "subplans"):
             if chunk_ref.get(key) is not None:
                 harness_chunk_ref[key] = chunk_ref[key]
         harness_chunk_refs.append((chunk_id, harness_chunk_ref))
@@ -402,6 +416,12 @@ def main() -> int:
             shard_index += 1
 
     total_features = compute_total_features(harness_chunk_refs, source_chunks)
+    identity_summary = build_identity_summary(harness_chunk_ids, source_chunks)
+    minimap_basis = build_minimap_basis_summary(
+        harness_chunk_ids,
+        canonical_anchor_position=canonical_anchor_position,
+        chunk_size_studs=chunk_size_studs,
+    )
     write_runtime_harness_index(
         schema_version,
         total_features,
@@ -409,6 +429,8 @@ def main() -> int:
         shard_names,
         canonical_anchor_position=canonical_anchor_position,
         chunk_size_studs=chunk_size_studs,
+        identity_summary=identity_summary,
+        minimap_basis=minimap_basis,
     )
 
     print(f"Refreshed runtime harness sample-data from {SOURCE_JSON}")

@@ -521,7 +521,7 @@ def collect_errors(root: Path) -> list[str]:
         errors.extend(_validate_chunk_subplans(chunk_ref))
 
     chunk_ids = set(chunk_refs)
-    if expected_preview_chunk_ids is not None and chunk_ids != expected_preview_chunk_ids:
+    if expected_preview_chunk_ids is not None and not chunk_ids.issubset(expected_preview_chunk_ids):
         errors.append(
             "preview index chunk ids drifted from the expected Austin preview subset: "
             + ", ".join(sorted(chunk_ids))

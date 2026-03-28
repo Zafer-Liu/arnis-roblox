@@ -154,6 +154,84 @@ class JsonManifestToShardedLuaTests(unittest.TestCase):
             self.assertIn('featureCount=1,streamingCost=40.0,bounds={minX=0,minY=0,maxX=128,maxY=128}', index_text)
             self.assertIn('{id="roads",layer="roads",featureCount=2,streamingCost=4.5}', index_text)
 
+    def test_chunk_refs_preserve_estimated_memory_cost_metadata(self) -> None:
+        manifest = {
+            "schemaVersion": "0.4.0",
+            "meta": {
+                "worldName": "EstimatedMemoryMetaTest",
+                "generator": "test",
+                "source": "test",
+                "metersPerStud": 0.3,
+                "chunkSizeStuds": 256,
+                "bbox": {"minLat": 0, "minLon": 0, "maxLat": 1, "maxLon": 1},
+            },
+            "chunkRefs": [
+                {
+                    "id": "0_0",
+                    "originStuds": {"x": 0, "y": 0, "z": 0},
+                    "featureCount": 3,
+                    "streamingCost": 12.0,
+                    "estimatedMemoryCost": 96.0,
+                    "partitionVersion": "subplans.v1",
+                    "subplans": [
+                        {
+                            "id": "terrain",
+                            "layer": "terrain",
+                            "featureCount": 1,
+                            "streamingCost": 8.0,
+                            "estimatedMemoryCost": 64.0,
+                        },
+                        {
+                            "id": "roads",
+                            "layer": "roads",
+                            "featureCount": 2,
+                            "streamingCost": 4.0,
+                            "estimatedMemoryCost": 32.0,
+                        },
+                    ],
+                }
+            ],
+            "chunks": [
+                {
+                    "id": "0_0",
+                    "originStuds": {"x": 0, "y": 0, "z": 0},
+                    "roads": [{}, {}],
+                }
+            ],
+        }
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            temp_root = Path(temp_dir)
+            manifest_path = temp_root / "manifest.json"
+            out_dir = temp_root / "out"
+            manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
+
+            subprocess.run(
+                [
+                    "python3",
+                    str(SCRIPT),
+                    "--json",
+                    str(manifest_path),
+                    "--output-dir",
+                    str(out_dir),
+                    "--index-name",
+                    "TestManifestIndex",
+                    "--shard-folder",
+                    "TestManifestChunks",
+                ],
+                check=True,
+                cwd=ROOT,
+            )
+
+            schema = json.loads(SCHEMA.read_text(encoding="utf-8"))
+            self.assertIn("estimatedMemoryCost", schema["$defs"]["chunkRef"]["properties"])
+            self.assertIn("estimatedMemoryCost", schema["$defs"]["chunkSubplan"]["properties"])
+
+            index_text = (out_dir / "TestManifestIndex.lua").read_text(encoding="utf-8")
+            self.assertIn("estimatedMemoryCost=96.0", index_text)
+            self.assertIn("streamingCost=8.0,estimatedMemoryCost=64.0", index_text)
+            self.assertIn("streamingCost=4.0,estimatedMemoryCost=32.0", index_text)
+
     def test_chunk_refs_do_not_derive_top_level_counts_when_subplans_exist(self) -> None:
         manifest = {
             "schemaVersion": "0.4.0",
@@ -477,6 +555,7 @@ class JsonManifestToShardedLuaTests(unittest.TestCase):
                     origin_z REAL NOT NULL,
                     feature_count INTEGER NOT NULL,
                     streaming_cost REAL NOT NULL,
+                    estimated_memory_cost REAL,
                     partition_version TEXT NOT NULL,
                     subplans_json TEXT NOT NULL,
                     chunk_json TEXT NOT NULL
@@ -511,9 +590,9 @@ class JsonManifestToShardedLuaTests(unittest.TestCase):
                 """
                 INSERT INTO manifest_chunks (
                     chunk_id, origin_x, origin_y, origin_z,
-                    feature_count, streaming_cost, partition_version,
+                    feature_count, streaming_cost, estimated_memory_cost, partition_version,
                     subplans_json, chunk_json
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     "0_0",
@@ -522,6 +601,7 @@ class JsonManifestToShardedLuaTests(unittest.TestCase):
                     0.0,
                     2,
                     20.0,
+                    44.0,
                     "subplans.v1",
                     json.dumps([{"id": "roads", "layer": "roads", "featureCount": 2, "streamingCost": 8.0}]),
                     json.dumps(
@@ -562,6 +642,7 @@ class JsonManifestToShardedLuaTests(unittest.TestCase):
             index_text = (out_dir / "TestManifestIndex.lua").read_text(encoding="utf-8")
             self.assertIn('schemaVersion="0.4.0"', index_text)
             self.assertIn("featureCount=2", index_text)
+            self.assertIn("estimatedMemoryCost=44.0", index_text)
             self.assertIn('partitionVersion="subplans.v1"', index_text)
 
 

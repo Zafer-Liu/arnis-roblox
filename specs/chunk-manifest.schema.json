@@ -112,6 +112,7 @@
         "layer": { "type": "string" },
         "featureCount": { "type": "integer", "minimum": 0 },
         "streamingCost": { "type": "number", "minimum": 0 },
+        "estimatedMemoryCost": { "type": "number", "minimum": 0 },
         "bounds": { "$ref": "#/$defs/subplanBounds" }
       },
       "additionalProperties": false
@@ -124,6 +125,7 @@
         "originStuds": { "$ref": "#/$defs/point3" },
         "featureCount": { "type": "integer", "minimum": 0 },
         "streamingCost": { "type": "number", "minimum": 0 },
+        "estimatedMemoryCost": { "type": "number", "minimum": 0 },
         "partitionVersion": { "type": "string" },
         "subplans": {
           "type": "array",

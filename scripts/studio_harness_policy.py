@@ -62,11 +62,11 @@ def decide_cleanup_close(
     if not harness_owns_studio:
         return {"should_close": False, "reason": "not_owned"}
     if exit_code != 0:
-        return {"should_close": False, "reason": "failed_run"}
+        return {"should_close": True, "reason": "failed_run_cleanup"}
     if session_status == "blocked_dialog":
-        return {"should_close": False, "reason": "blocked_dialog"}
+        return {"should_close": True, "reason": "blocked_dialog_cleanup"}
     if session_status == "transitioning":
-        return {"should_close": False, "reason": "transitioning"}
+        return {"should_close": True, "reason": "transitioning_cleanup"}
     return {"should_close": True, "reason": "success"}
 
 

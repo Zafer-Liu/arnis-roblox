@@ -59,17 +59,17 @@ return function()
         return { "0_0", "1_0" }
     end
 
-    local previewIds, previewRadius = AustinPreviewRequest.SelectChunkIds(handle, nil, { mode = "preview" }, 1024)
-    Assert.equal(previewRadius, 1024, "expected preview requests to keep the default preview radius")
+    local previewIds, previewRadius = AustinPreviewRequest.SelectChunkIds(handle, nil, { mode = "preview" }, 1500)
+    Assert.equal(previewRadius, 1500, "expected preview requests to keep the default preview radius")
     Assert.equal(#previewIds, 2, "expected preview requests to keep radius-limited chunk selection")
-    Assert.equal(selectionCalls[1], "1024", "expected preview requests to pass the preview radius to the handle")
+    Assert.equal(selectionCalls[1], "1500", "expected preview requests to pass the preview radius to the handle")
 
-    local fullBakeIds, fullBakeRadius = AustinPreviewRequest.SelectChunkIds(handle, nil, { mode = "full_bake" }, 1024)
+    local fullBakeIds, fullBakeRadius = AustinPreviewRequest.SelectChunkIds(handle, nil, { mode = "full_bake" }, 1500)
     Assert.equal(fullBakeRadius, nil, "expected full-bake requests to clear the preview radius")
     Assert.equal(#fullBakeIds, 3, "expected full-bake requests to select all chunk ids")
     Assert.equal(selectionCalls[2], "full", "expected full-bake requests to use nil radius selection")
 
-    local exportIds, exportRadius = AustinPreviewRequest.SelectChunkIds(handle, nil, { mode = "export" }, 1024)
+    local exportIds, exportRadius = AustinPreviewRequest.SelectChunkIds(handle, nil, { mode = "export" }, 1500)
     Assert.equal(exportRadius, nil, "expected export requests to inherit full-bake radius semantics")
     Assert.equal(#exportIds, 3, "expected export requests to select all chunk ids")
     Assert.equal(selectionCalls[3], "full", "expected export requests to use nil radius selection")

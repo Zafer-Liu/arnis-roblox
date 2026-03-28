@@ -42,6 +42,9 @@ local function cloneChunkRef(chunkRef)
     if chunkRef.streamingCost ~= nil then
         cloned.streamingCost = chunkRef.streamingCost
     end
+    if chunkRef.estimatedMemoryCost ~= nil then
+        cloned.estimatedMemoryCost = chunkRef.estimatedMemoryCost
+    end
 
     if chunkRef.partitionVersion ~= nil then
         cloned.partitionVersion = chunkRef.partitionVersion
@@ -299,6 +302,9 @@ function buildChunkRefsFromShards(
                     end
                     if seedChunkRef.streamingCost ~= nil then
                         chunkRef.streamingCost = seedChunkRef.streamingCost
+                    end
+                    if seedChunkRef.estimatedMemoryCost ~= nil then
+                        chunkRef.estimatedMemoryCost = seedChunkRef.estimatedMemoryCost
                     end
                     if seedChunkRef.partitionVersion ~= nil then
                         chunkRef.partitionVersion = seedChunkRef.partitionVersion

@@ -23,6 +23,123 @@ def load_module():
 class ManifestQualityAuditTests(unittest.TestCase):
     maxDiff = None
 
+    def test_chunk_ref_alignment_surfaces_scheduler_metadata_gaps(self) -> None:
+        audit = load_module()
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            manifest_path = root / "fixture-manifest.json"
+
+            manifest = {
+                "schemaVersion": "0.4.0",
+                "meta": {
+                    "worldName": "SchedulerAuditTown",
+                    "generator": "test",
+                    "source": "pipeline-export",
+                    "metersPerStud": 1.0,
+                    "chunkSizeStuds": 256,
+                    "bbox": {
+                        "minLat": 30.0,
+                        "minLon": -97.0,
+                        "maxLat": 30.01,
+                        "maxLon": -96.99,
+                    },
+                    "totalFeatures": 1,
+                },
+                "chunks": [
+                    {
+                        "id": "0_0",
+                        "originStuds": {"x": 0, "y": 0, "z": 0},
+                        "terrain": {
+                            "cellSizeStuds": 4,
+                            "width": 2,
+                            "depth": 2,
+                            "heights": [0, 0, 0, 0],
+                            "materials": ["Grass"] * 4,
+                            "material": "Grass",
+                        },
+                        "roads": [],
+                        "buildings": [],
+                        "water": [],
+                        "props": [],
+                        "landuse": [],
+                        "barriers": [],
+                        "rails": [],
+                    },
+                    {
+                        "id": "1_0",
+                        "originStuds": {"x": 256, "y": 0, "z": 0},
+                        "terrain": {
+                            "cellSizeStuds": 4,
+                            "width": 2,
+                            "depth": 2,
+                            "heights": [0, 0, 0, 0],
+                            "materials": ["Grass"] * 4,
+                            "material": "Grass",
+                        },
+                        "roads": [],
+                        "buildings": [],
+                        "water": [],
+                        "props": [],
+                        "landuse": [],
+                        "barriers": [],
+                        "rails": [],
+                    },
+                ],
+                "chunkRefs": [
+                    {
+                        "id": "0_0",
+                        "originStuds": {"x": 0, "y": 0, "z": 0},
+                        "featureCount": 0,
+                        "streamingCost": 12,
+                        "subplans": [
+                            {
+                                "id": "buildings",
+                                "layer": "buildings",
+                                "featureCount": 0,
+                                "streamingCost": 8,
+                            }
+                        ],
+                    },
+                    {
+                        "id": "9_9",
+                        "originStuds": {"x": 2304, "y": 0, "z": 2304},
+                        "featureCount": 0,
+                        "streamingCost": 6,
+                        "estimatedMemoryCost": 6,
+                        "partitionVersion": "subplans.v1",
+                        "subplans": [
+                            {
+                                "id": "terrain",
+                                "layer": "terrain",
+                                "featureCount": 0,
+                                "streamingCost": 0,
+                                "estimatedMemoryCost": 0,
+                            }
+                        ],
+                    },
+                ],
+            }
+            manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
+
+            report = audit.build_report(manifest_path, [])
+            chunk_ref_alignment = report["summary"]["chunk_ref_alignment"]
+            codes = {finding["code"] for finding in report["findings"]}
+
+            self.assertEqual(chunk_ref_alignment["manifest_chunk_count"], 2)
+            self.assertEqual(chunk_ref_alignment["chunk_ref_count"], 2)
+            self.assertEqual(chunk_ref_alignment["missing_chunk_ref_ids"], ["1_0"])
+            self.assertEqual(chunk_ref_alignment["orphan_chunk_ref_ids"], ["9_9"])
+            self.assertEqual(chunk_ref_alignment["chunk_refs_missing_estimated_memory_cost"], 1)
+            self.assertEqual(chunk_ref_alignment["chunk_refs_missing_partition_version_with_subplans"], 1)
+            self.assertEqual(chunk_ref_alignment["subplans_missing_estimated_memory_cost"], 1)
+            self.assertEqual(chunk_ref_alignment["chunk_refs_with_subplans"], 2)
+            self.assertEqual(chunk_ref_alignment["subplan_count"], 2)
+            self.assertIn("chunk_ref_alignment_gap", codes)
+            self.assertIn("chunk_ref_estimated_memory_cost_missing", codes)
+            self.assertIn("chunk_ref_partition_version_missing", codes)
+            self.assertIn("chunk_subplan_estimated_memory_cost_missing", codes)
+
     def test_fixture_report_flags_semantic_collapse_and_renders_html(self) -> None:
         audit = load_module()
 
@@ -1049,6 +1166,228 @@ class ManifestQualityAuditTests(unittest.TestCase):
             self.assertIn("sidewalk:present", html)
             self.assertIn("highway:path", html)
 
+    def test_report_surfaces_road_signal_record_drift_for_stable_ids(self) -> None:
+        audit = load_module()
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            manifest_path = root / "fixture-manifest.json"
+            source_path = root / "fixture-overpass.json"
+            html_path = root / "report.html"
+
+            manifest = {
+                "schemaVersion": "0.4.0",
+                "meta": {
+                    "worldName": "RoadSignalDriftTown",
+                    "generator": "test",
+                    "source": "pipeline-export",
+                    "metersPerStud": 1.0,
+                    "chunkSizeStuds": 256,
+                    "bbox": {
+                        "minLat": 30.0,
+                        "minLon": -97.0,
+                        "maxLat": 30.01,
+                        "maxLon": -96.99,
+                    },
+                    "totalFeatures": 2,
+                },
+                "chunks": [
+                    {
+                        "id": "0_0",
+                        "originStuds": {"x": 0, "y": 0, "z": 0},
+                        "terrain": {
+                            "cellSizeStuds": 4,
+                            "width": 2,
+                            "depth": 2,
+                            "heights": [0, 0, 0, 0],
+                            "materials": ["Grass"] * 4,
+                            "material": "Grass",
+                        },
+                        "roads": [
+                            {
+                                "id": "osm_103",
+                                "kind": "pedestrian",
+                                "subkind": "crossing",
+                                "widthStuds": 8,
+                                "hasSidewalk": False,
+                                "sidewalk": "no",
+                                "surface": "asphalt",
+                                "lit": False,
+                                "oneway": False,
+                                "layer": 0,
+                                "maxspeed": 15,
+                                "points": [{"x": 0, "y": 0, "z": 0}, {"x": 20, "y": 0, "z": 0}],
+                            }
+                        ],
+                        "buildings": [],
+                        "water": [],
+                        "props": [],
+                        "landuse": [],
+                        "barriers": [],
+                        "rails": [],
+                    }
+                ],
+            }
+            manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
+            source_path.write_text(
+                json.dumps(
+                    {
+                        "generator": "Overpass API",
+                        "osm3s": {"timestamp_osm_base": "2026-03-20T02:00:19Z"},
+                        "elements": [
+                            {"type": "node", "id": 5, "lat": 30.003, "lon": -96.999},
+                            {"type": "node", "id": 6, "lat": 30.003, "lon": -96.998},
+                            {
+                                "type": "way",
+                                "id": 103,
+                                "nodes": [5, 6],
+                                "tags": {
+                                    "highway": "pedestrian",
+                                    "crossing": "traffic_signals",
+                                    "sidewalk": "separate",
+                                    "surface": "paving_stones",
+                                    "lit": "yes",
+                                    "oneway": "yes",
+                                    "layer": "-1",
+                                    "maxspeed": "25",
+                                },
+                            },
+                        ],
+                    }
+                ),
+                encoding="utf-8",
+            )
+
+            report = audit.build_report(manifest_path, [source_path])
+            codes = {finding["code"] for finding in report["findings"]}
+
+            self.assertIn("source_to_manifest_road_signal_drift", codes)
+            self.assertEqual(report["summary"]["road_signal_record_mismatch_count"], 1)
+            self.assertEqual(len(report["summary"]["road_signal_record_mismatches"]), 1)
+            row = report["summary"]["road_signal_record_mismatches"][0]
+            self.assertEqual(row["id"], "osm_103")
+            self.assertEqual(row["source_kind"], "pedestrian")
+            self.assertEqual(row["manifest_kind"], "pedestrian")
+            self.assertEqual(row["source_subkind"], "traffic_signals")
+            self.assertEqual(row["manifest_subkind"], "crossing")
+            self.assertEqual(row["source_sidewalk"], "separate")
+            self.assertEqual(row["manifest_sidewalk"], "no")
+            self.assertEqual(row["source_surface"], "paving_stones")
+            self.assertEqual(row["manifest_surface"], "asphalt")
+            self.assertEqual(row["source_lit"], True)
+            self.assertEqual(row["manifest_lit"], False)
+            self.assertEqual(row["source_oneway"], True)
+            self.assertEqual(row["manifest_oneway"], False)
+            self.assertEqual(row["source_layer"], -1)
+            self.assertEqual(row["manifest_layer"], 0)
+            self.assertEqual(row["source_maxspeed"], 25)
+            self.assertEqual(row["manifest_maxspeed"], 15)
+            self.assertCountEqual(
+                row["mismatched_fields"],
+                ["subkind", "sidewalk", "surface", "lit", "oneway", "layer", "maxspeed"],
+            )
+
+            audit.write_html_report(report, html_path)
+            html = html_path.read_text(encoding="utf-8")
+            self.assertIn("source_to_manifest_road_signal_drift", html)
+            self.assertIn("osm_103", html)
+
+    def test_road_signal_record_drift_dedupes_split_manifest_road_ids(self) -> None:
+        audit = load_module()
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            manifest_path = root / "fixture-manifest.json"
+            source_path = root / "fixture-overpass.json"
+
+            manifest = {
+                "schemaVersion": "0.4.0",
+                "meta": {
+                    "worldName": "RoadSignalSplitTown",
+                    "generator": "test",
+                    "source": "pipeline-export",
+                    "metersPerStud": 1.0,
+                    "chunkSizeStuds": 256,
+                    "bbox": {
+                        "minLat": 30.0,
+                        "minLon": -97.0,
+                        "maxLat": 30.01,
+                        "maxLon": -96.99,
+                    },
+                    "totalFeatures": 2,
+                },
+                "chunks": [
+                    {
+                        "id": "0_0",
+                        "originStuds": {"x": 0, "y": 0, "z": 0},
+                        "terrain": None,
+                        "roads": [
+                            {
+                                "id": "osm_200",
+                                "kind": "residential",
+                                "widthStuds": 8,
+                                "hasSidewalk": False,
+                                "surface": "gravel",
+                                "points": [{"x": 0, "y": 0, "z": 0}, {"x": 20, "y": 0, "z": 0}],
+                            }
+                        ],
+                        "buildings": [],
+                        "water": [],
+                        "props": [],
+                        "landuse": [],
+                        "barriers": [],
+                        "rails": [],
+                    },
+                    {
+                        "id": "1_0",
+                        "originStuds": {"x": 256, "y": 0, "z": 0},
+                        "terrain": None,
+                        "roads": [
+                            {
+                                "id": "osm_200",
+                                "kind": "residential",
+                                "widthStuds": 8,
+                                "hasSidewalk": False,
+                                "surface": "gravel",
+                                "points": [{"x": 0, "y": 0, "z": 0}, {"x": 20, "y": 0, "z": 0}],
+                            }
+                        ],
+                        "buildings": [],
+                        "water": [],
+                        "props": [],
+                        "landuse": [],
+                        "barriers": [],
+                        "rails": [],
+                    },
+                ],
+            }
+            manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
+            source_path.write_text(
+                json.dumps(
+                    {
+                        "generator": "Overpass API",
+                        "osm3s": {"timestamp_osm_base": "2026-03-20T02:00:19Z"},
+                        "elements": [
+                            {"type": "node", "id": 11, "lat": 30.0035, "lon": -96.9965},
+                            {"type": "node", "id": 12, "lat": 30.0036, "lon": -96.9962},
+                            {
+                                "type": "way",
+                                "id": 200,
+                                "nodes": [11, 12],
+                                "tags": {"highway": "residential", "surface": "asphalt"},
+                            },
+                        ],
+                    }
+                ),
+                encoding="utf-8",
+            )
+
+            report = audit.build_report(manifest_path, [source_path])
+
+            self.assertEqual(report["summary"]["road_signal_record_mismatch_count"], 1)
+            self.assertEqual(len(report["summary"]["road_signal_record_mismatches"]), 1)
+            self.assertEqual(report["summary"]["road_signal_record_mismatches"][0]["id"], "osm_200")
+
     def test_report_surfaces_tree_species_drift_by_source_id(self) -> None:
         audit = load_module()
 
@@ -1803,6 +2142,7 @@ class ManifestQualityAuditTests(unittest.TestCase):
 
             report = audit.build_report(manifest_path, [overpass_path, overture_path])
             source_alignment = report["summary"]["source_alignment"]
+            codes = {finding["code"] for finding in report["findings"]}
 
             self.assertEqual(source_alignment["source_building_geometry_count"], 1)
             self.assertEqual(source_alignment["raw_source_building_geometry_count"], 2)
@@ -1813,6 +2153,29 @@ class ManifestQualityAuditTests(unittest.TestCase):
             self.assertEqual(
                 source_alignment["source_duplicate_overlap_counts"]["overture_dropped_as_duplicate"],
                 1,
+            )
+            self.assertIn("source_to_manifest_overture_overlap_loss", codes)
+            self.assertIn("source_to_manifest_cross_source_provenance_loss", codes)
+            overlap_findings = [finding for finding in report["findings"] if finding["code"] == "source_to_manifest_overture_overlap_loss"]
+            self.assertEqual(len(overlap_findings), 1)
+            self.assertEqual(overlap_findings[0]["metric"], "overture_dropped_as_duplicate")
+            provenance_findings = [
+                finding
+                for finding in report["findings"]
+                if finding["code"] == "source_to_manifest_cross_source_provenance_loss"
+            ]
+            self.assertEqual(len(provenance_findings), 1)
+            self.assertEqual(provenance_findings[0]["metric"], "cross_source_provenance_loss_count")
+            self.assertEqual(report["summary"]["cross_source_provenance_loss_count"], 1)
+            self.assertEqual(report["summary"]["cross_source_provenance_loss_by_source_pair"], {"overture->osm": 1})
+            self.assertEqual(report["summary"]["cross_source_provenance_loss_records"][0]["source"], "overture")
+            self.assertEqual(
+                report["summary"]["cross_source_provenance_loss_records"][0]["manifest_matches"][0]["id"],
+                "osm_100",
+            )
+            self.assertEqual(
+                report["summary"]["cross_source_provenance_loss_records"][0]["provenance_stage"],
+                "canonical_source_dedup",
             )
             self.assertAlmostEqual(source_alignment["manifest_to_source_building_ratio"], 1.0, places=4)
 
@@ -1968,7 +2331,7 @@ class ManifestQualityAuditTests(unittest.TestCase):
                 encoding="utf-8",
             )
 
-            source_summary, bounds, _ = audit._build_source_summary(
+            source_summary, bounds, _, _ = audit._build_source_summary(
                 [overpass_path],
                 bbox={
                     "minLat": 29.9990,

@@ -199,6 +199,9 @@ def chunk_ref_metadata(chunk: dict[str, Any], metadata: dict[str, Any] | None = 
         streaming_cost = chunk_streaming_cost(chunk)
     if streaming_cost is not None:
         chunk_ref["streamingCost"] = streaming_cost
+    estimated_memory_cost = metadata.get("estimatedMemoryCost")
+    if estimated_memory_cost is not None:
+        chunk_ref["estimatedMemoryCost"] = estimated_memory_cost
 
     if metadata.get("partitionVersion") is not None:
         chunk_ref["partitionVersion"] = metadata["partitionVersion"]
@@ -242,6 +245,7 @@ def load_manifest_from_sqlite(path: Path) -> dict[str, Any]:
                 origin_z,
                 feature_count,
                 streaming_cost,
+                estimated_memory_cost,
                 partition_version,
                 subplans_json,
                 chunk_json
@@ -255,7 +259,7 @@ def load_manifest_from_sqlite(path: Path) -> dict[str, Any]:
     chunks: list[dict[str, Any]] = []
     chunk_refs: list[dict[str, Any]] = []
     for row in chunk_rows:
-        chunk_json = json.loads(row[8])
+        chunk_json = json.loads(row[9])
         if not isinstance(chunk_json, dict):
             raise SystemExit(f"manifest store {path} contains malformed chunk JSON for {row[0]}")
         chunks.append(chunk_json)
@@ -265,8 +269,9 @@ def load_manifest_from_sqlite(path: Path) -> dict[str, Any]:
                 "originStuds": {"x": row[1], "y": row[2], "z": row[3]},
                 "featureCount": row[4],
                 "streamingCost": row[5],
-                "partitionVersion": row[6],
-                "subplans": json.loads(row[7]),
+                "estimatedMemoryCost": row[6],
+                "partitionVersion": row[7],
+                "subplans": json.loads(row[8]),
             }
         )
 

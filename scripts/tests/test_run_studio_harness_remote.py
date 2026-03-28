@@ -55,6 +55,11 @@ class RunStudioHarnessRemoteTests(unittest.TestCase):
 
     def test_runs_same_remote_harness_with_remote_vsync_binary(self) -> None:
         self.assertIn('needs_vsync_build()', self.text)
+        self.assertIn('cleanup_remote_harness()', self.text)
+        self.assertIn("REMOTE_HARNESS_ACTIVE=0", self.text)
+        self.assertIn('trap \'cleanup_remote_harness\' EXIT INT TERM', self.text)
+        self.assertIn('pkill -f "bash scripts/run_studio_harness.sh" || true', self.text)
+        self.assertIn('rm -rf /tmp/arnis-studio-harness.lock', self.text)
         self.assertIn('if needs_vsync_build "$remote_vsync_dir" "$remote_vsync_target_dir"; then', self.text)
         self.assertIn('CARGO_TARGET_DIR="$remote_vsync_target_dir"', self.text)
         self.assertIn('cargo build --manifest-path "$remote_vsync_dir/Cargo.toml" --bin vsync >/dev/null', self.text)
@@ -62,6 +67,8 @@ class RunStudioHarnessRemoteTests(unittest.TestCase):
         self.assertIn('VSYNC_REPO_DIR="$remote_vsync_dir"', self.text)
         self.assertIn('VSYNC_BIN="$remote_vsync_target_dir/debug/vsync"', self.text)
         self.assertIn('bash scripts/run_studio_harness.sh "$@"', self.text)
+        self.assertIn("REMOTE_HARNESS_ACTIVE=1", self.text)
+        self.assertIn("REMOTE_HARNESS_ACTIVE=0", self.text)
 
     def test_fetches_remote_logs_and_screenshots_back_locally(self) -> None:
         self.assertIn('LOCAL_ARTIFACT_DIR="${ARNIS_REMOTE_STUDIO_ARTIFACT_DIR:-/tmp/arnis-remote-studio}"', self.text)

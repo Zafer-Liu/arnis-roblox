@@ -11,6 +11,28 @@ from scripts import studio_harness_policy
 
 
 class StudioHarnessPolicyTests(unittest.TestCase):
+    def test_cleanup_close_prefers_clean_machine_after_failed_harness_owned_run(self) -> None:
+        decision = studio_harness_policy.decide_cleanup_close(
+            exit_code=1,
+            close_on_exit=True,
+            harness_owns_studio=True,
+            session_status="ready_edit",
+        )
+
+        self.assertTrue(decision["should_close"])
+        self.assertEqual(decision["reason"], "failed_run_cleanup")
+
+    def test_cleanup_close_prefers_clean_machine_after_transitioning_harness_owned_run(self) -> None:
+        decision = studio_harness_policy.decide_cleanup_close(
+            exit_code=0,
+            close_on_exit=True,
+            harness_owns_studio=True,
+            session_status="transitioning",
+        )
+
+        self.assertTrue(decision["should_close"])
+        self.assertEqual(decision["reason"], "transitioning_cleanup")
+
     def test_fetch_readiness_uses_authoritative_readiness_endpoint(self) -> None:
         response = io.BytesIO(
             json.dumps(

@@ -1,3 +1,15 @@
+Status: Historical
+
+This plan is preserved as historical context only.
+
+Parts of the convergence work described here have landed, while the export sections remain future work. This file is no longer the active execution source of truth.
+
+Use instead:
+
+- `docs/superpowers/specs/2026-03-28-canonical-baseline-and-single-source-of-truth-design.md`
+- `docs/superpowers/plans/2026-03-28-canonical-baseline-and-single-source-of-truth.md`
+- `docs/superpowers/status/2026-03-28-canonical-baseline-status.md`
+
 # Play/Preview/Export Convergence Implementation Plan
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.

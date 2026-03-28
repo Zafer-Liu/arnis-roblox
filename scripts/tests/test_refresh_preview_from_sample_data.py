@@ -29,13 +29,61 @@ def load_module():
 
 
 class RefreshPreviewFromSampleDataTests(unittest.TestCase):
+    def test_build_preview_identity_summary_groups_source_ids_by_family_and_chunk(self) -> None:
+        module = load_module()
+
+        summary = module.build_identity_summary(
+            ["0_0", "1_0"],
+            {
+                "0_0": {
+                    "id": "0_0",
+                    "terrain": {"cellSizeStuds": 4},
+                    "roads": [{"id": "road_a"}, {"id": "road_b"}],
+                    "buildings": [{"id": "building_a"}],
+                },
+                "1_0": {
+                    "id": "1_0",
+                    "roads": [{"id": "road_c"}],
+                    "water": [{"id": "water_a"}],
+                },
+            },
+        )
+
+        self.assertEqual(summary["chunkIds"], ["0_0", "1_0"])
+        self.assertEqual(summary["terrainChunkIds"], ["0_0"])
+        self.assertEqual(summary["byFamily"]["roads"], ["road_a", "road_b", "road_c"])
+        self.assertEqual(summary["byFamily"]["buildings"], ["building_a"])
+        self.assertEqual(summary["byFamily"]["water"], ["water_a"])
+        self.assertEqual(summary["byChunk"]["0_0"]["roads"], ["road_a", "road_b"])
+        self.assertEqual(summary["byChunk"]["1_0"]["water"], ["water_a"])
+
+    def test_build_preview_minimap_basis_summary_preserves_anchor_and_chunk_ids(self) -> None:
+        module = load_module()
+
+        summary = module.build_minimap_basis_summary(
+            ["0_0", "1_0"],
+            canonical_anchor_position=(10.5, 20.25, -30.75),
+            chunk_size_studs=256,
+        )
+
+        self.assertEqual(summary["chunkIds"], ["0_0", "1_0"])
+        self.assertEqual(summary["chunkSizeStuds"], 256)
+        self.assertEqual(
+            summary["canonicalAnchor"]["positionStuds"],
+            {"x": 10.5, "y": 20.25, "z": -30.75},
+        )
+        self.assertEqual(
+            summary["canonicalAnchor"]["lookDirectionStuds"],
+            {"x": 0, "y": 0, "z": 1},
+        )
+
     def test_parse_source_index_preserves_streaming_metadata(self) -> None:
         module = load_module()
         schema, chunk_refs = module.parse_source_index(
             '\n'.join(
                 [
                     'return {schemaVersion="0.4.0",chunkRefs={',
-                    '{id="0_0",originStuds={x=0,y=1,z=2},featureCount=13,streamingCost=62,shards={"AustinManifestIndex_001","AustinManifestIndex_002"}},',
+                    '{id="0_0",originStuds={x=0,y=1,z=2},featureCount=13,streamingCost=62,estimatedMemoryCost=144,shards={"AustinManifestIndex_001","AustinManifestIndex_002"}},',
                     "}}",
                 ]
             )
@@ -47,6 +95,7 @@ class RefreshPreviewFromSampleDataTests(unittest.TestCase):
         self.assertEqual(chunk_refs["0_0"]["z"], "2")
         self.assertEqual(chunk_refs["0_0"]["featureCount"], "13")
         self.assertEqual(chunk_refs["0_0"]["streamingCost"], "62")
+        self.assertEqual(chunk_refs["0_0"]["estimatedMemoryCost"], "144")
         self.assertEqual(
             chunk_refs["0_0"]["shards"],
             ["AustinManifestIndex_001", "AustinManifestIndex_002"],
@@ -189,12 +238,14 @@ class RefreshPreviewFromSampleDataTests(unittest.TestCase):
             "0_0": {"x": "0", "y": "0", "z": "0", "shards": ["s4"]},
             "4_1": {"x": "1024", "y": "0", "z": "256", "shards": ["s5"]},
             "5_0": {"x": "1280", "y": "0", "z": "0", "shards": ["s6"]},
+            "7_0": {"x": "1792", "y": "0", "z": "0", "shards": ["s7"]},
         }
 
         selected = module.derive_preview_chunk_ids(chunk_refs, chunk_size_studs=256)
 
         self.assertIn("4_1", selected)
-        self.assertNotIn("5_0", selected)
+        self.assertIn("5_0", selected)
+        self.assertNotIn("7_0", selected)
         for chunk_id in module.TARGET_CHUNK_IDS:
             self.assertIn(chunk_id, selected)
 
@@ -242,6 +293,59 @@ class RefreshPreviewFromSampleDataTests(unittest.TestCase):
             self.assertIn("featureCount = 13", written)
             self.assertIn("streamingCost = 62", written)
             self.assertIn("positionStuds = { x = 10.5, y = 20.25, z = -30.75 }", written)
+
+    def test_write_preview_index_emits_identity_and_minimap_basis_metadata(self) -> None:
+        module = load_module()
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            preview_index = Path(temp_dir) / "AustinPreviewManifestIndex.lua"
+            original_preview_index = module.PREVIEW_INDEX
+            module.PREVIEW_INDEX = preview_index
+            try:
+                module.write_preview_index(
+                    "0.4.0",
+                    13,
+                    [
+                        (
+                            "0_0",
+                            {
+                                "x": "0",
+                                "y": "1",
+                                "z": "2",
+                                "featureCount": "13",
+                                "streamingCost": "62",
+                                "shards": ["AustinPreviewManifestIndex_001"],
+                            },
+                        )
+                    ],
+                    ["AustinPreviewManifestIndex_001"],
+                    canonical_anchor_position=(10.5, 20.25, -30.75),
+                    chunk_size_studs=256,
+                    identity_summary={
+                        "chunkIds": ["0_0"],
+                        "terrainChunkIds": ["0_0"],
+                        "byFamily": {"roads": ["road_a"]},
+                        "byChunk": {"0_0": {"roads": ["road_a"]}},
+                    },
+                    minimap_basis={
+                        "chunkIds": ["0_0"],
+                        "chunkSizeStuds": 256,
+                        "canonicalAnchor": {
+                            "positionStuds": {"x": 10.5, "y": 20.25, "z": -30.75},
+                            "lookDirectionStuds": {"x": 0, "y": 0, "z": 1},
+                        },
+                    },
+                )
+            finally:
+                module.PREVIEW_INDEX = original_preview_index
+
+            written = preview_index.read_text(encoding="utf-8")
+            self.assertIn("identitySummary = {", written)
+            self.assertIn('roads = { "road_a" }', written)
+            self.assertIn('terrainChunkIds = { "0_0" }', written)
+            self.assertIn('["0_0"] = { roads = { "road_a" } }', written)
+            self.assertIn("minimapBasis = {", written)
+            self.assertIn("chunkSizeStuds = 256", written)
 
     def test_write_preview_index_emits_total_features_sum(self) -> None:
         module = load_module()
@@ -329,6 +433,7 @@ class RefreshPreviewFromSampleDataTests(unittest.TestCase):
                                 ],
                                 "featureCount": "13",
                                 "streamingCost": "62",
+                                "estimatedMemoryCost": "144",
                                 "shards": ["AustinPreviewManifestIndex_001"],
                             },
                         )
@@ -343,6 +448,7 @@ class RefreshPreviewFromSampleDataTests(unittest.TestCase):
             written = preview_index.read_text(encoding="utf-8")
             self.assertIn('partitionVersion = "subplans.v1"', written)
             self.assertIn('subplans = {', written)
+            self.assertIn("estimatedMemoryCost = 144", written)
             self.assertIn('id = "terrain"', written)
             self.assertIn('bounds = { minX = 0, minY = 0, maxX = 128, maxY = 128 }', written)
             self.assertIn('id = "roads"', written)

@@ -60,6 +60,24 @@ local function incrementRoadSurfaceBucket(container, bucket, featureCount, sourc
     appendSourceIds(row, sourceIds)
 end
 
+local function mergeRoadSurfaceBuckets(target, source)
+    for bucket, row in pairs(source) do
+        local targetRow = target[bucket]
+        if targetRow == nil then
+            targetRow = {
+                surfacePartCount = 0,
+                featureCount = 0,
+                sourceIds = {},
+                _sourceIdSet = {},
+            }
+            target[bucket] = targetRow
+        end
+        targetRow.surfacePartCount += row.surfacePartCount or 0
+        targetRow.featureCount += row.featureCount or 0
+        appendSourceIds(targetRow, table.concat(row.sourceIds or {}, "\n"))
+    end
+end
+
 local function incrementInstanceBucket(container, bucket, sourceId)
     local row = container[bucket]
     if row == nil then
@@ -221,6 +239,174 @@ local function countDescendants(root, predicate)
         end
     end
     return count
+end
+
+local function summarizeBuildingStructure(building)
+    local summary = {
+        shellParts = 0,
+        shellMeshParts = 0,
+        roofParts = 0,
+        roofClosureParts = 0,
+        detailParts = 0,
+        facadeParts = 0,
+    }
+
+    local shellFolder = building:FindFirstChild("Shell")
+    if shellFolder then
+        for _, descendant in ipairs(shellFolder:GetDescendants()) do
+            if descendant:IsA("BasePart") then
+                summary.shellParts += 1
+                if descendant:IsA("MeshPart") then
+                    summary.shellMeshParts += 1
+                end
+                if string.find(descendant.Name, "_roof_closure", 1, true) ~= nil then
+                    summary.roofClosureParts += 1
+                elseif string.find(descendant.Name, "_roof", 1, true) ~= nil then
+                    summary.roofParts += 1
+                end
+            end
+        end
+    end
+
+    local detailFolder = building:FindFirstChild("Detail")
+    if detailFolder then
+        for _, descendant in ipairs(detailFolder:GetDescendants()) do
+            if descendant:IsA("BasePart") then
+                summary.detailParts += 1
+                if string.find(descendant.Name, "_facade_", 1, true) ~= nil then
+                    summary.facadeParts += 1
+                end
+            end
+        end
+    end
+
+    return summary
+end
+
+local function summarizeRoadFolder(roadsFolder)
+    local summary = {
+        chunkRoadParts = 0,
+        chunkSidewalkSurfaceParts = 0,
+        chunkCrossingSurfaceParts = 0,
+        chunkCurbSurfaceParts = 0,
+        roadSurfacePartCount = 0,
+        sidewalkSurfacePartCount = 0,
+        crossingSurfacePartCount = 0,
+        curbSurfacePartCount = 0,
+        roadMeshPartCount = 0,
+        roadDetailPartCount = 0,
+        roadCrosswalkStripeCount = 0,
+        roadTunnelWallCount = 0,
+        roadBridgeSupportCount = 0,
+        roadSurfacePartCountByKind = {},
+        roadSurfacePartCountBySubkind = {},
+    }
+    local detailFolder = roadsFolder:FindFirstChild("Detail")
+
+    for _, roadDescendant in ipairs(roadsFolder:GetDescendants()) do
+        if roadDescendant:IsA("BasePart") then
+            local role = roadDescendant:GetAttribute("ArnisRoadSurfaceRole")
+            if role == "road" then
+                summary.roadSurfacePartCount += 1
+            elseif role == "sidewalk" then
+                summary.sidewalkSurfacePartCount += 1
+                summary.chunkSidewalkSurfaceParts += 1
+            elseif role == "crossing" then
+                summary.crossingSurfacePartCount += 1
+                summary.chunkCrossingSurfaceParts += 1
+            elseif role == "curb" then
+                summary.curbSurfacePartCount += 1
+                summary.chunkCurbSurfaceParts += 1
+            end
+
+            if CollectionService:HasTag(roadDescendant, "Road") then
+                summary.chunkRoadParts += 1
+                if roadDescendant:IsA("MeshPart") then
+                    summary.roadMeshPartCount += 1
+                end
+            end
+
+            if roadDescendant.Name == "CrosswalkStripe" then
+                summary.roadCrosswalkStripeCount += 1
+            elseif roadDescendant.Name == "TunnelWall" then
+                summary.roadTunnelWallCount += 1
+            elseif roadDescendant.Name == "BridgeSupport" then
+                summary.roadBridgeSupportCount += 1
+            end
+
+            if role == "road" or role == "sidewalk" or role == "crossing" or role == "curb" then
+                local kindBucket = normalizeBucketValue(roadDescendant:GetAttribute("ArnisRoadKind"), "unknown")
+                local subkindFallback = role == "road" and "none" or role
+                local subkindBucket =
+                    normalizeBucketValue(roadDescendant:GetAttribute("ArnisRoadSubkind"), subkindFallback)
+                local sourceCount = roadDescendant:GetAttribute("ArnisRoadSourceCount")
+                local sourceIds = roadDescendant:GetAttribute("ArnisRoadSourceIds")
+                incrementRoadSurfaceBucket(summary.roadSurfacePartCountByKind, kindBucket, sourceCount, sourceIds)
+                incrementRoadSurfaceBucket(
+                    summary.roadSurfacePartCountBySubkind,
+                    subkindBucket,
+                    sourceCount,
+                    sourceIds
+                )
+            end
+
+            if detailFolder and roadDescendant:IsDescendantOf(detailFolder) then
+                summary.roadDetailPartCount += 1
+            end
+        end
+    end
+
+    return summary
+end
+
+local function summarizeWaterFolder(waterFolder, scene)
+    local chunkWaterSurfaceParts = 0
+    for _, waterDescendant in ipairs(waterFolder:GetDescendants()) do
+        if waterDescendant:IsA("BasePart") then
+            local waterSurfaceType = waterDescendant:GetAttribute("ArnisWaterSurfaceType")
+            if type(waterSurfaceType) ~= "string" or waterSurfaceType == "" then
+                if string.find(waterDescendant.Name, "PolygonWaterSurface", 1, true) == 1 then
+                    waterSurfaceType = "polygon"
+                elseif waterDescendant.Name == "RibbonWaterSurface" then
+                    waterSurfaceType = "ribbon"
+                end
+            end
+            if type(waterSurfaceType) == "string" and waterSurfaceType ~= "" then
+                scene.waterSurfacePartCount += 1
+                chunkWaterSurfaceParts += 1
+                incrementWaterSurfaceBucket(
+                    scene.waterSurfacePartCountByType,
+                    normalizeBucketValue(waterSurfaceType, "unknown"),
+                    waterDescendant:GetAttribute("ArnisWaterSourceId")
+                )
+                local waterKind = waterDescendant:GetAttribute("ArnisWaterKind")
+                if type(waterKind) == "string" and waterKind ~= "" then
+                    incrementWaterSurfaceBucket(
+                        scene.waterSurfacePartCountByKind,
+                        normalizeBucketValue(waterKind, "unknown"),
+                        waterDescendant:GetAttribute("ArnisWaterSourceId")
+                    )
+                end
+            end
+        end
+    end
+    return chunkWaterSurfaceParts
+end
+
+local function summarizeRailsFolder(railsFolder, scene)
+    local chunkRailReceipts = 0
+    for _, railDescendant in ipairs(railsFolder:GetDescendants()) do
+        if railDescendant:IsA("Configuration") and railDescendant:GetAttribute("ArnisRailAuditRecord") == true then
+            scene.railReceiptCount += 1
+            chunkRailReceipts += 1
+            incrementRailBucket(
+                scene.railReceiptCountByKind,
+                normalizeBucketValue(railDescendant:GetAttribute("ArnisRailKind"), "unknown"),
+                railDescendant:GetAttribute("ArnisRailSourceId")
+            )
+        end
+    end
+    return chunkRailReceipts
 end
 
 local function isRoofPart(instance)
@@ -428,26 +614,13 @@ function SceneAudit.summarizeWorld(worldRoot)
             for _, building in ipairs(buildingsFolder:GetChildren()) do
                 if building:IsA("Model") and building:GetAttribute("ArnisImportBuildingHeight") ~= nil then
                     chunkBuildingModels += 1
-                    local shellFolder = building:FindFirstChild("Shell")
-                    local detailFolder = building:FindFirstChild("Detail")
-                    local shellParts = shellFolder
-                            and countDescendants(shellFolder, function(descendant)
-                                return descendant:IsA("BasePart")
-                            end)
-                        or 0
-                    local shellMeshParts = shellFolder
-                            and countDescendants(shellFolder, function(descendant)
-                                return descendant:IsA("MeshPart")
-                            end)
-                        or 0
-                    local roofParts = shellFolder and countDescendants(shellFolder, isRoofPart) or 0
-                    local roofClosureParts = shellFolder and countDescendants(shellFolder, isRoofClosurePart) or 0
-                    local detailParts = detailFolder
-                            and countDescendants(detailFolder, function(descendant)
-                                return descendant:IsA("BasePart")
-                            end)
-                        or 0
-                    local facadeParts = detailFolder and countDescendants(detailFolder, isFacadePart) or 0
+                    local structureSummary = summarizeBuildingStructure(building)
+                    local shellParts = structureSummary.shellParts
+                    local shellMeshParts = structureSummary.shellMeshParts
+                    local roofParts = structureSummary.roofParts
+                    local roofClosureParts = structureSummary.roofClosureParts
+                    local detailParts = structureSummary.detailParts
+                    local facadeParts = structureSummary.facadeParts
 
                     scene.buildingShellPartCount += shellParts
                     scene.buildingShellMeshPartCount += shellMeshParts
@@ -511,109 +684,32 @@ function SceneAudit.summarizeWorld(worldRoot)
 
         local roadsFolder = child:FindFirstChild("Roads")
         if roadsFolder then
-            local detailFolder = roadsFolder:FindFirstChild("Detail")
-            if detailFolder then
-                scene.roadDetailPartCount += countDescendants(detailFolder, function(descendant)
-                    return descendant:IsA("BasePart")
-                end)
-            end
-
-            for _, roadDescendant in ipairs(roadsFolder:GetDescendants()) do
-                if roadDescendant:IsA("BasePart") then
-                    local role = roadDescendant:GetAttribute("ArnisRoadSurfaceRole")
-                    if role == "road" then
-                        scene.roadSurfacePartCount += 1
-                    elseif role == "sidewalk" then
-                        scene.sidewalkSurfacePartCount += 1
-                        chunkSidewalkSurfaceParts += 1
-                    elseif role == "crossing" then
-                        scene.crossingSurfacePartCount += 1
-                        chunkCrossingSurfaceParts += 1
-                    elseif role == "curb" then
-                        scene.curbSurfacePartCount += 1
-                        chunkCurbSurfaceParts += 1
-                    end
-                    if role == "road" or role == "sidewalk" or role == "crossing" or role == "curb" then
-                        local kindBucket = normalizeBucketValue(roadDescendant:GetAttribute("ArnisRoadKind"), "unknown")
-                        local subkindFallback = role == "road" and "none" or role
-                        local subkindBucket =
-                            normalizeBucketValue(roadDescendant:GetAttribute("ArnisRoadSubkind"), subkindFallback)
-                        local sourceCount = roadDescendant:GetAttribute("ArnisRoadSourceCount")
-                        local sourceIds = roadDescendant:GetAttribute("ArnisRoadSourceIds")
-                        incrementRoadSurfaceBucket(scene.roadSurfacePartCountByKind, kindBucket, sourceCount, sourceIds)
-                        incrementRoadSurfaceBucket(
-                            scene.roadSurfacePartCountBySubkind,
-                            subkindBucket,
-                            sourceCount,
-                            sourceIds
-                        )
-                    end
-                end
-                if roadDescendant:IsA("BasePart") and CollectionService:HasTag(roadDescendant, "Road") then
-                    chunkRoadParts += 1
-                    if roadDescendant:IsA("MeshPart") then
-                        scene.roadMeshPartCount += 1
-                    end
-                end
-                if roadDescendant:IsA("BasePart") and roadDescendant.Name == "CrosswalkStripe" then
-                    scene.roadCrosswalkStripeCount += 1
-                elseif roadDescendant:IsA("BasePart") and roadDescendant.Name == "TunnelWall" then
-                    scene.roadTunnelWallCount += 1
-                elseif roadDescendant:IsA("BasePart") and roadDescendant.Name == "BridgeSupport" then
-                    scene.roadBridgeSupportCount += 1
-                end
-            end
+            local roadSummary = summarizeRoadFolder(roadsFolder)
+            scene.roadDetailPartCount += roadSummary.roadDetailPartCount
+            scene.roadSurfacePartCount += roadSummary.roadSurfacePartCount
+            scene.sidewalkSurfacePartCount += roadSummary.sidewalkSurfacePartCount
+            scene.crossingSurfacePartCount += roadSummary.crossingSurfacePartCount
+            scene.curbSurfacePartCount += roadSummary.curbSurfacePartCount
+            scene.roadMeshPartCount += roadSummary.roadMeshPartCount
+            scene.roadCrosswalkStripeCount += roadSummary.roadCrosswalkStripeCount
+            scene.roadTunnelWallCount += roadSummary.roadTunnelWallCount
+            scene.roadBridgeSupportCount += roadSummary.roadBridgeSupportCount
+            mergeRoadSurfaceBuckets(scene.roadSurfacePartCountByKind, roadSummary.roadSurfacePartCountByKind)
+            mergeRoadSurfaceBuckets(scene.roadSurfacePartCountBySubkind, roadSummary.roadSurfacePartCountBySubkind)
+            chunkRoadParts += roadSummary.chunkRoadParts
+            chunkSidewalkSurfaceParts += roadSummary.chunkSidewalkSurfaceParts
+            chunkCrossingSurfaceParts += roadSummary.chunkCrossingSurfaceParts
+            chunkCurbSurfaceParts += roadSummary.chunkCurbSurfaceParts
         end
 
         local waterFolder = child:FindFirstChild("Water")
         if waterFolder then
-            for _, waterDescendant in ipairs(waterFolder:GetDescendants()) do
-                if waterDescendant:IsA("BasePart") then
-                    local waterSurfaceType = waterDescendant:GetAttribute("ArnisWaterSurfaceType")
-                    if type(waterSurfaceType) ~= "string" or waterSurfaceType == "" then
-                        if string.find(waterDescendant.Name, "PolygonWaterSurface", 1, true) == 1 then
-                            waterSurfaceType = "polygon"
-                        elseif waterDescendant.Name == "RibbonWaterSurface" then
-                            waterSurfaceType = "ribbon"
-                        end
-                    end
-                    if type(waterSurfaceType) == "string" and waterSurfaceType ~= "" then
-                        scene.waterSurfacePartCount += 1
-                        chunkWaterSurfaceParts += 1
-                        incrementWaterSurfaceBucket(
-                            scene.waterSurfacePartCountByType,
-                            normalizeBucketValue(waterSurfaceType, "unknown"),
-                            waterDescendant:GetAttribute("ArnisWaterSourceId")
-                        )
-                        local waterKind = waterDescendant:GetAttribute("ArnisWaterKind")
-                        if type(waterKind) == "string" and waterKind ~= "" then
-                            incrementWaterSurfaceBucket(
-                                scene.waterSurfacePartCountByKind,
-                                normalizeBucketValue(waterKind, "unknown"),
-                                waterDescendant:GetAttribute("ArnisWaterSourceId")
-                            )
-                        end
-                    end
-                end
-            end
+            chunkWaterSurfaceParts += summarizeWaterFolder(waterFolder, scene)
         end
 
         local railsFolder = child:FindFirstChild("Rails")
         if railsFolder then
-            for _, railDescendant in ipairs(railsFolder:GetDescendants()) do
-                if
-                    railDescendant:IsA("Configuration")
-                    and railDescendant:GetAttribute("ArnisRailAuditRecord") == true
-                then
-                    scene.railReceiptCount += 1
-                    chunkRailReceipts += 1
-                    incrementRailBucket(
-                        scene.railReceiptCountByKind,
-                        normalizeBucketValue(railDescendant:GetAttribute("ArnisRailKind"), "unknown"),
-                        railDescendant:GetAttribute("ArnisRailSourceId")
-                    )
-                end
-            end
+            chunkRailReceipts += summarizeRailsFolder(railsFolder, scene)
         end
 
         local propsFolder = child:FindFirstChild("Props")

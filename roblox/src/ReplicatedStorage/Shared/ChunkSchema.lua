@@ -89,6 +89,10 @@ local function validateChunkRef(chunkRef, label)
     validatePoint3(chunkRef.originStuds, label .. ".originStuds")
     validateOptionalNonNegativeInteger(chunkRef.featureCount, label .. ".featureCount")
     validateOptionalNonNegativeNumber(chunkRef.streamingCost, label .. ".streamingCost")
+    validateOptionalNonNegativeNumber(
+        chunkRef.estimatedMemoryCost,
+        label .. ".estimatedMemoryCost"
+    )
 
     if chunkRef.partitionVersion ~= nil then
         assertType(
@@ -129,6 +133,10 @@ local function validateChunkRef(chunkRef, label)
             validateRequiredNonNegativeNumber(
                 subplan.streamingCost,
                 subplanLabel .. ".streamingCost"
+            )
+            validateOptionalNonNegativeNumber(
+                subplan.estimatedMemoryCost,
+                subplanLabel .. ".estimatedMemoryCost"
             )
 
             if subplan.bounds ~= nil then

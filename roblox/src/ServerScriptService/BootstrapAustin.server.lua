@@ -18,59 +18,48 @@ local Lighting = game:GetService("Lighting")
 local RunService = game:GetService("RunService")
 
 local AustinSpawn = require(script.Parent.ImportService.AustinSpawn)
+local BootstrapStateMachine = require(script.Parent.ImportService.BootstrapStateMachine)
 local RunAustin = require(script.Parent.ImportService.RunAustin)
 local StreamingService = require(script.Parent.ImportService.StreamingService)
 local SubplanRollout = require(script.Parent.ImportService.SubplanRollout)
 local WorldConfig = require(game:GetService("ReplicatedStorage").Shared.WorldConfig)
 local StreamingRuntimeConfig = require(game:GetService("ReplicatedStorage").Shared.StreamingRuntimeConfig)
-local BOOTSTRAP_STATE_ATTR = "ArnisAustinBootstrapState"
-local BOOTSTRAP_STATE_TRACE_ATTR = "ArnisAustinBootstrapStateTrace"
-local BOOTSTRAP_DUPLICATE_COUNT_ATTR = "ArnisAustinBootstrapDuplicateCount"
-local BOOTSTRAP_ENTRY_COUNT_ATTR = "ArnisAustinBootstrapEntryCount"
-local BOOTSTRAP_LAST_SCRIPT_PATH_ATTR = "ArnisAustinBootstrapLastScriptPath"
+local BOOTSTRAP_STATE_ATTR = BootstrapStateMachine.STATE_ATTR
+local BOOTSTRAP_STATE_TRACE_ATTR = BootstrapStateMachine.STATE_TRACE_ATTR
+local BOOTSTRAP_DUPLICATE_COUNT_ATTR = BootstrapStateMachine.DUPLICATE_COUNT_ATTR
+local BOOTSTRAP_ENTRY_COUNT_ATTR = BootstrapStateMachine.ENTRY_COUNT_ATTR
+local BOOTSTRAP_LAST_SCRIPT_PATH_ATTR = BootstrapStateMachine.LAST_SCRIPT_PATH_ATTR
+local BOOTSTRAP_ATTEMPT_ID_ATTR = "ArnisAustinBootstrapAttemptId"
 
 if not RunService:IsStudio() then
     warn("[BootstrapAustin] Refusing to auto-import Austin outside Studio.")
     return
 end
 
-local entryCount = (Workspace:GetAttribute(BOOTSTRAP_ENTRY_COUNT_ATTR) or 0) + 1
-Workspace:SetAttribute(BOOTSTRAP_ENTRY_COUNT_ATTR, entryCount)
-Workspace:SetAttribute(BOOTSTRAP_LAST_SCRIPT_PATH_ATTR, script:GetFullName())
-
-local existingBootstrapState = Workspace:GetAttribute(BOOTSTRAP_STATE_ATTR)
-if existingBootstrapState == "failed" then
-    Workspace:SetAttribute(BOOTSTRAP_STATE_ATTR, nil)
-    Workspace:SetAttribute(BOOTSTRAP_STATE_TRACE_ATTR, nil)
-end
-
-if type(existingBootstrapState) == "string" and existingBootstrapState ~= "" and existingBootstrapState ~= "failed" then
-    local duplicateCount = (Workspace:GetAttribute(BOOTSTRAP_DUPLICATE_COUNT_ATTR) or 0) + 1
-    Workspace:SetAttribute(BOOTSTRAP_DUPLICATE_COUNT_ATTR, duplicateCount)
+local bootstrapMachine, duplicateAttempt = BootstrapStateMachine.begin(Workspace, script:GetFullName())
+if duplicateAttempt then
     warn(
         "[BootstrapAustin] Duplicate bootstrap attempt ignored. state=",
-        existingBootstrapState,
+        duplicateAttempt.state,
         " entries=",
-        entryCount,
+        duplicateAttempt.entryCount,
         " script=",
         script:GetFullName()
     )
     return
 end
 
-local bootstrapStateTrace = {}
 local function setBootstrapState(state)
     if type(state) ~= "string" or state == "" then
         return
     end
-    bootstrapStateTrace[#bootstrapStateTrace + 1] = state
-    Workspace:SetAttribute(BOOTSTRAP_STATE_ATTR, state)
-    local trace = table.clone(bootstrapStateTrace)
-    Workspace:SetAttribute(BOOTSTRAP_STATE_TRACE_ATTR, table.concat(trace, ","))
+    if Workspace:GetAttribute(BOOTSTRAP_STATE_ATTR) == state then
+        return
+    end
+    BootstrapStateMachine.transition(bootstrapMachine, state)
 end
 
-setBootstrapState("loading_manifest")
-Workspace:SetAttribute(BOOTSTRAP_DUPLICATE_COUNT_ATTR, 0)
+Workspace:GetAttribute(BOOTSTRAP_ATTEMPT_ID_ATTR)
 
 Players.CharacterAutoLoads = false
 
@@ -257,7 +246,7 @@ local result = RunAustin.run({
     phaseReporter = setBootstrapState,
 })
 if result == nil then
-    setBootstrapState("failed")
+    BootstrapStateMachine.fail(bootstrapMachine)
     warn("[BootstrapAustin] Austin manifest unavailable; skipping bootstrap.")
     if holdingPad then
         holdingPad:Destroy()

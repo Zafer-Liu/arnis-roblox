@@ -37,7 +37,8 @@ class MinimapRuntimeContractTests(unittest.TestCase):
 
     def test_server_minimap_stops_owning_camera_and_gui(self) -> None:
         self.assertIn("chunkFolder:SetAttribute(CHUNK_JSON_ATTR", self.server_minimap_text)
-        self.assertIn("Workspace:SetAttribute(WORLD_ROOT_ATTR", self.server_minimap_text)
+        self.assertNotIn("Workspace:SetAttribute(WORLD_ROOT_ATTR", self.server_minimap_text)
+        self.assertIn("Workspace:SetAttribute(MINIMAP_WORLD_ROOT_ATTR", self.server_minimap_text)
         self.assertNotIn("workspace.CurrentCamera", self.server_minimap_text)
         self.assertNotIn("UserInputService", self.server_minimap_text)
         self.assertNotIn("CreateGui", self.server_minimap_text)
