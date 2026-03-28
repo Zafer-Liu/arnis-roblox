@@ -542,14 +542,20 @@ local function buildMergedSurfaceBatch(batch)
     return fallbackIndex
 end
 
-local function buildRoomPlan(room, originStuds, buildingBaseY, floorHeight)
+local function buildRoomPlan(room, originStuds, buildingBaseY, floorHeight, buildingTopY)
     if not room.footprint or #room.footprint < 3 then
         return nil
     end
 
     local material = getRoomFloorMaterial(room)
     local floorThickness = room.height or 0.2
+    local ceilingThickness = 0.2
     local floorCenterY = buildingBaseY + (room.floorY or 0) + floorThickness * 0.5
+    local rawCeilingCenterY = buildingBaseY + (room.floorY or 0) + floorHeight
+    local ceilingCenterY = rawCeilingCenterY
+    if type(buildingTopY) == "number" then
+        ceilingCenterY = math.min(rawCeilingCenterY, buildingTopY - ceilingThickness * 0.5)
+    end
     local geometry = planSurfaceGeometry(room.footprint, originStuds)
 
     return {
@@ -565,8 +571,8 @@ local function buildRoomPlan(room, originStuds, buildingBaseY, floorHeight)
         },
         ceiling = {
             partLabel = "ceiling",
-            centerY = buildingBaseY + (room.floorY or 0) + floorHeight,
-            thickness = 0.2,
+            centerY = ceilingCenterY,
+            thickness = ceilingThickness,
             material = Enum.Material.SmoothPlastic,
             color = DEFAULT_CEILING_COLOR,
             canCollide = true,
@@ -755,10 +761,10 @@ local function addPlannedSurfaceBatch(batches, parent, geometry, plannedSurface)
     )
 end
 
-local function buildRoomPlans(rooms, originStuds, buildingBaseY, floorHeight)
+local function buildRoomPlans(rooms, originStuds, buildingBaseY, floorHeight, buildingTopY)
     local plans = table.create(#rooms)
     for _, room in ipairs(rooms) do
-        local plan = buildRoomPlan(room, originStuds, buildingBaseY, floorHeight)
+        local plan = buildRoomPlan(room, originStuds, buildingBaseY, floorHeight, buildingTopY)
         if plan then
             plans[#plans + 1] = plan
         end
@@ -815,7 +821,9 @@ function RoomBuilder.BuildAll(parent, buildings, originStuds, builtModelsById)
                 -- Compute floor height from building dimensions
                 local levels = building.levels or #rooms
                 local floorHeight = buildingHeight / math.max(1, levels)
-                local roomPlans = buildRoomPlans(rooms, originStuds, buildingBaseY, floorHeight)
+                local buildingTopY = buildingModel:GetAttribute("ArnisImportBuildingTopY")
+                    or (buildingBaseY + buildingHeight)
+                local roomPlans = buildRoomPlans(rooms, originStuds, buildingBaseY, floorHeight, buildingTopY)
 
                 local partitionKeys = table.create(0)
                 for edgeId in pairs(partitionEdges) do

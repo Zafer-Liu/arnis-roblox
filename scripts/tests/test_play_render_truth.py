@@ -7,6 +7,7 @@ import unittest
 
 ROOT = Path(__file__).resolve().parents[2]
 BUILDING_BUILDER = ROOT / "roblox" / "src" / "ServerScriptService" / "ImportService" / "Builders" / "BuildingBuilder.lua"
+ROOM_BUILDER = ROOT / "roblox" / "src" / "ServerScriptService" / "ImportService" / "Builders" / "RoomBuilder.lua"
 TERRAIN_BUILDER = ROOT / "roblox" / "src" / "ServerScriptService" / "ImportService" / "Builders" / "TerrainBuilder.lua"
 IMPORT_SERVICE = ROOT / "roblox" / "src" / "ServerScriptService" / "ImportService" / "init.lua"
 IMPORT_SIGNATURES = ROOT / "roblox" / "src" / "ServerScriptService" / "ImportService" / "ImportSignatures.lua"
@@ -71,6 +72,13 @@ class PlayRenderTruthTests(unittest.TestCase):
             r"if\s+shouldFillTerrainInterior\(building,\s*config\)\s+then[\s\S]*fillInterior\(",
             "expected shell-mesh roomed buildings to skip shell terrain fill when interiors are enabled",
         )
+
+    def test_top_floor_room_ceilings_clamp_to_imported_building_top(self) -> None:
+        source = ROOM_BUILDER.read_text(encoding="utf-8")
+
+        self.assertIn("local rawCeilingCenterY = buildingBaseY + (room.floorY or 0) + floorHeight", source)
+        self.assertIn("ceilingCenterY = math.min(rawCeilingCenterY, buildingTopY - ceilingThickness * 0.5)", source)
+        self.assertIn('local buildingTopY = buildingModel:GetAttribute("ArnisImportBuildingTopY")', source)
 
     def test_terrain_plan_preserves_requested_sampling_intent_while_staying_on_roblox_write_resolution(self) -> None:
         source = TERRAIN_BUILDER.read_text(encoding="utf-8")

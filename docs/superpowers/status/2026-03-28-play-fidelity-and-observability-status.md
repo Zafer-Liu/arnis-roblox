@@ -31,6 +31,7 @@ The active design spec for this tranche is:
 - On `tertiary`, play telemetry now surfaces shell-mesh building evidence at gameplay-ready spawn (`nearbyMergedBuildingMeshParts=5`), where the earlier read showed `0`.
 - The remaining wall-gap signal was a `WorldProbe` measurement artifact; shell-wall proximity now uses surface distance instead of merged-mesh centroids, and `WorldProbeGeometry.spec.lua` passed on `tertiary`.
 - The first interior-overlap fix is now in place; room-authored `shellMesh` buildings no longer lay down shell terrain fill when interiors are enabled, and `RoomInteriorShellFillTruth.spec.lua` passed on `tertiary`.
+- Top-floor room ceilings now clamp to the imported shell top; the strengthened `RoomInteriorShellFillTruth.spec.lua` passed on `tertiary` after proving ceiling tops stay at or below `ArnisImportBuildingTopY` and below the lowest roof bottom.
 - Terrain explicit-material truth is now stronger for sub-4-stud source cells; `TerrainQuantizedMaterialTruth.spec.lua` passed on `tertiary` after replacing last-writer-wins overlap writes with voxel-center source-cell ownership.
 - Ground-support observability is now stronger at spawn; `WorldProbeSupport.spec.lua` passed on `tertiary` after excluding the hidden runtime spawn, skipping decorative road detail, and trusting explicit road surface roles.
 - On `tertiary`, gameplay-ready play telemetry now resolves support as terrain at the sampled spawn (`supportSurfaceRole=terrain`, `groundMaterial=Enum.Material.Grass`, `supportY=5.1`, `terrainY=5.1`) instead of the earlier `unknown` read.
@@ -84,7 +85,7 @@ The active design spec for this tranche is:
 ## Residual Gaps
 
 - Terrain fidelity still needs dedicated work; explicit material collapse is fixed, but the current observed issue set still includes inherent 4-stud write-grid boxiness and broader detail questions that this tranche has not yet resolved.
-- Interior work still needs a dedicated follow-up pass; the shell-fill overlap is fixed, but top-floor ceiling versus roof/closure-deck overlap is still open.
+- Interior work still needs a dedicated follow-up pass; shell terrain fill and top-floor ceiling overshoot are fixed, but richer traversal/interior detail and any remaining multi-level ceiling/roof edge cases are still open.
 - Remote screenshot capture on `tertiary` is still best-effort only.
 
 ## Status Notes
@@ -111,6 +112,15 @@ The active design spec for this tranche is:
 - Updated `BuildingBuilder.MeshBuildAll` to skip shell terrain fill for room-authored `shellMesh` buildings when interiors are enabled.
 - Re-ran `RoomInteriorShellFillTruth.spec.lua` on `tertiary`; it passed.
 - The remaining interior fidelity work is now narrower: top-floor ceiling/roof overlap and richer interior traversal, not shell terrain occupying authored rooms.
+
+### 2026-03-28: Top-Floor Ceiling Clamp
+
+- Strengthened `RoomInteriorShellFillTruth.spec.lua` so it no longer only checks room air volume; it now also asserts that the highest room ceiling top stays at or below `ArnisImportBuildingTopY` and below the lowest roof or roof-closure bottom.
+- Took that spec red on `tertiary`, where the new assertion failed with the top-floor ceiling extending above the imported building top.
+- Updated `RoomBuilder` to clamp ceiling center placement against the imported shell top (`ArnisImportBuildingTopY`) before batching ceiling slabs.
+- Added a focused static contract check in `scripts/tests/test_play_render_truth.py` for the ceiling clamp wiring.
+- Re-ran `RoomInteriorShellFillTruth.spec.lua` on `tertiary`; it passed.
+- Result: the known single-level top-floor ceiling/roof overlap is fixed without changing roof geometry or closure-deck truth.
 
 ### 2026-03-28: Terrain Quantized Material Truth
 
