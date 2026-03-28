@@ -7,6 +7,7 @@ import unittest
 
 ROOT = Path(__file__).resolve().parents[2]
 BUILDING_BUILDER = ROOT / "roblox" / "src" / "ServerScriptService" / "ImportService" / "Builders" / "BuildingBuilder.lua"
+TERRAIN_BUILDER = ROOT / "roblox" / "src" / "ServerScriptService" / "ImportService" / "Builders" / "TerrainBuilder.lua"
 IMPORT_SERVICE = ROOT / "roblox" / "src" / "ServerScriptService" / "ImportService" / "init.lua"
 IMPORT_SIGNATURES = ROOT / "roblox" / "src" / "ServerScriptService" / "ImportService" / "ImportSignatures.lua"
 STREAMING_SERVICE = ROOT / "roblox" / "src" / "ServerScriptService" / "ImportService" / "StreamingService.lua"
@@ -48,6 +49,24 @@ class PlayRenderTruthTests(unittest.TestCase):
             r"minHeight",
             "expected BuildingBuilder roof-only path to consult rooftop base metadata when present",
         )
+
+    def test_room_interiors_are_gated_by_config_before_runtime_build(self) -> None:
+        source = IMPORT_SERVICE.read_text(encoding="utf-8")
+
+        self.assertIn("config.EnableRoomInteriors", source)
+        self.assertRegex(
+            source,
+            r"if\s+config\.EnableRoomInteriors\s*~=\s*false\s+then[\s\S]*RoomBuilder\.BuildAll",
+            "expected runtime import to gate RoomBuilder.BuildAll behind EnableRoomInteriors",
+        )
+
+    def test_terrain_plan_preserves_requested_sampling_intent_while_staying_on_roblox_write_resolution(self) -> None:
+        source = TERRAIN_BUILDER.read_text(encoding="utf-8")
+
+        self.assertIn("local REQUESTED_SAMPLE_RESOLUTION = WorldConfig.VoxelSize or 1", source)
+        self.assertIn("requestedSampleResolution = REQUESTED_SAMPLE_RESOLUTION", source)
+        self.assertIn("writeResolution = TERRAIN_WRITE_RESOLUTION", source)
+        self.assertIn("-- Roblox terrain requires a 4-stud write resolution.", source)
 
 
 if __name__ == "__main__":

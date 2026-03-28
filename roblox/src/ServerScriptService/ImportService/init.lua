@@ -1007,8 +1007,10 @@ function ImportService.ImportChunk(chunk, options)
             chunkProfile.buildingMeshTriangleCount = tonumber(buildingMeshStats.triangleCount) or 0
             chunkProfile.buildingMeshCreateMs = tonumber(buildingMeshStats.meshCreateMs) or 0
             chunkProfile.buildingRoofMeshPartCount = tonumber(buildingMeshStats.roofMeshPartCount) or 0
-            -- Build interiors (merged by material across chunk)
-            RoomBuilder.BuildAll(buildingsFolder, chunk.buildings, chunk.originStuds, builtModelsById)
+            if config.EnableRoomInteriors ~= false then
+                -- Build interiors as an optional overlay on top of canonical shell geometry.
+                RoomBuilder.BuildAll(buildingsFolder, chunk.buildings, chunk.originStuds, builtModelsById)
+            end
         elseif config.BuildingMode == "shellParts" then
             forEachWithPacing(chunk.buildings, function(building)
                 BuildingBuilder.PartBuild(buildingsFolder, building, chunk.originStuds, chunk, windowBudget)

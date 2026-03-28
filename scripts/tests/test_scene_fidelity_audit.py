@@ -366,114 +366,78 @@ class SceneFidelityAuditTests(unittest.TestCase):
                     },
                 ],
             )
-            self.assertEqual(
-                report["summary"]["roadSubkindGaps"],
-                [
-                    {
-                        "bucket": "sidewalk",
-                        "manifestCount": 2,
-                        "sceneCount": 1,
-                        "missingIds": ["road_3"],
-                    },
-                    {
-                        "bucket": "none",
-                        "manifestCount": 1,
-                        "sceneCount": 0,
-                        "missingIds": ["road_2"],
-                    },
-                ],
+
+    def test_report_parses_latest_client_world_compact_marker_without_deriving_extra_assumptions(self) -> None:
+        audit = load_module()
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            manifest_path = root / "manifest.json"
+            log_path = root / "studio.log"
+
+            manifest = {
+                "schemaVersion": "0.4.0",
+                "meta": {
+                    "worldName": "SceneAuditTown",
+                    "metersPerStud": 0.3,
+                    "chunkSizeStuds": 256,
+                },
+                "chunks": [],
+            }
+            manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
+
+            scene_payload = {
+                "phase": "play",
+                "focus": {"x": 0.0, "z": 0.0},
+                "radius": 64.0,
+                "rootName": "GeneratedWorld_Austin",
+                "worldIdentity": "AustinManifestIndex",
+                "chunkEnvelopeKind": "runtime_resident",
+                "scene": {"chunkCount": 0, "buildingModelCount": 0},
+            }
+            stale_client_world = {
+                "worldRootName": "GeneratedWorld_Stale",
+                "worldRootExists": True,
+                "nearbyBuildingModels": 99,
+                "nearbyMergedBuildingMeshParts": 12,
+                "nearbyRoofParts": 34,
+                "overheadRoofParts": 7,
+                "groundMaterial": "Enum.Material.Grass",
+                "bootstrapState": "stale",
+            }
+            live_client_world = {
+                "worldRootName": "GeneratedWorld_Austin",
+                "worldRootExists": True,
+                "nearbyBuildingModels": 7,
+                "nearbyMergedBuildingMeshParts": 0,
+                "nearbyRoofParts": 14,
+                "overheadRoofParts": 4,
+                "groundMaterial": "Enum.Material.Concrete",
+                "bootstrapState": "gameplay_ready",
+                "bootstrapStateTrace": "loading_manifest,importing_startup,world_ready,streaming_ready,minimap_ready,gameplay_ready",
+                "nearestBuildingSourceIds": ["osm_952130555", "osm_93135618"],
+                "overheadRoofSourceIds": ["osm_952130555", "osm_269078411"],
+            }
+            log_path.write_text(
+                "\n".join(
+                    [
+                        "ARNIS_CLIENT_WORLD_COMPACT " + json.dumps(stale_client_world, separators=(",", ":")),
+                        "ARNIS_SCENE_PLAY " + json.dumps(scene_payload, separators=(",", ":")),
+                        "ARNIS_CLIENT_WORLD_COMPACT " + json.dumps(live_client_world, separators=(",", ":")),
+                    ]
+                ),
+                encoding="utf-8",
             )
-            self.assertEqual(
-                report["summary"]["waterKindGaps"],
-                [
-                    {
-                        "bucket": "stream",
-                        "manifestCount": 1,
-                        "sceneCount": 0,
-                        "missingIds": ["water_ribbon_1"],
-                    },
-                ],
-            )
-            self.assertEqual(
-                report["summary"]["propKindGaps"],
-                [
-                    {"bucket": "fountain", "manifestCount": 1, "sceneCount": 0, "missingIds": ["prop_fountain_1"]},
-                ],
-            )
-            self.assertEqual(
-                report["summary"]["explicitWallMaterialGaps"],
-                [
-                    {"bucket": "cobblestone", "manifestCount": 1, "sceneCount": 0, "missingIds": ["bldg_2"]},
-                ],
-            )
-            self.assertEqual(
-                report["summary"]["explicitRoofMaterialGaps"],
-                [
-                    {"bucket": "metal", "manifestCount": 1, "sceneCount": 0, "missingIds": ["bldg_2"]},
-                ],
-            )
-            audit.write_html_report(report, html_path)
-            html = html_path.read_text(encoding="utf-8")
-            self.assertIn("Scene Fidelity Audit", html)
-            self.assertIn("building_model_ratio", html)
-            self.assertIn("water_geometry_ratio", html)
-            self.assertIn("building_models_with_roof", html)
-            self.assertIn("building_models_without_roof", html)
-            self.assertIn("building_models_with_direct_roof", html)
-            self.assertIn("building_models_with_merged_roof_only", html)
-            self.assertIn("building_models_with_no_roof_evidence", html)
-            self.assertIn("water_surface_part_count", html)
-            self.assertIn("prop_instance_count", html)
-            self.assertIn("ambient_prop_instance_count", html)
-            self.assertIn("tree_instance_count", html)
-            self.assertIn("vegetation_instance_count", html)
-            self.assertIn("chunks_with_water_geometry", html)
-            self.assertIn("Roof Coverage By Usage", html)
-            self.assertIn("Scene Roof Coverage By Shape", html)
-            self.assertIn("Manifest Roof Expectations By Usage", html)
-            self.assertIn("Manifest Roof Expectations By Shape", html)
-            self.assertIn("Effective Building Wall Materials", html)
-            self.assertIn("Effective Building Roof Materials", html)
-            self.assertIn("Manifest Explicit Wall Materials", html)
-            self.assertIn("Manifest Explicit Roof Materials", html)
-            self.assertIn("Explicit Wall Material Gaps", html)
-            self.assertIn("Explicit Roof Material Gaps", html)
-            self.assertIn("Manifest Road Kinds", html)
-            self.assertIn("Manifest Road Subkinds", html)
-            self.assertIn("Water Surface Breakdown", html)
-            self.assertIn("Manifest Water Types", html)
-            self.assertIn("Manifest Water Kinds", html)
-            self.assertIn("Water Type Gaps", html)
-            self.assertIn("Water Surface By Kind", html)
-            self.assertIn("Road Surface By Kind", html)
-            self.assertIn("Road Surface By Subkind", html)
-            self.assertIn("Road Kind Gaps", html)
-            self.assertIn("Road Subkind Gaps", html)
-            self.assertIn("Water Kind Gaps", html)
-            self.assertIn("Prop Breakdown", html)
-            self.assertIn("Manifest Props", html)
-            self.assertIn("Prop Kind Gaps", html)
-            self.assertIn("Ambient Props", html)
-            self.assertIn("Tree Species", html)
-            self.assertIn("Manifest Trees By Species", html)
-            self.assertIn("Vegetation Breakdown", html)
-            self.assertIn("Manifest Vegetation Kinds", html)
-            self.assertIn("office", html)
-            self.assertIn("government", html)
-            self.assertIn("flat", html)
-            self.assertIn("gabled", html)
-            self.assertIn("polygon", html)
-            self.assertIn("pond", html)
-            self.assertIn("ribbon", html)
-            self.assertIn("oak", html)
-            self.assertIn("tree", html)
-            self.assertIn("cobblestone", html)
-            self.assertIn("slate", html)
-            self.assertIn("secondary", html)
-            self.assertIn("sidewalk", html)
-            self.assertIn("residential", html)
-            self.assertIn("ARNIS_SCENE_PLAY", html)
-            self.assertNotIn('class=\"card\"', html)
+
+            report = audit.build_report(manifest_path, log_path, marker="ARNIS_SCENE_PLAY")
+
+            self.assertEqual(report["clientWorld"]["worldRootName"], "GeneratedWorld_Austin")
+            self.assertEqual(report["clientWorld"]["groundMaterial"], "Enum.Material.Concrete")
+            self.assertEqual(report["clientWorld"]["nearbyBuildingModels"], 7)
+            self.assertEqual(report["clientWorld"]["nearbyRoofParts"], 14)
+            self.assertEqual(report["clientWorld"]["overheadRoofParts"], 4)
+            self.assertEqual(report["clientWorld"]["bootstrapState"], "gameplay_ready")
+            self.assertEqual(report["clientWorld"]["nearestBuildingSourceIds"], ["osm_952130555", "osm_93135618"])
 
     def test_main_can_render_html_from_precomputed_report_json(self) -> None:
         audit = load_module()

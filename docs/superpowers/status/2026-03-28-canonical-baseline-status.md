@@ -477,3 +477,35 @@ The active design spec for this tranche is:
     - `cd /Users/adpena/Projects/arnis-roblox && python3 scripts/scene_fidelity_audit.py --manifest /tmp/arnis-scene-audit-20260328-full/minimal-manifest.json --log /Users/adpena/Library/Logs/Roblox/0.714.0.7141089_20260328T200002Z_Studio_34314_last.log --marker ARNIS_SCENE_EDIT --json-out /tmp/arnis-scene-audit-20260328-full/arnis-scene-fidelity-edit.raw.json --html-out /tmp/arnis-scene-audit-20260328-full/arnis-scene-fidelity-edit.raw.html`
     - `cd /Users/adpena/Projects/arnis-roblox && python3 scripts/scene_fidelity_audit.py --manifest /tmp/arnis-scene-audit-20260328-full/minimal-manifest.json --log /Users/adpena/Library/Logs/Roblox/0.714.0.7141089_20260328T195252Z_Studio_5931e_last.log --marker ARNIS_SCENE_PLAY --json-out /tmp/arnis-scene-audit-20260328-full/arnis-scene-fidelity-play.raw.json --html-out /tmp/arnis-scene-audit-20260328-full/arnis-scene-fidelity-play.raw.html`
     - `cd /Users/adpena/Projects/arnis-roblox && python3 scripts/scene_parity_audit.py --edit-report /tmp/arnis-scene-audit-20260328-full/arnis-scene-fidelity-edit.raw.json --play-report /tmp/arnis-scene-audit-20260328-full/arnis-scene-fidelity-play.raw.json --json-out /tmp/arnis-scene-audit-20260328-full/arnis-scene-parity.raw.json --html-out /tmp/arnis-scene-audit-20260328-full/arnis-scene-parity.raw.html`
+
+### 2026-03-28: Interior Gate Added And Audit Surface Extended To Client-World Observability
+
+- Fixed one likely source of wall/roof/floor debugging noise in the runtime importer:
+  - `roblox/src/ServerScriptService/ImportService/init.lua` now gates `RoomBuilder.BuildAll(...)` behind `config.EnableRoomInteriors ~= false`
+  - this preserves one canonical shell path while making shell-only verification explicit and cheap
+  - the intent is diagnostic isolation and baseline cleanliness, not abandoning interiors as a product goal
+- Corrected a stale local contract test that was asserting an invalid terrain-write assumption:
+  - `scripts/tests/test_play_render_truth.py` now reflects the real contract already enforced by Luau tests:
+    - terrain plans preserve `requestedSampleResolution`
+    - Roblox terrain writes still stay on the required `4`-stud write resolution
+- Extended the audit stack so it no longer depends only on server-scene summaries:
+  - `scripts/scene_fidelity_audit.py` now ingests the latest `ARNIS_CLIENT_WORLD_COMPACT` marker and carries it through as `clientWorld` in JSON/HTML reports
+  - `scripts/scene_parity_audit.py` now compares optional `clientWorld` payloads between edit and play and emits `client_world_mismatch` when they diverge
+  - this makes the audits materially more useful for player-facing questions like:
+    - what ground material was actually underfoot?
+    - how many nearby roofs/buildings did the client observe?
+    - did edit and play expose the same local world evidence near the player?
+- Verification:
+  - local:
+    - `python3 -m unittest scripts.tests.test_scene_fidelity_audit scripts.tests.test_scene_parity_audit scripts.tests.test_play_render_truth -v`
+    - `git diff --check`
+  - remote static on `tertiary`:
+    - `cd /Users/adpena/.codex-remote-studio/arnis-roblox && python3 -m unittest scripts.tests.test_scene_fidelity_audit scripts.tests.test_scene_parity_audit scripts.tests.test_play_render_truth -v`
+- Useful measured live signal already visible from the existing `tertiary` play log:
+  - `ARNIS_CLIENT_WORLD_COMPACT` reported `groundMaterial=Enum.Material.Concrete` at the observed spawn sample
+  - this suggests the old “play terrain is always textureless/default at spawn” state is not currently reproduced at that sampled location, but terrain observability is still too narrow to call the broader terrain-fidelity problem closed
+- Remote cleanup:
+  - `tertiary` was cleaned after verification; no live Studio, harness, MCP helper, Vertigo Sync, or crash-handler processes remained resident
+- Outcome:
+  - audit coverage is still not a full source-union truth-pack yet
+  - but it now exposes a materially higher-signal, more player-facing structured truth surface for both `edit` and `play`

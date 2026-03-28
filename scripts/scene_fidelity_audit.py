@@ -479,6 +479,23 @@ def _parse_latest_marker(log_path: Path, marker: str) -> dict[str, Any]:
     return latest_payload
 
 
+def _parse_latest_simple_marker(log_path: Path, marker: str) -> dict[str, Any] | None:
+    latest_payload: dict[str, Any] | None = None
+    prefix = marker + " "
+    with log_path.open(encoding="utf-8") as handle:
+        for line in handle:
+            marker_index = line.find(prefix)
+            if marker_index < 0:
+                continue
+            try:
+                payload = json.loads(line[marker_index + len(prefix) :].strip())
+            except json.JSONDecodeError:
+                continue
+            if isinstance(payload, dict):
+                latest_payload = payload
+    return latest_payload
+
+
 def _build_manifest_zone_summary(manifest: dict[str, Any], payload: dict[str, Any]) -> dict[str, Any]:
     meta = manifest.get("meta") if isinstance(manifest.get("meta"), dict) else {}
     chunk_size = _safe_float(meta.get("chunkSizeStuds"), 256.0)
@@ -819,6 +836,7 @@ def _gap_rows(
 def build_report(manifest_path: Path, log_path: Path, *, marker: str) -> dict[str, Any]:
     manifest = _load_json(manifest_path)
     payload = _parse_latest_marker(log_path, marker)
+    client_world = _parse_latest_simple_marker(log_path, "ARNIS_CLIENT_WORLD_COMPACT") or {}
     scene = payload.get("scene") if isinstance(payload.get("scene"), dict) else {}
     manifest_summary = _build_manifest_zone_summary(manifest, payload)
 
@@ -1368,6 +1386,7 @@ def build_report(manifest_path: Path, log_path: Path, *, marker: str) -> dict[st
         "focus": payload.get("focus"),
         "radius": payload.get("radius"),
         "scene": scene,
+        "clientWorld": client_world,
         "manifest": manifest_summary,
         "summary": summary,
         "findings": findings,
@@ -1375,6 +1394,7 @@ def build_report(manifest_path: Path, log_path: Path, *, marker: str) -> dict[st
 
 
 def write_html_report(report: dict[str, Any], html_path: Path) -> None:
+    client_world = report.get("clientWorld") if isinstance(report.get("clientWorld"), dict) else {}
     scene_metric_keys = [
         "buildingModelsWithDirectShell",
         "buildingModelsMissingDirectShell",
@@ -1403,6 +1423,23 @@ def write_html_report(report: dict[str, Any], html_path: Path) -> None:
         )
         for key in scene_metric_keys
         if key in report["scene"]
+    )
+    client_metric_keys = [
+        "worldRootName",
+        "groundMaterial",
+        "nearbyBuildingModels",
+        "nearbyMergedBuildingMeshParts",
+        "nearbyRoofParts",
+        "overheadRoofParts",
+        "bootstrapState",
+    ]
+    client_metrics_html = "".join(
+        (
+            f"<div class=\"metric\"><div class=\"metric-label\">client_{escape(_to_metric_label(key))}</div>"
+            f"<div class=\"metric-value\">{escape(str(client_world[key]))}</div></div>"
+        )
+        for key in client_metric_keys
+        if key in client_world
     )
 
     findings_html = "".join(
@@ -1768,6 +1805,7 @@ def write_html_report(report: dict[str, Any], html_path: Path) -> None:
       <div class="metric"><div class="metric-label">chunk_ratio</div><div class="metric-value">{float(report["summary"].get("chunk_ratio", 0.0)):.3f}</div></div>
     </div>
     {"<div class=\"metric-strip\">" + scene_metrics_html + "</div>" if scene_metrics_html else ""}
+    {"<div class=\"metric-strip\">" + client_metrics_html + "</div>" if client_metrics_html else ""}
 
     <h2>Findings</h2>
     <table>
@@ -1855,6 +1893,9 @@ def write_html_report(report: dict[str, Any], html_path: Path) -> None:
 
     <h2>Scene Payload</h2>
     <pre>{escape(json.dumps(report["scene"], indent=2, sort_keys=True))}</pre>
+
+    <h2>Client World Payload</h2>
+    <pre>{escape(json.dumps(client_world, indent=2, sort_keys=True))}</pre>
 
     <h2>Manifest Zone</h2>
     <pre>{escape(json.dumps(report["manifest"], indent=2, sort_keys=True))}</pre>

@@ -42,6 +42,36 @@ def _normalize_world_identity(report: dict[str, Any]) -> str:
     return _normalize_string(report.get("rootName"))
 
 
+def _normalize_client_world(report: dict[str, Any]) -> dict[str, Any] | None:
+    client_world = report.get("clientWorld")
+    if not isinstance(client_world, dict):
+        return None
+    normalized: dict[str, Any] = {}
+    for key in (
+        "worldRootName",
+        "worldRootExists",
+        "nearbyBuildingModels",
+        "nearbyMergedBuildingMeshParts",
+        "nearbyRoofParts",
+        "overheadRoofParts",
+        "groundMaterial",
+        "bootstrapState",
+    ):
+        if key not in client_world:
+            continue
+        value = client_world.get(key)
+        if key in {
+            "nearbyBuildingModels",
+            "nearbyMergedBuildingMeshParts",
+            "nearbyRoofParts",
+            "overheadRoofParts",
+        }:
+            normalized[key] = _normalize_json_value(int(value or 0))
+        else:
+            normalized[key] = _normalize_json_value(value)
+    return normalized
+
+
 def _chunk_ids_match(
     edit_chunk_ids: list[str],
     play_chunk_ids: list[str],
@@ -357,6 +387,13 @@ def build_report(edit_report: dict[str, Any], play_report: dict[str, Any]) -> di
             "play": _normalize_road_kind_surface(play_scene),
         },
     }
+    edit_client_world = _normalize_client_world(edit_report)
+    play_client_world = _normalize_client_world(play_report)
+    if edit_client_world is not None or play_client_world is not None:
+        comparisons["clientWorld"] = {
+            "edit": edit_client_world or {},
+            "play": play_client_world or {},
+        }
 
     code_by_metric = {
         "worldIdentity": "world_identity_mismatch",
@@ -380,6 +417,7 @@ def build_report(edit_report: dict[str, Any], play_report: dict[str, Any]) -> di
         "buildingModelCountByWallMaterial": "wall_material_count_mismatch",
         "buildingModelCountByRoofMaterial": "roof_material_count_mismatch",
         "roadSurfacePartCountByKind": "road_kind_surface_mismatch",
+        "clientWorld": "client_world_mismatch",
     }
     severity_by_metric = {
         "worldIdentity": "high",
@@ -403,6 +441,7 @@ def build_report(edit_report: dict[str, Any], play_report: dict[str, Any]) -> di
         "buildingModelCountByWallMaterial": "medium",
         "buildingModelCountByRoofMaterial": "medium",
         "roadSurfacePartCountByKind": "medium",
+        "clientWorld": "high",
     }
 
     findings: list[dict[str, Any]] = []

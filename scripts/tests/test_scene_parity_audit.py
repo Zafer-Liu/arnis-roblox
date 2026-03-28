@@ -23,6 +23,62 @@ def load_module():
 class SceneParityAuditTests(unittest.TestCase):
     maxDiff = None
 
+    def test_build_report_compares_client_world_observability_when_present(self) -> None:
+        audit = load_module()
+        edit_report = {
+            "rootName": "GeneratedWorld_AustinPreview",
+            "worldIdentity": "AustinManifestIndex",
+            "chunkEnvelopeKind": "bounded_preview",
+            "focus": {"x": 0, "z": 0},
+            "radius": 256,
+            "summary": {"marker": "ARNIS_SCENE_EDIT"},
+            "scene": {
+                "chunkIds": ["0_0"],
+                "buildingModelCount": 1,
+            },
+            "clientWorld": {
+                "worldRootName": "GeneratedWorld_AustinPreview",
+                "worldRootExists": True,
+                "nearbyBuildingModels": 7,
+                "nearbyMergedBuildingMeshParts": 0,
+                "nearbyRoofParts": 14,
+                "overheadRoofParts": 4,
+                "groundMaterial": "Enum.Material.Concrete",
+                "bootstrapState": "gameplay_ready",
+            },
+        }
+        play_report = {
+            "rootName": "GeneratedWorld_Austin",
+            "worldIdentity": "AustinManifestIndex",
+            "chunkEnvelopeKind": "runtime_resident",
+            "focus": {"x": 0, "z": 0},
+            "radius": 256,
+            "summary": {"marker": "ARNIS_SCENE_PLAY"},
+            "scene": {
+                "chunkIds": ["0_0", "1_0"],
+                "buildingModelCount": 1,
+            },
+            "clientWorld": {
+                "worldRootName": "GeneratedWorld_Austin",
+                "worldRootExists": True,
+                "nearbyBuildingModels": 7,
+                "nearbyMergedBuildingMeshParts": 0,
+                "nearbyRoofParts": 14,
+                "overheadRoofParts": 2,
+                "groundMaterial": "Enum.Material.Asphalt",
+                "bootstrapState": "gameplay_ready",
+            },
+        }
+
+        report = audit.build_report(edit_report, play_report)
+        codes = {finding["code"] for finding in report["findings"]}
+
+        self.assertIn("client_world_mismatch", codes)
+        self.assertEqual(report["comparisons"]["clientWorld"]["edit"]["groundMaterial"], "Enum.Material.Concrete")
+        self.assertEqual(report["comparisons"]["clientWorld"]["play"]["groundMaterial"], "Enum.Material.Asphalt")
+        self.assertEqual(report["comparisons"]["clientWorld"]["edit"]["nearbyRoofParts"], 14)
+        self.assertEqual(report["comparisons"]["clientWorld"]["play"]["overheadRoofParts"], 2)
+
     def test_build_report_accepts_contract_aligned_preview_subset_and_world_identity(self) -> None:
         audit = load_module()
         edit_report = {
