@@ -4,7 +4,7 @@
     "worldName": "SampleAustinLikeBlock",
     "generator": "arbx_cli sample",
     "source": "synthetic-scaffold",
-    "metersPerStud": 1.0,
+    "metersPerStud": 0.3,
     "chunkSizeStuds": 256,
     "bbox": {
       "minLat": 30.264,
@@ -12,7 +12,7 @@
       "maxLat": 30.266,
       "maxLon": -97.748
     },
-    "totalFeatures": 6,
+    "totalFeatures": 7,
     "canonicalAnchor": {
       "positionStuds": { "x": 32, "y": 2, "z": 192 },
       "lookDirectionStuds": { "x": 0, "y": 0, "z": 1 }
