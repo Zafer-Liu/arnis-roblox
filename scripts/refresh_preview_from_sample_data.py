@@ -58,6 +58,7 @@ CANONICAL_SAMPLE_DATA_DIR = ROOT / "roblox" / "src" / "ServerStorage" / "SampleD
 CANONICAL_INDEX = CANONICAL_SAMPLE_DATA_DIR / "AustinCanonicalManifestIndex.lua"
 CANONICAL_SHARDS = CANONICAL_SAMPLE_DATA_DIR / "AustinCanonicalManifestChunks"
 MAX_PREVIEW_BYTES = 199_998
+CURRENT_SCHEMA_VERSION = "0.4.0"
 
 TARGET_CHUNK_IDS = ["-1_-1", "0_-1", "-1_0", "0_0"]
 PREVIEW_LOAD_RADIUS_STUDS = 1500
@@ -89,6 +90,13 @@ CHUNK_SIZE_RE = re.compile(r"\bchunkSizeStuds\s*=\s*(?P<chunk_size>-?\d+(?:\.\d+
 NUMERIC_STRING_RE = re.compile(r"^-?\d+(?:\.\d+)?$")
 LUA_IDENTIFIER_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
 JSON_WHITESPACE = b" \t\r\n"
+
+
+def _require_current_schema_version(schema_version: str, source_label: str) -> None:
+    if schema_version != CURRENT_SCHEMA_VERSION:
+        raise SystemExit(
+            f"unsupported schemaVersion {schema_version!r} in {source_label}; expected {CURRENT_SCHEMA_VERSION!r}"
+        )
 
 
 def _extract_lua_table(text: str, field_name: str) -> str | None:
@@ -365,6 +373,7 @@ def load_source_manifest_subset_from_sqlite(
         if row is None or not isinstance(row[0], str) or not row[0]:
             raise SystemExit(f"missing schemaVersion in {source_sqlite}")
         schema_version = row[0]
+        _require_current_schema_version(schema_version, str(source_sqlite))
 
         source_chunks: dict[str, dict[str, Any]] = {}
         for chunk_id in target_chunk_ids:
@@ -431,6 +440,7 @@ def load_source_manifest_subset(
                         schema_value = _decode_json_segment(buffer, value_start, value_end)
                         if not isinstance(schema_value, str) or not schema_value:
                             raise SystemExit(f"missing schemaVersion in {source_json}")
+                        _require_current_schema_version(schema_value, str(source_json))
                         schema_version = schema_value
                         position = value_end
                     elif key == "chunks":
@@ -475,6 +485,8 @@ def parse_source_index(source_text: str) -> tuple[str, dict[str, dict[str, Any]]
     schema_match = SCHEMA_RE.search(source_text)
     if schema_match is None:
         raise SystemExit("could not parse schemaVersion from AustinManifestIndex.lua")
+    schema_version = schema_match.group("schema")
+    _require_current_schema_version(schema_version, "AustinManifestIndex.lua")
 
     chunk_refs: dict[str, dict[str, Any]] = {}
     for entry in _parse_chunk_ref_entries(source_text):
@@ -506,7 +518,7 @@ def parse_source_index(source_text: str) -> tuple[str, dict[str, dict[str, Any]]
         if entry.get("subplans") is not None:
             chunk_refs[chunk_id]["subplans"] = entry["subplans"]
 
-    return schema_match.group("schema"), chunk_refs
+    return schema_version, chunk_refs
 
 
 def parse_source_chunk_size_studs(source_text: str) -> float:

@@ -200,6 +200,143 @@ class RefreshRuntimeHarnessFromSampleDataTests(unittest.TestCase):
             self.assertTrue(harness_shards.exists())
             self.assertGreaterEqual(len(list(harness_shards.glob("*.lua"))), 1)
 
+    def test_main_rejects_non_current_schema_version_in_sqlite_source(self) -> None:
+        module = load_module()
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            temp_root = Path(temp_dir)
+            source_index = temp_root / "AustinManifestIndex.lua"
+            source_json = temp_root / "austin-manifest.json"
+            source_sqlite = temp_root / "austin-manifest.sqlite"
+            harness_dir = temp_root / "SampleData"
+            harness_index = harness_dir / "AustinHarnessManifestIndex.lua"
+            harness_shards = harness_dir / "AustinHarnessManifestChunks"
+
+            source_index.write_text(
+                "\n".join(
+                    [
+                        'return {schemaVersion="0.4.0",chunkRefs={',
+                        '{id="-1_-1",originStuds={x=-256,y=1,z=-256},shards={"AustinManifestIndex_001"}},',
+                        '{id="0_-1",originStuds={x=0,y=2,z=-256},shards={"AustinManifestIndex_001"}},',
+                        '{id="-1_0",originStuds={x=-256,y=3,z=0},shards={"AustinManifestIndex_001"}},',
+                        '{id="0_0",originStuds={x=0,y=4,z=0},shards={"AustinManifestIndex_001"}},',
+                        "}}",
+                    ]
+                ),
+                encoding="utf-8",
+            )
+            source_json.write_text(
+                '{"schemaVersion":"0.4.0","chunks":['
+                '{"id":"-1_-1","originStuds":{"x":-256,"y":1,"z":-256},"roads":[]},'
+                '{"id":"0_-1","originStuds":{"x":0,"y":2,"z":-256},"roads":[]},'
+                '{"id":"-1_0","originStuds":{"x":-256,"y":3,"z":0},"roads":[]},'
+                '{"id":"0_0","originStuds":{"x":0,"y":4,"z":0},"roads":[]}'
+                "]}",
+                encoding="utf-8",
+            )
+
+            connection = sqlite3.connect(source_sqlite)
+            try:
+                connection.executescript(
+                    """
+                    CREATE TABLE manifest_meta (
+                        singleton_id INTEGER PRIMARY KEY CHECK (singleton_id = 1),
+                        schema_version TEXT NOT NULL,
+                        world_name TEXT NOT NULL,
+                        generator TEXT NOT NULL,
+                        source TEXT NOT NULL,
+                        meters_per_stud REAL NOT NULL,
+                        chunk_size_studs INTEGER NOT NULL,
+                        bbox_min_lat REAL NOT NULL,
+                        bbox_min_lon REAL NOT NULL,
+                        bbox_max_lat REAL NOT NULL,
+                        bbox_max_lon REAL NOT NULL,
+                        total_features INTEGER NOT NULL,
+                        notes_json TEXT NOT NULL
+                    );
+                    CREATE TABLE manifest_chunks (
+                        chunk_id TEXT PRIMARY KEY,
+                        origin_x REAL NOT NULL,
+                        origin_y REAL NOT NULL,
+                        origin_z REAL NOT NULL,
+                        feature_count INTEGER NOT NULL,
+                        streaming_cost REAL NOT NULL,
+                        partition_version TEXT NOT NULL,
+                        subplans_json TEXT NOT NULL,
+                        chunk_json TEXT NOT NULL
+                    );
+                    """
+                )
+                connection.execute(
+                    """
+                    INSERT INTO manifest_meta (
+                        singleton_id, schema_version, world_name, generator, source, meters_per_stud,
+                        chunk_size_studs, bbox_min_lat, bbox_min_lon, bbox_max_lat, bbox_max_lon,
+                        total_features, notes_json
+                    ) VALUES (1, '0.5.0', 'AustinHarnessRuntime', 'test', 'test', 1.0, 256,
+                              0, 0, 1, 1, 4, '[]')
+                    """
+                )
+                for chunk_id, origin_y in (
+                    ("-1_-1", 1.0),
+                    ("0_-1", 2.0),
+                    ("-1_0", 3.0),
+                    ("0_0", 4.0),
+                ):
+                    connection.execute(
+                        """
+                        INSERT INTO manifest_chunks (
+                            chunk_id, origin_x, origin_y, origin_z, feature_count, streaming_cost,
+                            partition_version, subplans_json, chunk_json
+                        ) VALUES (?, ?, ?, ?, ?, ?, 'subplans.v1', '[]', ?)
+                        """,
+                        (
+                            chunk_id,
+                            0.0 if chunk_id.startswith("0_") else -256.0,
+                            origin_y,
+                            0.0 if chunk_id.endswith("_0") else -256.0,
+                            1,
+                            8,
+                            json.dumps(
+                                {
+                                    "id": chunk_id,
+                                    "originStuds": {
+                                        "x": 0.0 if chunk_id.startswith("0_") else -256.0,
+                                        "y": origin_y,
+                                        "z": 0.0 if chunk_id.endswith("_0") else -256.0,
+                                    },
+                                    "roads": [],
+                                }
+                            ),
+                        ),
+                    )
+                connection.commit()
+            finally:
+                connection.close()
+
+            original_source_index = module.SOURCE_INDEX
+            original_source_json = module.SOURCE_JSON
+            original_runtime_dir = module.RUNTIME_HARNESS_DIR
+            original_runtime_index = module.RUNTIME_HARNESS_INDEX
+            original_runtime_shards = module.RUNTIME_HARNESS_SHARDS
+            try:
+                module.SOURCE_INDEX = source_index
+                module.SOURCE_JSON = source_json
+                module.RUNTIME_HARNESS_DIR = harness_dir
+                module.RUNTIME_HARNESS_INDEX = harness_index
+                module.RUNTIME_HARNESS_SHARDS = harness_shards
+                with self.assertRaises(SystemExit) as cm:
+                    module.main()
+            finally:
+                module.SOURCE_INDEX = original_source_index
+                module.SOURCE_JSON = original_source_json
+                module.RUNTIME_HARNESS_DIR = original_runtime_dir
+                module.RUNTIME_HARNESS_INDEX = original_runtime_index
+                module.RUNTIME_HARNESS_SHARDS = original_runtime_shards
+
+            self.assertIn("unsupported schemaVersion", str(cm.exception))
+            self.assertIn("0.5.0", str(cm.exception))
+
     def test_write_runtime_harness_index_emits_identity_and_minimap_basis_metadata(self) -> None:
         module = load_module()
 

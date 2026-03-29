@@ -101,6 +101,15 @@ class RefreshPreviewFromSampleDataTests(unittest.TestCase):
             ["AustinManifestIndex_001", "AustinManifestIndex_002"],
         )
 
+    def test_parse_source_index_rejects_non_current_schema_version(self) -> None:
+        module = load_module()
+
+        with self.assertRaises(SystemExit) as cm:
+            module.parse_source_index('return {schemaVersion="0.5.0",chunkRefs={}}')
+
+        self.assertIn("unsupported schemaVersion", str(cm.exception))
+        self.assertIn("0.5.0", str(cm.exception))
+
     def test_parse_source_index_preserves_partition_version_and_subplans(self) -> None:
         module = load_module()
         schema, chunk_refs = module.parse_source_index(
@@ -607,7 +616,7 @@ class RefreshPreviewFromSampleDataTests(unittest.TestCase):
             self.assertNotIn("originStuds = { x = 999, y = 888, z = 777 }", written)
             self.assertIn('partitionVersion = "subplans.v1"', written)
 
-    def test_main_uses_schema_version_from_source_json_when_runtime_index_is_stale(self) -> None:
+    def test_main_rejects_non_current_schema_version_from_source_json_when_runtime_index_is_stale(self) -> None:
         module = load_module()
 
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -663,7 +672,8 @@ class RefreshPreviewFromSampleDataTests(unittest.TestCase):
             module.CANONICAL_SHARDS = canonical_shards
             module.MAX_PREVIEW_BYTES = 50_000
             try:
-                exit_code = module.main()
+                with self.assertRaises(SystemExit) as cm:
+                    module.main()
             finally:
                 module.SOURCE_INDEX = original_source_index
                 module.SOURCE_JSON = original_source_json
@@ -675,10 +685,8 @@ class RefreshPreviewFromSampleDataTests(unittest.TestCase):
                 module.CANONICAL_SHARDS = original_canonical_shards
                 module.MAX_PREVIEW_BYTES = original_max_preview_bytes
 
-            self.assertEqual(exit_code, 0)
-            written = preview_index.read_text(encoding="utf-8")
-            self.assertIn('schemaVersion = "0.5.0"', written)
-            self.assertNotIn('schemaVersion = "0.4.0"', written)
+            self.assertIn("unsupported schemaVersion", str(cm.exception))
+            self.assertIn("0.5.0", str(cm.exception))
 
     def test_main_streams_source_manifest_without_reading_entire_file(self) -> None:
         module = load_module()
@@ -746,7 +754,8 @@ class RefreshPreviewFromSampleDataTests(unittest.TestCase):
 
             try:
                 with mock.patch("pathlib.Path.read_text", new=guarded_read_text):
-                    exit_code = module.main()
+                    with self.assertRaises(SystemExit) as cm:
+                        module.main()
             finally:
                 module.SOURCE_INDEX = original_source_index
                 module.SOURCE_JSON = original_source_json
@@ -758,12 +767,10 @@ class RefreshPreviewFromSampleDataTests(unittest.TestCase):
                 module.CANONICAL_SHARDS = original_canonical_shards
                 module.MAX_PREVIEW_BYTES = original_max_preview_bytes
 
-            self.assertEqual(exit_code, 0)
-            written = preview_index.read_text(encoding="utf-8")
-            self.assertIn('schemaVersion = "0.5.0"', written)
-            self.assertIn("originStuds = { x = 0, y = 4, z = 0 }", written)
+            self.assertIn("unsupported schemaVersion", str(cm.exception))
+            self.assertIn("0.5.0", str(cm.exception))
 
-    def test_load_source_manifest_subset_prefers_sqlite_store_when_present(self) -> None:
+    def test_load_source_manifest_subset_rejects_non_current_schema_in_sqlite_store(self) -> None:
         module = load_module()
 
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -852,15 +859,15 @@ class RefreshPreviewFromSampleDataTests(unittest.TestCase):
             connection.commit()
             connection.close()
 
-            schema_version, source_chunks = module.load_source_manifest_subset(
-                source_json,
-                module.TARGET_CHUNK_IDS,
-                source_sqlite=source_sqlite,
-            )
+            with self.assertRaises(SystemExit) as cm:
+                module.load_source_manifest_subset(
+                    source_json,
+                    module.TARGET_CHUNK_IDS,
+                    source_sqlite=source_sqlite,
+                )
 
-            self.assertEqual(schema_version, "0.5.0")
-            self.assertEqual(set(source_chunks.keys()), set(module.TARGET_CHUNK_IDS))
-            self.assertEqual(source_chunks["0_0"]["originStuds"]["y"], 4.0)
+            self.assertIn("unsupported schemaVersion", str(cm.exception))
+            self.assertIn("0.5.0", str(cm.exception))
 
 
 if __name__ == "__main__":
