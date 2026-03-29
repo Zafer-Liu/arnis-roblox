@@ -166,6 +166,78 @@ class SceneParityAuditTests(unittest.TestCase):
         self.assertEqual(report["comparisons"]["worldIdentity"]["edit"], "AustinManifestIndex")
         self.assertEqual(report["comparisons"]["worldIdentity"]["play"], "AustinManifestIndex")
 
+    def test_build_report_quantizes_local_terrain_metrics_in_client_world_comparison(self) -> None:
+        audit = load_module()
+        edit_report = {
+            "rootName": "GeneratedWorld_Austin",
+            "worldIdentity": "AustinManifestIndex",
+            "chunkEnvelopeKind": "runtime_resident",
+            "focus": {"x": 0, "z": 0},
+            "radius": 256,
+            "summary": {"marker": "ARNIS_SCENE_EDIT"},
+            "scene": {
+                "chunkIds": ["0_0"],
+                "buildingModelCount": 1,
+            },
+            "clientWorld": {
+                "worldRootName": "GeneratedWorld_Austin",
+                "worldRootExists": True,
+                "supportSurfaceRole": "terrain",
+                "localSupport": {"surfaceRole": "terrain"},
+                "localTerrain": {
+                    "status": "ok",
+                    "samplePattern": "cross_5",
+                    "sampleRadiusStuds": 12.04,
+                    "sampleCount": 5,
+                    "missingSampleCount": 0,
+                    "centerTerrainY": 10.04,
+                    "minTerrainY": 8.04,
+                    "maxTerrainY": 14.04,
+                    "heightRangeStuds": 6.04,
+                    "maxStepStuds": 4.04,
+                    "meanAbsStepStuds": 2.04,
+                },
+            },
+        }
+        play_report = {
+            "rootName": "GeneratedWorld_Austin",
+            "worldIdentity": "AustinManifestIndex",
+            "chunkEnvelopeKind": "runtime_resident",
+            "focus": {"x": 0, "z": 0},
+            "radius": 256,
+            "summary": {"marker": "ARNIS_SCENE_PLAY"},
+            "scene": {
+                "chunkIds": ["0_0"],
+                "buildingModelCount": 1,
+            },
+            "clientWorld": {
+                "worldRootName": "GeneratedWorld_Austin",
+                "worldRootExists": True,
+                "supportSurfaceRole": "terrain",
+                "localSupport": {"surfaceRole": "terrain"},
+                "localTerrain": {
+                    "status": "ok",
+                    "samplePattern": "cross_5",
+                    "sampleRadiusStuds": 12.01,
+                    "sampleCount": 5,
+                    "missingSampleCount": 0,
+                    "centerTerrainY": 10.01,
+                    "minTerrainY": 8.01,
+                    "maxTerrainY": 14.01,
+                    "heightRangeStuds": 6.01,
+                    "maxStepStuds": 4.01,
+                    "meanAbsStepStuds": 2.01,
+                },
+            },
+        }
+
+        report = audit.build_report(edit_report, play_report)
+        codes = {finding["code"] for finding in report["findings"]}
+
+        self.assertNotIn("client_world_mismatch", codes)
+        self.assertEqual(report["comparisons"]["clientWorld"]["edit"]["localTerrain"]["maxStepStuds"], 4.0)
+        self.assertEqual(report["comparisons"]["clientWorld"]["play"]["localTerrain"]["heightRangeStuds"], 6.0)
+
     def test_build_report_flags_scalar_and_bucket_parity_gaps(self) -> None:
         audit = load_module()
         edit_report = {

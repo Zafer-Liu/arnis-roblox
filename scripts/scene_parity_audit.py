@@ -65,6 +65,7 @@ def _normalize_client_world(report: dict[str, Any]) -> dict[str, Any] | None:
         "nearestWallDistanceStuds",
         "overheadRoofMinClearanceStuds",
         "localSupport",
+        "localTerrain",
         "localEnclosure",
         "localRoofCover",
     ):
@@ -88,6 +89,32 @@ def _normalize_client_world(report: dict[str, Any]) -> dict[str, Any] | None:
             "overheadRoofMinClearanceStuds",
         }:
             normalized[key] = _normalize_json_value(float(value or 0))
+        elif key == "localTerrain" and isinstance(value, dict):
+            normalized[key] = {
+                "status": _normalize_string(value.get("status")),
+                "samplePattern": _normalize_string(value.get("samplePattern")),
+                "sampleRadiusStuds": round(float(value.get("sampleRadiusStuds") or 0), 1),
+                "sampleCount": int(value.get("sampleCount") or 0),
+                "missingSampleCount": int(value.get("missingSampleCount") or 0),
+                "centerTerrainY": round(float(value.get("centerTerrainY") or 0), 1)
+                if value.get("centerTerrainY") is not None
+                else None,
+                "minTerrainY": round(float(value.get("minTerrainY") or 0), 1)
+                if value.get("minTerrainY") is not None
+                else None,
+                "maxTerrainY": round(float(value.get("maxTerrainY") or 0), 1)
+                if value.get("maxTerrainY") is not None
+                else None,
+                "heightRangeStuds": round(float(value.get("heightRangeStuds") or 0), 1)
+                if value.get("heightRangeStuds") is not None
+                else None,
+                "maxStepStuds": round(float(value.get("maxStepStuds") or 0), 1)
+                if value.get("maxStepStuds") is not None
+                else None,
+                "meanAbsStepStuds": round(float(value.get("meanAbsStepStuds") or 0), 1)
+                if value.get("meanAbsStepStuds") is not None
+                else None,
+            }
         else:
             normalized[key] = _normalize_json_value(value)
     return normalized

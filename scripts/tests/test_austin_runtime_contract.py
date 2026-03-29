@@ -13,6 +13,7 @@ IMPORT_SERVICE_PATH = ROOT / "roblox" / "src" / "ServerScriptService" / "ImportS
 SIGNATURES_PATH = ROOT / "roblox" / "src" / "ServerScriptService" / "ImportService" / "ImportSignatures.lua"
 WORLD_PROBE_PATH = ROOT / "roblox" / "src" / "StarterPlayer" / "StarterPlayerScripts" / "WorldProbe.client.lua"
 WORLD_PROBE_SUPPORT_PATH = ROOT / "roblox" / "src" / "ReplicatedStorage" / "Shared" / "WorldProbeSupport.lua"
+WORLD_PROBE_TERRAIN_PATH = ROOT / "roblox" / "src" / "ReplicatedStorage" / "Shared" / "WorldProbeTerrain.lua"
 WORLD_STATE_APPLIER_PATH = ROOT / "roblox" / "src" / "ServerScriptService" / "ImportService" / "WorldStateApplier.lua"
 MINIMAP_SERVICE_PATH = ROOT / "roblox" / "src" / "ServerScriptService" / "ImportService" / "MinimapService.lua"
 PREVIEW_BUILDER_PATH = ROOT / "roblox" / "src" / "ServerScriptService" / "StudioPreview" / "AustinPreviewBuilder.lua"
@@ -32,6 +33,9 @@ class AustinRuntimeContractTests(unittest.TestCase):
         cls.world_probe_text = WORLD_PROBE_PATH.read_text(encoding="utf-8") if WORLD_PROBE_PATH.exists() else ""
         cls.world_probe_support_text = (
             WORLD_PROBE_SUPPORT_PATH.read_text(encoding="utf-8") if WORLD_PROBE_SUPPORT_PATH.exists() else ""
+        )
+        cls.world_probe_terrain_text = (
+            WORLD_PROBE_TERRAIN_PATH.read_text(encoding="utf-8") if WORLD_PROBE_TERRAIN_PATH.exists() else ""
         )
         cls.world_state_applier_text = WORLD_STATE_APPLIER_PATH.read_text(encoding="utf-8")
         cls.minimap_service_text = MINIMAP_SERVICE_PATH.read_text(encoding="utf-8")
@@ -233,6 +237,22 @@ class AustinRuntimeContractTests(unittest.TestCase):
         self.assertIn("function WorldProbeSupport.shouldIgnoreGroundHit(hitInstance, worldRoot, ignoredRoots)", self.world_probe_support_text)
         self.assertIn('if hitInstance:IsA("SpawnLocation") then', self.world_probe_support_text)
         self.assertIn('local surfaceRole = node:GetAttribute("ArnisRoadSurfaceRole")', self.world_probe_support_text)
+
+    def test_client_world_probe_exposes_local_terrain_roughness_metrics(self) -> None:
+        self.assertIn("local WorldProbeTerrain = require(ReplicatedStorage.Shared.WorldProbeTerrain)", self.world_probe_text)
+        self.assertIn("localTerrain = localTerrain", self.world_probe_text)
+        self.assertIn("local function sampleLocalTerrain(rootPart, worldRoot)", self.world_probe_text)
+        self.assertIn("local samples = table.create(#LOCAL_TERRAIN_OFFSETS)", self.world_probe_text)
+        self.assertIn("samples[index] = {", self.world_probe_text)
+        self.assertIn("WorldProbeTerrain.summarizeTerrainSamples", self.world_probe_text)
+        self.assertIn("samplePattern = samplePattern", self.world_probe_terrain_text)
+        self.assertIn("sampleRadiusStuds = sampleRadiusStuds", self.world_probe_terrain_text)
+        self.assertIn("sampleCount = sampleCount", self.world_probe_terrain_text)
+        self.assertIn("missingSampleCount = missingSampleCount", self.world_probe_terrain_text)
+        self.assertIn("centerTerrainY = roundTenths(centerTerrainY)", self.world_probe_terrain_text)
+        self.assertIn("heightRangeStuds =", self.world_probe_terrain_text)
+        self.assertIn("maxStepStuds =", self.world_probe_terrain_text)
+        self.assertIn("meanAbsStepStuds =", self.world_probe_terrain_text)
 
     def test_shaped_roof_closure_decks_are_marked_internal_support_not_visible_roof_truth(self) -> None:
         self.assertIn("local function applyRoofPartOptions(part, partOptions)", self.building_builder_text)

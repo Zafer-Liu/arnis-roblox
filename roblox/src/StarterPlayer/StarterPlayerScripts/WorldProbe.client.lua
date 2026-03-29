@@ -5,6 +5,7 @@ local RunService = game:GetService("RunService")
 local Workspace = game:GetService("Workspace")
 local WorldProbeGeometry = require(ReplicatedStorage.Shared.WorldProbeGeometry)
 local WorldProbeSupport = require(ReplicatedStorage.Shared.WorldProbeSupport)
+local WorldProbeTerrain = require(ReplicatedStorage.Shared.WorldProbeTerrain)
 
 local player = Players.LocalPlayer
 
@@ -19,6 +20,21 @@ local MAX_BUILDING_IDS = 6
 local MAX_OVERHEAD_IDS = 6
 local GROUND_SAMPLE_HEIGHT = 24
 local GROUND_SAMPLE_DEPTH = 256
+local LOCAL_TERRAIN_SAMPLE_RADIUS = 12
+local LOCAL_TERRAIN_SAMPLE_PATTERN = "cross_5"
+local LOCAL_TERRAIN_NEIGHBOR_PAIRS = {
+    { 3, 1 },
+    { 3, 2 },
+    { 3, 4 },
+    { 3, 5 },
+}
+local LOCAL_TERRAIN_OFFSETS = {
+    Vector3.new(-LOCAL_TERRAIN_SAMPLE_RADIUS, 0, 0),
+    Vector3.new(0, 0, -LOCAL_TERRAIN_SAMPLE_RADIUS),
+    Vector3.new(0, 0, 0),
+    Vector3.new(0, 0, LOCAL_TERRAIN_SAMPLE_RADIUS),
+    Vector3.new(LOCAL_TERRAIN_SAMPLE_RADIUS, 0, 0),
+}
 
 local lastPayloadJson = nil
 local lastBootstrapPayloadJson = nil
@@ -157,6 +173,54 @@ local function sampleGroundSupport(rootPart, worldRoot)
     }
 end
 
+local function raycastTerrainAtPosition(samplePosition, worldRoot)
+    local character = player.Character
+    local ignore = {}
+    if character then
+        table.insert(ignore, 1, character)
+    end
+
+    local raycastParams = RaycastParams.new()
+    raycastParams.FilterType = Enum.RaycastFilterType.Exclude
+    raycastParams.FilterDescendantsInstances = ignore
+
+    for _ = 1, 8 do
+        local origin = samplePosition + Vector3.new(0, GROUND_SAMPLE_HEIGHT, 0)
+        local direction = Vector3.new(0, -(GROUND_SAMPLE_HEIGHT + GROUND_SAMPLE_DEPTH), 0)
+        local rayResult = Workspace:Raycast(origin, direction, raycastParams)
+        if not rayResult then
+            return nil
+        end
+        if WorldProbeSupport.classifySupportSurfaceRole(rayResult.Instance) == "terrain" then
+            return rayResult
+        end
+
+        ignore[#ignore + 1] = rayResult.Instance
+        raycastParams.FilterDescendantsInstances = ignore
+    end
+
+    return nil
+end
+
+local function sampleLocalTerrain(rootPart, worldRoot)
+    local rootPosition = rootPart.Position
+    local samples = table.create(#LOCAL_TERRAIN_OFFSETS)
+
+    for index, offset in ipairs(LOCAL_TERRAIN_OFFSETS) do
+        local terrainResult = raycastTerrainAtPosition(rootPosition + offset, worldRoot)
+        samples[index] = {
+            terrainY = if terrainResult then roundTenths(terrainResult.Position.Y) else nil,
+        }
+    end
+
+    return WorldProbeTerrain.summarizeTerrainSamples(samples, {
+        centerIndex = 3,
+        samplePattern = LOCAL_TERRAIN_SAMPLE_PATTERN,
+        sampleRadiusStuds = LOCAL_TERRAIN_SAMPLE_RADIUS,
+        neighborPairs = LOCAL_TERRAIN_NEIGHBOR_PAIRS,
+    })
+end
+
 local function summarizeWorld(rootPart, worldRoot, worldRootName)
     local rootPosition = rootPart.Position
     local nearbyBuildingModels = 0
@@ -171,6 +235,7 @@ local function summarizeWorld(rootPart, worldRoot, worldRootName)
     local overheadRoofSourceIds = {}
     local nearestBuildingDetails = {}
     local groundSupport = sampleGroundSupport(rootPart, worldRoot)
+    local localTerrain = sampleLocalTerrain(rootPart, worldRoot)
 
     for _, chunkFolder in ipairs(worldRoot:GetChildren()) do
         local buildingsFolder = chunkFolder:FindFirstChild("Buildings")
@@ -300,6 +365,7 @@ local function summarizeWorld(rootPart, worldRoot, worldRootName)
             supportMinusTerrainYStuds = groundSupport.supportMinusTerrainYStuds,
             sourceIds = groundSupport.supportSourceIds,
         },
+        localTerrain = localTerrain,
         localEnclosure = {
             nearbyWallParts = nearbyWallParts,
             collidableWallPartsNearby = collidableWallPartsNearby,
@@ -352,6 +418,7 @@ local function publishWorldTelemetry()
         nearestWallDistanceStuds = nil,
         overheadRoofMinClearanceStuds = nil,
         localSupport = nil,
+        localTerrain = nil,
         localEnclosure = nil,
         localRoofCover = nil,
         characterPosition = nil,
@@ -380,6 +447,7 @@ local function publishWorldTelemetry()
         nearestWallDistanceStuds = nil,
         overheadRoofMinClearanceStuds = nil,
         localSupport = nil,
+        localTerrain = nil,
         localEnclosure = nil,
         localRoofCover = nil,
         bootstrapAttemptId = bootstrapPayload.bootstrapAttemptId,
@@ -410,6 +478,7 @@ local function publishWorldTelemetry()
         compactPayload.nearestWallDistanceStuds = payload.nearestWallDistanceStuds
         compactPayload.overheadRoofMinClearanceStuds = payload.overheadRoofMinClearanceStuds
         compactPayload.localSupport = payload.localSupport
+        compactPayload.localTerrain = payload.localTerrain
         compactPayload.localEnclosure = payload.localEnclosure
         compactPayload.localRoofCover = payload.localRoofCover
     end

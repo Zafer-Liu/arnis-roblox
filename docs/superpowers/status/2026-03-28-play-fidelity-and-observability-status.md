@@ -41,6 +41,8 @@ The active design spec for this tranche is:
 - The scene fidelity audit now carries the same manifest terrain granularity/material context into edit/play artifacts, so terrain complaints can be interpreted next to the same render/audit output used for parity and play-proof debugging.
 - Preview telemetry now preserves the current slow chunk as structured state, clears stale `lastSlowChunk` state on `sync_started`, and the preview telemetry summary now prints compact hotspot timing (`last_sync_elapsed_ms`, `slow_chunk`, `slow_chunk_total_ms`, `slow_chunk_buildings_ms`, `slow_chunk_terrain_ms`, `slow_chunk_roads_ms`, `slow_chunk_landuse_terrain_fill_ms`, `slow_chunk_artifacts`) instead of hiding that data in raw Studio logs only.
 - The scene fidelity audit now also emits explicit player-local exposure findings (`client_local_support_unknown`, `client_local_enclosure_gap`, `client_local_roof_cover_gap`) and shows nested `localSupport` / `localEnclosure` / `localRoofCover` metrics directly in the HTML report.
+- Player-local telemetry now also includes structured `localTerrain` roughness metrics (`status`, sample coverage, center/min/max terrain Y, height range, max step, mean absolute step), and both scene fidelity and parity audits now preserve those fields.
+- On `tertiary`, the new pure terrain reducer is edit-verified through `WorldProbeTerrain.spec.lua`, but the current real play-log artifact still truncates long `ARNIS_CLIENT_WORLD(_COMPACT)` lines before `localTerrain` survives into remote log-derived reports.
 
 ## Verification Snapshot
 
@@ -61,6 +63,9 @@ The active design spec for this tranche is:
 - `python3 -m unittest scripts.tests.test_scene_fidelity_audit.SceneFidelityAuditTests.test_report_surfaces_player_local_exposure_findings_and_html_metrics scripts.tests.test_scene_fidelity_audit.SceneFidelityAuditTests.test_report_preserves_structured_local_support_and_enclosure_client_world_fields -v`
   - passed on 2026-03-28
   - verifies explicit player-local exposure findings plus nested local support/enclosure/roof metrics in the scene-fidelity HTML surface
+- `python3 -m unittest scripts.tests.test_austin_runtime_contract scripts.tests.test_scene_fidelity_audit scripts.tests.test_scene_parity_audit scripts.tests.test_play_render_truth -v`
+  - passed on 2026-03-28
+  - verifies the new `localTerrain` runtime contract, scene-fidelity carry-through, parity normalization, and existing play-render truth coverage
 - `git diff --check`
   - passed on 2026-03-28
 
@@ -68,6 +73,14 @@ The active design spec for this tranche is:
 
 - `python3 -m unittest scripts.tests.test_austin_runtime_contract scripts.tests.test_scene_parity_audit scripts.tests.test_scene_fidelity_audit -v`
   - passed on 2026-03-28 in `~/.codex-remote-studio/arnis-roblox`
+- `python3 -m unittest scripts.tests.test_austin_runtime_contract scripts.tests.test_scene_fidelity_audit scripts.tests.test_scene_parity_audit -v`
+  - passed on 2026-03-28 in `~/.codex-remote-studio/arnis-roblox`
+  - verifies the `localTerrain` runtime contract plus fidelity/parity carry-through from the remote clone
+- `bash scripts/run_studio_harness.sh --takeover --hard-restart --no-play --edit-tests --spec-filter WorldProbeTerrain.spec.lua --edit-wait 30 --pattern-wait 120`
+  - passed on 2026-03-28 in the remote clone
+  - `PASS WorldProbeTerrain.spec`
+  - `ARNIS_MCP_EDIT_ACTION` reported `total=1 passed=1 failed=0`
+  - verifies the pure local-terrain roughness reducer on the real `tertiary` Studio lane after taking the sparse-sample case red first
 - `bash scripts/run_studio_harness.sh --takeover --hard-restart --no-play --edit-tests --spec-filter GabledRoofClosureTruth.spec.lua --edit-wait 30 --pattern-wait 120`
   - passed on 2026-03-28 in the remote clone
   - `PASS GabledRoofClosureTruth.spec`
@@ -99,14 +112,16 @@ The active design spec for this tranche is:
   - gameplay-ready client telemetry improved shell-mesh evidence from `nearbyMergedBuildingMeshParts=0` to `5`
   - gameplay-ready client telemetry now resolves support as terrain at the sampled spawn (`supportSurfaceRole=terrain`, `groundMaterial=Enum.Material.Grass`, `supportY=5.1`, `terrainY=5.1`)
   - gameplay-ready client telemetry now shows nearby shell walls and roof cover (`nearbyWallParts=4`, `nearestWallDistanceStuds=2.2`, `overheadRoofParts=2`, `overheadRoofMinClearanceStuds=12.4`)
+  - the same run reached `gameplay_ready` and emitted the normal client-world markers plus `ARNIS_MCP_PLAY`, but the raw Studio log still truncates long `ARNIS_CLIENT_WORLD(_COMPACT)` lines before the new nested `localTerrain` block is visible in the remote artifact
 
 ## Residual Gaps
 
 - Terrain fidelity still needs dedicated work; explicit material collapse is fixed, but the current observed issue set still includes inherent 4-stud write-grid boxiness and broader detail questions that this tranche has not yet resolved.
-- Terrain observability is better, but runtime/player-local terrain roughness is still under-instrumented; we still do not emit structured local terrain step/height-range metrics or runtime voxel-material coverage from play.
+- Terrain observability is better, and runtime/player-local terrain roughness is now emitted locally, but the current remote play-log artifact still drops that nested `localTerrain` block under long-line truncation and still lacks runtime voxel-material coverage from play.
 - Interior work still needs a dedicated follow-up pass; shell terrain fill and top-floor ceiling overshoot are fixed, but richer traversal/interior detail and any remaining multi-level ceiling/roof edge cases are still open.
 - Preview/edit hotspot export is better, but still incomplete; the last slow chunk is now structured, yet it is not joined into scene parity/fidelity outputs or chunk-level hotspot comparison reports yet.
 - Player-local observability is stronger, but still incomplete; the audit now surfaces local support/enclosure/roof-cover signals, yet it still lacks local terrain roughness/step metrics and explicit interior-presence quantification.
+- Player-local observability is stronger, but still incomplete; the audit now surfaces local support/enclosure/roof-cover plus nested `localTerrain` signals, yet it still lacks reliable remote artifact capture for that terrain block and still lacks explicit interior-presence quantification.
 - Remote screenshot capture on `tertiary` is still best-effort only.
 
 ## Status Notes
@@ -188,3 +203,13 @@ The active design spec for this tranche is:
 - Updated the HTML report so nested local support/enclosure/roof metrics are visible directly in the metric strip instead of requiring raw JSON inspection.
 - Verified locally with `python3 -m unittest scripts.tests.test_scene_fidelity_audit.SceneFidelityAuditTests.test_report_surfaces_player_local_exposure_findings_and_html_metrics scripts.tests.test_scene_fidelity_audit.SceneFidelityAuditTests.test_report_preserves_structured_local_support_and_enclosure_client_world_fields -v`.
 - Result: the audit is more useful for player-experience regressions, and the next missing local runtime signals are terrain roughness/step metrics plus explicit interior-presence quantification.
+
+### 2026-03-28: Local Terrain Roughness Metrics
+
+- Added a new shared `ReplicatedStorage.Shared.WorldProbeTerrain` reducer and a focused `WorldProbeTerrain.spec.lua` contract for flat, stepped, and sparse terrain samples.
+- Extended `WorldProbe.client.lua` so the client probe now samples a small terrain cross around the player and publishes nested `localTerrain` metrics: `status`, `samplePattern`, `sampleRadiusStuds`, `sampleCount`, `missingSampleCount`, `centerTerrainY`, `minTerrainY`, `maxTerrainY`, `heightRangeStuds`, `maxStepStuds`, and `meanAbsStepStuds`.
+- Extended `scene_fidelity_audit.py` and `scene_parity_audit.py` so those nested `localTerrain` fields survive into structured reports and parity normalization instead of remaining invisible runtime-only data.
+- Took the new reducer red on `tertiary`, where a sparse-sample case exposed an incorrect holey-array sample-count bug; fixed the reducer/probe to use dense sample slots and re-ran `WorldProbeTerrain.spec.lua` green on `tertiary`.
+- Verified locally with `python3 -m unittest scripts.tests.test_austin_runtime_contract scripts.tests.test_scene_fidelity_audit scripts.tests.test_scene_parity_audit scripts.tests.test_play_render_truth -v` and remotely in the remote clone with `python3 -m unittest scripts.tests.test_austin_runtime_contract scripts.tests.test_scene_fidelity_audit scripts.tests.test_scene_parity_audit -v`.
+- Re-ran the play-only proof on `tertiary`; it still reached `gameplay_ready`, but the raw Studio log truncates long `ARNIS_CLIENT_WORLD(_COMPACT)` lines before the new nested `localTerrain` block is visible in remote log-derived artifacts.
+- Result: local terrain roughness is now part of the canonical client-world contract and audit schema, but the next observability fix is reliable remote artifact capture for that local block rather than more schema churn.

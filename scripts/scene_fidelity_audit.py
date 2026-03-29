@@ -959,11 +959,20 @@ def build_report(manifest_path: Path, log_path: Path, *, marker: str) -> dict[st
         "explicitRoofMaterialGaps": [],
     }
     local_support = client_world.get("localSupport") if isinstance(client_world.get("localSupport"), dict) else {}
+    local_terrain = client_world.get("localTerrain") if isinstance(client_world.get("localTerrain"), dict) else {}
     local_enclosure = client_world.get("localEnclosure") if isinstance(client_world.get("localEnclosure"), dict) else {}
     local_roof_cover = client_world.get("localRoofCover") if isinstance(client_world.get("localRoofCover"), dict) else {}
     if local_support:
         summary["clientLocalSupportSurfaceRole"] = local_support.get("surfaceRole")
         summary["clientLocalSupportOffsetStuds"] = local_support.get("supportMinusTerrainYStuds")
+    if local_terrain:
+        summary["clientLocalTerrainStatus"] = local_terrain.get("status")
+        summary["clientLocalTerrainSamplePattern"] = local_terrain.get("samplePattern")
+        summary["clientLocalTerrainSampleCount"] = local_terrain.get("sampleCount")
+        summary["clientLocalTerrainMissingSampleCount"] = local_terrain.get("missingSampleCount")
+        summary["clientLocalTerrainHeightRangeStuds"] = local_terrain.get("heightRangeStuds")
+        summary["clientLocalTerrainMaxStepStuds"] = local_terrain.get("maxStepStuds")
+        summary["clientLocalTerrainMeanAbsStepStuds"] = local_terrain.get("meanAbsStepStuds")
     if local_enclosure:
         summary["clientLocalEnclosureNearbyWallParts"] = local_enclosure.get("nearbyWallParts")
         summary["clientLocalEnclosureCollidableWallPartsNearby"] = local_enclosure.get("collidableWallPartsNearby")
@@ -1465,6 +1474,18 @@ def build_report(manifest_path: Path, log_path: Path, *, marker: str) -> dict[st
                 "message": "client-world telemetry reports an unknown local support surface role",
             }
         )
+    terrain_support_role = str(local_support.get("surfaceRole") or client_world.get("supportSurfaceRole") or "")
+    if terrain_support_role == "terrain":
+        terrain_status = str(local_terrain.get("status") or "")
+        terrain_sample_count = int(local_terrain.get("sampleCount") or 0)
+        if terrain_status != "ok" or terrain_sample_count <= 0:
+            findings.append(
+                {
+                    "severity": "medium",
+                    "code": "client_local_terrain_roughness_missing",
+                    "message": "client-world telemetry could not derive usable local terrain roughness metrics at the player support point",
+                }
+            )
     if int(client_world.get("nearbyBuildingModels") or 0) > 0 and int(local_enclosure.get("nearbyWallParts") or 0) <= 0:
         findings.append(
             {
@@ -1552,11 +1573,27 @@ def write_html_report(report: dict[str, Any], html_path: Path) -> None:
         (f"client_{_to_metric_label(key)}", client_world[key]) for key in client_metric_keys if key in client_world
     ]
     local_support = client_world.get("localSupport") if isinstance(client_world.get("localSupport"), dict) else {}
+    local_terrain = client_world.get("localTerrain") if isinstance(client_world.get("localTerrain"), dict) else {}
     local_enclosure = client_world.get("localEnclosure") if isinstance(client_world.get("localEnclosure"), dict) else {}
     local_roof_cover = client_world.get("localRoofCover") if isinstance(client_world.get("localRoofCover"), dict) else {}
     for key in ("surfaceRole", "supportY", "terrainY", "supportMinusTerrainYStuds"):
         if key in local_support:
             client_metric_entries.append((f"client_local_support_{_to_metric_label(key)}", local_support[key]))
+    for key in (
+        "status",
+        "samplePattern",
+        "sampleRadiusStuds",
+        "sampleCount",
+        "missingSampleCount",
+        "centerTerrainY",
+        "minTerrainY",
+        "maxTerrainY",
+        "heightRangeStuds",
+        "maxStepStuds",
+        "meanAbsStepStuds",
+    ):
+        if key in local_terrain:
+            client_metric_entries.append((f"client_local_terrain_{_to_metric_label(key)}", local_terrain[key]))
     for key in ("nearbyWallParts", "collidableWallPartsNearby", "nearestWallDistanceStuds"):
         if key in local_enclosure:
             client_metric_entries.append((f"client_local_enclosure_{_to_metric_label(key)}", local_enclosure[key]))

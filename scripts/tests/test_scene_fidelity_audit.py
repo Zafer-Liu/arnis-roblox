@@ -518,6 +518,141 @@ class SceneFidelityAuditTests(unittest.TestCase):
             self.assertEqual(report["clientWorld"]["localEnclosure"]["nearbyWallParts"], 8)
             self.assertEqual(report["clientWorld"]["localRoofCover"]["overheadRoofMinClearanceStuds"], 13.5)
 
+    def test_report_preserves_structured_local_terrain_client_world_fields(self) -> None:
+        audit = load_module()
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            manifest_path = root / "manifest.json"
+            log_path = root / "studio.log"
+            html_path = root / "report.html"
+
+            manifest = {
+                "schemaVersion": "0.4.0",
+                "meta": {
+                    "worldName": "TerrainProbeTown",
+                    "metersPerStud": 0.3,
+                    "chunkSizeStuds": 256,
+                },
+                "chunks": [],
+            }
+            manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
+
+            scene_payload = {
+                "phase": "play",
+                "focus": {"x": 0.0, "z": 0.0},
+                "radius": 64.0,
+                "rootName": "GeneratedWorld_Austin",
+                "worldIdentity": "AustinManifestIndex",
+                "chunkEnvelopeKind": "runtime_resident",
+                "scene": {"chunkCount": 0, "buildingModelCount": 0},
+            }
+            client_world = {
+                "worldRootName": "GeneratedWorld_Austin",
+                "worldRootExists": True,
+                "supportSurfaceRole": "terrain",
+                "localSupport": {"surfaceRole": "terrain"},
+                "localTerrain": {
+                    "status": "ok",
+                    "samplePattern": "cross_5",
+                    "sampleRadiusStuds": 12,
+                    "sampleCount": 5,
+                    "missingSampleCount": 0,
+                    "centerTerrainY": 10.0,
+                    "minTerrainY": 8.0,
+                    "maxTerrainY": 14.0,
+                    "heightRangeStuds": 6.0,
+                    "maxStepStuds": 4.0,
+                    "meanAbsStepStuds": 2.5,
+                },
+            }
+            log_path.write_text(
+                "\n".join(
+                    [
+                        "ARNIS_SCENE_PLAY " + json.dumps(scene_payload, separators=(",", ":")),
+                        "ARNIS_CLIENT_WORLD_COMPACT " + json.dumps(client_world, separators=(",", ":")),
+                    ]
+                ),
+                encoding="utf-8",
+            )
+
+            report = audit.build_report(manifest_path, log_path, marker="ARNIS_SCENE_PLAY")
+            audit.write_html_report(report, html_path)
+
+            self.assertEqual(report["clientWorld"]["localTerrain"]["status"], "ok")
+            self.assertEqual(report["clientWorld"]["localTerrain"]["sampleCount"], 5)
+            self.assertEqual(report["clientWorld"]["localTerrain"]["heightRangeStuds"], 6.0)
+            self.assertEqual(report["summary"]["clientLocalTerrainStatus"], "ok")
+            self.assertEqual(report["summary"]["clientLocalTerrainMaxStepStuds"], 4.0)
+            self.assertEqual(report["summary"]["clientLocalTerrainMeanAbsStepStuds"], 2.5)
+
+            html = html_path.read_text(encoding="utf-8")
+            self.assertIn("client_local_terrain_status", html)
+            self.assertIn("client_local_terrain_height_range_studs", html)
+            self.assertIn("client_local_terrain_max_step_studs", html)
+
+    def test_report_flags_missing_local_terrain_roughness_when_support_is_terrain(self) -> None:
+        audit = load_module()
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            manifest_path = root / "manifest.json"
+            log_path = root / "studio.log"
+
+            manifest = {
+                "schemaVersion": "0.4.0",
+                "meta": {
+                    "worldName": "TerrainFindingTown",
+                    "metersPerStud": 1.0,
+                    "chunkSizeStuds": 256,
+                },
+                "chunks": [],
+            }
+            manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
+
+            scene_payload = {
+                "phase": "play",
+                "focus": {"x": 0.0, "z": 0.0},
+                "radius": 64.0,
+                "rootName": "GeneratedWorld_Austin",
+                "worldIdentity": "AustinManifestIndex",
+                "chunkEnvelopeKind": "runtime_resident",
+                "scene": {"chunkCount": 0, "buildingModelCount": 0},
+            }
+            client_world = {
+                "worldRootName": "GeneratedWorld_Austin",
+                "worldRootExists": True,
+                "supportSurfaceRole": "terrain",
+                "localSupport": {"surfaceRole": "terrain"},
+                "localTerrain": {
+                    "status": "insufficient_samples",
+                    "samplePattern": "cross_5",
+                    "sampleRadiusStuds": 12,
+                    "sampleCount": 1,
+                    "missingSampleCount": 4,
+                    "centerTerrainY": 10.0,
+                    "minTerrainY": 10.0,
+                    "maxTerrainY": 10.0,
+                    "heightRangeStuds": None,
+                    "maxStepStuds": None,
+                    "meanAbsStepStuds": None,
+                },
+            }
+            log_path.write_text(
+                "\n".join(
+                    [
+                        "ARNIS_SCENE_PLAY " + json.dumps(scene_payload, separators=(",", ":")),
+                        "ARNIS_CLIENT_WORLD_COMPACT " + json.dumps(client_world, separators=(",", ":")),
+                    ]
+                ),
+                encoding="utf-8",
+            )
+
+            report = audit.build_report(manifest_path, log_path, marker="ARNIS_SCENE_PLAY")
+            codes = {finding["code"] for finding in report["findings"]}
+
+            self.assertIn("client_local_terrain_roughness_missing", codes)
+
     def test_report_surfaces_player_local_exposure_findings_and_html_metrics(self) -> None:
         audit = load_module()
 
