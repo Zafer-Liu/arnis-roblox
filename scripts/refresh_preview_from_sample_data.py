@@ -18,7 +18,13 @@ import subprocess
 from pathlib import Path
 from typing import Any
 
-from json_manifest_to_sharded_lua import CHUNK_LIST_FIELDS, INDEX_ONLY_FIELDS, lua_len, write_lua_module
+from json_manifest_to_sharded_lua import (
+    CHUNK_LIST_FIELDS,
+    INDEX_ONLY_FIELDS,
+    _require_current_schema_version,
+    lua_len,
+    write_lua_module,
+)
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -58,7 +64,6 @@ CANONICAL_SAMPLE_DATA_DIR = ROOT / "roblox" / "src" / "ServerStorage" / "SampleD
 CANONICAL_INDEX = CANONICAL_SAMPLE_DATA_DIR / "AustinCanonicalManifestIndex.lua"
 CANONICAL_SHARDS = CANONICAL_SAMPLE_DATA_DIR / "AustinCanonicalManifestChunks"
 MAX_PREVIEW_BYTES = 199_998
-CURRENT_SCHEMA_VERSION = "0.4.0"
 
 TARGET_CHUNK_IDS = ["-1_-1", "0_-1", "-1_0", "0_0"]
 PREVIEW_LOAD_RADIUS_STUDS = 1500
@@ -90,14 +95,6 @@ CHUNK_SIZE_RE = re.compile(r"\bchunkSizeStuds\s*=\s*(?P<chunk_size>-?\d+(?:\.\d+
 NUMERIC_STRING_RE = re.compile(r"^-?\d+(?:\.\d+)?$")
 LUA_IDENTIFIER_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
 JSON_WHITESPACE = b" \t\r\n"
-
-
-def _require_current_schema_version(schema_version: str, source_label: str) -> None:
-    if schema_version != CURRENT_SCHEMA_VERSION:
-        raise SystemExit(
-            f"unsupported schemaVersion {schema_version!r} in {source_label}; expected {CURRENT_SCHEMA_VERSION!r}"
-        )
-
 
 def _extract_lua_table(text: str, field_name: str) -> str | None:
     match = re.search(rf"{re.escape(field_name)}\s*=\s*\{{", text)

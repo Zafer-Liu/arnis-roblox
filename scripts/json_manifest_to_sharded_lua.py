@@ -18,11 +18,10 @@ import sqlite3
 from pathlib import Path
 from typing import Any, TextIO
 
-
 CURRENT_SCHEMA_VERSION = "0.4.0"
 
 
-def require_current_schema_version(schema_version: str, source_label: str) -> None:
+def _require_current_schema_version(schema_version: str, source_label: str) -> None:
     if schema_version != CURRENT_SCHEMA_VERSION:
         raise SystemExit(
             f"unsupported schemaVersion {schema_version!r} in {source_label}; expected {CURRENT_SCHEMA_VERSION!r}"
@@ -245,7 +244,7 @@ def load_manifest_from_sqlite(path: Path) -> dict[str, Any]:
         if meta_row is None:
             raise SystemExit(f"manifest store {path} is missing manifest_meta")
 
-        require_current_schema_version(meta_row[0], str(path))
+        _require_current_schema_version(meta_row[0], str(path))
         notes = json.loads(meta_row[11])
         chunk_rows = connection.execute(
             """
@@ -331,7 +330,7 @@ def main() -> int:
     schema_version = data.get("schemaVersion")
     if not isinstance(schema_version, str) or not schema_version:
         raise SystemExit("manifest must contain a schemaVersion string")
-    require_current_schema_version(schema_version, args.sqlite or args.json or "<unknown manifest>")
+    _require_current_schema_version(schema_version, args.sqlite or args.json or "<unknown manifest>")
 
     source_chunks = data.get("chunks", [])
     if not isinstance(source_chunks, list) or not source_chunks:

@@ -716,7 +716,7 @@ class RefreshPreviewFromSampleDataTests(unittest.TestCase):
                 encoding="utf-8",
             )
             source_json.write_text(
-                '{"schemaVersion":"0.5.0","chunks":['
+                '{"schemaVersion":"0.4.0","chunks":['
                 '{"id":"-2_-2","originStuds":{"x":-512,"y":0,"z":-512},"roads":[{"id":"ignore_me"}]},'
                 '{"id":"-1_-1","originStuds":{"x":-256,"y":1,"z":-256}},'
                 '{"id":"0_-1","originStuds":{"x":0,"y":2,"z":-256}},'
@@ -754,8 +754,7 @@ class RefreshPreviewFromSampleDataTests(unittest.TestCase):
 
             try:
                 with mock.patch("pathlib.Path.read_text", new=guarded_read_text):
-                    with self.assertRaises(SystemExit) as cm:
-                        module.main()
+                    exit_code = module.main()
             finally:
                 module.SOURCE_INDEX = original_source_index
                 module.SOURCE_JSON = original_source_json
@@ -767,8 +766,10 @@ class RefreshPreviewFromSampleDataTests(unittest.TestCase):
                 module.CANONICAL_SHARDS = original_canonical_shards
                 module.MAX_PREVIEW_BYTES = original_max_preview_bytes
 
-            self.assertIn("unsupported schemaVersion", str(cm.exception))
-            self.assertIn("0.5.0", str(cm.exception))
+            self.assertEqual(exit_code, 0)
+            written = preview_index.read_text(encoding="utf-8")
+            self.assertIn('schemaVersion = "0.4.0"', written)
+            self.assertIn("originStuds = { x = 0, y = 4, z = 0 }", written)
 
     def test_load_source_manifest_subset_rejects_non_current_schema_in_sqlite_store(self) -> None:
         module = load_module()
