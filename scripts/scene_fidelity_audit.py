@@ -958,6 +958,20 @@ def build_report(manifest_path: Path, log_path: Path, *, marker: str) -> dict[st
         "explicitWallMaterialGaps": [],
         "explicitRoofMaterialGaps": [],
     }
+    local_support = client_world.get("localSupport") if isinstance(client_world.get("localSupport"), dict) else {}
+    local_enclosure = client_world.get("localEnclosure") if isinstance(client_world.get("localEnclosure"), dict) else {}
+    local_roof_cover = client_world.get("localRoofCover") if isinstance(client_world.get("localRoofCover"), dict) else {}
+    if local_support:
+        summary["clientLocalSupportSurfaceRole"] = local_support.get("surfaceRole")
+        summary["clientLocalSupportOffsetStuds"] = local_support.get("supportMinusTerrainYStuds")
+    if local_enclosure:
+        summary["clientLocalEnclosureNearbyWallParts"] = local_enclosure.get("nearbyWallParts")
+        summary["clientLocalEnclosureCollidableWallPartsNearby"] = local_enclosure.get("collidableWallPartsNearby")
+        summary["clientLocalEnclosureNearestWallDistanceStuds"] = local_enclosure.get("nearestWallDistanceStuds")
+    if local_roof_cover:
+        summary["clientLocalRoofCoverNearbyRoofParts"] = local_roof_cover.get("nearbyRoofParts")
+        summary["clientLocalRoofCoverOverheadRoofParts"] = local_roof_cover.get("overheadRoofParts")
+        summary["clientLocalRoofCoverMinClearanceStuds"] = local_roof_cover.get("overheadRoofMinClearanceStuds")
 
     findings: list[dict[str, Any]] = []
     if scene_chunk_count < manifest_chunk_count:
@@ -1443,6 +1457,31 @@ def build_report(manifest_path: Path, log_path: Path, *, marker: str) -> dict[st
             }
         )
 
+    if str(local_support.get("surfaceRole") or "") == "unknown":
+        findings.append(
+            {
+                "severity": "medium",
+                "code": "client_local_support_unknown",
+                "message": "client-world telemetry reports an unknown local support surface role",
+            }
+        )
+    if int(client_world.get("nearbyBuildingModels") or 0) > 0 and int(local_enclosure.get("nearbyWallParts") or 0) <= 0:
+        findings.append(
+            {
+                "severity": "medium",
+                "code": "client_local_enclosure_gap",
+                "message": "client-world telemetry reports nearby buildings but no local enclosure wall evidence",
+            }
+        )
+    if int(client_world.get("nearbyRoofParts") or 0) > 0 and int(local_roof_cover.get("overheadRoofParts") or 0) <= 0:
+        findings.append(
+            {
+                "severity": "medium",
+                "code": "client_local_roof_cover_gap",
+                "message": "client-world telemetry reports nearby roof geometry but no local overhead roof cover",
+            }
+        )
+
     return {
         "generatedAt": datetime.now(timezone.utc).isoformat(),
         "manifestPath": str(manifest_path),
@@ -1509,13 +1548,27 @@ def write_html_report(report: dict[str, Any], html_path: Path) -> None:
         "overheadRoofMinClearanceStuds",
         "bootstrapState",
     ]
+    client_metric_entries: list[tuple[str, Any]] = [
+        (f"client_{_to_metric_label(key)}", client_world[key]) for key in client_metric_keys if key in client_world
+    ]
+    local_support = client_world.get("localSupport") if isinstance(client_world.get("localSupport"), dict) else {}
+    local_enclosure = client_world.get("localEnclosure") if isinstance(client_world.get("localEnclosure"), dict) else {}
+    local_roof_cover = client_world.get("localRoofCover") if isinstance(client_world.get("localRoofCover"), dict) else {}
+    for key in ("surfaceRole", "supportY", "terrainY", "supportMinusTerrainYStuds"):
+        if key in local_support:
+            client_metric_entries.append((f"client_local_support_{_to_metric_label(key)}", local_support[key]))
+    for key in ("nearbyWallParts", "collidableWallPartsNearby", "nearestWallDistanceStuds"):
+        if key in local_enclosure:
+            client_metric_entries.append((f"client_local_enclosure_{_to_metric_label(key)}", local_enclosure[key]))
+    for key in ("nearbyRoofParts", "overheadRoofParts", "overheadRoofMinClearanceStuds"):
+        if key in local_roof_cover:
+            client_metric_entries.append((f"client_local_roof_cover_{_to_metric_label(key)}", local_roof_cover[key]))
     client_metrics_html = "".join(
         (
-            f"<div class=\"metric\"><div class=\"metric-label\">client_{escape(_to_metric_label(key))}</div>"
-            f"<div class=\"metric-value\">{escape(str(client_world[key]))}</div></div>"
+            f"<div class=\"metric\"><div class=\"metric-label\">{escape(label)}</div>"
+            f"<div class=\"metric-value\">{escape(str(value))}</div></div>"
         )
-        for key in client_metric_keys
-        if key in client_world
+        for label, value in client_metric_entries
     )
     manifest_metrics = report.get("manifest") if isinstance(report.get("manifest"), dict) else {}
     manifest_metric_keys = [

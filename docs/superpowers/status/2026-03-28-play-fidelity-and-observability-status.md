@@ -40,6 +40,7 @@ The active design spec for this tranche is:
 - The manifest audit is now stronger for terrain complaints: it reports area-weighted terrain material coverage, dominant-material ratio, terrain area by `cellSizeStuds`, coarse-granularity findings, and focused local-zone terrain accounting clipped to included terrain cells instead of whole intersecting chunks.
 - The scene fidelity audit now carries the same manifest terrain granularity/material context into edit/play artifacts, so terrain complaints can be interpreted next to the same render/audit output used for parity and play-proof debugging.
 - Preview telemetry now preserves the current slow chunk as structured state, clears stale `lastSlowChunk` state on `sync_started`, and the preview telemetry summary now prints compact hotspot timing (`last_sync_elapsed_ms`, `slow_chunk`, `slow_chunk_total_ms`, `slow_chunk_buildings_ms`, `slow_chunk_terrain_ms`, `slow_chunk_roads_ms`, `slow_chunk_landuse_terrain_fill_ms`, `slow_chunk_artifacts`) instead of hiding that data in raw Studio logs only.
+- The scene fidelity audit now also emits explicit player-local exposure findings (`client_local_support_unknown`, `client_local_enclosure_gap`, `client_local_roof_cover_gap`) and shows nested `localSupport` / `localEnclosure` / `localRoofCover` metrics directly in the HTML report.
 
 ## Verification Snapshot
 
@@ -57,6 +58,9 @@ The active design spec for this tranche is:
 - `python3 -m unittest scripts.tests.test_manifest_quality_audit scripts.tests.test_scene_fidelity_audit scripts.tests.test_preview_telemetry_summary -v`
   - passed on 2026-03-28
   - verifies area-weighted terrain audit fields/findings, scene-fidelity propagation of manifest terrain context, and compact preview slow-chunk summary formatting
+- `python3 -m unittest scripts.tests.test_scene_fidelity_audit.SceneFidelityAuditTests.test_report_surfaces_player_local_exposure_findings_and_html_metrics scripts.tests.test_scene_fidelity_audit.SceneFidelityAuditTests.test_report_preserves_structured_local_support_and_enclosure_client_world_fields -v`
+  - passed on 2026-03-28
+  - verifies explicit player-local exposure findings plus nested local support/enclosure/roof metrics in the scene-fidelity HTML surface
 - `git diff --check`
   - passed on 2026-03-28
 
@@ -102,6 +106,7 @@ The active design spec for this tranche is:
 - Terrain observability is better, but runtime/player-local terrain roughness is still under-instrumented; we still do not emit structured local terrain step/height-range metrics or runtime voxel-material coverage from play.
 - Interior work still needs a dedicated follow-up pass; shell terrain fill and top-floor ceiling overshoot are fixed, but richer traversal/interior detail and any remaining multi-level ceiling/roof edge cases are still open.
 - Preview/edit hotspot export is better, but still incomplete; the last slow chunk is now structured, yet it is not joined into scene parity/fidelity outputs or chunk-level hotspot comparison reports yet.
+- Player-local observability is stronger, but still incomplete; the audit now surfaces local support/enclosure/roof-cover signals, yet it still lacks local terrain roughness/step metrics and explicit interior-presence quantification.
 - Remote screenshot capture on `tertiary` is still best-effort only.
 
 ## Status Notes
@@ -175,3 +180,11 @@ The active design spec for this tranche is:
 - Verified locally with `python3 -m unittest scripts.tests.test_preview_telemetry_summary -v`.
 - Verified remotely on `tertiary` with `AustinPreviewTelemetry.spec.lua`, which now passes through the edit-only harness lane while covering both the populated hotspot flush path and the stale-hotspot reset path.
 - Result: preview hotspot timing is now available as compact structured state, but it still needs to be joined into the higher-level edit/play audit reports.
+
+### 2026-03-28: Player-Local Exposure Audit Findings
+
+- Added a red-phase Python audit test proving the scene-fidelity report was not yet surfacing high-signal player-local exposure states from the existing `clientWorld` payload.
+- Updated `scripts/scene_fidelity_audit.py` so `localSupport`, `localEnclosure`, and `localRoofCover` contribute explicit findings when the client-world payload says the player is locally unsupported, unenclosed, or uncovered.
+- Updated the HTML report so nested local support/enclosure/roof metrics are visible directly in the metric strip instead of requiring raw JSON inspection.
+- Verified locally with `python3 -m unittest scripts.tests.test_scene_fidelity_audit.SceneFidelityAuditTests.test_report_surfaces_player_local_exposure_findings_and_html_metrics scripts.tests.test_scene_fidelity_audit.SceneFidelityAuditTests.test_report_preserves_structured_local_support_and_enclosure_client_world_fields -v`.
+- Result: the audit is more useful for player-experience regressions, and the next missing local runtime signals are terrain roughness/step metrics plus explicit interior-presence quantification.

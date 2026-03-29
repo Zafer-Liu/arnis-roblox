@@ -20,6 +20,7 @@ Status: Active
 - 2026-03-28: `manifest_quality_audit.py` now quantifies area-weighted terrain material dominance and terrain cell-size/granularity, and focused local-zone reports now clip terrain accounting to included terrain cells instead of crediting whole intersecting chunks.
 - 2026-03-28: `scene_fidelity_audit.py` now carries manifest terrain granularity/material context into edit/play audit artifacts, so terrain complaints can be joined to the same report surface used for render drift.
 - 2026-03-28: Preview telemetry now preserves the current slow chunk as structured snapshot state, clears stale `lastSlowChunk` state on `sync_started`, and `preview_telemetry_summary.py` now surfaces `last_sync_elapsed_ms` plus slow-chunk timing breakdown in a compact operator summary.
+- 2026-03-28: `scene_fidelity_audit.py` now emits explicit player-local support/enclosure/roof-cover findings from `clientWorld` and surfaces nested local metrics directly in the HTML report instead of leaving them buried only in raw JSON.
 
 ## Tasks
 
@@ -29,5 +30,6 @@ Status: Active
 - [x] Reproduce and classify the remaining wall-gap signal on `tertiary`: actual missing walls vs. spawn/radius/classification artifact.
 - [ ] Measure and reduce the next high-signal fidelity gaps: remaining terrain geometry/detail limits and the remaining richer interior traversal/ceiling-roof edge cases after the top-floor clamp.
 - [ ] Extend player-local observability with coverage-style wall/roof metrics, local terrain roughness/step metrics, and local interior presence metrics.
+- [ ] Extend player-local observability further with local terrain roughness/step metrics and local interior presence metrics.
 - [ ] Promote preview/edit slow-chunk hotspot data into structured telemetry and audit surfaces.
 - [ ] Keep the rolling status file current after each meaningful remote run, then commit and push the tranche.

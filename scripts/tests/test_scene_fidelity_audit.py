@@ -518,6 +518,76 @@ class SceneFidelityAuditTests(unittest.TestCase):
             self.assertEqual(report["clientWorld"]["localEnclosure"]["nearbyWallParts"], 8)
             self.assertEqual(report["clientWorld"]["localRoofCover"]["overheadRoofMinClearanceStuds"], 13.5)
 
+    def test_report_surfaces_player_local_exposure_findings_and_html_metrics(self) -> None:
+        audit = load_module()
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            manifest_path = root / "manifest.json"
+            log_path = root / "studio.log"
+            html_path = root / "report.html"
+
+            manifest = {
+                "schemaVersion": "0.4.0",
+                "meta": {
+                    "worldName": "ExposureTown",
+                    "metersPerStud": 1.0,
+                    "chunkSizeStuds": 256,
+                },
+                "chunks": [],
+            }
+            manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
+
+            scene_payload = {
+                "phase": "play",
+                "focus": {"x": 0.0, "z": 0.0},
+                "radius": 64.0,
+                "rootName": "GeneratedWorld_Austin",
+                "worldIdentity": "AustinManifestIndex",
+                "chunkEnvelopeKind": "runtime_resident",
+                "scene": {"chunkCount": 0, "buildingModelCount": 0},
+            }
+            client_world = {
+                "worldRootName": "GeneratedWorld_Austin",
+                "worldRootExists": True,
+                "nearbyBuildingModels": 3,
+                "nearbyRoofParts": 4,
+                "supportSurfaceRole": "unknown",
+                "localSupport": {"surfaceRole": "unknown"},
+                "localEnclosure": {
+                    "nearbyWallParts": 0,
+                    "collidableWallPartsNearby": 0,
+                    "nearestWallDistanceStuds": None,
+                },
+                "localRoofCover": {
+                    "nearbyRoofParts": 4,
+                    "overheadRoofParts": 0,
+                    "overheadRoofMinClearanceStuds": None,
+                },
+            }
+            log_path.write_text(
+                "\n".join(
+                    [
+                        "ARNIS_SCENE_PLAY " + json.dumps(scene_payload, separators=(",", ":")),
+                        "ARNIS_CLIENT_WORLD_COMPACT " + json.dumps(client_world, separators=(",", ":")),
+                    ]
+                ),
+                encoding="utf-8",
+            )
+
+            report = audit.build_report(manifest_path, log_path, marker="ARNIS_SCENE_PLAY")
+            audit.write_html_report(report, html_path)
+
+            codes = {finding["code"] for finding in report["findings"]}
+            self.assertIn("client_local_support_unknown", codes)
+            self.assertIn("client_local_enclosure_gap", codes)
+            self.assertIn("client_local_roof_cover_gap", codes)
+
+            html = html_path.read_text(encoding="utf-8")
+            self.assertIn("client_local_support_surface_role", html)
+            self.assertIn("client_local_enclosure_nearby_wall_parts", html)
+            self.assertIn("client_local_roof_cover_overhead_roof_parts", html)
+
     def test_report_carries_manifest_terrain_granularity_context(self) -> None:
         audit = load_module()
 
