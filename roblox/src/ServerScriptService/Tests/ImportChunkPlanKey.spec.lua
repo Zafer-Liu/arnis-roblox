@@ -5,7 +5,7 @@ return function()
     local Assert = require(script.Parent.Assert)
 
     local manifest = {
-        schemaVersion = "0.2.0",
+        schemaVersion = "0.4.0",
         meta = {
             worldName = "PlanKeyTest",
             generator = "test",
@@ -25,6 +25,7 @@ return function()
                         kind = "secondary",
                         material = "Asphalt",
                         widthStuds = 8,
+                        hasSidewalk = false,
                         points = {
                             { x = 0, y = 0, z = 50 },
                             { x = 100, y = 0, z = 50 },

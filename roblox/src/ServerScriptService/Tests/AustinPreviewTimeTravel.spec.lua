@@ -59,7 +59,7 @@ return function()
         }
 
         local handle = {
-            schemaVersion = "0.3.0",
+            schemaVersion = "0.4.0",
             meta = {
                 worldName = "AustinPreviewHarness",
                 chunkSizeStuds = 256,

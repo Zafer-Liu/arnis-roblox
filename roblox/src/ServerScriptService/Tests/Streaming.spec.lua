@@ -6,7 +6,7 @@ return function()
 
     -- 1. Setup a test manifest with two distant chunks
     local testManifest = {
-        schemaVersion = "0.2.0",
+        schemaVersion = "0.4.0",
         meta = {
             worldName = "StreamingTest",
             generator = "test",

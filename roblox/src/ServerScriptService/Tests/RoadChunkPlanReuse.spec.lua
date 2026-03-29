@@ -14,7 +14,7 @@ return function()
 
     local ok, err = pcall(function()
         local manifest = {
-            schemaVersion = "0.2.0",
+            schemaVersion = "0.4.0",
             meta = {
                 worldName = "RoadChunkPlanReuse",
                 generator = "test",
