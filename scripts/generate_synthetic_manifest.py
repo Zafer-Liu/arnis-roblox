@@ -10,7 +10,7 @@ OUT = ROOT / "specs" / "generated" / "synthetic-manifest.json"
 def main() -> None:
     OUT.parent.mkdir(parents=True, exist_ok=True)
     manifest = {
-        "schemaVersion": "0.1.0",
+        "schemaVersion": "0.4.0",
         "meta": {
             "worldName": "SyntheticGrid",
             "generator": "scripts/generate_synthetic_manifest.py",

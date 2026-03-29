@@ -28,101 +28,101 @@ fn srtm_tile_name(lat: f64, lon: f64) -> String {
     format!("{}{:02}{}{:03}", ns, lat_i.abs(), ew, lon_i.abs())
 }
 
+fn help_text() -> String {
+    r#"arbx_cli — Arnis HD Pipeline
+
+Generates high-fidelity Roblox world manifests from real-world geodata.
+Works for any location on Earth. Outputs Schema 0.4.0 JSON manifests.
+
+USAGE:
+  arbx_cli <COMMAND> [OPTIONS]
+
+COMMANDS:
+  compile    Build a chunk manifest from geodata sources
+  sample     Emit a synthetic sample manifest for testing
+  stats      Print statistics for a manifest file
+  validate   Validate a manifest against the schema
+  diff       Compare two manifest files
+  scene-index Build a compact per-chunk scene-audit summary
+  scene-audit Compare Studio scene markers against manifest truth
+  config     Emit a default world configuration JSON
+  explain    Print the full pipeline architecture for agents
+
+COMPILE OPTIONS:
+  --source PATH          Input Overpass JSON file (omit for synthetic data)
+  --live                 Fetch live from Overpass API (auto-cached to --cache-dir)
+  --bbox S,W,N,E         Bounding box: min_lat,min_lon,max_lat,max_lon
+                         Example: --bbox 30.26,-97.75,30.27,-97.74 (Austin TX)
+  --out PATH             Output manifest file (default: stdout)
+  --sqlite-out PATH      Also write a SQLite manifest store
+  --world-name NAME      World name in manifest metadata (default: ExportedWorld)
+  --meters-per-stud N    Scale factor (default: 0.3 = Roblox humanoid proportional)
+  --terrain-cell-size N  Terrain grid precision in studs (default: 2, range: 1-32)
+                         Lower = more detailed terrain, more memory
+  --satellite [DIR]      Enable satellite material classification
+                         Fetches ESRI z19 imagery, caches to DIR (default: out/tiles/satellite)
+  --cache-dir PATH       Overpass API response cache (default: out/overpass)
+
+QUALITY PROFILES:
+  --profile insane       cell=1 sat=on  (256x256 grid, ~2GB RAM, M5 Max / workstation)
+  --profile high         cell=2 sat=on  (128x128 grid, ~512MB RAM) [default]
+  --profile balanced     cell=4 sat=off (64x64 grid, ~128MB RAM, 8GB machines)
+  --profile fast         cell=8 sat=off (32x32 grid, ~32MB RAM, CI/testing)
+  --yolo                 Alias for --profile insane
+
+SAMPLE OPTIONS:
+  --out PATH             Output file (default: stdout)
+  --sqlite-out PATH      Also write a SQLite manifest store
+  --grid X,Z             Multi-chunk grid dimensions (default: 1,1)
+
+OTHER:
+  --help, -h             Show this help
+  --version, -V          Show version
+
+EXAMPLES:
+  # Austin downtown, maximum fidelity
+  arbx_cli compile --source data/austin_overpass.json --yolo --out out/austin.json
+
+  # Live fetch any city, high quality
+  arbx_cli compile --live --bbox 35.68,139.75,35.69,139.76 --world-name Tokyo --out out/tokyo.json
+
+  # CI/testing: fast synthetic export
+  arbx_cli compile --profile fast --out out/test.json
+
+  # Validate an existing manifest
+  arbx_cli validate out/austin.json
+
+  # Compare two exports
+  arbx_cli diff out/v1.json out/v2.json
+
+  # Build a compact chunk summary for fast scene audits
+  arbx_cli scene-index --manifest out/austin.json --json-out out/austin.scene-index.json
+  arbx_cli scene-index --manifest-sqlite out/austin.sqlite --json-out out/austin.scene-index.json
+
+  # Compare Studio scene markers against manifest truth
+  arbx_cli scene-audit --manifest-summary out/austin.scene-index.json --log studio.log --marker ARNIS_SCENE_EDIT
+  arbx_cli scene-audit --manifest-sqlite out/austin.sqlite --log studio.log --marker ARNIS_SCENE_EDIT
+
+  # Get pipeline info (for AI agents)
+  arbx_cli explain
+
+OUTPUT FORMAT:
+  Schema 0.4.0 JSON manifest with:
+  - metersPerStud: 0.3 (configurable)
+  - Chunks with terrain grids, roads, buildings, water, props, landuse, barriers
+  - DEM-derived elevation for all features
+  - Satellite-classified roof/ground materials (when --satellite is used)
+  - All coordinates in stud-space relative to chunk origins
+
+EXIT CODES:
+  0  Success
+  1  Error (message on stderr)
+"#
+    .to_string()
+}
+
 fn print_help() {
-    println!("arbx_cli — Arnis HD Pipeline");
-    println!();
-    println!("Generates high-fidelity Roblox world manifests from real-world geodata.");
-    println!("Works for any location on Earth. Outputs Schema 0.4.0 JSON manifests.");
-    println!();
-    println!("USAGE:");
-    println!("  arbx_cli <COMMAND> [OPTIONS]");
-    println!();
-    println!("COMMANDS:");
-    println!("  compile    Build a chunk manifest from geodata sources");
-    println!("  sample     Emit a synthetic sample manifest for testing");
-    println!("  stats      Print statistics for a manifest file");
-    println!("  validate   Validate a manifest against the schema");
-    println!("  diff       Compare two manifest files");
-    println!("  scene-index Build a compact per-chunk scene-audit summary");
-    println!("  scene-audit Compare Studio scene markers against manifest truth");
-    println!("  config     Emit a default world configuration JSON");
-    println!("  explain    Print the full pipeline architecture for agents");
-    println!();
-    println!("COMPILE OPTIONS:");
-    println!("  --source PATH          Input Overpass JSON file (omit for synthetic data)");
-    println!("  --live                 Fetch live from Overpass API (auto-cached to --cache-dir)");
-    println!("  --bbox S,W,N,E         Bounding box: min_lat,min_lon,max_lat,max_lon");
-    println!("                         Example: --bbox 30.26,-97.75,30.27,-97.74 (Austin TX)");
-    println!("  --out PATH             Output manifest file (default: stdout)");
-    println!("  --sqlite-out PATH      Also write a SQLite manifest store");
-    println!("  --world-name NAME      World name in manifest metadata (default: ExportedWorld)");
-    println!("  --meters-per-stud N    Scale factor (default: 0.3 = Roblox humanoid proportional)");
-    println!("  --terrain-cell-size N  Terrain grid precision in studs (default: 2, range: 1-32)");
-    println!("                         Lower = more detailed terrain, more memory");
-    println!("  --satellite [DIR]      Enable satellite material classification");
-    println!("                         Fetches ESRI z19 imagery, caches to DIR (default: out/tiles/satellite)");
-    println!("  --cache-dir PATH       Overpass API response cache (default: out/overpass)");
-    println!();
-    println!("QUALITY PROFILES:");
-    println!(
-        "  --profile insane       cell=1 sat=on  (256x256 grid, ~2GB RAM, M5 Max / workstation)"
-    );
-    println!("  --profile high         cell=2 sat=on  (128x128 grid, ~512MB RAM) [default]");
-    println!("  --profile balanced     cell=4 sat=off (64x64 grid, ~128MB RAM, 8GB machines)");
-    println!("  --profile fast         cell=8 sat=off (32x32 grid, ~32MB RAM, CI/testing)");
-    println!("  --yolo                 Alias for --profile insane");
-    println!();
-    println!("SAMPLE OPTIONS:");
-    println!("  --out PATH             Output file (default: stdout)");
-    println!("  --sqlite-out PATH      Also write a SQLite manifest store");
-    println!("  --grid X,Z             Multi-chunk grid dimensions (default: 1,1)");
-    println!();
-    println!("OTHER:");
-    println!("  --help, -h             Show this help");
-    println!("  --version, -V          Show version");
-    println!();
-    println!("EXAMPLES:");
-    println!("  # Austin downtown, maximum fidelity");
-    println!("  arbx_cli compile --source data/austin_overpass.json --yolo --out out/austin.json");
-    println!();
-    println!("  # Live fetch any city, high quality");
-    println!("  arbx_cli compile --live --bbox 35.68,139.75,35.69,139.76 --world-name Tokyo --out out/tokyo.json");
-    println!();
-    println!("  # CI/testing: fast synthetic export");
-    println!("  arbx_cli compile --profile fast --out out/test.json");
-    println!();
-    println!("  # Validate an existing manifest");
-    println!("  arbx_cli validate out/austin.json");
-    println!();
-    println!("  # Compare two exports");
-    println!("  arbx_cli diff out/v1.json out/v2.json");
-    println!();
-    println!("  # Build a compact chunk summary for fast scene audits");
-    println!(
-        "  arbx_cli scene-index --manifest out/austin.json --json-out out/austin.scene-index.json"
-    );
-    println!(
-        "  arbx_cli scene-index --manifest-sqlite out/austin.sqlite --json-out out/austin.scene-index.json"
-    );
-    println!();
-    println!("  # Compare Studio scene markers against manifest truth");
-    println!("  arbx_cli scene-audit --manifest-summary out/austin.scene-index.json --log studio.log --marker ARNIS_SCENE_EDIT");
-    println!("  arbx_cli scene-audit --manifest-sqlite out/austin.sqlite --log studio.log --marker ARNIS_SCENE_EDIT");
-    println!();
-    println!("  # Get pipeline info (for AI agents)");
-    println!("  arbx_cli explain");
-    println!();
-    println!("OUTPUT FORMAT:");
-    println!("  Schema 0.4.0 JSON manifest with:");
-    println!("  - metersPerStud: 0.3 (configurable)");
-    println!("  - Chunks with terrain grids, roads, buildings, water, props, landuse, barriers");
-    println!("  - DEM-derived elevation for all features");
-    println!("  - Satellite-classified roof/ground materials (when --satellite is used)");
-    println!("  - All coordinates in stud-space relative to chunk origins");
-    println!();
-    println!("EXIT CODES:");
-    println!("  0  Success");
-    println!("  1  Error (message on stderr)");
+    print!("{}", help_text());
 }
 
 fn write_manifest_outputs(
@@ -617,7 +617,7 @@ fn cmd_validate(args: &[String]) -> Result<(), String> {
 
     if schema_version != "0.4.0" {
         return Err(format!(
-            "unsupported schemaVersion: {} (expected 0.4.0)",
+            "unsupported schemaVersion: {}; only 0.4.0 manifests are supported",
             schema_version
         ));
     }
@@ -1605,75 +1605,74 @@ fn cmd_scene_audit(args: &[String]) -> Result<(), String> {
     Ok(())
 }
 
+fn explain_text() -> String {
+    r#"ARNIS HD PIPELINE — Architecture Overview
+
+DATA FLOW:
+  Input → Overpass JSON / Live API → Feature Extraction → Elevation Enrichment
+  → Chunking → Satellite Classification → Schema 0.4.0 Manifest
+
+SCHEMA VERSION: 0.4.0
+SCALE: 1 stud = 0.3 meters (configurable)
+
+FEATURE TYPES IN MANIFEST:
+  terrain    Height grid with per-cell materials (satellite-classified)
+  roads      Polylines with lanes, surface, elevated/tunnel flags, sidewalk mode
+  rails      Polylines with track count
+  buildings  Polygon shells with height, roof shape/color/material, usage, rooms
+  water      Ribbons (rivers) or polygons (lakes) with surfaceY, holes for islands
+  props      Point instances: 25+ types (trees, lamps, fountains, bollards, etc.)
+  landuse    Ground polygons (parks, parking, forest, etc.)
+  barriers   Linear features (walls, fences, hedges, guard rails)
+
+ELEVATION:
+  All feature Y positions are DEM-derived (Terrarium/SRTM).
+  Roblox builders read manifest values directly — no runtime re-sampling.
+
+SATELLITE CLASSIFICATION:
+  When --satellite is enabled, the pipeline:
+  1. Fetches ESRI World Imagery tiles at z19 (~0.3m/pixel)
+  2. Classifies building roofs: Asphalt/Metal/Brick/WoodPlanks/Slate/Concrete
+  3. Classifies terrain ground cover: Grass/LeafyGrass/Concrete/Asphalt/Rock/Ground
+  4. Sets roof colors from satellite pixel values
+
+ROBLOX IMPORT:
+  The manifest is consumed by ImportService in Roblox Studio.
+  Builders create Parts, EditableMesh, and Terrain voxels.
+  WorldConfig.lua controls all rendering parameters.
+  LOD system uses CollectionService tagging for distance culling.
+  Day/night cycle toggles street lights and window glow.
+
+RUST CRATES:
+  arbx_geo             BoundingBox, elevation providers (Terrarium, SRTM, Flat)
+  arbx_pipeline        Feature extraction, pipeline stages (validate/normalize/triangulate/enrich)
+  arbx_roblox_export   Chunker, builders, satellite tile provider, manifest serialisation
+  arbx_cli             CLI entry point (this binary)
+
+ROBLOX MODULES:
+  ImportService        Orchestrates chunk loading and builder dispatch
+  StreamingService     Loads/unloads chunks based on player proximity
+  ChunkSchema          Lua-side schema definition matching the JSON manifest
+  WorldConfig          Rendering knobs: scale, LOD, instance budgets
+  Profiler             Timing and instance-count telemetry
+
+PIPELINE STAGES (in order):
+  1. ValidateStage       Reject malformed or unsupported input features
+  2. NormalizeStage      Canonicalise tags, units, and coordinate winding
+  3. TriangulateStage    Decompose polygons for mesh builders
+  4. ElevationEnrichment Inject DEM-derived Y offsets into every feature
+
+MANIFEST TOP-LEVEL STRUCTURE:
+  { "schemaVersion": "0.4.0",
+    "meta": { worldName, generator, source, metersPerStud, chunkSizeStuds, bbox, totalFeatures },
+    "chunks": [ { id, originStuds, terrain, roads, rails, buildings, water, props, landuse, barriers } ]
+  }
+"#
+    .to_string()
+}
+
 fn cmd_explain() {
-    println!("ARNIS HD PIPELINE — Architecture Overview");
-    println!();
-    println!("DATA FLOW:");
-    println!("  Input → Overpass JSON / Live API → Feature Extraction → Elevation Enrichment");
-    println!("  → Chunking → Satellite Classification → Schema 0.4.0 Manifest");
-    println!();
-    println!("SCHEMA VERSION: 0.4.0");
-    println!("SCALE: 1 stud = 0.3 meters (configurable)");
-    println!();
-    println!("FEATURE TYPES IN MANIFEST:");
-    println!("  terrain    Height grid with per-cell materials (satellite-classified)");
-    println!("  roads      Polylines with lanes, surface, elevated/tunnel flags, sidewalk mode");
-    println!("  rails      Polylines with track count");
-    println!("  buildings  Polygon shells with height, roof shape/color/material, usage, rooms");
-    println!("  water      Ribbons (rivers) or polygons (lakes) with surfaceY, holes for islands");
-    println!("  props      Point instances: 25+ types (trees, lamps, fountains, bollards, etc.)");
-    println!("  landuse    Ground polygons (parks, parking, forest, etc.)");
-    println!("  barriers   Linear features (walls, fences, hedges, guard rails)");
-    println!();
-    println!("ELEVATION:");
-    println!("  All feature Y positions are DEM-derived (Terrarium/SRTM).");
-    println!("  Roblox builders read manifest values directly — no runtime re-sampling.");
-    println!();
-    println!("SATELLITE CLASSIFICATION:");
-    println!("  When --satellite is enabled, the pipeline:");
-    println!("  1. Fetches ESRI World Imagery tiles at z19 (~0.3m/pixel)");
-    println!("  2. Classifies building roofs: Asphalt/Metal/Brick/WoodPlanks/Slate/Concrete");
-    println!("  3. Classifies terrain ground cover: Grass/LeafyGrass/Concrete/Asphalt/Rock/Ground");
-    println!("  4. Sets roof colors from satellite pixel values");
-    println!();
-    println!("ROBLOX IMPORT:");
-    println!("  The manifest is consumed by ImportService in Roblox Studio.");
-    println!("  Builders create Parts, EditableMesh, and Terrain voxels.");
-    println!("  WorldConfig.lua controls all rendering parameters.");
-    println!("  LOD system uses CollectionService tagging for distance culling.");
-    println!("  Day/night cycle toggles street lights and window glow.");
-    println!();
-    println!("RUST CRATES:");
-    println!("  arbx_geo             BoundingBox, elevation providers (Terrarium, SRTM, Flat)");
-    println!("  arbx_pipeline        Feature extraction, pipeline stages (validate/normalize/triangulate/enrich)");
-    println!(
-        "  arbx_roblox_export   Chunker, builders, satellite tile provider, manifest serialisation"
-    );
-    println!("  arbx_cli             CLI entry point (this binary)");
-    println!();
-    println!("ROBLOX MODULES:");
-    println!("  ImportService        Orchestrates chunk loading and builder dispatch");
-    println!("  StreamingService     Loads/unloads chunks based on player proximity");
-    println!("  ChunkSchema          Lua-side schema definition matching the JSON manifest");
-    println!("  WorldConfig          Rendering knobs: scale, LOD, instance budgets");
-    println!("  Migrations           Schema upgrade path for older manifests");
-    println!("  Profiler             Timing and instance-count telemetry");
-    println!();
-    println!("PIPELINE STAGES (in order):");
-    println!("  1. ValidateStage       Reject malformed or unsupported input features");
-    println!("  2. NormalizeStage      Canonicalise tags, units, and coordinate winding");
-    println!("  3. TriangulateStage    Decompose polygons for mesh builders");
-    println!("  4. ElevationEnrichment Inject DEM-derived Y offsets into every feature");
-    println!();
-    println!("MANIFEST TOP-LEVEL STRUCTURE:");
-    println!(r#"  {{ "schemaVersion": "0.4.0","#);
-    println!(
-        r#"    "meta": {{ worldName, generator, source, metersPerStud, chunkSizeStuds, bbox, totalFeatures }},"#
-    );
-    println!(
-        r#"    "chunks": [ {{ id, originStuds, terrain, roads, rails, buildings, water, props, landuse, barriers }} ]"#
-    );
-    println!(r#"  }}"#);
+    print!("{}", explain_text());
 }
 
 fn main() {
@@ -1759,7 +1758,7 @@ mod tests {
     #[test]
     fn diff_identical_manifests() {
         let content = r#"{
-            "schemaVersion": "0.3.0",
+            "schemaVersion": "0.4.0",
             "meta": { "totalFeatures": 10 },
             "chunks": [{}, {}]
         }"#;
@@ -1773,9 +1772,9 @@ mod tests {
     }
 
     #[test]
-    fn diff_different_versions() {
-        let c1 = r#"{ "schemaVersion": "0.3.0", "meta": { "totalFeatures": 10 }, "chunks": [] }"#;
-        let c2 = r#"{ "schemaVersion": "0.1.0", "meta": { "totalFeatures": 10 }, "chunks": [] }"#;
+    fn diff_same_version_manifests() {
+        let c1 = r#"{ "schemaVersion": "0.4.0", "meta": { "totalFeatures": 10 }, "chunks": [] }"#;
+        let c2 = r#"{ "schemaVersion": "0.4.0", "meta": { "totalFeatures": 11 }, "chunks": [] }"#;
         let f1 = write_temp_manifest(c1);
         let f2 = write_temp_manifest(c2);
         assert!(cmd_diff(&[
@@ -1783,6 +1782,49 @@ mod tests {
             f2.path().to_str().unwrap().to_string()
         ])
         .is_ok());
+    }
+
+    #[test]
+    fn help_text_is_0_4_0_only() {
+        let help = help_text();
+        assert!(help.contains("Outputs Schema 0.4.0 JSON manifests."));
+        assert!(!help.contains("Migrations"));
+        assert!(!help.contains("0.1.0"));
+        assert!(!help.contains("0.3.0"));
+    }
+
+    #[test]
+    fn explain_text_is_0_4_0_only() {
+        let explain = explain_text();
+        assert!(explain.contains("SCHEMA VERSION: 0.4.0"));
+        assert!(explain.contains(r#"  { "schemaVersion": "0.4.0","#));
+        assert!(!explain.contains("Migrations"));
+        assert!(!explain.contains("0.1.0"));
+        assert!(!explain.contains("0.3.0"));
+    }
+
+    #[test]
+    fn validate_rejects_legacy_schema_versions_with_0_4_0_only_language() {
+        let content = r#"{
+            "schemaVersion": "0.1.0",
+            "meta": {
+                "worldName": "LegacyWorld",
+                "generator": "unit-test",
+                "source": "synthetic",
+                "metersPerStud": 0.3,
+                "chunkSizeStuds": 256,
+                "bbox": { "minLat": 0, "minLon": 0, "maxLat": 1, "maxLon": 1 },
+                "totalFeatures": 0
+            },
+            "chunks": [{
+                "id": "0_0",
+                "originStuds": { "x": 0, "y": 0, "z": 0 }
+            }]
+        }"#;
+        let manifest = write_temp_manifest(content);
+        let err = cmd_validate(&[manifest.path().to_str().unwrap().to_string()])
+            .expect_err("legacy schema should be rejected");
+        assert!(err.contains("only 0.4.0 manifests are supported"));
     }
 
     #[test]
