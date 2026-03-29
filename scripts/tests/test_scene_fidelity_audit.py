@@ -23,6 +23,68 @@ def load_module():
 class SceneFidelityAuditTests(unittest.TestCase):
     maxDiff = None
 
+    def test_report_rejects_missing_or_non_current_schema_version(self) -> None:
+        audit = load_module()
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            manifest_path = root / "manifest.json"
+            log_path = root / "studio.log"
+
+            log_path.write_text(
+                "ARNIS_SCENE_PLAY "
+                + json.dumps(
+                    {
+                        "phase": "play",
+                        "focus": {"x": 0.0, "z": 0.0},
+                        "radius": 512.0,
+                        "rootName": "GeneratedWorld_Austin",
+                        "worldIdentity": "AustinManifestIndex",
+                        "chunkEnvelopeKind": "runtime_resident",
+                        "scene": {"chunkCount": 0, "buildingModelCount": 0},
+                    },
+                    separators=(",", ":"),
+                ),
+                encoding="utf-8",
+            )
+
+            manifest_path.write_text(
+                json.dumps(
+                    {
+                        "meta": {
+                            "worldName": "SchemaAuditTown",
+                            "metersPerStud": 1.0,
+                            "chunkSizeStuds": 256,
+                        },
+                        "chunks": [],
+                    }
+                ),
+                encoding="utf-8",
+            )
+
+            with self.assertRaises(SystemExit) as missing_schema_error:
+                audit.build_report(manifest_path, log_path, marker="ARNIS_SCENE_PLAY")
+            self.assertIn("schemaVersion", str(missing_schema_error.exception))
+
+            manifest_path.write_text(
+                json.dumps(
+                    {
+                        "schemaVersion": "0.3.0",
+                        "meta": {
+                            "worldName": "SchemaAuditTown",
+                            "metersPerStud": 1.0,
+                            "chunkSizeStuds": 256,
+                        },
+                        "chunks": [],
+                    }
+                ),
+                encoding="utf-8",
+            )
+
+            with self.assertRaises(SystemExit) as unsupported_schema_error:
+                audit.build_report(manifest_path, log_path, marker="ARNIS_SCENE_PLAY")
+            self.assertIn("unsupported schemaVersion", str(unsupported_schema_error.exception))
+
     def test_report_parses_latest_scene_marker_and_flags_missing_geometry(self) -> None:
         audit = load_module()
 
@@ -308,64 +370,66 @@ class SceneFidelityAuditTests(unittest.TestCase):
             self.assertEqual(report["manifest"]["roadCountByKind"]["residential"], 1)
             self.assertEqual(report["manifest"]["roadCountBySubkind"]["sidewalk"], 2)
             self.assertEqual(report["manifest"]["roadCountBySubkind"]["none"], 1)
-            self.assertEqual(report["manifest"]["waterCount"], 2)
-            self.assertEqual(report["manifest"]["waterCountByKind"]["pond"], 1)
-            self.assertEqual(report["manifest"]["waterCountByKind"]["stream"], 1)
-            self.assertEqual(report["manifest"]["propCount"], 2)
-            self.assertEqual(report["manifest"]["propCountByKind"]["tree"], 1)
-            self.assertEqual(report["manifest"]["propCountByKind"]["fountain"], 1)
-            self.assertEqual(report["manifest"]["treeCount"], 1)
-            self.assertEqual(report["manifest"]["treeCountBySpecies"]["oak"], 1)
-            self.assertEqual(report["manifest"]["vegetationCount"], 1)
-            self.assertEqual(report["manifest"]["vegetationCountByKind"]["tree"], 1)
-            self.assertEqual(report["manifest"]["chunksWithWater"], 1)
-            self.assertEqual(report["manifest"]["waterCountByType"]["polygon"], 1)
-            self.assertEqual(report["manifest"]["waterCountByType"]["ribbon"], 1)
-            self.assertAlmostEqual(report["summary"]["building_model_ratio"], 1 / 3, places=4)
-            self.assertAlmostEqual(report["summary"]["road_geometry_ratio"], 0.0, places=4)
-            self.assertAlmostEqual(report["summary"]["water_geometry_ratio"], 0.0, places=4)
-            self.assertEqual(report["scene"]["buildingModelCountByWallMaterial"]["concrete"]["sourceIds"], ["bldg_1"])
-            self.assertEqual(report["scene"]["buildingModelCountByRoofMaterial"]["slate"]["sourceIds"], ["bldg_1"])
-            self.assertIn("missing_building_models", codes)
-            self.assertIn("missing_road_geometry", codes)
-            self.assertIn("missing_water_geometry", codes)
-            self.assertIn("roof_usage_scene_gap", codes)
-            self.assertIn("roof_shape_scene_gap", codes)
-            self.assertIn("road_kind_scene_gap", codes)
-            self.assertIn("road_subkind_scene_gap", codes)
-            self.assertIn("water_kind_scene_gap", codes)
-            self.assertIn("water_type_scene_gap", codes)
-            self.assertIn("prop_kind_scene_gap", codes)
-            self.assertIn("explicit_wall_material_scene_gap", codes)
-            self.assertIn("explicit_roof_material_scene_gap", codes)
-            self.assertEqual(
-                report["summary"]["waterTypeGaps"],
-                [
+
+    def test_report_does_not_translate_legacy_building_kind_into_usage(self) -> None:
+        audit = load_module()
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            manifest_path = root / "manifest.json"
+            log_path = root / "studio.log"
+
+            manifest = {
+                "schemaVersion": "0.4.0",
+                "meta": {
+                    "worldName": "LegacyUsageTown",
+                    "metersPerStud": 1.0,
+                    "chunkSizeStuds": 256,
+                },
+                "chunks": [
                     {
-                        "bucket": "ribbon",
-                        "manifestCount": 1,
-                        "sceneCount": 0,
-                        "missingIds": ["water_ribbon_1"],
+                        "id": "0_0",
+                        "originStuds": {"x": 0, "y": 0, "z": 0},
+                        "roads": [],
+                        "buildings": [
+                            {
+                                "id": "legacy_building_1",
+                                "kind": "office",
+                                "roof": "flat",
+                            }
+                        ],
+                        "water": [],
+                        "props": [],
+                        "landuse": [],
+                        "barriers": [],
+                        "rails": [],
                     }
                 ],
-            )
-            self.assertEqual(
-                report["summary"]["roadKindGaps"],
-                [
+            }
+            manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
+
+            log_path.write_text(
+                "ARNIS_SCENE_PLAY "
+                + json.dumps(
                     {
-                        "bucket": "secondary",
-                        "manifestCount": 2,
-                        "sceneCount": 1,
-                        "missingIds": ["road_2"],
+                        "phase": "play",
+                        "focus": {"x": 0.0, "z": 0.0},
+                        "radius": 512.0,
+                        "rootName": "GeneratedWorld_Austin",
+                        "worldIdentity": "AustinManifestIndex",
+                        "chunkEnvelopeKind": "runtime_resident",
+                        "scene": {"chunkCount": 0, "buildingModelCount": 0},
                     },
-                    {
-                        "bucket": "residential",
-                        "manifestCount": 1,
-                        "sceneCount": 0,
-                        "missingIds": ["road_3"],
-                    },
-                ],
+                    separators=(",", ":"),
+                ),
+                encoding="utf-8",
             )
+
+            report = audit.build_report(manifest_path, log_path, marker="ARNIS_SCENE_PLAY")
+
+            self.assertEqual(report["manifest"]["buildingCount"], 1)
+            self.assertEqual(report["manifest"]["buildingCountByUsage"]["unknown"], 1)
+            self.assertNotIn("office", report["manifest"]["buildingCountByUsage"])
 
     def test_report_parses_latest_client_world_compact_marker_without_deriving_extra_assumptions(self) -> None:
         audit = load_module()

@@ -9,12 +9,25 @@ from pathlib import Path
 from typing import Any
 
 
+CURRENT_SCHEMA_VERSION = "0.4.0"
+
+
 def _load_json(path: Path) -> dict[str, Any]:
     with path.open(encoding="utf-8") as handle:
         data = json.load(handle)
     if not isinstance(data, dict):
         raise ValueError(f"{path} did not contain a top-level JSON object")
     return data
+
+
+def _require_current_schema_version(manifest: dict[str, Any], source_label: str) -> None:
+    schema_version = manifest.get("schemaVersion")
+    if not isinstance(schema_version, str) or not schema_version:
+        raise SystemExit(f"manifest must contain a schemaVersion string in {source_label}")
+    if schema_version != CURRENT_SCHEMA_VERSION:
+        raise SystemExit(
+            f"unsupported schemaVersion {schema_version!r} in {source_label}; expected {CURRENT_SCHEMA_VERSION!r}"
+        )
 
 
 def _safe_float(value: Any, default: float = 0.0) -> float:
@@ -795,7 +808,7 @@ def _build_manifest_zone_summary(manifest: dict[str, Any], payload: dict[str, An
             for building in buildings:
                 if not isinstance(building, dict):
                     continue
-                usage = str(building.get("usage") or building.get("kind") or "unknown")
+                usage = str(building.get("usage") or "unknown")
                 roof_shape = str(building.get("roof") or building.get("roofShape") or "unknown")
                 building_count_by_usage[usage] = building_count_by_usage.get(usage, 0) + 1
                 building_count_by_roof_shape[roof_shape] = building_count_by_roof_shape.get(roof_shape, 0) + 1
@@ -1039,6 +1052,7 @@ def _gap_rows(
 
 def build_report(manifest_path: Path, log_path: Path, *, marker: str) -> dict[str, Any]:
     manifest = _load_json(manifest_path)
+    _require_current_schema_version(manifest, str(manifest_path))
     payload = _parse_latest_marker(log_path, marker)
     client_world = _merge_client_world_markers(
         _parse_latest_simple_marker(log_path, "ARNIS_CLIENT_WORLD_COMPACT"),
