@@ -504,6 +504,142 @@ def _parse_latest_simple_marker(log_path: Path, marker: str) -> dict[str, Any] |
     return latest_payload
 
 
+def _merge_client_world_markers(
+    compact_payload: dict[str, Any] | None, local_experience_payload: dict[str, Any] | None
+) -> dict[str, Any]:
+    merged: dict[str, Any] = {}
+    if isinstance(compact_payload, dict):
+        merged.update(compact_payload)
+    if not isinstance(local_experience_payload, dict):
+        return merged
+
+    for key, value in local_experience_payload.items():
+        if key in {"localSupport", "localTerrain", "localEnclosure", "localRoofCover"}:
+            if isinstance(value, dict):
+                merged[key] = value
+            continue
+        if key not in merged or merged.get(key) in (None, "", [], {}):
+            merged[key] = value
+    return merged
+
+
+CLIENT_LOCAL_FINDING_CODES = {
+    "client_local_support_unknown",
+    "client_local_terrain_roughness_missing",
+    "client_local_enclosure_gap",
+    "client_local_roof_cover_gap",
+}
+
+CLIENT_SUMMARY_KEYS = {
+    "clientLocalSupportSurfaceRole",
+    "clientLocalSupportOffsetStuds",
+    "clientLocalTerrainStatus",
+    "clientLocalTerrainSamplePattern",
+    "clientLocalTerrainSampleCount",
+    "clientLocalTerrainMissingSampleCount",
+    "clientLocalTerrainHeightRangeStuds",
+    "clientLocalTerrainMaxStepStuds",
+    "clientLocalTerrainMeanAbsStepStuds",
+    "clientLocalEnclosureNearbyWallParts",
+    "clientLocalEnclosureCollidableWallPartsNearby",
+    "clientLocalEnclosureNearestWallDistanceStuds",
+    "clientLocalRoofCoverNearbyRoofParts",
+    "clientLocalRoofCoverOverheadRoofParts",
+    "clientLocalRoofCoverMinClearanceStuds",
+}
+
+
+def _apply_client_world_observability(report: dict[str, Any], client_world: dict[str, Any]) -> dict[str, Any]:
+    summary = report.get("summary") if isinstance(report.get("summary"), dict) else {}
+    findings_payload = report.get("findings")
+    findings = [item for item in findings_payload if isinstance(item, dict)] if isinstance(findings_payload, list) else []
+
+    for key in CLIENT_SUMMARY_KEYS:
+        summary.pop(key, None)
+
+    local_support = client_world.get("localSupport") if isinstance(client_world.get("localSupport"), dict) else {}
+    local_terrain = client_world.get("localTerrain") if isinstance(client_world.get("localTerrain"), dict) else {}
+    local_enclosure = client_world.get("localEnclosure") if isinstance(client_world.get("localEnclosure"), dict) else {}
+    local_roof_cover = client_world.get("localRoofCover") if isinstance(client_world.get("localRoofCover"), dict) else {}
+
+    if local_support:
+        summary["clientLocalSupportSurfaceRole"] = local_support.get("surfaceRole")
+        summary["clientLocalSupportOffsetStuds"] = local_support.get("supportMinusTerrainYStuds")
+    if local_terrain:
+        summary["clientLocalTerrainStatus"] = local_terrain.get("status")
+        summary["clientLocalTerrainSamplePattern"] = local_terrain.get("samplePattern")
+        summary["clientLocalTerrainSampleCount"] = local_terrain.get("sampleCount")
+        summary["clientLocalTerrainMissingSampleCount"] = local_terrain.get("missingSampleCount")
+        summary["clientLocalTerrainHeightRangeStuds"] = local_terrain.get("heightRangeStuds")
+        summary["clientLocalTerrainMaxStepStuds"] = local_terrain.get("maxStepStuds")
+        summary["clientLocalTerrainMeanAbsStepStuds"] = local_terrain.get("meanAbsStepStuds")
+    if local_enclosure:
+        summary["clientLocalEnclosureNearbyWallParts"] = local_enclosure.get("nearbyWallParts")
+        summary["clientLocalEnclosureCollidableWallPartsNearby"] = local_enclosure.get("collidableWallPartsNearby")
+        summary["clientLocalEnclosureNearestWallDistanceStuds"] = local_enclosure.get("nearestWallDistanceStuds")
+    if local_roof_cover:
+        summary["clientLocalRoofCoverNearbyRoofParts"] = local_roof_cover.get("nearbyRoofParts")
+        summary["clientLocalRoofCoverOverheadRoofParts"] = local_roof_cover.get("overheadRoofParts")
+        summary["clientLocalRoofCoverMinClearanceStuds"] = local_roof_cover.get("overheadRoofMinClearanceStuds")
+
+    findings = [item for item in findings if item.get("code") not in CLIENT_LOCAL_FINDING_CODES]
+    if str(local_support.get("surfaceRole") or "") == "unknown":
+        findings.append(
+            {
+                "severity": "medium",
+                "code": "client_local_support_unknown",
+                "message": "client-world telemetry reports an unknown local support surface role",
+            }
+        )
+    terrain_support_role = str(local_support.get("surfaceRole") or client_world.get("supportSurfaceRole") or "")
+    if terrain_support_role == "terrain":
+        terrain_status = str(local_terrain.get("status") or "")
+        terrain_sample_count = int(local_terrain.get("sampleCount") or 0)
+        if terrain_status != "ok" or terrain_sample_count <= 0:
+            findings.append(
+                {
+                    "severity": "medium",
+                    "code": "client_local_terrain_roughness_missing",
+                    "message": "client-world telemetry could not derive usable local terrain roughness metrics at the player support point",
+                }
+            )
+    if int(client_world.get("nearbyBuildingModels") or 0) > 0 and int(local_enclosure.get("nearbyWallParts") or 0) <= 0:
+        findings.append(
+            {
+                "severity": "medium",
+                "code": "client_local_enclosure_gap",
+                "message": "client-world telemetry reports nearby buildings but no local enclosure wall evidence",
+            }
+        )
+    if int(client_world.get("nearbyRoofParts") or 0) > 0 and int(local_roof_cover.get("overheadRoofParts") or 0) <= 0:
+        findings.append(
+            {
+                "severity": "medium",
+                "code": "client_local_roof_cover_gap",
+                "message": "client-world telemetry reports nearby roof geometry but no local overhead roof cover",
+            }
+        )
+
+    report["clientWorld"] = client_world
+    report["summary"] = summary
+    report["findings"] = findings
+    return report
+
+
+def _enrich_report_with_log_markers(report: dict[str, Any], log_path: Path) -> dict[str, Any]:
+    if not log_path.is_file():
+        return report
+    existing_client_world = report.get("clientWorld") if isinstance(report.get("clientWorld"), dict) else {}
+    client_world_from_log = _merge_client_world_markers(
+        _parse_latest_simple_marker(log_path, "ARNIS_CLIENT_WORLD_COMPACT"),
+        _parse_latest_simple_marker(log_path, "ARNIS_CLIENT_LOCAL_EXPERIENCE"),
+    )
+    merged_client_world = _merge_client_world_markers(existing_client_world, client_world_from_log)
+    if not merged_client_world:
+        return report
+    return _apply_client_world_observability(report, merged_client_world)
+
+
 def _build_manifest_zone_summary(manifest: dict[str, Any], payload: dict[str, Any]) -> dict[str, Any]:
     meta = manifest.get("meta") if isinstance(manifest.get("meta"), dict) else {}
     chunk_size = _safe_float(meta.get("chunkSizeStuds"), 256.0)
@@ -904,7 +1040,10 @@ def _gap_rows(
 def build_report(manifest_path: Path, log_path: Path, *, marker: str) -> dict[str, Any]:
     manifest = _load_json(manifest_path)
     payload = _parse_latest_marker(log_path, marker)
-    client_world = _parse_latest_simple_marker(log_path, "ARNIS_CLIENT_WORLD_COMPACT") or {}
+    client_world = _merge_client_world_markers(
+        _parse_latest_simple_marker(log_path, "ARNIS_CLIENT_WORLD_COMPACT"),
+        _parse_latest_simple_marker(log_path, "ARNIS_CLIENT_LOCAL_EXPERIENCE"),
+    )
     scene = payload.get("scene") if isinstance(payload.get("scene"), dict) else {}
     manifest_summary = _build_manifest_zone_summary(manifest, payload)
 
@@ -958,30 +1097,6 @@ def build_report(manifest_path: Path, log_path: Path, *, marker: str) -> dict[st
         "explicitWallMaterialGaps": [],
         "explicitRoofMaterialGaps": [],
     }
-    local_support = client_world.get("localSupport") if isinstance(client_world.get("localSupport"), dict) else {}
-    local_terrain = client_world.get("localTerrain") if isinstance(client_world.get("localTerrain"), dict) else {}
-    local_enclosure = client_world.get("localEnclosure") if isinstance(client_world.get("localEnclosure"), dict) else {}
-    local_roof_cover = client_world.get("localRoofCover") if isinstance(client_world.get("localRoofCover"), dict) else {}
-    if local_support:
-        summary["clientLocalSupportSurfaceRole"] = local_support.get("surfaceRole")
-        summary["clientLocalSupportOffsetStuds"] = local_support.get("supportMinusTerrainYStuds")
-    if local_terrain:
-        summary["clientLocalTerrainStatus"] = local_terrain.get("status")
-        summary["clientLocalTerrainSamplePattern"] = local_terrain.get("samplePattern")
-        summary["clientLocalTerrainSampleCount"] = local_terrain.get("sampleCount")
-        summary["clientLocalTerrainMissingSampleCount"] = local_terrain.get("missingSampleCount")
-        summary["clientLocalTerrainHeightRangeStuds"] = local_terrain.get("heightRangeStuds")
-        summary["clientLocalTerrainMaxStepStuds"] = local_terrain.get("maxStepStuds")
-        summary["clientLocalTerrainMeanAbsStepStuds"] = local_terrain.get("meanAbsStepStuds")
-    if local_enclosure:
-        summary["clientLocalEnclosureNearbyWallParts"] = local_enclosure.get("nearbyWallParts")
-        summary["clientLocalEnclosureCollidableWallPartsNearby"] = local_enclosure.get("collidableWallPartsNearby")
-        summary["clientLocalEnclosureNearestWallDistanceStuds"] = local_enclosure.get("nearestWallDistanceStuds")
-    if local_roof_cover:
-        summary["clientLocalRoofCoverNearbyRoofParts"] = local_roof_cover.get("nearbyRoofParts")
-        summary["clientLocalRoofCoverOverheadRoofParts"] = local_roof_cover.get("overheadRoofParts")
-        summary["clientLocalRoofCoverMinClearanceStuds"] = local_roof_cover.get("overheadRoofMinClearanceStuds")
-
     findings: list[dict[str, Any]] = []
     if scene_chunk_count < manifest_chunk_count:
         findings.append(
@@ -1466,44 +1581,7 @@ def build_report(manifest_path: Path, log_path: Path, *, marker: str) -> dict[st
             }
         )
 
-    if str(local_support.get("surfaceRole") or "") == "unknown":
-        findings.append(
-            {
-                "severity": "medium",
-                "code": "client_local_support_unknown",
-                "message": "client-world telemetry reports an unknown local support surface role",
-            }
-        )
-    terrain_support_role = str(local_support.get("surfaceRole") or client_world.get("supportSurfaceRole") or "")
-    if terrain_support_role == "terrain":
-        terrain_status = str(local_terrain.get("status") or "")
-        terrain_sample_count = int(local_terrain.get("sampleCount") or 0)
-        if terrain_status != "ok" or terrain_sample_count <= 0:
-            findings.append(
-                {
-                    "severity": "medium",
-                    "code": "client_local_terrain_roughness_missing",
-                    "message": "client-world telemetry could not derive usable local terrain roughness metrics at the player support point",
-                }
-            )
-    if int(client_world.get("nearbyBuildingModels") or 0) > 0 and int(local_enclosure.get("nearbyWallParts") or 0) <= 0:
-        findings.append(
-            {
-                "severity": "medium",
-                "code": "client_local_enclosure_gap",
-                "message": "client-world telemetry reports nearby buildings but no local enclosure wall evidence",
-            }
-        )
-    if int(client_world.get("nearbyRoofParts") or 0) > 0 and int(local_roof_cover.get("overheadRoofParts") or 0) <= 0:
-        findings.append(
-            {
-                "severity": "medium",
-                "code": "client_local_roof_cover_gap",
-                "message": "client-world telemetry reports nearby roof geometry but no local overhead roof cover",
-            }
-        )
-
-    return {
+    report = {
         "generatedAt": datetime.now(timezone.utc).isoformat(),
         "manifestPath": str(manifest_path),
         "logPath": str(log_path),
@@ -1519,6 +1597,7 @@ def build_report(manifest_path: Path, log_path: Path, *, marker: str) -> dict[st
         "summary": summary,
         "findings": findings,
     }
+    return _apply_client_world_observability(report, client_world)
 
 
 def write_html_report(report: dict[str, Any], html_path: Path) -> None:
@@ -2111,6 +2190,12 @@ def main(argv: list[str] | None = None) -> int:
 
     if args.report_json:
         report = _load_json(args.report_json)
+        if args.log is not None:
+            report = _enrich_report_with_log_markers(report, args.log)
+        if args.json_out:
+            args.json_out.write_text(json.dumps(report, indent=2, sort_keys=True), encoding="utf-8")
+        elif args.html_out is None:
+            print(json.dumps(report, indent=2, sort_keys=True))
     else:
         if args.manifest is None or args.log is None:
             parser.error("--manifest and --log are required unless --report-json is provided")

@@ -254,6 +254,14 @@ class AustinRuntimeContractTests(unittest.TestCase):
         self.assertIn("maxStepStuds =", self.world_probe_terrain_text)
         self.assertIn("meanAbsStepStuds =", self.world_probe_terrain_text)
 
+    def test_client_world_probe_emits_dedicated_local_experience_marker(self) -> None:
+        self.assertIn('print("ARNIS_CLIENT_LOCAL_EXPERIENCE " .. localExperiencePayloadJson)', self.world_probe_text)
+        self.assertIn("localExperiencePayload.localSupport = payload.localSupport", self.world_probe_text)
+        self.assertIn("localExperiencePayload.localTerrain = payload.localTerrain", self.world_probe_text)
+        self.assertIn("localExperiencePayload.localEnclosure = payload.localEnclosure", self.world_probe_text)
+        self.assertIn("localExperiencePayload.localRoofCover = payload.localRoofCover", self.world_probe_text)
+        self.assertIn("bootstrapAttemptId = bootstrapPayload.bootstrapAttemptId,", self.world_probe_text)
+
     def test_shaped_roof_closure_decks_are_marked_internal_support_not_visible_roof_truth(self) -> None:
         self.assertIn("local function applyRoofPartOptions(part, partOptions)", self.building_builder_text)
         self.assertIn("ArnisRoofClosureDeck = true", self.building_builder_text)

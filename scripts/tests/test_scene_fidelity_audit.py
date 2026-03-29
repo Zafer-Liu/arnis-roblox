@@ -591,6 +591,91 @@ class SceneFidelityAuditTests(unittest.TestCase):
             self.assertIn("client_local_terrain_height_range_studs", html)
             self.assertIn("client_local_terrain_max_step_studs", html)
 
+    def test_report_merges_dedicated_local_experience_marker_when_compact_marker_is_truncated(self) -> None:
+        audit = load_module()
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            manifest_path = root / "manifest.json"
+            log_path = root / "studio.log"
+
+            manifest = {
+                "schemaVersion": "0.4.0",
+                "meta": {"worldName": "SceneAuditTown", "chunkSizeStuds": 256},
+                "chunks": [],
+            }
+            manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
+
+            payload = {
+                "phase": "play",
+                "focus": {"x": 0.0, "z": 0.0},
+                "radius": 128.0,
+                "rootName": "GeneratedWorld_Austin",
+                "worldIdentity": "AustinManifestIndex",
+                "chunkEnvelopeKind": "runtime_resident",
+                "scene": {
+                    "chunkCount": 0,
+                    "buildingModelCount": 0,
+                    "chunksWithRoadGeometry": 0,
+                },
+            }
+            local_experience = {
+                "worldRootName": "GeneratedWorld_Austin",
+                "worldRootExists": True,
+                "bootstrapAttemptId": "attempt-7",
+                "bootstrapState": "gameplay_ready",
+                "localSupport": {
+                    "surfaceRole": "terrain",
+                    "supportY": 5.1,
+                    "terrainY": 5.1,
+                    "supportMinusTerrainYStuds": 0.0,
+                    "sourceIds": [],
+                },
+                "localTerrain": {
+                    "status": "ok",
+                    "samplePattern": "cross_5",
+                    "sampleRadiusStuds": 12.0,
+                    "sampleCount": 5,
+                    "missingSampleCount": 0,
+                    "centerTerrainY": 5.1,
+                    "minTerrainY": 4.8,
+                    "maxTerrainY": 7.2,
+                    "heightRangeStuds": 2.4,
+                    "maxStepStuds": 1.7,
+                    "meanAbsStepStuds": 0.9,
+                },
+                "localEnclosure": {
+                    "nearbyWallParts": 4,
+                    "collidableWallPartsNearby": 4,
+                    "nearestWallDistanceStuds": 2.2,
+                },
+                "localRoofCover": {
+                    "nearbyRoofParts": 8,
+                    "overheadRoofParts": 2,
+                    "overheadRoofMinClearanceStuds": 12.4,
+                    "overheadRoofSourceIds": ["osm_1"],
+                },
+            }
+            log_path.write_text(
+                "\n".join(
+                    [
+                        "ARNIS_SCENE_PLAY " + json.dumps(payload, separators=(",", ":")),
+                        'ARNIS_CLIENT_WORLD_COMPACT {"worldRootName":"GeneratedWorld_Austin","localTerrain"',
+                        "ARNIS_CLIENT_LOCAL_EXPERIENCE " + json.dumps(local_experience, separators=(",", ":")),
+                    ]
+                ),
+                encoding="utf-8",
+            )
+
+            report = audit.build_report(manifest_path, log_path, marker="ARNIS_SCENE_PLAY")
+
+            self.assertEqual(report["clientWorld"]["worldRootName"], "GeneratedWorld_Austin")
+            self.assertEqual(report["clientWorld"]["bootstrapAttemptId"], "attempt-7")
+            self.assertEqual(report["clientWorld"]["localTerrain"]["status"], "ok")
+            self.assertEqual(report["clientWorld"]["localTerrain"]["maxStepStuds"], 1.7)
+            self.assertEqual(report["summary"]["clientLocalTerrainStatus"], "ok")
+            self.assertEqual(report["summary"]["clientLocalTerrainMaxStepStuds"], 1.7)
+
     def test_report_flags_missing_local_terrain_roughness_when_support_is_terrain(self) -> None:
         audit = load_module()
 
@@ -948,6 +1033,94 @@ class SceneFidelityAuditTests(unittest.TestCase):
             self.assertIn("oak", html)
             self.assertIn("merged_building_mesh_part_count", html)
             self.assertIn("road_crosswalk_stripe_count", html)
+
+    def test_main_enriches_loaded_report_from_raw_log_and_rewrites_json(self) -> None:
+        audit = load_module()
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            report_path = root / "report.json"
+            log_path = root / "studio.log"
+            out_path = root / "report.enriched.json"
+            html_path = root / "report.html"
+
+            report = {
+                "phase": "play",
+                "rootName": "GeneratedWorld_Austin",
+                "scene": {
+                    "buildingModelCount": 1,
+                },
+                "clientWorld": {
+                    "nearbyBuildingModels": 1,
+                    "nearbyRoofParts": 1,
+                },
+                "manifest": {
+                    "chunkCount": 1,
+                    "buildingCount": 1,
+                    "chunksWithRoads": 0,
+                    "chunksWithRails": 0,
+                    "railCount": 0,
+                    "propCount": 0,
+                    "vegetationCount": 0,
+                    "chunksWithWater": 0,
+                    "roadCountByKind": {},
+                    "roadCountBySubkind": {},
+                    "railCountByKind": {},
+                    "waterCountByKind": {},
+                    "waterCountByType": {},
+                    "propCountByKind": {},
+                    "treeCountBySpecies": {},
+                    "vegetationCountByKind": {},
+                    "buildingCountByExplicitWallMaterial": {},
+                    "buildingCountByExplicitRoofMaterial": {},
+                },
+                "summary": {
+                    "marker": "ARNIS_SCENE_PLAY",
+                    "building_model_ratio": 1.0,
+                },
+                "findings": [],
+            }
+            local_experience = {
+                "worldRootName": "GeneratedWorld_Austin",
+                "localSupport": {"surfaceRole": "terrain", "supportMinusTerrainYStuds": 0.0},
+                "localTerrain": {
+                    "status": "ok",
+                    "sampleCount": 5,
+                    "missingSampleCount": 0,
+                    "maxStepStuds": 1.25,
+                    "meanAbsStepStuds": 0.5,
+                },
+                "localEnclosure": {"nearbyWallParts": 2, "collidableWallPartsNearby": 2},
+                "localRoofCover": {"nearbyRoofParts": 1, "overheadRoofParts": 1},
+            }
+            report_path.write_text(json.dumps(report), encoding="utf-8")
+            log_path.write_text(
+                "ARNIS_CLIENT_LOCAL_EXPERIENCE " + json.dumps(local_experience, separators=(",", ":")) + "\n",
+                encoding="utf-8",
+            )
+
+            exit_code = audit.main(
+                [
+                    "--report-json",
+                    str(report_path),
+                    "--log",
+                    str(log_path),
+                    "--json-out",
+                    str(out_path),
+                    "--html-out",
+                    str(html_path),
+                ]
+            )
+
+            self.assertEqual(exit_code, 0)
+            enriched = json.loads(out_path.read_text(encoding="utf-8"))
+            self.assertEqual(enriched["clientWorld"]["localTerrain"]["status"], "ok")
+            self.assertEqual(enriched["summary"]["clientLocalTerrainStatus"], "ok")
+            self.assertEqual(enriched["summary"]["clientLocalTerrainMaxStepStuds"], 1.25)
+            self.assertFalse(any(item["code"] == "client_local_enclosure_gap" for item in enriched["findings"]))
+            html = html_path.read_text(encoding="utf-8")
+            self.assertIn("client_local_terrain_status", html)
+            self.assertIn("localTerrain", html)
 
     def test_report_reassembles_split_prop_and_vegetation_buckets(self) -> None:
         audit = load_module()

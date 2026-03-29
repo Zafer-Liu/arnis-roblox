@@ -3412,6 +3412,9 @@ try:
     if "Failed to run script in play mode" in joined or "Previous call to start play session has not been completed" in joined:
         raise RuntimeError(joined)
     play_probe_succeeded = True
+except Exception as exc:
+    print(f"[harness-mcp] phase=play error={exc!r}")
+    raise
 finally:
     signal.alarm(0)
     if not play_probe_succeeded:
@@ -3639,6 +3642,57 @@ PY
   fi
 }
 
+log_effective_play_local_experience_state() {
+  local summary_source="${1:-$ACTIVE_LOG}"
+  if [[ -n "$LOG_SLICE_FILE" && -f "$LOG_SLICE_FILE" && "$summary_source" == "$ACTIVE_LOG" ]]; then
+    summary_source="$LOG_SLICE_FILE"
+  fi
+  if rg -q "ARNIS_CLIENT_LOCAL_EXPERIENCE " "$summary_source"; then
+    local latest_local_experience=""
+    local local_experience_json=""
+    local local_experience_verdict=""
+    latest_local_experience="$(grep -E "ARNIS_CLIENT_LOCAL_EXPERIENCE " "$summary_source" | tail -n 1 || true)"
+    if [[ -n "$latest_local_experience" ]]; then
+      local_experience_json="${latest_local_experience#*ARNIS_CLIENT_LOCAL_EXPERIENCE }"
+      local_experience_verdict="$(python3 - "$local_experience_json" <<'PY'
+import json
+import sys
+
+payload = json.loads(sys.argv[1])
+parts = ["source=client_marker"]
+local_terrain = payload.get("localTerrain")
+if isinstance(local_terrain, dict):
+    terrain_labels = {
+        "status": "localTerrainStatus",
+        "sampleCount": "localTerrainSampleCount",
+        "heightRangeStuds": "localTerrainHeightRangeStuds",
+        "maxStepStuds": "localTerrainMaxStepStuds",
+        "meanAbsStepStuds": "localTerrainMeanAbsStepStuds",
+    }
+    for key, label in terrain_labels.items():
+        value = local_terrain.get(key)
+        if value is not None and value != "":
+            parts.append(f"{label}={value}")
+local_enclosure = payload.get("localEnclosure")
+if isinstance(local_enclosure, dict):
+    for key in ("nearbyWallParts", "nearestWallDistanceStuds"):
+        value = local_enclosure.get(key)
+        if value is not None and value != "":
+            parts.append(f"{key}={value}")
+local_roof_cover = payload.get("localRoofCover")
+if isinstance(local_roof_cover, dict):
+    value = local_roof_cover.get("overheadRoofParts")
+    if value is not None and value != "":
+        parts.append(f"overheadRoofParts={value}")
+print(" ".join(parts))
+PY
+)"
+      log "play local experience verdict (authoritative client): $local_experience_verdict"
+      return 0
+    fi
+  fi
+}
+
 validate_play_bootstrap_trace() {
   local summary_source="${1:-$ACTIVE_LOG}"
   if [[ -n "$LOG_SLICE_FILE" && -f "$LOG_SLICE_FILE" && "$summary_source" == "$ACTIVE_LOG" ]]; then
@@ -3746,8 +3800,9 @@ summarize_log() {
   log_effective_play_camera_state "$summary_source"
   log_effective_play_minimap_state "$summary_source"
   log_effective_play_world_state "$summary_source"
+  log_effective_play_local_experience_state "$summary_source"
   log "summary from $(basename "$ACTIVE_LOG")"
-  grep -E "TestEZ tests complete|PASS |FAIL |Tests failed|BootstrapAustin|RunAustin|AustinPreviewBuilder|ArnisRoblox|VertigoSync|RunAll|Austin anchor|anchor resolved|ARNIS_CLIENT_BOOTSTRAP|ARNIS_CLIENT_WORLD_COMPACT|ARNIS_CLIENT_WORLD|ARNIS_CLIENT_CAMERA|ARNIS_CLIENT_MINIMAP|ARNIS_MCP_PLAY|ARNIS_MCP_PLAY_LATE|ARNIS_MCP_EDIT|ARNIS_SCENE_EDIT|ARNIS_SCENE_PLAY|\\[harness-mcp\\]" "$summary_source" | tail -n 260 || true
+  grep -E "TestEZ tests complete|PASS |FAIL |Tests failed|BootstrapAustin|RunAustin|AustinPreviewBuilder|ArnisRoblox|VertigoSync|RunAll|Austin anchor|anchor resolved|ARNIS_CLIENT_BOOTSTRAP|ARNIS_CLIENT_WORLD_COMPACT|ARNIS_CLIENT_WORLD|ARNIS_CLIENT_LOCAL_EXPERIENCE|ARNIS_CLIENT_CAMERA|ARNIS_CLIENT_MINIMAP|ARNIS_MCP_PLAY|ARNIS_MCP_PLAY_LATE|ARNIS_MCP_EDIT|ARNIS_SCENE_EDIT|ARNIS_SCENE_PLAY|\\[harness-mcp\\]" "$summary_source" | tail -n 260 || true
 }
 
 run_scene_fidelity_audits() {
@@ -3842,6 +3897,8 @@ PY
       --json-out "$edit_json"
     python3 "$audit_script" \
       --report-json "$edit_json" \
+      --log "$audit_log" \
+      --json-out "$edit_json" \
       --html-out "$edit_html"
   fi
 
@@ -3854,6 +3911,8 @@ PY
       --json-out "$play_json"
     python3 "$audit_script" \
       --report-json "$play_json" \
+      --log "$audit_log" \
+      --json-out "$play_json" \
       --html-out "$play_html"
   fi
 

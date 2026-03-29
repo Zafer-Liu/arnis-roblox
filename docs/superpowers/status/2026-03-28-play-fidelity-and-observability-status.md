@@ -213,3 +213,20 @@ The active design spec for this tranche is:
 - Verified locally with `python3 -m unittest scripts.tests.test_austin_runtime_contract scripts.tests.test_scene_fidelity_audit scripts.tests.test_scene_parity_audit scripts.tests.test_play_render_truth -v` and remotely in the remote clone with `python3 -m unittest scripts.tests.test_austin_runtime_contract scripts.tests.test_scene_fidelity_audit scripts.tests.test_scene_parity_audit -v`.
 - Re-ran the play-only proof on `tertiary`; it still reached `gameplay_ready`, but the raw Studio log truncates long `ARNIS_CLIENT_WORLD(_COMPACT)` lines before the new nested `localTerrain` block is visible in remote log-derived artifacts.
 - Result: local terrain roughness is now part of the canonical client-world contract and audit schema, but the next observability fix is reliable remote artifact capture for that local block rather than more schema churn.
+
+### 2026-03-28: Dedicated Local-Experience Marker And Remote Raw-Log Proof
+
+- Added a dedicated `ARNIS_CLIENT_LOCAL_EXPERIENCE` marker in `WorldProbe.client.lua` so the high-signal local player block (`localSupport`, `localTerrain`, `localEnclosure`, `localRoofCover`, bootstrap identity) no longer depends on the oversized `ARNIS_CLIENT_WORLD_COMPACT` line surviving intact in remote Studio logs.
+- Updated `scene_fidelity_audit.py` so it merges `ARNIS_CLIENT_WORLD_COMPACT` with `ARNIS_CLIENT_LOCAL_EXPERIENCE` both in the normal manifest+log path and in the `--report-json` render path, then rewrites the enriched JSON artifact when `--json-out` is supplied.
+- Updated `run_studio_harness.sh` so scene-fidelity artifact rendering now always passes the raw Studio log back into the Python report step and persists the enriched JSON, not just the HTML.
+- Added local and remote static coverage for the new seam:
+  - `scripts.tests.test_austin_runtime_contract.AustinRuntimeContractTests.test_client_world_probe_emits_dedicated_local_experience_marker`
+  - `scripts.tests.test_scene_fidelity_audit.SceneFidelityAuditTests.test_main_enriches_loaded_report_from_raw_log_and_rewrites_json`
+  - `scripts.tests.test_run_studio_harness.RunStudioHarnessTests.test_scene_fidelity_artifact_rendering_enriches_json_from_raw_log`
+- Added bounded `423 Locked` retry/backoff in `studio_mcp_proxy_lib.py` plus a structured `[harness-mcp] phase=play error=...` breadcrumb in `run_play_probe_via_mcp()` so the current `tertiary` play-lane failure mode is both narrower and better named.
+- Re-ran the play-focused harness directly on `tertiary` from the staged clone. The lane now gets past `ARNIS_MCP_READY`, enters Play, reaches `PlaySoloSuccess`, and emits the dedicated local-experience marker through `world_ready,streaming_ready,minimap_ready,gameplay_ready`.
+- The authoritative `tertiary` raw log now proves that the dedicated marker carries the terrain/enclosure/roof-cover block at `gameplay_ready`, including `localTerrain.status="ok"`, `localTerrain.maxStepStuds=1.3`, `localEnclosure.nearbyWallParts=4`, `localRoofCover.overheadRoofParts=2`, and `worldRootName="GeneratedWorld_Austin"`.
+- The remaining remote gap is now operational rather than schema-level:
+  - the staged remote clone does not carry ignored compiled manifest outputs such as `rust/out/austin-manifest.scene-index.json`, so full offline scene-fidelity artifact regeneration cannot run there without an extra manifest-summary seed step
+  - the harness still required manual interruption/cleanup after raw-log proof, even though the proof markers themselves were already present
+- `tertiary` was explicitly cleaned after the run; no lingering `run_studio_harness.sh`, `RobloxStudio`, `rbx-studio-mcp`, `vertigo-sync serve`, or `RobloxCrashHandler` processes remain.

@@ -4,9 +4,11 @@ from __future__ import annotations
 import os
 import unittest
 from unittest import mock
+import urllib.error
 
 from scripts.studio_mcp_proxy_lib import (
     HttpProxyClient,
+    ProbeError,
     build_mcp_client,
     ensure_play_mode,
     run_code_in_play_session,
@@ -48,6 +50,37 @@ class FakeClient:
 
 
 class StudioMcpProxyLibTests(unittest.TestCase):
+    def test_http_proxy_client_retries_locked_response_then_succeeds(self) -> None:
+        client = HttpProxyClient("http://127.0.0.1:44755/request", timeout_seconds=12)
+        success_response = mock.MagicMock()
+        success_response.read.return_value = b'{"success":true,"response":"start_play"}'
+        success_context = mock.MagicMock()
+        success_context.__enter__.return_value = success_response
+        success_context.__exit__.return_value = False
+
+        with mock.patch(
+            "urllib.request.urlopen",
+            side_effect=[
+                urllib.error.HTTPError(client._proxy_url, 423, "Locked", hdrs=None, fp=None),
+                success_context,
+            ],
+        ) as urlopen_mock, mock.patch("time.sleep") as sleep_mock:
+            result = client.call_tool("get_studio_mode", {})
+
+        self.assertEqual(result["content"][0]["text"], "start_play")
+        self.assertEqual(urlopen_mock.call_count, 2)
+        sleep_mock.assert_called_once()
+
+    def test_http_proxy_client_raises_after_locked_retry_budget_is_exhausted(self) -> None:
+        client = HttpProxyClient("http://127.0.0.1:44755/request", timeout_seconds=12)
+        locked_error = urllib.error.HTTPError(client._proxy_url, 423, "Locked", hdrs=None, fp=None)
+
+        with mock.patch("urllib.request.urlopen", side_effect=[locked_error] * 4), mock.patch("time.sleep") as sleep_mock:
+            with self.assertRaises(ProbeError):
+                client.call_tool("get_studio_mode", {})
+
+        self.assertEqual(sleep_mock.call_count, 3)
+
     def test_build_mcp_client_prefers_direct_stdio_by_default_even_with_proxy_url(self) -> None:
         direct_calls: list[tuple[str, int, str, str]] = []
 

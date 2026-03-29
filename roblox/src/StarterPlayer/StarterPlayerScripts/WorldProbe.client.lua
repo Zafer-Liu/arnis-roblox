@@ -39,6 +39,7 @@ local LOCAL_TERRAIN_OFFSETS = {
 local lastPayloadJson = nil
 local lastBootstrapPayloadJson = nil
 local lastCompactPayloadJson = nil
+local lastLocalExperiencePayloadJson = nil
 local lastSampleAt = 0
 local lastSamplePosition = nil
 local lastSampleWorldRootName = nil
@@ -456,6 +457,19 @@ local function publishWorldTelemetry()
         bootstrapDuplicateCount = bootstrapPayload.bootstrapDuplicateCount,
         bootstrapLastScriptPath = bootstrapPayload.bootstrapLastScriptPath,
     }
+    local localExperiencePayload = {
+        worldRootName = worldRootName,
+        worldRootExists = worldRoot ~= nil,
+        localSupport = nil,
+        localTerrain = nil,
+        localEnclosure = nil,
+        localRoofCover = nil,
+        bootstrapAttemptId = bootstrapPayload.bootstrapAttemptId,
+        bootstrapState = bootstrapPayload.bootstrapState,
+        bootstrapStateTrace = bootstrapPayload.bootstrapStateTrace,
+        bootstrapDuplicateCount = bootstrapPayload.bootstrapDuplicateCount,
+        bootstrapLastScriptPath = bootstrapPayload.bootstrapLastScriptPath,
+    }
 
     if rootPart and worldRoot then
         payload = summarizeWorld(rootPart, worldRoot, worldRootName)
@@ -481,6 +495,12 @@ local function publishWorldTelemetry()
         compactPayload.localTerrain = payload.localTerrain
         compactPayload.localEnclosure = payload.localEnclosure
         compactPayload.localRoofCover = payload.localRoofCover
+        localExperiencePayload.worldRootName = payload.worldRootName
+        localExperiencePayload.worldRootExists = payload.worldRootExists
+        localExperiencePayload.localSupport = payload.localSupport
+        localExperiencePayload.localTerrain = payload.localTerrain
+        localExperiencePayload.localEnclosure = payload.localEnclosure
+        localExperiencePayload.localRoofCover = payload.localRoofCover
     end
 
     setPlayerAttributeIfChanged("ArnisClientWorldRootName", payload.worldRootName)
@@ -500,6 +520,11 @@ local function publishWorldTelemetry()
     if compactPayloadJson ~= lastCompactPayloadJson then
         lastCompactPayloadJson = compactPayloadJson
         print("ARNIS_CLIENT_WORLD_COMPACT " .. compactPayloadJson)
+    end
+    local localExperiencePayloadJson = HttpService:JSONEncode(localExperiencePayload)
+    if localExperiencePayloadJson ~= lastLocalExperiencePayloadJson then
+        lastLocalExperiencePayloadJson = localExperiencePayloadJson
+        print("ARNIS_CLIENT_LOCAL_EXPERIENCE " .. localExperiencePayloadJson)
     end
 
     local payloadJson = HttpService:JSONEncode(payload)

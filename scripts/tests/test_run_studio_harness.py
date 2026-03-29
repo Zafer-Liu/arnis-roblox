@@ -635,6 +635,16 @@ class RunStudioHarnessTests(unittest.TestCase):
         self.assertIn('requested_mode="start_play"', body)
         self.assertNotIn('"run_script_in_play_mode"', body)
 
+    def test_play_probe_logs_structured_mcp_errors_before_cleanup(self) -> None:
+        play_probe_block = re.search(
+            r"run_play_probe_via_mcp\(\) \{\n(?P<body>.*?)\n\}\n\nlog_effective_play_camera_state",
+            self.text,
+            re.DOTALL,
+        )
+        self.assertIsNotNone(play_probe_block, "run_play_probe_via_mcp function not found")
+        body = play_probe_block.group("body")
+        self.assertIn('print(f"[harness-mcp] phase=play error={exc!r}")', body)
+
     def test_harness_treats_client_camera_marker_as_authoritative_play_signal(self) -> None:
         self.assertIn('log_effective_play_camera_state()', self.text)
         self.assertIn('rg -q "ARNIS_CLIENT_CAMERA " "$summary_source"', self.text)
@@ -658,15 +668,22 @@ class RunStudioHarnessTests(unittest.TestCase):
         self.assertIn('grep -E "ARNIS_CLIENT_WORLD_COMPACT " "$summary_source" | tail -n 1', self.text)
         self.assertIn('play world verdict (authoritative client):', self.text)
         self.assertIn('play world verdict (server fallback):', self.text)
-        self.assertIn('ARNIS_CLIENT_WORLD_COMPACT|ARNIS_CLIENT_WORLD|ARNIS_CLIENT_CAMERA|ARNIS_CLIENT_MINIMAP|ARNIS_MCP_PLAY|ARNIS_MCP_PLAY_LATE', self.text)
+        self.assertIn('ARNIS_CLIENT_WORLD_COMPACT|ARNIS_CLIENT_WORLD|ARNIS_CLIENT_LOCAL_EXPERIENCE|ARNIS_CLIENT_CAMERA|ARNIS_CLIENT_MINIMAP|ARNIS_MCP_PLAY|ARNIS_MCP_PLAY_LATE', self.text)
         self.assertIn('bootstrapStateTrace', self.text)
         self.assertIn('bootstrapDuplicateCount', self.text)
+
+    def test_harness_surfaces_client_local_experience_marker_for_play_observability(self) -> None:
+        self.assertIn('rg -q "ARNIS_CLIENT_LOCAL_EXPERIENCE " "$summary_source"', self.text)
+        self.assertIn('grep -E "ARNIS_CLIENT_LOCAL_EXPERIENCE " "$summary_source" | tail -n 1', self.text)
+        self.assertIn('play local experience verdict (authoritative client):', self.text)
+        self.assertIn('localTerrainStatus', self.text)
+        self.assertIn('localTerrainMaxStepStuds', self.text)
 
     def test_harness_treats_client_bootstrap_marker_as_authoritative_bootstrap_signal(self) -> None:
         self.assertIn('ARNIS_CLIENT_BOOTSTRAP ', self.text)
         self.assertIn('grep -E "ARNIS_CLIENT_BOOTSTRAP " "$summary_source" | tail -n 1', self.text)
         self.assertIn('play bootstrap trace verdict (authoritative client bootstrap marker): valid', self.text)
-        self.assertIn('ARNIS_CLIENT_BOOTSTRAP|ARNIS_CLIENT_WORLD_COMPACT|ARNIS_CLIENT_WORLD|ARNIS_CLIENT_CAMERA|ARNIS_CLIENT_MINIMAP|ARNIS_MCP_PLAY|ARNIS_MCP_PLAY_LATE', self.text)
+        self.assertIn('ARNIS_CLIENT_BOOTSTRAP|ARNIS_CLIENT_WORLD_COMPACT|ARNIS_CLIENT_WORLD|ARNIS_CLIENT_LOCAL_EXPERIENCE|ARNIS_CLIENT_CAMERA|ARNIS_CLIENT_MINIMAP|ARNIS_MCP_PLAY|ARNIS_MCP_PLAY_LATE', self.text)
 
     def test_embedded_python_uses_harness_root_env_not_machine_specific_repo_paths(self) -> None:
         self.assertNotIn("/Users/adpena/Projects/arnis-roblox", self.text)
@@ -832,6 +849,13 @@ class RunStudioHarnessTests(unittest.TestCase):
         self.assertIn('--play-report "$play_json" \\', self.text)
         self.assertIn('--json-out "$parity_json" \\', self.text)
         self.assertIn('--html-out "$parity_html"', self.text)
+
+    def test_scene_fidelity_artifact_rendering_enriches_json_from_raw_log(self) -> None:
+        self.assertIn('--report-json "$edit_json" \\', self.text)
+        self.assertIn('--report-json "$play_json" \\', self.text)
+        self.assertIn('--log "$audit_log" \\', self.text)
+        self.assertIn('--json-out "$edit_json" \\', self.text)
+        self.assertIn('--json-out "$play_json" \\', self.text)
 
     def test_harness_fails_fast_on_heavy_preview_source_unless_explicitly_allowed(self) -> None:
         self.assertIn("preview_source_looks_heavy()", self.text)

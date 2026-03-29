@@ -79,6 +79,7 @@ ssh tertiary 'cd ~/.codex-remote-studio/arnis-roblox && bash scripts/run_studio_
 - Remote stage paths default to `__REMOTE_HOME__/...` templates and expand on the remote machine.
 - Fresh remote machines do not need pre-seeded sibling clones; the first synced run can seed the remote stage directly from the current worktree snapshot.
 - Remote snapshot sync transfers tracked files and untracked non-ignored files only. Keep `.gitignore` current so generated `target`, `out`, `dist`, `build`, cache, and dependency trees never transfer into remote stages.
+- Because remote stage sync intentionally excludes ignored generated outputs, a staged remote clone may not have compiled manifest summaries such as `rust/out/*.scene-index.json`; if a remote proof slice needs offline scene-audit regeneration after the Studio run, regenerate or seed that summary explicitly instead of assuming it is present.
 - Do not disable SSH host-key verification in committed scripts. Accept or rotate host keys out-of-band on each operator machine before using a new remote profile.
 - If a host has no local profile config, the wrapper should fail early with a clear configuration error instead of guessing.
 - If a remote Studio lane is selected as the current proof surface, verify Studio launch and MCP/helper readiness there first; do not assume a configured `tertiary` profile is automatically green beyond the specific proof slices already verified.

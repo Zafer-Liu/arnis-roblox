@@ -3,6 +3,8 @@ from __future__ import annotations
 
 import json
 import os
+import time
+import urllib.error
 import urllib.request
 import uuid
 from typing import Any
@@ -108,6 +110,9 @@ def result_indicates_stale_play_session(result: Any) -> bool:
 
 
 class HttpProxyClient:
+    _LOCKED_RETRY_COUNT = 3
+    _LOCKED_RETRY_BASE_DELAY_SECONDS = 0.2
+
     def __init__(self, proxy_url: str, timeout_seconds: int) -> None:
         self._proxy_url = proxy_url
         self._timeout_seconds = timeout_seconds
@@ -117,6 +122,18 @@ class HttpProxyClient:
 
     def initialize(self) -> None:
         return None
+
+    @staticmethod
+    def _is_locked_error(exc: Exception) -> bool:
+        return isinstance(exc, urllib.error.HTTPError) and exc.code == 423
+
+    @staticmethod
+    def _result_indicates_locked(body: Any) -> bool:
+        if not isinstance(body, dict):
+            return False
+        if bool(body.get("success")):
+            return False
+        return any("423" in text and "Locked" in text for text in collect_strings(body))
 
     def call_tool(
         self,
@@ -151,11 +168,20 @@ class HttpProxyClient:
             method="POST",
         )
         timeout = timeout_seconds if timeout_seconds is not None else self._timeout_seconds
-        try:
-            with urllib.request.urlopen(request, timeout=timeout) as response:
-                body = json.loads(response.read().decode("utf-8"))
-        except Exception as exc:  # pragma: no cover - surfaced in harness logs
-            raise ProbeError(f"MCP proxy request failed for {name}: {exc}") from exc
+        for attempt in range(self._LOCKED_RETRY_COUNT + 1):
+            try:
+                with urllib.request.urlopen(request, timeout=timeout) as response:
+                    body = json.loads(response.read().decode("utf-8"))
+            except Exception as exc:  # pragma: no cover - surfaced in harness logs
+                if self._is_locked_error(exc) and attempt < self._LOCKED_RETRY_COUNT:
+                    time.sleep(self._LOCKED_RETRY_BASE_DELAY_SECONDS * (attempt + 1))
+                    continue
+                raise ProbeError(f"MCP proxy request failed for {name}: {exc}") from exc
+
+            if self._result_indicates_locked(body) and attempt < self._LOCKED_RETRY_COUNT:
+                time.sleep(self._LOCKED_RETRY_BASE_DELAY_SECONDS * (attempt + 1))
+                continue
+            break
 
         success = bool(body.get("success"))
         result = {

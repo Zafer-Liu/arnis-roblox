@@ -23,6 +23,8 @@ Status: Active
 - 2026-03-28: `scene_fidelity_audit.py` now emits explicit player-local support/enclosure/roof-cover findings from `clientWorld` and surfaces nested local metrics directly in the HTML report instead of leaving them buried only in raw JSON.
 - 2026-03-28: Player-local telemetry now includes structured `localTerrain` roughness metrics (`status`, sample coverage, height range, max step, mean absolute step), and the scene fidelity/parity audits now preserve and normalize those fields.
 - 2026-03-28: The new `localTerrain` reducer is verified in edit mode on `tertiary` with `WorldProbeTerrain.spec.lua`, but the current real play-log artifact still truncates long `ARNIS_CLIENT_WORLD(_COMPACT)` lines before `localTerrain` survives into remote log-derived reports.
+- 2026-03-28: A dedicated `ARNIS_CLIENT_LOCAL_EXPERIENCE` marker now carries the local player block separately, the Python audit render step now re-enriches prebuilt JSON from the raw Studio log, and `tertiary` raw-log proof now shows that block surviving through `gameplay_ready`.
+- 2026-03-28: The remaining remote observability gap is no longer marker loss; it is staged-clone operations. The synced remote stage intentionally lacks ignored `rust/out` manifest-summary outputs, so offline scene-fidelity artifact regeneration there still needs a seeded summary or a bounded regenerate step, and the play harness still needs cleaner post-proof exit behavior.
 
 ## Tasks
 
@@ -31,6 +33,6 @@ Status: Active
 - [x] Improve shell-mesh player-local telemetry in `WorldProbe`.
 - [x] Reproduce and classify the remaining wall-gap signal on `tertiary`: actual missing walls vs. spawn/radius/classification artifact.
 - [ ] Measure and reduce the next high-signal fidelity gaps: remaining terrain geometry/detail limits and the remaining richer interior traversal/ceiling-roof edge cases after the top-floor clamp.
-- [ ] Extend player-local observability further with reliable remote artifact capture for local terrain roughness/step metrics and with explicit local interior presence metrics.
+- [ ] Extend player-local observability further with explicit local interior presence metrics and with a remote-stage-friendly way to regenerate or seed scene-fidelity artifacts after proof.
 - [ ] Promote preview/edit slow-chunk hotspot data into structured telemetry and audit surfaces.
 - [ ] Keep the rolling status file current after each meaningful remote run, then commit and push the tranche.
