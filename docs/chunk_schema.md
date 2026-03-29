@@ -57,36 +57,8 @@ This keeps chunk moves, reloads, and local editing much cleaner.
 - New water field: `surfaceY` (authoritative surface elevation for polygon water).
 - New prop fields: `height`, `leafType`.
 - Lua builders no longer re-sample ground or apply snap thresholds — they read manifest values directly.
-- Migration from 0.3.0 scales all stud-space coordinates by `oldMps / 0.3`.
+- Roblox-side manifest validation accepts only `schemaVersion = 0.4.0`; older manifests and missing `schemaVersion` fail fast.
 - Index-side scheduling metadata is versioned separately via `partitionVersion`; changing the subplan contract does not require a manifest schema bump unless the manifest shape itself changes.
-
-### 0.3.0
-- Documents the richer manifest surface already supported by the exporter and importer.
-- Adds schema support for:
-  - `terrain.materials`
-  - `roads.hasSidewalk`
-  - `roads.surface`
-  - `buildings.height_m`
-  - `buildings.levels`
-  - `buildings.roofLevels`
-  - `buildings.facadeStyle`
-  - `water.holes`
-  - `props.species`
-  - chunk-level `landuse`
-  - chunk-level `barriers`
-- Automatically migrated to `0.4.0` by the Roblox importer.
-
-### 0.2.0
-- Adds `meta.totalFeatures`: an integer count of all features across all chunks.
-- Automatically migrated to `0.4.0` by the Roblox importer.
-
-### 0.1.0
-- Initial scaffold version.
-- Automatically migrated to `0.4.0` by the Roblox importer.
-
-## Migration Mechanism
-
-The Roblox importer includes a `Migrations` module (`roblox/src/ReplicatedStorage/Shared/Migrations.lua`) that automatically upgrades older manifests to the current `Version.SchemaVersion` before validation. This ensures backward compatibility as the schema evolves.
 
 ## Chunk section
 
@@ -130,13 +102,12 @@ The same `subplans.v1` contract may also emit multiple bounded siblings for a ho
 `buildings:nw` / `buildings:ne` / `buildings:sw` / `buildings:se`, while preserving the same
 canonical chunk contents and aggregate chunk hints.
 
-### Scheduling-layer migration notes
+### Scheduling-layer contract notes
 
 When the subplan scheduling contract changes:
 
 - bump `partitionVersion`
 - update the loader/verifier contract notes in this file
-- keep the manifest `schemaVersion` unchanged unless the manifest structure itself changes
 - treat subplan ordering, thresholds, and bounds semantics as scheduler policy, not manifest schema changes
 - document any intentional gap between chunk-level aggregate hints and emitted coarse subplan layers
 

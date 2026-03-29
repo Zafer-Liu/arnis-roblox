@@ -1,5 +1,5 @@
 {
-  "schemaVersion": "0.3.0",
+  "schemaVersion": "0.4.0",
   "meta": {
     "worldName": "SampleAustinLikeBlock",
     "generator": "arbx_cli sample",
@@ -12,7 +12,7 @@
       "maxLat": 30.266,
       "maxLon": -97.748
     },
-    "totalFeatures": 7,
+    "totalFeatures": 6,
     "canonicalAnchor": {
       "positionStuds": { "x": 32, "y": 2, "z": 192 },
       "lookDirectionStuds": { "x": 0, "y": 0, "z": 1 }
@@ -56,7 +56,7 @@
         {
           "id": "bldg_1",
           "material": "Concrete",
-          "color": { "r": 170, "g": 170, "b": 170 },
+          "wallColor": { "r": 170, "g": 170, "b": 170 },
           "footprint": [
             { "x": 24, "z": 24 },
             { "x": 80, "z": 24 },
