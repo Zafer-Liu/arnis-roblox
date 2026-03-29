@@ -15,10 +15,10 @@ Keep manifest/schema contract `0.4.0` as the only supported version.
 Do not combine this cleanup with a `0.5.0` semantic change. A schema bump would add churn without
 making the codebase cleaner unless manifest meaning is also changing. The cleanest path is:
 
-- support exactly one manifest/schema contract: `0.4.0`
-- delete migrations and compatibility branches for older versions
-- rewrite or remove legacy fixtures and examples
-- make import/export/audit tooling fail loudly on non-`0.4.0` inputs
+- support exactly one supported manifest/schema contract: `0.4.0`
+- delete migrations and compatibility branches for older versions from active runtime/import/export/validation paths
+- rewrite, relocate, or clearly mark legacy fixtures/examples so they cannot be mistaken for supported inputs
+- make supported import/runtime/audit entrypoints fail loudly on non-`0.4.0` inputs
 
 ## Why This Is Cleaner
 
@@ -100,11 +100,23 @@ provided they are not required by the current proven edit/play baseline.
 Rule:
 
 - if a path exists only to preserve old consumers, delete it
-- if a path is still required by the current canonical edit/play proof lane, keep it until the
+- if a path is still required by the current canonical proof surface, keep it until the
   consuming surface is replaced in the same tranche
 
-This prevents “cleanup” from accidentally breaking the currently proven baseline while still pushing
-the runtime toward a single source of truth.
+Current proof surface:
+
+- split `tertiary` edit-only validation
+- split `tertiary` play-only validation
+- direct SSH execution on the staged remote clone when wrapper transport is unhealthy on the current workstation
+
+This cleanup removes only branches whose sole purpose is accepting, translating, or masking
+pre-`0.4.0` manifest inputs. It does not remove canonical preview/play/full-bake routing,
+canonical materialization fallback resolution, scene audit/parity proof surfaces, or other behavior
+required by the current proven baseline unless equivalent replacement verification lands in the same
+slice.
+
+Current-runtime API compatibility helpers unrelated to legacy manifest/schema support are out of
+scope for this purge.
 
 ## Architecture Rules For This Cleanup
 
@@ -118,9 +130,11 @@ the runtime toward a single source of truth.
 
 Execute in bounded slices rather than a giant repo-wide rewrite.
 
-### Slice A: schema acceptance and migration removal
+### Slice A: current-fixture rewrite plus schema acceptance tightening
 
-- remove migration machinery
+- first rewrite any current proof-lane fixtures, test doubles, and sample manifests that still
+  declare `0.1.0` / `0.2.0` / `0.3.0` to `0.4.0`
+- then remove migration machinery
 - tighten validators and tests to hard-fail on older schema versions
 
 ### Slice B: fixture and example cleanup
@@ -144,6 +158,8 @@ Execute in bounded slices rather than a giant repo-wide rewrite.
 After this purge, invalid compatibility inputs should fail clearly:
 
 - unsupported schema version errors must name the received version and the required `0.4.0`
+- missing `schemaVersion` is invalid input and must fail explicitly; it is not treated as an
+  implicit legacy version
 - tooling should not auto-upgrade, auto-coerce, or silently drop unsupported compatibility data
 - partial/filtered telemetry runs must remain explicitly marked as partial and must not masquerade
   as full fidelity audits
@@ -179,7 +195,18 @@ Mitigation:
 
 - replace tests with current-contract fixtures rather than mass deleting blindly
 
-### 3. Documentation drift during the break
+### 3. Proof-lane regression disguised as cleanup
+
+Some harness paths, breadcrumbs, and remote execution fallbacks may look legacy while still being
+required to prove the current runtime baseline.
+
+Mitigation:
+
+- treat the current `tertiary` edit/play lanes and direct-SSH fallback as preservation surfaces
+- require paired local verification plus the same targeted `tertiary` proof slices for any cleanup
+  that touches them
+
+### 4. Documentation drift during the break
 
 This repo has multiple plan/spec/status surfaces, so cleanup can create stale claims quickly.
 
@@ -197,5 +224,6 @@ This cleanup is done when all of the following are true:
 - canonical docs no longer claim auto-migration or old-version support
 - runtime truth surfaces no longer carry migration-era shims that are not needed
 - local verification is green
-- any touched runtime proof lanes remain green on `tertiary`
-
+- any touched runtime proof lanes remain green on the current split `tertiary` edit-only and
+  play-only proof surfaces, using direct SSH on the staged remote clone when wrapper transport is
+  unhealthy

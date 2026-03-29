@@ -36,6 +36,16 @@
 
 ### Tests
 
+- Modify: `roblox/src/ServerScriptService/Tests/ChunkSchema.spec.lua`
+- Modify or delete: `roblox/src/ServerScriptService/Tests/Migrations.spec.lua`
+- Modify: `roblox/src/ServerScriptService/Tests/AuthoritativeOverwrite.spec.lua`
+- Modify: `roblox/src/ServerScriptService/Tests/ImportChunkPlanKey.spec.lua`
+- Modify: `roblox/src/ServerScriptService/Tests/RoadDetailGroups.spec.lua`
+- Modify: `roblox/src/ServerScriptService/Tests/LandusePerformance.spec.lua`
+- Modify: `roblox/src/ServerScriptService/Tests/RoadChunkPlanReuse.spec.lua`
+- Modify: `roblox/src/ServerScriptService/Tests/Streaming.spec.lua`
+- Modify: `roblox/src/ServerScriptService/Tests/PlacementHardening.spec.lua`
+- Modify: `roblox/src/ServerScriptService/Tests/AustinPreviewTimeTravel.spec.lua`
 - Modify: `scripts/tests/test_refresh_preview_from_sample_data.py`
   - remove migration-era acceptance expectations that are no longer valid
 - Modify: `scripts/tests/test_refresh_runtime_harness_from_sample_data.py`
@@ -44,12 +54,17 @@
   - keep only current-contract assertions
 - Modify: `scripts/tests/test_scene_fidelity_audit.py`
   - ensure current-only fixtures remain sufficient
+- Modify: `scripts/check_scaffold.py`
+- Modify: `scripts/run_all_checks.py`
+- Modify: `scripts/verify_generated_austin_assets.py`
+- Modify: `scripts/tests/test_run_all_checks.py`
+- Modify: `scripts/tests/test_generated_austin_assets.py`
 - Modify/add: schema validation and CLI tests under existing Rust/Luau test surfaces
   - replace migration expectations with hard-fail expectations
 
 ### Runtime compatibility cleanup
 
-- Inspect and modify only if no current proof consumer depends on them:
+- Inspect and modify only if direct legacy-compatibility evidence remains after Tasks 1-4:
   - `roblox/src/ServerScriptService/ImportService/MinimapService.lua`
   - `roblox/src/ServerScriptService/ImportService/RunAustin.lua`
   - `roblox/src/StarterPlayer/StarterPlayerScripts/WorldProbe.client.lua`
@@ -72,7 +87,16 @@
 - Modify: `roblox/src/ReplicatedStorage/Shared/Migrations.lua`
 - Modify: `roblox/src/ReplicatedStorage/Shared/ChunkSchema.lua`
 - Modify: `roblox/src/ReplicatedStorage/Shared/Version.lua`
-- Test: existing Luau schema/migration test surface for shared schema validation
+- Modify: `roblox/src/ServerScriptService/Tests/ChunkSchema.spec.lua`
+- Modify or delete: `roblox/src/ServerScriptService/Tests/Migrations.spec.lua`
+- Modify: `roblox/src/ServerScriptService/Tests/AuthoritativeOverwrite.spec.lua`
+- Modify: `roblox/src/ServerScriptService/Tests/ImportChunkPlanKey.spec.lua`
+- Modify: `roblox/src/ServerScriptService/Tests/RoadDetailGroups.spec.lua`
+- Modify: `roblox/src/ServerScriptService/Tests/LandusePerformance.spec.lua`
+- Modify: `roblox/src/ServerScriptService/Tests/RoadChunkPlanReuse.spec.lua`
+- Modify: `roblox/src/ServerScriptService/Tests/Streaming.spec.lua`
+- Modify: `roblox/src/ServerScriptService/Tests/PlacementHardening.spec.lua`
+- Modify: `roblox/src/ServerScriptService/Tests/AustinPreviewTimeTravel.spec.lua`
 
 - [ ] **Step 1: Write the failing tests**
 
@@ -97,7 +121,21 @@ end)
 
 - [ ] **Step 2: Run the focused Luau/shared-schema tests to verify they fail**
 
-Run: focused Roblox shared-schema/migration test command already used in repo  
+Run:
+```bash
+python3 scripts/run_luau_tests.py \
+  roblox/src/ServerScriptService/Tests/ChunkSchema.spec.lua \
+  roblox/src/ServerScriptService/Tests/Migrations.spec.lua \
+  roblox/src/ServerScriptService/Tests/AuthoritativeOverwrite.spec.lua \
+  roblox/src/ServerScriptService/Tests/ImportChunkPlanKey.spec.lua \
+  roblox/src/ServerScriptService/Tests/RoadDetailGroups.spec.lua \
+  roblox/src/ServerScriptService/Tests/LandusePerformance.spec.lua \
+  roblox/src/ServerScriptService/Tests/RoadChunkPlanReuse.spec.lua \
+  roblox/src/ServerScriptService/Tests/Streaming.spec.lua \
+  roblox/src/ServerScriptService/Tests/PlacementHardening.spec.lua \
+  roblox/src/ServerScriptService/Tests/AustinPreviewTimeTravel.spec.lua
+```
+
 Expected: FAIL because migration-era acceptance still exists
 
 - [ ] **Step 3: Write the minimal implementation**
@@ -108,7 +146,7 @@ Expected: FAIL because migration-era acceptance still exists
 
 - [ ] **Step 4: Run the focused tests to verify they pass**
 
-Run: same focused Luau/shared-schema test command  
+Run the same Luau/shared-schema command  
 Expected: PASS
 
 - [ ] **Step 5: Commit**
@@ -172,6 +210,11 @@ git commit -m "refactor: make CLI fixtures 0.4.0-only"
 - Modify or delete: `specs/generated/*.json`
 - Modify: `specs/sample-chunk-manifest.json`
 - Modify: `docs/exporter-fixtures.md`
+- Modify: `scripts/check_scaffold.py`
+- Modify: `scripts/run_all_checks.py`
+- Modify: `scripts/verify_generated_austin_assets.py`
+- Modify: `scripts/tests/test_run_all_checks.py`
+- Modify: `scripts/tests/test_generated_austin_assets.py`
 - Test: Python tests that currently rely on legacy schema fixture files
 
 - [ ] **Step 1: Write the failing tests**
@@ -188,8 +231,14 @@ def test_sample_chunk_manifest_uses_current_schema_only():
 
 - [ ] **Step 2: Run the focused Python tests to verify they fail**
 
-Run: focused unittest command covering fixture readers  
-Expected: FAIL because current fixtures still contain legacy schema versions
+Run:
+```bash
+python3 -m unittest scripts.tests.test_run_all_checks scripts.tests.test_generated_austin_assets -v
+python3 scripts/check_scaffold.py
+python3 scripts/verify_generated_austin_assets.py
+```
+
+Expected: FAIL because current fixtures still contain legacy schema versions or validation scripts still assume legacy support
 
 - [ ] **Step 3: Write the minimal implementation**
 
@@ -199,13 +248,13 @@ Expected: FAIL because current fixtures still contain legacy schema versions
 
 - [ ] **Step 4: Run the focused Python tests to verify they pass**
 
-Run: focused unittest command covering fixture readers  
+Run the same commands  
 Expected: PASS
 
 - [ ] **Step 5: Commit**
 
 ```bash
-git add specs docs/exporter-fixtures.md
+git add specs docs/exporter-fixtures.md scripts/check_scaffold.py scripts/run_all_checks.py scripts/verify_generated_austin_assets.py scripts/tests/test_run_all_checks.py scripts/tests/test_generated_austin_assets.py
 git commit -m "refactor: remove legacy schema fixtures"
 ```
 
@@ -263,7 +312,7 @@ git add scripts/refresh_preview_from_sample_data.py scripts/refresh_runtime_harn
 git commit -m "refactor: remove legacy schema assumptions from refresh tooling"
 ```
 
-## Task 5: Remove Runtime Compatibility Shims That Are No Longer Needed
+## Task 5: Inventory Remaining Runtime Legacy-Compatibility Evidence
 
 **Files:**
 - Inspect and modify as needed:
@@ -281,18 +330,18 @@ git commit -m "refactor: remove legacy schema assumptions from refresh tooling"
 
 - [ ] **Step 1: Write the failing tests**
 
-Add or tighten tests around any migration-era fallback still present, but do not remove proof-lane requirements blindly.
+First prove that a runtime file still contains a direct pre-`0.4.0` compatibility branch before touching it.
 
 Examples:
 
 ```python
-def test_runtime_contract_does_not_rely_on_migration_era_world_root_mirror():
-    self.assertNotIn("backward compatibility", active_runtime_path_text)
+def test_runtime_file_contains_direct_legacy_manifest_compatibility_branch():
+    self.assertRegex(text, r"0\\.1\\.0|0\\.2\\.0|0\\.3\\.0|migration|legacy schema")
 ```
 
 ```python
-def test_filtered_scene_marker_groups_skip_full_artifact_generation():
-    self.assertIn("scene fidelity audit skipped because scene marker groups are filtered", harness_text)
+def test_runtime_cleanup_inventory_is_empty_after_tasks_1_to_4():
+    self.assertEqual(legacy_hits, [])
 ```
 
 - [ ] **Step 2: Run the focused runtime/audit tests to verify they fail**
@@ -306,32 +355,23 @@ python3 -m unittest \
   scripts.tests.test_scene_parity_audit -v
 ```
 
-Expected: FAIL where migration-era shims or stale compatibility text still exist
+Expected: FAIL only if direct legacy-compatibility evidence remains
 
 - [ ] **Step 3: Write the minimal implementation**
 
-- delete only the compatibility shims that serve no current proof-lane consumer
-- preserve the current canonical edit/play truth path
-- keep harness/audit partial-run behavior explicit and honest
+- delete only branches whose sole purpose is accepting, translating, or masking pre-`0.4.0` manifest inputs
+- do not remove canonical preview/play/full-bake routing, canonical materialization fallback resolution, or current proof-lane behavior
+- if no direct legacy-compatibility evidence remains, skip implementation and mark the task complete as a verified no-op
 
 - [ ] **Step 4: Run the focused runtime/audit tests to verify they pass**
 
 Run the same unittest command  
 Expected: PASS
 
-- [ ] **Step 5: Verify on `tertiary` if runtime truth changed**
+- [ ] **Step 5: Verify on the configured remote profile if runtime truth changed**
 
-Run targeted remote proof lanes only if touched runtime code affects play/edit truth:
-
-```bash
-ssh tertiary 'cd ~/.codex-remote-studio/arnis-roblox && python3 -m unittest scripts.tests.test_austin_runtime_contract scripts.tests.test_run_studio_harness scripts.tests.test_scene_fidelity_audit scripts.tests.test_scene_parity_audit -v'
-```
-
-Then run a narrow harness proof if needed:
-
-```bash
-ssh tertiary 'cd ~/.codex-remote-studio/arnis-roblox && HARNESS_SCENE_MARKER_GROUPS=all bash scripts/run_studio_harness.sh --takeover --hard-restart --skip-edit-tests --play-wait 30 --pattern-wait 120'
-```
+Run targeted remote proof lanes only if touched runtime code affects play/edit truth, using the
+existing remote harness/profile entrypoint rather than hardcoded host paths.
 
 Expected: current canonical proof lane remains green
 
@@ -339,7 +379,7 @@ Expected: current canonical proof lane remains green
 
 ```bash
 git add roblox/src/ServerScriptService/ImportService/MinimapService.lua roblox/src/ServerScriptService/ImportService/RunAustin.lua roblox/src/StarterPlayer/StarterPlayerScripts/WorldProbe.client.lua scripts/run_studio_harness.sh scripts/scene_fidelity_audit.py scripts/scene_parity_audit.py scripts/tests/test_austin_runtime_contract.py scripts/tests/test_run_studio_harness.py scripts/tests/test_scene_fidelity_audit.py scripts/tests/test_scene_parity_audit.py
-git commit -m "refactor: remove runtime compatibility shims"
+git commit -m "refactor: remove remaining runtime legacy compatibility shims"
 ```
 
 ## Task 6: Rewrite Canonical Docs and Status Surfaces
@@ -359,7 +399,7 @@ Where text-based tests exist, add/update them. Otherwise create a small focused 
 Example command:
 
 ```bash
-rg -n "Automatically migrated|backward compatibility|0.3.0 manifest JSON|0.1.0|0.2.0|0.3.0" docs specs rust/crates/arbx_cli/src/main.rs
+rg -n "Automatically migrated|backward compatibility|0.3.0 manifest JSON|0.1.0|0.2.0|0.3.0" docs/exporter-fixtures.md docs/chunk_schema.md docs/build-pipeline.md docs/architecture.md docs/remote-studio-development.md docs/superpowers/plans/2026-03-28-play-fidelity-and-observability.md docs/superpowers/status/2026-03-28-play-fidelity-and-observability-status.md specs/sample-chunk-manifest.json specs/generated rust/crates/arbx_cli/src/main.rs
 ```
 
 Expected before cleanup: matches still exist in active truth surfaces
@@ -375,7 +415,7 @@ Expected before cleanup: matches still exist in active truth surfaces
 Run:
 
 ```bash
-rg -n "Automatically migrated to `0.4.0`|backward compatibility|0.3.0 manifest JSON" docs/chunk_schema.md docs/build-pipeline.md docs/architecture.md docs/remote-studio-development.md docs/superpowers/plans/2026-03-28-play-fidelity-and-observability.md docs/superpowers/status/2026-03-28-play-fidelity-and-observability-status.md rust/crates/arbx_cli/src/main.rs
+rg -n "Automatically migrated to `0.4.0`|backward compatibility|0.3.0 manifest JSON|0.1.0|0.2.0|0.3.0" docs/exporter-fixtures.md docs/chunk_schema.md docs/build-pipeline.md docs/architecture.md docs/remote-studio-development.md docs/superpowers/plans/2026-03-28-play-fidelity-and-observability.md docs/superpowers/status/2026-03-28-play-fidelity-and-observability-status.md specs/sample-chunk-manifest.json specs/generated rust/crates/arbx_cli/src/main.rs
 ```
 
 Expected: no stale compatibility claims in active surfaces
@@ -399,6 +439,8 @@ Run:
 ```bash
 bash -n scripts/run_studio_harness.sh
 python3 -m unittest \
+  scripts.tests.test_run_all_checks \
+  scripts.tests.test_generated_austin_assets \
   scripts.tests.test_refresh_preview_from_sample_data \
   scripts.tests.test_refresh_runtime_harness_from_sample_data \
   scripts.tests.test_json_manifest_to_sharded_lua \
@@ -407,6 +449,19 @@ python3 -m unittest \
   scripts.tests.test_scene_fidelity_audit \
   scripts.tests.test_scene_parity_audit \
   scripts.tests.test_preview_telemetry_summary -v
+python3 scripts/check_scaffold.py
+python3 scripts/verify_generated_austin_assets.py
+python3 scripts/run_luau_tests.py \
+  roblox/src/ServerScriptService/Tests/ChunkSchema.spec.lua \
+  roblox/src/ServerScriptService/Tests/Migrations.spec.lua \
+  roblox/src/ServerScriptService/Tests/AuthoritativeOverwrite.spec.lua \
+  roblox/src/ServerScriptService/Tests/ImportChunkPlanKey.spec.lua \
+  roblox/src/ServerScriptService/Tests/RoadDetailGroups.spec.lua \
+  roblox/src/ServerScriptService/Tests/LandusePerformance.spec.lua \
+  roblox/src/ServerScriptService/Tests/RoadChunkPlanReuse.spec.lua \
+  roblox/src/ServerScriptService/Tests/Streaming.spec.lua \
+  roblox/src/ServerScriptService/Tests/PlacementHardening.spec.lua \
+  roblox/src/ServerScriptService/Tests/AustinPreviewTimeTravel.spec.lua
 cargo test --manifest-path rust/Cargo.toml --workspace
 git diff --check
 ```
@@ -415,13 +470,11 @@ Expected: all pass
 
 - [ ] **Step 2: Run targeted `tertiary` verification for any touched runtime truth**
 
-Run:
+Run the existing remote harness/profile entrypoint against the configured `tertiary` profile for
+the touched runtime verification lanes.
 
-```bash
-ssh tertiary 'cd ~/.codex-remote-studio/arnis-roblox && python3 -m unittest scripts.tests.test_run_studio_harness scripts.tests.test_austin_runtime_contract scripts.tests.test_scene_fidelity_audit scripts.tests.test_scene_parity_audit -v'
-```
-
-If runtime truth changed materially, also run the narrow Studio proof lane from the staged clone.
+If runtime truth changed materially, also run the narrow Studio proof lane through that same
+profile-based flow.
 
 - [ ] **Step 3: Update the rolling status doc with final measured truth**
 
@@ -442,4 +495,3 @@ Include:
 git add docs/superpowers/status/2026-03-28-play-fidelity-and-observability-status.md
 git commit -m "refactor: complete compatibility purge"
 ```
-
