@@ -10,7 +10,6 @@ OUT = ROOT / "specs" / "generated" / "synthetic-manifest.json"
 def main() -> None:
     OUT.parent.mkdir(parents=True, exist_ok=True)
     chunks = []
-    chunk_refs = []
     manifest = {
         "schemaVersion": "0.4.0",
         "meta": {
@@ -28,14 +27,12 @@ def main() -> None:
             "notes": ["Generated synthetic manifest"]
         },
         "chunks": chunks,
-        "chunkRefs": chunk_refs,
     }
 
     for x in range(2):
         for z in range(2):
-            chunk_id = f"{x}_{z}"
             chunks.append({
-                "id": chunk_id,
+                "id": f"{x}_{z}",
                 "originStuds": {"x": x * 256, "y": 0, "z": z * 256},
                 "terrain": {
                     "cellSizeStuds": 2,
@@ -52,51 +49,6 @@ def main() -> None:
                 "props": [],
                 "landuse": [],
                 "barriers": []
-            })
-            chunk_refs.append({
-                "id": chunk_id,
-                "originStuds": {"x": x * 256, "y": 0, "z": z * 256},
-                "featureCount": 1,
-                "streamingCost": 8.0,
-                "partitionVersion": "subplans.v1",
-                "subplans": [
-                    {
-                        "id": "terrain",
-                        "layer": "terrain",
-                        "featureCount": 1,
-                        "streamingCost": 8.0
-                    },
-                    {
-                        "id": "roads",
-                        "layer": "roads",
-                        "featureCount": 0,
-                        "streamingCost": 0.0
-                    },
-                    {
-                        "id": "landuse",
-                        "layer": "landuse",
-                        "featureCount": 0,
-                        "streamingCost": 0.0
-                    },
-                    {
-                        "id": "buildings",
-                        "layer": "buildings",
-                        "featureCount": 0,
-                        "streamingCost": 0.0
-                    },
-                    {
-                        "id": "water",
-                        "layer": "water",
-                        "featureCount": 0,
-                        "streamingCost": 0.0
-                    },
-                    {
-                        "id": "props",
-                        "layer": "props",
-                        "featureCount": 0,
-                        "streamingCost": 0.0
-                    }
-                ]
             })
 
     manifest["meta"]["totalFeatures"] = len(chunks)

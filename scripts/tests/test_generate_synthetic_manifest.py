@@ -29,114 +29,82 @@ class GenerateSyntheticManifestTests(unittest.TestCase):
 
             module.main()
 
-            manifest = json.loads(out_path.read_text(encoding="utf-8"))
+            payload = out_path.read_text(encoding="utf-8")
+            manifest = json.loads(payload)
 
         self.assertEqual(manifest["schemaVersion"], "0.4.0")
+        self.assertNotIn('"schemaVersion": "0.1.0"', payload)
+        self.assertNotIn('"schemaVersion": "0.2.0"', payload)
+        self.assertNotIn("chunkRefs", manifest)
+
+        meta = manifest["meta"]
+        for key in (
+            "worldName",
+            "generator",
+            "source",
+            "metersPerStud",
+            "chunkSizeStuds",
+            "bbox",
+            "totalFeatures",
+            "notes",
+        ):
+            self.assertIn(key, meta)
+
+        self.assertEqual(meta["worldName"], "SyntheticGrid")
+        self.assertEqual(meta["generator"], "scripts/generate_synthetic_manifest.py")
+        self.assertEqual(meta["source"], "synthetic")
+        self.assertEqual(meta["metersPerStud"], 1.0)
+        self.assertEqual(meta["chunkSizeStuds"], 256)
+        self.assertEqual(meta["totalFeatures"], 4)
+        self.assertEqual(meta["notes"], ["Generated synthetic manifest"])
+
+        bbox = meta["bbox"]
         self.assertEqual(
-            manifest["meta"],
-            {
-                "worldName": "SyntheticGrid",
-                "generator": "scripts/generate_synthetic_manifest.py",
-                "source": "synthetic",
-                "metersPerStud": 1.0,
-                "chunkSizeStuds": 256,
-                "bbox": {
-                    "minLat": 0,
-                    "minLon": 0,
-                    "maxLat": 1,
-                    "maxLon": 1,
-                },
-                "totalFeatures": 4,
-                "notes": ["Generated synthetic manifest"],
-            },
+            {key: bbox[key] for key in ("minLat", "minLon", "maxLat", "maxLon")},
+            {"minLat": 0, "minLon": 0, "maxLat": 1, "maxLon": 1},
         )
 
         self.assertEqual(len(manifest["chunks"]), 4)
-        first_chunk = manifest["chunks"][0]
-        self.assertEqual(
-            set(first_chunk.keys()),
-            {
-                "id",
-                "originStuds",
-                "terrain",
-                "roads",
-                "rails",
-                "buildings",
-                "water",
-                "props",
-                "landuse",
-                "barriers",
-            },
-        )
-        self.assertEqual(
-            first_chunk["terrain"],
-            {
-                "cellSizeStuds": 2,
-                "width": 1,
-                "depth": 1,
-                "heights": [0.0],
-                "materials": ["Grass"],
-                "material": "Grass",
-            },
-        )
-        self.assertEqual(first_chunk["roads"], [])
-        self.assertEqual(first_chunk["rails"], [])
-        self.assertEqual(first_chunk["buildings"], [])
-        self.assertEqual(first_chunk["water"], [])
-        self.assertEqual(first_chunk["props"], [])
-        self.assertEqual(first_chunk["landuse"], [])
-        self.assertEqual(first_chunk["barriers"], [])
+        total_features = 0
+        required_chunk_keys = {
+            "id",
+            "originStuds",
+            "terrain",
+            "roads",
+            "rails",
+            "buildings",
+            "water",
+            "props",
+            "landuse",
+            "barriers",
+        }
 
-        self.assertEqual(len(manifest["chunkRefs"]), 4)
-        first_chunk_ref = manifest["chunkRefs"][0]
-        self.assertEqual(
-            first_chunk_ref,
-            {
-                "id": "0_0",
-                "originStuds": {"x": 0, "y": 0, "z": 0},
-                "featureCount": 1,
-                "streamingCost": 8.0,
-                "partitionVersion": "subplans.v1",
-                "subplans": [
-                    {
-                        "id": "terrain",
-                        "layer": "terrain",
-                        "featureCount": 1,
-                        "streamingCost": 8.0,
-                    },
-                    {
-                        "id": "roads",
-                        "layer": "roads",
-                        "featureCount": 0,
-                        "streamingCost": 0.0,
-                    },
-                    {
-                        "id": "landuse",
-                        "layer": "landuse",
-                        "featureCount": 0,
-                        "streamingCost": 0.0,
-                    },
-                    {
-                        "id": "buildings",
-                        "layer": "buildings",
-                        "featureCount": 0,
-                        "streamingCost": 0.0,
-                    },
-                    {
-                        "id": "water",
-                        "layer": "water",
-                        "featureCount": 0,
-                        "streamingCost": 0.0,
-                    },
-                    {
-                        "id": "props",
-                        "layer": "props",
-                        "featureCount": 0,
-                        "streamingCost": 0.0,
-                    },
-                ],
-            },
-        )
+        for chunk in manifest["chunks"]:
+            self.assertEqual(set(chunk.keys()), required_chunk_keys)
+            self.assertEqual(set(chunk["originStuds"].keys()), {"x", "y", "z"})
+            self.assertEqual(chunk["roads"], [])
+            self.assertEqual(chunk["rails"], [])
+            self.assertEqual(chunk["buildings"], [])
+            self.assertEqual(chunk["water"], [])
+            self.assertEqual(chunk["props"], [])
+            self.assertEqual(chunk["landuse"], [])
+            self.assertEqual(chunk["barriers"], [])
+
+            terrain = chunk["terrain"]
+            self.assertEqual(
+                set(terrain.keys()),
+                {"cellSizeStuds", "width", "depth", "heights", "materials", "material"},
+            )
+            self.assertEqual(terrain["cellSizeStuds"], 2)
+            self.assertEqual(terrain["width"], 1)
+            self.assertEqual(terrain["depth"], 1)
+            self.assertEqual(terrain["heights"], [0.0])
+            self.assertEqual(terrain["materials"], ["Grass"])
+            self.assertEqual(terrain["material"], "Grass")
+
+            total_features += 1
+
+        self.assertEqual(meta["totalFeatures"], total_features)
 
 
 if __name__ == "__main__":

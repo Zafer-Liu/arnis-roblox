@@ -754,6 +754,17 @@ fn cmd_validate(args: &[String]) -> Result<(), String> {
     Ok(())
 }
 
+fn schema_version_difference_message(v1: &Value, v2: &Value) -> Option<String> {
+    if v1["schemaVersion"] != v2["schemaVersion"] {
+        Some(format!(
+            "Schema versions differ: {} vs {}",
+            v1["schemaVersion"], v2["schemaVersion"]
+        ))
+    } else {
+        None
+    }
+}
+
 fn cmd_diff(args: &[String]) -> Result<(), String> {
     if args.len() < 2 {
         return Err("diff requires two manifest paths".to_string());
@@ -771,11 +782,8 @@ fn cmd_diff(args: &[String]) -> Result<(), String> {
     let v2: serde_json::Value = serde_json::from_str(&m2_content)
         .map_err(|e| format!("invalid JSON in {}: {}", m2_path, e))?;
 
-    if v1["schemaVersion"] != v2["schemaVersion"] {
-        println!(
-            "Schema versions differ: {} vs {}",
-            v1["schemaVersion"], v2["schemaVersion"]
-        );
+    if let Some(message) = schema_version_difference_message(&v1, &v2) {
+        println!("{message}");
     }
 
     let c1 = v1["chunks"].as_array().map(|a| a.len()).unwrap_or(0);
@@ -1785,11 +1793,26 @@ mod tests {
     }
 
     #[test]
+    fn diff_reports_schema_version_difference() {
+        let v1: Value =
+            serde_json::from_str(r#"{ "schemaVersion": "0.4.0", "meta": {}, "chunks": [] }"#)
+                .unwrap();
+        let v2: Value =
+            serde_json::from_str(r#"{ "schemaVersion": "0.2.0", "meta": {}, "chunks": [] }"#)
+                .unwrap();
+
+        let message = schema_version_difference_message(&v1, &v2)
+            .expect("expected a schema-version difference message");
+        assert_eq!(message, "Schema versions differ: \"0.4.0\" vs \"0.2.0\"");
+    }
+
+    #[test]
     fn help_text_is_0_4_0_only() {
         let help = help_text();
         assert!(help.contains("Outputs Schema 0.4.0 JSON manifests."));
         assert!(!help.contains("Migrations"));
         assert!(!help.contains("0.1.0"));
+        assert!(!help.contains("0.2.0"));
         assert!(!help.contains("0.3.0"));
     }
 
@@ -1800,6 +1823,7 @@ mod tests {
         assert!(explain.contains(r#"  { "schemaVersion": "0.4.0","#));
         assert!(!explain.contains("Migrations"));
         assert!(!explain.contains("0.1.0"));
+        assert!(!explain.contains("0.2.0"));
         assert!(!explain.contains("0.3.0"));
     }
 
