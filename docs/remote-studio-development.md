@@ -63,7 +63,6 @@ cp scripts/remote_studio_profiles.example.sh scripts/remote_studio_profiles.loca
 3. Run the remote wrapper with the chosen profile:
 
 ```bash
-bash scripts/run_studio_harness_remote.sh --remote-profile primary -- --no-play --edit-tests
 bash scripts/run_studio_harness_remote.sh --remote-profile tertiary -- --no-play --edit-tests
 ```
 
