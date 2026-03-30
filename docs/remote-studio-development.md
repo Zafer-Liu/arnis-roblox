@@ -69,7 +69,8 @@ bash scripts/run_studio_harness_remote.sh --remote-profile tertiary -- --no-play
 If the wrapper is unstable on the current workstation, run the harness directly on the remote clone over SSH instead and record that lane in the status file:
 
 ```bash
-ssh tertiary 'cd "$HOME/<remote-stage-clone>/arnis-roblox" && bash scripts/run_studio_harness.sh --no-play --edit-tests'
+# Replace /path/to/arnis-roblox with the staged clone path on the remote host.
+ssh tertiary 'cd "/path/to/arnis-roblox" && bash scripts/run_studio_harness.sh --no-play --edit-tests'
 ```
 
 ## Notes
