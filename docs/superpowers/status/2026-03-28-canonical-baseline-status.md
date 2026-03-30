@@ -5,7 +5,7 @@ Status: Completed
 
 This tranche is complete and now historical as the baseline handoff for March 28.
 
-The active fidelity/observability stack is:
+The follow-on fidelity/observability stack for that completed day was:
 
 - `docs/superpowers/specs/2026-03-28-play-fidelity-and-observability-design.md`
 - `docs/superpowers/plans/2026-03-28-play-fidelity-and-observability.md`
@@ -55,7 +55,7 @@ The paired historical design spec for this tranche is:
 ### Remote Studio
 
 - `tertiary` edit-mode slice attempted on 2026-03-28 via:
-  - `bash scripts/run_studio_harness_remote.sh --remote-profile tertiary --remote-host tertiary -- --no-play --edit-tests --spec-filter CanonicalWorldContract.spec.lua`
+  - `bash scripts/run_studio_harness_remote.sh --remote-profile tertiary -- --no-play --edit-tests --spec-filter CanonicalWorldContract.spec.lua`
 - Result: not yet green enough to prove convergence
   - remote SSH and sync succeeded
   - clean place build succeeded
@@ -63,14 +63,14 @@ The paired historical design spec for this tranche is:
   - plugin smoke check passed
   - Studio MCP helper never became ready after launch, isolated RunAll fallback did not emit test markers before timeout, and screenshot capture failed on the remote host
 - `tertiary` edit-mode rerun attempted on 2026-03-28 after MCP portability/cleanup changes via:
-  - `HARNESS_REFRESH_MCP_PLUGIN=1 bash scripts/run_studio_harness_remote.sh --remote-profile tertiary --remote-host tertiary -- --takeover --hard-restart --no-play --edit-tests --spec-filter CanonicalWorldContract.spec.lua`
+  - `HARNESS_REFRESH_MCP_PLUGIN=1 bash scripts/run_studio_harness_remote.sh --remote-profile tertiary -- --takeover --hard-restart --no-play --edit-tests --spec-filter CanonicalWorldContract.spec.lua`
 - Result: still not a valid convergence proof
   - remote Studio log evidence shows `MCPStudioPlugin.rbxm` loading, `VertigoSync` reconciling, and repeated `http://localhost:44755/request` `423 Locked` failures during the broken run
   - `tertiary` accumulated many orphaned `rbx-studio-mcp --stdio` processes with `PPID 1`
   - local wrapper executions from this machine now terminate with exit `141` before yielding a usable remote harness transcript, even when stdout/stderr are redirected to a file
   - outcome: the repo-side harness is cleaner, but the `tertiary` proof lane is still blocked by remote MCP/relay hygiene plus wrapper transport instability on this workstation
 - `tertiary` narrow edit proof rerun completed on 2026-03-28 via direct SSH on the remote clone:
-  - `cd ~/.codex-remote-studio/arnis-roblox && VSYNC_REPO_DIR=~/.codex-remote-studio/vertigo-sync bash scripts/run_studio_harness.sh --takeover --hard-restart --no-play --edit-tests --spec-filter CanonicalWorldContract.spec.lua`
+  - `cd "$HOME/<remote-stage-clone>/arnis-roblox" && VSYNC_REPO_DIR="$HOME/<remote-stage-clone>/vertigo-sync" bash scripts/run_studio_harness.sh --takeover --hard-restart --no-play --edit-tests --spec-filter CanonicalWorldContract.spec.lua`
 - Result: green for the isolated edit slice
   - `ARNIS_MCP_READY` emitted after Studio/plugin bootstrap
   - harness drove edit actions through MCP on the live `tertiary` Studio session
@@ -180,7 +180,7 @@ The paired historical design spec for this tranche is:
 - Verification:
   - `python3 -m unittest scripts.tests.test_run_studio_harness scripts.tests.test_studio_mcp_proxy_lib -v`
   - direct remote run on `tertiary`:
-    - `cd ~/.codex-remote-studio/arnis-roblox && VSYNC_REPO_DIR=~/.codex-remote-studio/vertigo-sync bash scripts/run_studio_harness.sh --takeover --hard-restart --no-play --edit-tests --spec-filter CanonicalWorldContract.spec.lua`
+    - `cd "$HOME/<remote-stage-clone>/arnis-roblox" && VSYNC_REPO_DIR="$HOME/<remote-stage-clone>/vertigo-sync" bash scripts/run_studio_harness.sh --takeover --hard-restart --no-play --edit-tests --spec-filter CanonicalWorldContract.spec.lua`
 
 ### 2026-03-28: Overture Overlap Loss Surfaced
 
@@ -222,7 +222,7 @@ The paired historical design spec for this tranche is:
   - `python3 -m unittest scripts.tests.test_run_studio_harness.RunStudioHarnessTests.test_play_transition_stops_live_vsync_before_entering_play -v`
   - `python3 -m unittest scripts.tests.test_run_studio_harness.RunStudioHarnessTests.test_play_focused_runs_skip_live_vsync_server_startup scripts.tests.test_run_studio_harness.RunStudioHarnessTests.test_harness_treats_client_world_marker_as_authoritative_play_signal scripts.tests.test_run_studio_harness.RunStudioHarnessTests.test_harness_treats_client_bootstrap_marker_as_authoritative_bootstrap_signal scripts.tests.test_austin_runtime_contract.AustinRuntimeContractTests.test_client_world_probe_publishes_nearby_building_and_overhead_roof_telemetry -v`
   - direct remote run on `tertiary`:
-    - `cd ~/.codex-remote-studio/arnis-roblox && VSYNC_REPO_DIR=~/.codex-remote-studio/vertigo-sync bash scripts/run_studio_harness.sh --takeover --hard-restart --skip-edit-tests --edit-wait 30 --pattern-wait 120`
+    - `cd "$HOME/<remote-stage-clone>/arnis-roblox" && VSYNC_REPO_DIR="$HOME/<remote-stage-clone>/vertigo-sync" bash scripts/run_studio_harness.sh --takeover --hard-restart --skip-edit-tests --edit-wait 30 --pattern-wait 120`
 
 ### 2026-03-28: Post-Proof Harness And Metadata Cleanup
 
@@ -314,7 +314,7 @@ The paired historical design spec for this tranche is:
     - `python3 scripts/scene_fidelity_audit.py --manifest rust/out/austin-manifest.scene-index.json --log /Users/adpena/Library/Logs/Roblox/0.714.0.7141089_20260328T195252Z_Studio_5931e_last.log --marker ARNIS_SCENE_PLAY --json-out /tmp/arnis-scene-audit-play-contract/arnis-scene-fidelity-play.py.json --html-out /tmp/arnis-scene-audit-play-contract/arnis-scene-fidelity-play.py.html`
     - `python3 scripts/scene_parity_audit.py --edit-report /tmp/arnis-scene-audit-edit-contract/arnis-scene-fidelity-edit.py.json --play-report /tmp/arnis-scene-audit-play-contract/arnis-scene-fidelity-play.py.json --json-out /tmp/arnis-scene-audit-parity-contract.py.json --html-out /tmp/arnis-scene-audit-parity-contract.py.html`
   - direct remote run on `tertiary`:
-    - `cd ~/.codex-remote-studio/arnis-roblox && VSYNC_REPO_DIR=~/.codex-remote-studio/vertigo-sync ARNIS_SCENE_AUDIT_DIR=/tmp/arnis-scene-audit-20260328 bash scripts/run_studio_harness.sh --takeover --hard-restart --edit-wait 30 --pattern-wait 120`
+    - `cd "$HOME/<remote-stage-clone>/arnis-roblox" && VSYNC_REPO_DIR="$HOME/<remote-stage-clone>/vertigo-sync" ARNIS_SCENE_AUDIT_DIR=/tmp/arnis-scene-audit-20260328 bash scripts/run_studio_harness.sh --takeover --hard-restart --edit-wait 30 --pattern-wait 120`
 
 ### 2026-03-28: Truthful 1500-Radius Preview Baseline Proven
 
@@ -344,14 +344,14 @@ The paired historical design spec for this tranche is:
     - `python3 -m unittest scripts.tests.test_refresh_preview_from_sample_data scripts.tests.test_run_studio_harness scripts.tests.test_preview_play_identity_contract -v`
     - `git diff --check`
   - remote static:
-    - `cd ~/.codex-remote-studio/arnis-roblox && python3 -m unittest scripts.tests.test_refresh_preview_from_sample_data scripts.tests.test_run_studio_harness scripts.tests.test_preview_play_identity_contract -v`
-    - `cd ~/.codex-remote-studio/arnis-roblox && python3 scripts/refresh_preview_from_sample_data.py`
+    - `cd "$HOME/<remote-stage-clone>/arnis-roblox" && python3 -m unittest scripts.tests.test_refresh_preview_from_sample_data scripts.tests.test_run_studio_harness scripts.tests.test_preview_play_identity_contract -v`
+    - `cd "$HOME/<remote-stage-clone>/arnis-roblox" && python3 scripts/refresh_preview_from_sample_data.py`
   - remote runtime:
-    - `cd ~/.codex-remote-studio/arnis-roblox && VSYNC_REPO_DIR=~/.codex-remote-studio/vertigo-sync ARNIS_SCENE_AUDIT_DIR=/tmp/arnis-scene-audit-20260328-preview1500 bash scripts/run_studio_harness.sh --takeover --hard-restart --no-play --edit-wait 30 --pattern-wait 120`
-    - `cd ~/.codex-remote-studio/arnis-roblox && VSYNC_REPO_DIR=~/.codex-remote-studio/vertigo-sync ARNIS_SCENE_AUDIT_DIR=/tmp/arnis-scene-audit-20260328-preview1500 bash scripts/run_studio_harness.sh --takeover --hard-restart --skip-edit-tests --edit-wait 30 --pattern-wait 120`
-    - `cd ~/.codex-remote-studio/arnis-roblox && python3 scripts/scene_fidelity_audit.py --manifest rust/out/austin-manifest.json --log /tmp/arnis-scene-audit-20260328-preview1500/edit-run.log --marker ARNIS_SCENE_EDIT --json-out /tmp/arnis-scene-audit-20260328-preview1500/edit.raw.json --html-out /tmp/arnis-scene-audit-20260328-preview1500/edit.raw.html`
-    - `cd ~/.codex-remote-studio/arnis-roblox && python3 scripts/scene_fidelity_audit.py --manifest rust/out/austin-manifest.json --log /tmp/arnis-scene-audit-20260328-preview1500/play-run.log --marker ARNIS_SCENE_PLAY --json-out /tmp/arnis-scene-audit-20260328-preview1500/play.raw.json --html-out /tmp/arnis-scene-audit-20260328-preview1500/play.raw.html`
-    - `cd ~/.codex-remote-studio/arnis-roblox && python3 scripts/scene_parity_audit.py --edit-report /tmp/arnis-scene-audit-20260328-preview1500/edit.raw.json --play-report /tmp/arnis-scene-audit-20260328-preview1500/play.raw.json --json-out /tmp/arnis-scene-audit-20260328-preview1500/parity.raw.json --html-out /tmp/arnis-scene-audit-20260328-preview1500/parity.raw.html`
+    - `cd "$HOME/<remote-stage-clone>/arnis-roblox" && VSYNC_REPO_DIR="$HOME/<remote-stage-clone>/vertigo-sync" ARNIS_SCENE_AUDIT_DIR=/tmp/arnis-scene-audit-20260328-preview1500 bash scripts/run_studio_harness.sh --takeover --hard-restart --no-play --edit-wait 30 --pattern-wait 120`
+    - `cd "$HOME/<remote-stage-clone>/arnis-roblox" && VSYNC_REPO_DIR="$HOME/<remote-stage-clone>/vertigo-sync" ARNIS_SCENE_AUDIT_DIR=/tmp/arnis-scene-audit-20260328-preview1500 bash scripts/run_studio_harness.sh --takeover --hard-restart --skip-edit-tests --edit-wait 30 --pattern-wait 120`
+    - `cd "$HOME/<remote-stage-clone>/arnis-roblox" && python3 scripts/scene_fidelity_audit.py --manifest rust/out/austin-manifest.json --log /tmp/arnis-scene-audit-20260328-preview1500/edit-run.log --marker ARNIS_SCENE_EDIT --json-out /tmp/arnis-scene-audit-20260328-preview1500/edit.raw.json --html-out /tmp/arnis-scene-audit-20260328-preview1500/edit.raw.html`
+    - `cd "$HOME/<remote-stage-clone>/arnis-roblox" && python3 scripts/scene_fidelity_audit.py --manifest rust/out/austin-manifest.json --log /tmp/arnis-scene-audit-20260328-preview1500/play-run.log --marker ARNIS_SCENE_PLAY --json-out /tmp/arnis-scene-audit-20260328-preview1500/play.raw.json --html-out /tmp/arnis-scene-audit-20260328-preview1500/play.raw.html`
+    - `cd "$HOME/<remote-stage-clone>/arnis-roblox" && python3 scripts/scene_parity_audit.py --edit-report /tmp/arnis-scene-audit-20260328-preview1500/edit.raw.json --play-report /tmp/arnis-scene-audit-20260328-preview1500/play.raw.json --json-out /tmp/arnis-scene-audit-20260328-preview1500/parity.raw.json --html-out /tmp/arnis-scene-audit-20260328-preview1500/parity.raw.html`
 
 ### 2026-03-28: Source-Provenance Audit And SceneAudit Hot-Path Refactor
 
@@ -374,7 +374,7 @@ The paired historical design spec for this tranche is:
     - `python3 -m unittest scripts.tests.test_manifest_quality_audit -v`
     - `git diff --check`
   - remote:
-    - `cd ~/.codex-remote-studio/arnis-roblox && VSYNC_REPO_DIR=~/.codex-remote-studio/vertigo-sync bash scripts/run_studio_harness.sh --takeover --hard-restart --no-play --edit-tests --spec-filter SceneAudit.spec.lua --edit-wait 30 --pattern-wait 120`
+    - `cd "$HOME/<remote-stage-clone>/arnis-roblox" && VSYNC_REPO_DIR="$HOME/<remote-stage-clone>/vertigo-sync" bash scripts/run_studio_harness.sh --takeover --hard-restart --no-play --edit-tests --spec-filter SceneAudit.spec.lua --edit-wait 30 --pattern-wait 120`
 
 ### 2026-03-28: Harness Cleanup And Wrapper Hygiene Hardening
 
@@ -397,7 +397,7 @@ The paired historical design spec for this tranche is:
     - `python3 -m unittest scripts.tests.test_studio_harness_policy scripts.tests.test_run_studio_harness scripts.tests.test_run_studio_harness_remote -v`
     - `git diff --check`
   - remote static:
-    - `cd ~/.codex-remote-studio/arnis-roblox && python3 -m unittest scripts.tests.test_studio_harness_policy scripts.tests.test_run_studio_harness scripts.tests.test_run_studio_harness_remote -v`
+    - `cd "$HOME/<remote-stage-clone>/arnis-roblox" && python3 -m unittest scripts.tests.test_studio_harness_policy scripts.tests.test_run_studio_harness scripts.tests.test_run_studio_harness_remote -v`
   - remote runtime evidence:
     - direct `tertiary` no-play harness run with `CanonicalWorldContract.spec.lua`, followed by parent-shell `TERM` probes and process-state inspection
 
@@ -441,7 +441,7 @@ The paired historical design spec for this tranche is:
     - `python3 -m unittest scripts.tests.test_run_studio_harness -v`
     - `python3 -m unittest scripts.tests.test_studio_mcp_proxy_lib -v`
   - remote static:
-    - `cd ~/.codex-remote-studio/arnis-roblox && python3 -m unittest scripts.tests.test_refresh_preview_from_sample_data scripts.tests.test_refresh_runtime_harness_from_sample_data scripts.tests.test_studio_mcp_proxy_lib -v`
+    - `cd "$HOME/<remote-stage-clone>/arnis-roblox" && python3 -m unittest scripts.tests.test_refresh_preview_from_sample_data scripts.tests.test_refresh_runtime_harness_from_sample_data scripts.tests.test_studio_mcp_proxy_lib -v`
   - remote runtime:
     - direct `tertiary` edit artifact lane with `--no-play --skip-edit-tests`
     - direct `tertiary` play artifact lane with `--skip-edit-tests`

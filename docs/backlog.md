@@ -2,10 +2,10 @@
 
 ## Epic A — Contracts
 
-- [x] finalize chunk schema (v0.3.0 stable)
+- [x] finalize chunk schema (0.4.0-only contract)
 - [x] finalize world config schema
-- [x] add migration notes mechanism
-- [x] add manifest version upgrade helper
+- [x] add schema contract documentation
+- [x] add explicit manifest version enforcement
 
 ## Epic B — Rust exporter
 

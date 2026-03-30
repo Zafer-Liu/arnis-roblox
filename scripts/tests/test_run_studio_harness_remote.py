@@ -2,11 +2,27 @@
 from __future__ import annotations
 
 from pathlib import Path
+import subprocess
 import unittest
 
 
 ROOT = Path(__file__).resolve().parents[2]
 REMOTE_HARNESS_PATH = ROOT / "scripts" / "run_studio_harness_remote.sh"
+
+
+def resolve_vertigo_sync_root() -> Path:
+    result = subprocess.run(
+        ["git", "-C", str(ROOT), "rev-parse", "--git-common-dir"],
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+    common_git_dir = Path(result.stdout.strip()).resolve()
+    if common_git_dir.name == ".git":
+        repo_root = common_git_dir.parent
+    else:
+        repo_root = common_git_dir.parents[2]
+    return repo_root.parent / "vertigo-sync"
 
 
 class RunStudioHarnessRemoteTests(unittest.TestCase):
@@ -15,7 +31,7 @@ class RunStudioHarnessRemoteTests(unittest.TestCase):
         cls.text = REMOTE_HARNESS_PATH.read_text(encoding="utf-8")
 
     def test_uses_profile_based_remote_configuration_without_baked_host_defaults(self) -> None:
-        self.assertIn('REMOTE_PROFILE="${ARNIS_REMOTE_STUDIO_PROFILE:-primary}"', self.text)
+        self.assertIn('REMOTE_PROFILE="${ARNIS_REMOTE_STUDIO_PROFILE:-tertiary}"', self.text)
         self.assertIn('LOCAL_REMOTE_CONFIG="$ROOT_DIR/scripts/remote_studio_profiles.local.sh"', self.text)
         self.assertIn('EXAMPLE_REMOTE_CONFIG="$ROOT_DIR/scripts/remote_studio_profiles.example.sh"', self.text)
         self.assertIn('resolve_profile_value', self.text)
@@ -104,7 +120,7 @@ class RunStudioHarnessRemoteTests(unittest.TestCase):
 
     def test_gitignore_blocks_generated_artifacts_from_git_aware_sync(self) -> None:
         arnis_gitignore = (ROOT / ".gitignore").read_text(encoding="utf-8")
-        vertigo_sync_gitignore = (ROOT.parent / "vertigo-sync" / ".gitignore").read_text(encoding="utf-8")
+        vertigo_sync_gitignore = (resolve_vertigo_sync_root() / ".gitignore").read_text(encoding="utf-8")
         for text in (arnis_gitignore, vertigo_sync_gitignore):
             with self.subTest(gitignore=text[:32]):
                 self.assertTrue("**/target/" in text or "**/target" in text)

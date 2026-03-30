@@ -416,7 +416,7 @@ Expected before cleanup: matches still exist in active truth surfaces
 Run:
 
 ```bash
-rg -n "Automatically migrated|backward compatibility|migration notes|Status: Active|active truth surface|0\.1\.0|0\.2\.0|0\.3\.0|--remote-host tertiary|~/.codex-remote-studio|schema migrations|compatibility shim|ARNIS_REMOTE_STUDIO_PROFILE:-primary|--remote-profile primary" README.md AGENTS.md CLAUDE.md docs/acceptance_criteria.md docs/chunk_schema.md docs/build-pipeline.md docs/architecture.md docs/remote-studio-development.md docs/superpowers/plans/2026-03-28-play-fidelity-and-observability.md docs/superpowers/status/2026-03-28-play-fidelity-and-observability-status.md scripts/run_studio_harness_remote.sh
+rg -n "Automatically migrated|backward compatibility|migration notes|Status: Active|active truth surface|0\.1\.0|0\.2\.0|0\.3\.0|--remote-host tertiary|~/.codex-remote-studio|schema migrations|compatibility shim|ARNIS_REMOTE_STUDIO_PROFILE:-primary|--remote-profile primary|v0\.3\.0 stable|migration notes mechanism|version upgrade helper|active fidelity/observability stack" README.md AGENTS.md CLAUDE.md docs/acceptance_criteria.md docs/backlog.md docs/chunk_schema.md docs/build-pipeline.md docs/architecture.md docs/remote-studio-development.md docs/superpowers/plans/2026-03-28-play-fidelity-and-observability.md docs/superpowers/status/2026-03-28-play-fidelity-and-observability-status.md docs/superpowers/status/2026-03-28-canonical-baseline-status.md scripts/remote_studio_profiles.example.sh scripts/run_studio_harness_remote.sh scripts/tests/test_run_studio_harness_remote.py
 ```
 
 Expected: no stale compatibility claims in active surfaces

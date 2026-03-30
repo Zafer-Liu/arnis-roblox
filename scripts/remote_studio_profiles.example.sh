@@ -6,7 +6,7 @@
 # .local file out of git.
 
 # Default profile when --remote-profile is omitted.
-export ARNIS_REMOTE_STUDIO_PROFILE="${ARNIS_REMOTE_STUDIO_PROFILE:-primary}"
+export ARNIS_REMOTE_STUDIO_PROFILE="${ARNIS_REMOTE_STUDIO_PROFILE:-tertiary}"
 
 # Primary development machine.
 export ARNIS_REMOTE_STUDIO_HOST_PRIMARY="<primary-host>"
