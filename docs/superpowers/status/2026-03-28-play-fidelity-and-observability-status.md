@@ -219,6 +219,7 @@ The design spec for this tranche was:
 ### 2026-03-28: Dedicated Local-Experience Marker And Remote Raw-Log Proof
 
 - 2026-03-29: Reframed the remote Studio operator details above as historical proof context; they are no longer current instructions.
+- 2026-03-29: The breaking compatibility purge landed on a separate branch. `0.4.0` is now the only supported manifest schema across runtime/tooling/docs, active March 28 plan/status surfaces were reframed as historical, and remote wrapper guidance/tests now default to the `tertiary` proof lane with stage-scoped cleanup. No fresh `tertiary` Studio proof was required for this purge because runtime world truth did not change.
 
 - Added a dedicated `ARNIS_CLIENT_LOCAL_EXPERIENCE` marker in `WorldProbe.client.lua` so the high-signal local player block (`localSupport`, `localTerrain`, `localEnclosure`, `localRoofCover`, bootstrap identity) no longer depends on the oversized `ARNIS_CLIENT_WORLD_COMPACT` line surviving intact in remote Studio logs.
 - Updated `scene_fidelity_audit.py` so it merges `ARNIS_CLIENT_WORLD_COMPACT` with `ARNIS_CLIENT_LOCAL_EXPERIENCE` both in the normal manifest+log path and in the `--report-json` render path, then rewrites the enriched JSON artifact when `--json-out` is supplied.

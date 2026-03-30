@@ -439,12 +439,15 @@ Run:
 
 ```bash
 bash -n scripts/run_studio_harness.sh
+bash -n scripts/run_studio_harness_remote.sh
 python3 -m unittest \
+  scripts.tests.test_check_scaffold \
   scripts.tests.test_run_all_checks \
   scripts.tests.test_generated_austin_assets \
   scripts.tests.test_refresh_preview_from_sample_data \
   scripts.tests.test_refresh_runtime_harness_from_sample_data \
   scripts.tests.test_json_manifest_to_sharded_lua \
+  scripts.tests.test_run_studio_harness_remote \
   scripts.tests.test_run_studio_harness \
   scripts.tests.test_austin_runtime_contract \
   scripts.tests.test_scene_fidelity_audit \
@@ -452,22 +455,11 @@ python3 -m unittest \
   scripts.tests.test_preview_telemetry_summary -v
 python3 scripts/check_scaffold.py
 python3 scripts/verify_generated_austin_assets.py
-python3 scripts/run_luau_tests.py \
-  roblox/src/ServerScriptService/Tests/ChunkSchema.spec.lua \
-  roblox/src/ServerScriptService/Tests/Migrations.spec.lua \
-  roblox/src/ServerScriptService/Tests/AuthoritativeOverwrite.spec.lua \
-  roblox/src/ServerScriptService/Tests/ImportChunkPlanKey.spec.lua \
-  roblox/src/ServerScriptService/Tests/RoadDetailGroups.spec.lua \
-  roblox/src/ServerScriptService/Tests/LandusePerformance.spec.lua \
-  roblox/src/ServerScriptService/Tests/RoadChunkPlanReuse.spec.lua \
-  roblox/src/ServerScriptService/Tests/Streaming.spec.lua \
-  roblox/src/ServerScriptService/Tests/PlacementHardening.spec.lua \
-  roblox/src/ServerScriptService/Tests/AustinPreviewTimeTravel.spec.lua
 cargo test --manifest-path rust/Cargo.toml --workspace
 git diff --check
 ```
 
-Expected: all pass
+Expected: all local-safe checks pass. Do not run local Studio/Luau harnesses on this machine; use the `tertiary` profile only if a change touched runtime truth and needs remote proof.
 
 - [ ] **Step 2: Run targeted `tertiary` verification for any touched runtime truth**
 
