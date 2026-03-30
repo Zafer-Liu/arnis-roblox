@@ -14,7 +14,7 @@ if [[ -f "$LOCAL_REMOTE_CONFIG" ]]; then
   source "$LOCAL_REMOTE_CONFIG"
 fi
 
-REMOTE_PROFILE="${ARNIS_REMOTE_STUDIO_PROFILE:-primary}"
+REMOTE_PROFILE="${ARNIS_REMOTE_STUDIO_PROFILE:-tertiary}"
 REMOTE_HOME_TOKEN="__REMOTE_HOME__"
 DEFAULT_REMOTE_ROOT="$REMOTE_HOME_TOKEN/.codex-remote-studio"
 DEFAULT_REMOTE_ARNIS_BASE="$REMOTE_HOME_TOKEN/Projects/arnis-roblox"
@@ -115,7 +115,7 @@ arnis-roblox worktree and adjacent vertigo-sync snapshot to a persistent remote 
 
 Remote runner options:
   --remote-profile PROFILE
-                      Remote profile alias. Default: ${ARNIS_REMOTE_STUDIO_PROFILE:-primary}
+                      Remote profile alias. Default: ${ARNIS_REMOTE_STUDIO_PROFILE:-tertiary}
   --remote-host HOST   Remote SSH host. Overrides profile/local config.
   --remote-root PATH   Persistent remote stage root. Overrides profile/local config.
   --no-sync            Reuse the existing remote stage without rsyncing local snapshots.
@@ -127,7 +127,7 @@ Local config:
 
 All remaining arguments are forwarded to scripts/run_studio_harness.sh on the remote host.
 Example:
-  $(basename "$0") --remote-profile primary -- --no-play --edit-tests --spec-filter ImportManifestRegistrationChunkTruth.spec
+  $(basename "$0") --remote-profile tertiary -- --no-play --edit-tests --spec-filter ImportManifestRegistrationChunkTruth.spec
 EOF
 }
 
