@@ -15,7 +15,7 @@ the data compiler and the Roblox runtime/editor responsibilities separate.
 
 2. **Schema before behavior**
    - Manifest and config schema changes must be reflected in `specs/` first.
-   - Backward-compatibility changes must update the schema version and migration notes.
+   - The repo treats `0.4.0` as the only supported manifest schema; older manifests fail fast.
 
 3. **Chunk everything**
    - New systems must identify their chunk ownership explicitly.
@@ -35,7 +35,7 @@ the data compiler and the Roblox runtime/editor responsibilities separate.
 
 The pipeline is complete and demo-ready. All builders are production-quality:
 
-- **Schema 0.4.0** with full migration chain (0.1.0 → 0.4.0)
+- **Schema 0.4.0 only**; older manifests are rejected at import time
 - **ElevationEnrichmentStage** — DEM-derived Y for all features
 - **EditableMesh merging** for buildings and roads
 - **26 surface physics types** with real-world friction coefficients

@@ -41,7 +41,7 @@ Responsibilities:
 - classify world objects
 - assign chunk ownership
 - emit deterministic manifests
-- eventually own schema migrations and offline validation
+- own offline validation and schema contract enforcement
 
 It should **not** know about Studio widgets, toolbar buttons, or edit-time UX.
 

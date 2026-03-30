@@ -2,9 +2,9 @@
 
 Use this repo so Studio execution can move between machines without committing machine-specific hostnames, usernames, paths, or secrets.
 
-For the current workstation setup, remote Studio validation commonly runs on the local profile alias `tertiary`. That is an operator default only, not a committed repo dependency.
+Remote Studio validation is profile-based. On this workstation, `tertiary` is the preferred proof profile, but it is still only a local alias, not a committed repo dependency.
 
-Treat `tertiary` as the preferred current proof lane on this workstation, but still verify Studio/MCP helper readiness before relying on it for authoritative validation. For current proof state and active follow-on work, use the active rolling status file instead of duplicating volatile results here:
+Treat `tertiary` as the default remote proof lane when you need cross-machine Studio validation. If wrapper transport is unhealthy, direct SSH into the remote `tertiary` clone is the authoritative fallback for that lane. For current proof state and active follow-on work, use the rolling status file instead of duplicating volatile results here:
 
 - `docs/superpowers/status/2026-03-28-play-fidelity-and-observability-status.md`
 
@@ -14,7 +14,7 @@ Treat `tertiary` as the preferred current proof lane on this workstation, but st
 - Use `scripts/remote_studio_profiles.example.sh` as the starting template.
 - Treat `primary` and `tertiary` as profile aliases and machine roles, not as committed transport details.
 - Prefer direct development on the chosen dev machine when possible.
-- Use the remote harness wrapper when Studio must run on another machine from the one holding your current worktree, but fall back to direct SSH on the remote clone if wrapper transport is unhealthy on the current workstation.
+- Use the remote harness wrapper when Studio must run on another machine from the one holding your current worktree; if wrapper transport is unhealthy, switch to direct SSH on the remote `tertiary` clone for the proof run.
 
 ## Direct Development On The Active Dev Machine
 
@@ -67,10 +67,10 @@ bash scripts/run_studio_harness_remote.sh --remote-profile primary -- --no-play 
 bash scripts/run_studio_harness_remote.sh --remote-profile tertiary -- --no-play --edit-tests
 ```
 
-If the wrapper is unstable on the current workstation, run the harness directly on the remote clone over SSH instead and record that lane in the active status file:
+If the wrapper is unstable on the current workstation, run the harness directly on the remote clone over SSH instead and record that lane in the status file:
 
 ```bash
-ssh tertiary 'cd ~/.codex-remote-studio/arnis-roblox && bash scripts/run_studio_harness.sh --no-play --edit-tests'
+ssh tertiary 'cd "$HOME/<remote-stage-clone>/arnis-roblox" && bash scripts/run_studio_harness.sh --no-play --edit-tests'
 ```
 
 ## Notes
@@ -83,4 +83,4 @@ ssh tertiary 'cd ~/.codex-remote-studio/arnis-roblox && bash scripts/run_studio_
 - Do not disable SSH host-key verification in committed scripts. Accept or rotate host keys out-of-band on each operator machine before using a new remote profile.
 - If a host has no local profile config, the wrapper should fail early with a clear configuration error instead of guessing.
 - If a remote Studio lane is selected as the current proof surface, verify Studio launch and MCP/helper readiness there first; do not assume a configured `tertiary` profile is automatically green beyond the specific proof slices already verified.
-- Current `tertiary` proof state is intentionally tracked only in the active rolling status file above.
+- Current `tertiary` proof state is intentionally tracked only in the rolling status file above.

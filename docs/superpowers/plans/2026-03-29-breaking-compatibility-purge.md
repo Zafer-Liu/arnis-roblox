@@ -394,7 +394,7 @@ git commit -m "refactor: remove remaining runtime legacy compatibility shims"
 
 - [ ] **Step 1: Write the failing doc-truth tests or assertions where available**
 
-Where text-based tests exist, add/update them. Otherwise create a small focused verification step that greps for stale claims.
+Where text-based tests exist, add/update them. Otherwise create a small focused verification step that greps for stale claims across the active docs, status, and repo-level operating manuals.
 
 Example command:
 
@@ -408,6 +408,7 @@ Expected before cleanup: matches still exist in active truth surfaces
 
 - `docs/chunk_schema.md` must state that older schemas are unsupported
 - remove active-language compatibility claims from build/architecture/operator docs
+- reframe the March 28 plan/status docs as historical context instead of active instructions
 - append a dated status note explaining the break and the new repo truth
 
 - [ ] **Step 3: Run the doc-truth verification**
@@ -415,7 +416,7 @@ Expected before cleanup: matches still exist in active truth surfaces
 Run:
 
 ```bash
-rg -n "Automatically migrated to `0.4.0`|backward compatibility|0.3.0 manifest JSON|0.1.0|0.2.0|0.3.0" docs/exporter-fixtures.md docs/chunk_schema.md docs/build-pipeline.md docs/architecture.md docs/remote-studio-development.md docs/superpowers/plans/2026-03-28-play-fidelity-and-observability.md docs/superpowers/status/2026-03-28-play-fidelity-and-observability-status.md specs/sample-chunk-manifest.json specs/generated rust/crates/arbx_cli/src/main.rs
+rg -n "Automatically migrated|backward compatibility|migration notes|Status: Active|active truth surface|0\.1\.0|0\.2\.0|0\.3\.0|--remote-host tertiary|~/.codex-remote-studio|schema migrations" AGENTS.md CLAUDE.md docs/chunk_schema.md docs/build-pipeline.md docs/architecture.md docs/remote-studio-development.md docs/superpowers/plans/2026-03-28-play-fidelity-and-observability.md docs/superpowers/status/2026-03-28-play-fidelity-and-observability-status.md
 ```
 
 Expected: no stale compatibility claims in active surfaces

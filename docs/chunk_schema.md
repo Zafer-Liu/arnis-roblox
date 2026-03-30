@@ -48,7 +48,7 @@ This keeps chunk moves, reloads, and local editing much cleaner.
 
 ## Schema Versions
 
-### 0.4.0 (Current)
+### 0.4.0 (Current and only supported)
 - Canonical scale: `metersPerStud = 0.3` (1 stud ≈ 0.3m, matching Roblox humanoid proportions).
 - Rust exporter is the single elevation authority — all Y positions are authoritative from DEM sampling.
 - Terrain resolution configurable: default `cellSizeStuds = 2` (128x128 grid, 16,384 cells), configurable 1-32 via CLI `--terrain-cell-size`. Voxel size configurable via WorldConfig (default 1).
@@ -56,8 +56,8 @@ This keeps chunk moves, reloads, and local editing much cleaner.
 - Building `color` renamed to `wallColor`; new fields: `roofColor`, `roofShape`, `roofMaterial`, `usage`, `minHeight`.
 - New water field: `surfaceY` (authoritative surface elevation for polygon water).
 - New prop fields: `height`, `leafType`.
-- Lua builders no longer re-sample ground or apply snap thresholds — they read manifest values directly.
-- Roblox-side manifest validation accepts only `schemaVersion = 0.4.0`; older manifests and missing `schemaVersion` fail fast.
+- Lua builders read manifest values directly; they no longer re-sample ground or apply snap thresholds.
+- Roblox-side manifest validation accepts only `schemaVersion = 0.4.0`; older manifests and missing `schemaVersion` fail fast. There is no active migration path for pre-`0.4.0` manifests.
 - Index-side scheduling metadata is versioned separately via `partitionVersion`; changing the subplan contract does not require a manifest schema bump unless the manifest shape itself changes.
 
 ## Chunk section

@@ -1,12 +1,12 @@
 # Play Fidelity And Observability Implementation Plan
 
-Status: Active
+Status: Completed
 
 **Goal:** Continue from the completed March 28 baseline by tightening roof/interior/wall truth, improving player-local observability, measuring remaining fidelity gaps on `tertiary`, and keeping the docs stack current.
 
 ## Execution Status
 
-- 2026-03-28: Docs stack rollover started. The completed canonical-baseline tranche is now marked completed, and this plan/status/spec stack is the active truth surface.
+- 2026-03-28: Docs stack rollover completed. This plan is now historical context for the finished tranche, not the repo's current execution source.
 - 2026-03-28: Shared resolved config is already aligned across preview and runtime startup import.
 - 2026-03-28: Player-local telemetry now includes support, enclosure, and roof-cover fields.
 - 2026-03-28: Roof-closure decks are now marked internal support and verified on `tertiary` with `GabledRoofClosureTruth.spec.lua`.
