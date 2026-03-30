@@ -1,8 +1,8 @@
 # Play Fidelity And Observability Implementation Plan
 
-Status: Active
+Status: Historical
 
-**Goal:** Continue from the completed March 28 baseline by tightening roof/interior/wall truth, improving player-local observability, measuring remaining fidelity gaps on `tertiary`, and keeping the docs stack current.
+This tranche is complete and archived.
 
 ## Execution Status
 

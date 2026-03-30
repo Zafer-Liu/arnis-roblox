@@ -6,7 +6,9 @@ For the current workstation setup, remote Studio validation commonly runs on the
 
 Treat `tertiary` as the preferred current proof lane on this workstation, but still verify Studio/MCP helper readiness before relying on it for authoritative validation. For current proof state and active follow-on work, use the active rolling status file instead of duplicating volatile results here:
 
-- `docs/superpowers/status/2026-03-28-play-fidelity-and-observability-status.md`
+- `docs/superpowers/status/2026-03-30-outdoor-fidelity-and-source-truth-status.md`
+
+The March 30 outdoor fidelity and source-truth tranche is the current rolling status surface. Keep `tertiary` as the proof lane, but avoid repeating fast-moving proof claims in this operator doc.
 
 ## Rules
 

@@ -1,9 +1,9 @@
 # Play Fidelity And Observability Design
 
 Date: 2026-03-28
-Status: Active
+Status: Historical
 
-This is the active design spec for the current fidelity/observability tranche.
+This tranche is complete and archived.
 
 Use the paired implementation plan and rolling status document as the current execution and handoff surfaces:
 

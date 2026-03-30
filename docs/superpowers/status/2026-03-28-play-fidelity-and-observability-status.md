@@ -1,11 +1,11 @@
 # Play Fidelity And Observability Status
 
 Date: 2026-03-28
-Status: Active
+Status: Historical
 
 ## Purpose
 
-This is the current rolling status and handoff document for the active play-fidelity-and-observability tranche.
+This tranche is complete and archived.
 
 Use this file as the active status trail for:
 

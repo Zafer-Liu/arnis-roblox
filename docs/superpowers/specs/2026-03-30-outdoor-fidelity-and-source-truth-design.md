@@ -1,7 +1,7 @@
 # Outdoor Fidelity And Source-Truth Design
 
 Date: 2026-03-30
-Status: Proposed
+Status: Active
 
 This design defines the next tranche after the March 28 baseline and play-fidelity work.
 
