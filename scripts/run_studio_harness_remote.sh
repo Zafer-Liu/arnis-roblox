@@ -136,8 +136,6 @@ if [[ -f "$remote_harness_pgid_file" ]]; then
   fi
   rm -f "$remote_harness_pgid_file"
 fi
-pkill -f "$remote_arnis_dir/scripts/run_studio_harness.sh" || true
-pkill -f "$remote_vsync_target_dir/debug/vsync serve" || true
 rm -rf "$remote_harness_lock_dir"
 SH
   fi
