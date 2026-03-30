@@ -51,7 +51,7 @@ cargo run --bin arbx_cli -- compile --live --bbox 51.50,-0.13,51.51,-0.12 --sate
 python3 scripts/bootstrap_arnis_studio.py --open --serve
 ```
 
-This builds the supported clean place from [`roblox/default.project.json`](/Users/adpena/Projects/arnis-roblox/roblox/default.project.json) into `roblox/out/arnis-test-clean.rbxlx`, starts the local `vsync serve --project default.project.json` process, and opens it in Studio when available. `scripts/bootstrap_vsync_place.py` remains as a compatibility shim for the older command name.
+This builds the supported clean place from [`roblox/default.project.json`](/Users/adpena/Projects/arnis-roblox/roblox/default.project.json) into `roblox/out/arnis-test-clean.rbxlx`, starts the local `vsync serve --project default.project.json` process, and opens it in Studio when available. `scripts/bootstrap_vsync_place.py` is retained only as a legacy alias for the older command name.
 
 For a stable Austin export outside `roblox/out`, use:
 

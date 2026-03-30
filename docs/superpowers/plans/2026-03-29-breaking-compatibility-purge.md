@@ -416,7 +416,7 @@ Expected before cleanup: matches still exist in active truth surfaces
 Run:
 
 ```bash
-rg -n "Automatically migrated|backward compatibility|migration notes|Status: Active|active truth surface|0\.1\.0|0\.2\.0|0\.3\.0|--remote-host tertiary|~/.codex-remote-studio|schema migrations" AGENTS.md CLAUDE.md docs/chunk_schema.md docs/build-pipeline.md docs/architecture.md docs/remote-studio-development.md docs/superpowers/plans/2026-03-28-play-fidelity-and-observability.md docs/superpowers/status/2026-03-28-play-fidelity-and-observability-status.md
+rg -n "Automatically migrated|backward compatibility|migration notes|Status: Active|active truth surface|0\.1\.0|0\.2\.0|0\.3\.0|--remote-host tertiary|~/.codex-remote-studio|schema migrations|compatibility shim" README.md AGENTS.md CLAUDE.md docs/acceptance_criteria.md docs/chunk_schema.md docs/build-pipeline.md docs/architecture.md docs/remote-studio-development.md docs/superpowers/plans/2026-03-28-play-fidelity-and-observability.md docs/superpowers/status/2026-03-28-play-fidelity-and-observability-status.md
 ```
 
 Expected: no stale compatibility claims in active surfaces
