@@ -34,6 +34,35 @@ def _normalize_telemetry_families(value: Any) -> list[str]:
     return normalized
 
 
+def _slow_chunk_dominant_cost_center(slow_chunk: dict[str, Any]) -> tuple[str, int, float]:
+    cost_candidates = {
+        "buildings": int(slow_chunk.get("buildingsMs", 0) or 0),
+        "terrain": int(slow_chunk.get("terrainMs", 0) or 0),
+        "roads": int(slow_chunk.get("roadsMs", 0) or 0),
+        "landuse": int(slow_chunk.get("landuseTerrainFillMs", 0) or 0),
+    }
+    dominant_center = "unknown"
+    dominant_ms = 0
+    for center, cost_ms in cost_candidates.items():
+        if cost_ms > dominant_ms or (cost_ms == dominant_ms and dominant_center == "unknown"):
+            dominant_center = center
+            dominant_ms = cost_ms
+    total_ms = int(slow_chunk.get("totalMs", 0) or 0)
+    dominant_ratio = round(dominant_ms / total_ms, 4) if total_ms > 0 else 0.0
+    return dominant_center, dominant_ms, dominant_ratio
+
+
+def _terrain_signal_status(slow_chunk: dict[str, Any]) -> str:
+    terrain_cell_count = int(slow_chunk.get("terrainCellCount", 0) or 0)
+    terrain_material_kind_count = int(slow_chunk.get("terrainMaterialKindCount", 0) or 0)
+    terrain_ms = int(slow_chunk.get("terrainMs", 0) or 0)
+    if terrain_cell_count <= 0 and terrain_material_kind_count <= 0 and terrain_ms <= 0:
+        return "not_authored"
+    if terrain_material_kind_count <= 0:
+        return "missing"
+    return "present"
+
+
 def build_plugin_state_summary(data: dict[str, Any], telemetry_families: Any | None = None) -> dict[str, Any]:
     runtime = data.get("preview_runtime") or {}
     runtime_connection = runtime.get("connection") or {}
@@ -101,6 +130,7 @@ def build_plugin_state_summary(data: dict[str, Any], telemetry_families: Any | N
         summary["hotspot"]["lastSyncElapsedMs"] = int(last_sync.get("elapsedMs", 0))
     slow_chunk_id = last_slow_chunk.get("chunkId")
     if slow_chunk_id is not None:
+        dominant_cost_center, dominant_cost_ms, dominant_cost_ratio = _slow_chunk_dominant_cost_center(last_slow_chunk)
         summary["hotspot"]["slowChunk"] = {
             "chunkId": str(slow_chunk_id),
             "phase": str(last_slow_chunk.get("phase", "unknown")),
@@ -111,10 +141,26 @@ def build_plugin_state_summary(data: dict[str, Any], telemetry_families: Any | N
             "terrainDominantMaterial": str(last_slow_chunk.get("terrainDominantMaterial", "unknown")),
             "terrainDominantMaterialCellCount": int(last_slow_chunk.get("terrainDominantMaterialCellCount", 0)),
             "terrainNonGrassCellCount": int(last_slow_chunk.get("terrainNonGrassCellCount", 0)),
+            "terrainCellCount": int(last_slow_chunk.get("terrainCellCount", 0)),
+            "terrainSubsampleCount": int(last_slow_chunk.get("terrainSubsampleCount", 0)),
             "roadsMs": int(last_slow_chunk.get("roadsMs", 0)),
             "landuseTerrainFillMs": int(last_slow_chunk.get("landuseTerrainFillMs", 0)),
+            "buildingFeatureCount": int(last_slow_chunk.get("buildingFeatureCount", 0)),
+            "dominantCostCenter": dominant_cost_center,
+            "dominantCostMs": dominant_cost_ms,
+            "dominantCostRatio": dominant_cost_ratio,
+            "terrainSignalStatus": _terrain_signal_status(last_slow_chunk),
             "artifactCount": int(last_slow_chunk.get("artifactCount", 0)),
         }
+        for source_key in (
+            "buildingMeshCreateMs",
+            "buildingMeshPartCount",
+            "buildingRoofMeshPartCount",
+            "buildingMeshVertexCount",
+            "buildingMeshTriangleCount",
+        ):
+            if last_slow_chunk.get(source_key) is not None:
+                summary["hotspot"]["slowChunk"][source_key] = int(last_slow_chunk.get(source_key, 0))
     if requested_families:
         summary["telemetryFamilies"] = requested_families
     return summary
@@ -162,22 +208,42 @@ def summarize_plugin_state(data: dict[str, Any], telemetry_families: Any | None 
         project_parts.append(f"last_sync_elapsed_ms={hotspot.get('lastSyncElapsedMs')}")
     slow_chunk = hotspot.get("slowChunk") if isinstance(hotspot.get("slowChunk"), dict) else {}
     if slow_chunk:
-        project_parts.extend(
+        slow_chunk_parts = [
+            f"slow_chunk={slow_chunk.get('chunkId')}",
+            f"slow_chunk_phase={slow_chunk.get('phase', 'unknown')}",
+            f"slow_chunk_total_ms={slow_chunk.get('totalMs', 0)}",
+            f"slow_chunk_buildings_ms={slow_chunk.get('buildingsMs', 0)}",
+        ]
+        optional_hotspot_tokens = (
+            ("buildingMeshCreateMs", "slow_chunk_building_mesh_create_ms"),
+            ("buildingMeshPartCount", "slow_chunk_building_mesh_parts"),
+            ("buildingRoofMeshPartCount", "slow_chunk_building_roof_mesh_parts"),
+            ("buildingMeshVertexCount", "slow_chunk_building_mesh_vertices"),
+            ("buildingMeshTriangleCount", "slow_chunk_building_mesh_triangles"),
+        )
+        for source_key, token_key in optional_hotspot_tokens:
+            if source_key in slow_chunk:
+                slow_chunk_parts.append(f"{token_key}={slow_chunk.get(source_key, 0)}")
+        slow_chunk_parts.extend(
             [
-                f"slow_chunk={slow_chunk.get('chunkId')}",
-                f"slow_chunk_phase={slow_chunk.get('phase', 'unknown')}",
-                f"slow_chunk_total_ms={slow_chunk.get('totalMs', 0)}",
-                f"slow_chunk_buildings_ms={slow_chunk.get('buildingsMs', 0)}",
                 f"slow_chunk_terrain_ms={slow_chunk.get('terrainMs', 0)}",
                 f"slow_chunk_terrain_material_kind_count={slow_chunk.get('terrainMaterialKindCount', 0)}",
                 f"slow_chunk_terrain_dominant_material={slow_chunk.get('terrainDominantMaterial', 'unknown')}",
                 f"slow_chunk_terrain_dominant_material_cells={slow_chunk.get('terrainDominantMaterialCellCount', 0)}",
                 f"slow_chunk_terrain_non_grass_cells={slow_chunk.get('terrainNonGrassCellCount', 0)}",
+                f"slow_chunk_terrain_cells={slow_chunk.get('terrainCellCount', 0)}",
+                f"slow_chunk_terrain_subsamples={slow_chunk.get('terrainSubsampleCount', 0)}",
                 f"slow_chunk_roads_ms={slow_chunk.get('roadsMs', 0)}",
                 f"slow_chunk_landuse_terrain_fill_ms={slow_chunk.get('landuseTerrainFillMs', 0)}",
+                f"slow_chunk_building_features={slow_chunk.get('buildingFeatureCount', 0)}",
+                f"slow_chunk_dominant_cost_center={slow_chunk.get('dominantCostCenter', 'unknown')}",
+                f"slow_chunk_dominant_cost_ms={slow_chunk.get('dominantCostMs', 0)}",
+                f"slow_chunk_dominant_cost_ratio={slow_chunk.get('dominantCostRatio', 0)}",
+                f"slow_chunk_terrain_signal_status={slow_chunk.get('terrainSignalStatus', 'unknown')}",
                 f"slow_chunk_artifacts={slow_chunk.get('artifactCount', 0)}",
             ]
         )
+        project_parts.extend(slow_chunk_parts)
     elif not has_snapshot_counters and project.get("fullBakeLastResult") is not None:
         project_parts.append(f"full_bake_last_result={project.get('fullBakeLastResult')}")
     telemetry_families = summary.get("telemetryFamilies")

@@ -95,6 +95,74 @@ local function summarizeTerrainMaterials(cellMaterials, gridW, gridD)
     }
 end
 
+local function buildSubsampleOffsets(writeResolution, requestedSampleResolution)
+    local normalizedRequestedResolution = math.max(1, math.min(writeResolution, requestedSampleResolution or writeResolution))
+    local samplesPerAxis = math.max(1, math.floor(writeResolution / normalizedRequestedResolution + 0.5))
+    local step = writeResolution / samplesPerAxis
+    local startOffset = -writeResolution * 0.5 + step * 0.5
+    local offsets = table.create(samplesPerAxis)
+    for index = 1, samplesPerAxis do
+        offsets[index] = startOffset + (index - 1) * step
+    end
+    return offsets
+end
+
+local function sampleVoxelColumnProfile(plan, ix, globalIz)
+    local voxelCenterX = plan.rMinX + (ix - 0.5) * TERRAIN_WRITE_RESOLUTION
+    local voxelCenterZ = plan.rMinZ + (globalIz - 0.5) * TERRAIN_WRITE_RESOLUTION
+    local offsets = plan.voxelSubsampleOffsets
+    local materialCounts = {}
+    local materialByName = {}
+    local dominantMaterialName = nil
+    local dominantMaterialSampleCount = -1
+    local totalHeight = 0
+    local sampleCount = 0
+
+    for offsetXIndex = 1, #offsets do
+        local sampleWorldX = voxelCenterX + offsets[offsetXIndex]
+        local sampleCellX =
+            math.max(0, math.min(plan.gridW - 1, math.floor((sampleWorldX - plan.origin.x) / plan.cellSize)))
+        local sampleCellOriginX = plan.origin.x + sampleCellX * plan.cellSize
+        local fracX = math.clamp((sampleWorldX - sampleCellOriginX) / plan.cellSize, 0, 1)
+
+        for offsetZIndex = 1, #offsets do
+            local sampleWorldZ = voxelCenterZ + offsets[offsetZIndex]
+            local sampleCellZ =
+                math.max(0, math.min(plan.gridD - 1, math.floor((sampleWorldZ - plan.origin.z) / plan.cellSize)))
+            local sampleCellOriginZ = plan.origin.z + sampleCellZ * plan.cellSize
+            local fracZ = math.clamp((sampleWorldZ - sampleCellOriginZ) / plan.cellSize, 0, 1)
+            local sampleHeight = plan.sampleInterpolatedHeight(sampleCellX, sampleCellZ, fracX, fracZ)
+            local sampleMaterial = plan.cellMaterials[sampleCellZ + 1][sampleCellX + 1]
+            local materialName = sampleMaterial.Name
+
+            totalHeight += sampleHeight
+            sampleCount += 1
+            materialByName[materialName] = sampleMaterial
+            materialCounts[materialName] = (materialCounts[materialName] or 0) + 1
+
+            local nextCount = materialCounts[materialName]
+            if
+                nextCount > dominantMaterialSampleCount
+                or (
+                    nextCount == dominantMaterialSampleCount
+                    and (dominantMaterialName == nil or materialName < dominantMaterialName)
+                )
+            then
+                dominantMaterialName = materialName
+                dominantMaterialSampleCount = nextCount
+            end
+        end
+    end
+
+    return {
+        averageHeight = totalHeight / sampleCount,
+        dominantMaterialName = dominantMaterialName,
+        material = materialByName[dominantMaterialName],
+        materialSampleCount = dominantMaterialSampleCount,
+        sampleCount = sampleCount,
+    }
+end
+
 local function buildChunkPlan(chunk)
     local terrainGrid = chunk.terrain
     if not terrainGrid then
@@ -210,34 +278,8 @@ local function buildChunkPlan(chunk)
         return baseMat
     end
 
-    local cellXRanges = table.create(gridW)
-    for cellX = 0, gridW - 1 do
-        local wx0 = origin.x + cellX * cellSize
-        local wx1 = wx0 + cellSize
-        cellXRanges[cellX + 1] = {
-            wx0 = wx0,
-            vx0 = math.max(1, math.floor((wx0 - rMinX) / TERRAIN_WRITE_RESOLUTION) + 1),
-            vx1 = math.min(dimX, math.ceil((wx1 - rMinX) / TERRAIN_WRITE_RESOLUTION)),
-        }
-    end
-
-    local voxelCenterCellX = table.create(dimX)
-    for ix = 1, dimX do
-        local voxelWorldX = rMinX + (ix - 0.5) * TERRAIN_WRITE_RESOLUTION
-        voxelCenterCellX[ix] = math.max(0, math.min(gridW - 1, math.floor((voxelWorldX - origin.x) / cellSize)))
-    end
-
-    local cellZRanges = table.create(gridD)
     local cellMaterials = table.create(gridD)
     for cellZ = 0, gridD - 1 do
-        local wz0 = origin.z + cellZ * cellSize
-        local wz1 = wz0 + cellSize
-        cellZRanges[cellZ + 1] = {
-            wz0 = wz0,
-            vz0 = math.max(1, math.floor((wz0 - rMinZ) / TERRAIN_WRITE_RESOLUTION) + 1),
-            vz1 = math.min(dimZ, math.ceil((wz1 - rMinZ) / TERRAIN_WRITE_RESOLUTION)),
-        }
-
         local materialRow = table.create(gridW)
         for cellX = 0, gridW - 1 do
             materialRow[cellX + 1] = getMat(cellX, cellZ)
@@ -245,13 +287,8 @@ local function buildChunkPlan(chunk)
         cellMaterials[cellZ + 1] = materialRow
     end
 
-    local voxelCenterCellZ = table.create(dimZ)
-    for iz = 1, dimZ do
-        local voxelWorldZ = rMinZ + (iz - 0.5) * TERRAIN_WRITE_RESOLUTION
-        voxelCenterCellZ[iz] = math.max(0, math.min(gridD - 1, math.floor((voxelWorldZ - origin.z) / cellSize)))
-    end
-
     local terrainStats = summarizeTerrainMaterials(cellMaterials, gridW, gridD)
+    local voxelSubsampleOffsets = buildSubsampleOffsets(TERRAIN_WRITE_RESOLUTION, REQUESTED_SAMPLE_RESOLUTION)
 
     return {
         terrainGrid = terrainGrid,
@@ -273,13 +310,12 @@ local function buildChunkPlan(chunk)
         dimZ = dimZ,
         writeResolution = TERRAIN_WRITE_RESOLUTION,
         requestedSampleResolution = REQUESTED_SAMPLE_RESOLUTION,
-        cellXRanges = cellXRanges,
-        cellZRanges = cellZRanges,
         cellMaterials = cellMaterials,
         terrainStats = terrainStats,
-        voxelCenterCellX = voxelCenterCellX,
-        voxelCenterCellZ = voxelCenterCellZ,
+        voxelSubsampleOffsets = voxelSubsampleOffsets,
+        subsampleCount = #voxelSubsampleOffsets * #voxelSubsampleOffsets,
         sampleInterpolatedHeight = sampleInterpolatedHeight,
+        sampleVoxelColumnProfile = sampleVoxelColumnProfile,
     }
 end
 
@@ -327,12 +363,8 @@ function TerrainBuilder.Build(_parent, chunk, preparedPlan)
     local dimZ = plan.dimZ
     local gridW = plan.gridW
     local gridD = plan.gridD
-    local cellXRanges = plan.cellXRanges
-    local cellZRanges = plan.cellZRanges
     local cellMaterials = plan.cellMaterials
-    local voxelCenterCellX = plan.voxelCenterCellX
-    local voxelCenterCellZ = plan.voxelCenterCellZ
-    local sampleInterpolatedHeight = plan.sampleInterpolatedHeight
+    local sampleVoxelColumnProfile = plan.sampleVoxelColumnProfile
 
     -- Strip-based WriteVoxels: process 16 Z-voxels at a time so peak memory is
     -- O(dimX * dimY * STRIP_DEPTH) instead of O(dimX * dimY * dimZ).
@@ -376,83 +408,48 @@ function TerrainBuilder.Build(_parent, chunk, preparedPlan)
             end
         end
 
-        -- Fill this strip by iterating over terrain cells that overlap the strip's Z range.
-        -- Global voxel Z range covered by this strip: [izBase, izEnd] (1-indexed).
-        for cellZ = 0, gridD - 1 do
-            local zRange = cellZRanges[cellZ + 1]
-            local wz0 = zRange.wz0
-
-            -- Clamp to current strip window
-            local stripVz0 = math.max(zRange.vz0, izBase)
-            local stripVz1 = math.min(zRange.vz1, izEnd)
-            if stripVz0 > stripVz1 then
-                continue
-            end
-
-            for cellX = 0, gridW - 1 do
-                local mat = cellMaterials[cellZ + 1][cellX + 1]
-                local xRange = cellXRanges[cellX + 1]
-                local wx0 = xRange.wx0
-                local vx0 = xRange.vx0
-                local vx1 = xRange.vx1
-
-                for ix = vx0, vx1 do
-                    if voxelCenterCellX[ix] ~= cellX then
-                        continue
-                    end
-                    local voxelWorldX = rMinX + (ix - 0.5) * TERRAIN_WRITE_RESOLUTION
-                    local fracX = math.clamp((voxelWorldX - wx0) / cellSize, 0, 1)
-
-                    for globalIz = stripVz0, stripVz1 do
-                        if voxelCenterCellZ[globalIz] ~= cellZ then
-                            continue
-                        end
-                        local localIz = globalIz - izBase + 1 -- 1-indexed within strip
-
-                        local voxelWorldZ = rMinZ + (globalIz - 0.5) * TERRAIN_WRITE_RESOLUTION
-                        local fracZ = math.clamp((voxelWorldZ - wz0) / cellSize, 0, 1)
-
-                        -- Interpolated surface height for this (X, Z) column
-                        local interpH = sampleInterpolatedHeight(cellX, cellZ, fracX, fracZ)
-                        local worldSurfY = origin.y + interpH
+        for ix = 1, dimX do
+            for globalIz = izBase, izEnd do
+                local localIz = globalIz - izBase + 1 -- 1-indexed within strip
+                local columnProfile = sampleVoxelColumnProfile(plan, ix, globalIz)
+                local mat = columnProfile.material
+                local worldSurfY = origin.y + columnProfile.averageHeight
                         local worldBotY = worldSurfY - TERRAIN_THICKNESS
 
-                        local vy0 = math.max(
-                            1,
-                            math.floor((worldBotY - rMinY) / TERRAIN_WRITE_RESOLUTION) + 1
+                local vy0 = math.max(
+                    1,
+                    math.floor((worldBotY - rMinY) / TERRAIN_WRITE_RESOLUTION) + 1
+                )
+                local vy1 = math.min(
+                    dimY,
+                    math.ceil((worldSurfY - rMinY) / TERRAIN_WRITE_RESOLUTION)
+                )
+
+                for iy = vy0, vy1 do
+                    local voxelCenterY = rMinY + (iy - 0.5) * TERRAIN_WRITE_RESOLUTION
+                    local occupancy = 1
+
+                    if iy == vy0 then
+                        local bottomOccupancy = math.clamp(
+                            0.5 + (voxelCenterY - worldBotY) / TERRAIN_WRITE_RESOLUTION,
+                            0,
+                            1
                         )
-                        local vy1 = math.min(
-                            dimY,
-                            math.ceil((worldSurfY - rMinY) / TERRAIN_WRITE_RESOLUTION)
+                        occupancy = math.min(occupancy, bottomOccupancy)
+                    end
+
+                    if iy == vy1 then
+                        local topOccupancy = math.clamp(
+                            0.5 + (worldSurfY - voxelCenterY) / TERRAIN_WRITE_RESOLUTION,
+                            0,
+                            1
                         )
+                        occupancy = math.min(occupancy, topOccupancy)
+                    end
 
-                        for iy = vy0, vy1 do
-                            local voxelCenterY = rMinY + (iy - 0.5) * TERRAIN_WRITE_RESOLUTION
-                            local occupancy = 1
-
-                            if iy == vy0 then
-                                local bottomOccupancy = math.clamp(
-                                    0.5 + (voxelCenterY - worldBotY) / TERRAIN_WRITE_RESOLUTION,
-                                    0,
-                                    1
-                                )
-                                occupancy = math.min(occupancy, bottomOccupancy)
-                            end
-
-                            if iy == vy1 then
-                                local topOccupancy = math.clamp(
-                                    0.5 + (worldSurfY - voxelCenterY) / TERRAIN_WRITE_RESOLUTION,
-                                    0,
-                                    1
-                                )
-                                occupancy = math.min(occupancy, topOccupancy)
-                            end
-
-                            if occupancy > 0 then
-                                stripMat[ix][iy][localIz] = mat
-                                stripOcc[ix][iy][localIz] = occupancy
-                            end
-                        end
+                    if occupancy > 0 then
+                        stripMat[ix][iy][localIz] = mat
+                        stripOcc[ix][iy][localIz] = occupancy
                     end
                 end
             end
@@ -468,6 +465,9 @@ function TerrainBuilder.Build(_parent, chunk, preparedPlan)
         izBase = izEnd + 1
     end
 end
+
+TerrainBuilder._buildSubsampleOffsets = buildSubsampleOffsets
+TerrainBuilder._sampleVoxelColumnProfile = sampleVoxelColumnProfile
 
 function TerrainBuilder.ImprintRoads(roads, originStuds, _chunk)
     local terrain = Workspace.Terrain

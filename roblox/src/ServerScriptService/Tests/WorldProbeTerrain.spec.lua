@@ -4,11 +4,11 @@ return function()
     local WorldProbeTerrain = require(ReplicatedStorage.Shared.WorldProbeTerrain)
 
     local flatSummary = WorldProbeTerrain.summarizeTerrainSamples({
-        { terrainY = 12 },
-        { terrainY = 12 },
-        { terrainY = 12 },
-        { terrainY = 12 },
-        { terrainY = 12 },
+        { terrainY = 12, terrainMaterial = "Grass" },
+        { terrainY = 12, terrainMaterial = "Grass" },
+        { terrainY = 12, terrainMaterial = "Grass" },
+        { terrainY = 12, terrainMaterial = "Grass" },
+        { terrainY = 12, terrainMaterial = "Grass" },
     }, {
         centerIndex = 3,
         samplePattern = "cross_5",
@@ -27,13 +27,17 @@ return function()
     Assert.equal(flatSummary.heightRangeStuds, 0, "expected flat terrain to have zero height range")
     Assert.equal(flatSummary.maxStepStuds, 0, "expected flat terrain to have zero max step")
     Assert.equal(flatSummary.meanAbsStepStuds, 0, "expected flat terrain to have zero mean step")
+    Assert.equal(flatSummary.materialKindCount, 1, "expected flat terrain to report one terrain material")
+    Assert.equal(flatSummary.dominantMaterial, "Grass", "expected flat terrain to report grass as dominant")
+    Assert.equal(flatSummary.dominantMaterialSampleCount, 5, "expected flat terrain to count all grass samples")
+    Assert.equal(flatSummary.nonGrassSampleCount, 0, "expected flat terrain to report no non-grass samples")
 
     local steppedSummary = WorldProbeTerrain.summarizeTerrainSamples({
-        { terrainY = 8.04 },
-        { terrainY = 10.06 },
-        { terrainY = 12.04 },
-        { terrainY = 14.04 },
-        { terrainY = 16.04 },
+        { terrainY = 8.04, terrainMaterial = "Grass" },
+        { terrainY = 10.06, terrainMaterial = "Mud" },
+        { terrainY = 12.04, terrainMaterial = "Grass" },
+        { terrainY = 14.04, terrainMaterial = "Grass" },
+        { terrainY = 16.04, terrainMaterial = "Mud" },
     }, {
         centerIndex = 3,
         samplePattern = "cross_5",
@@ -52,11 +56,15 @@ return function()
     Assert.equal(steppedSummary.heightRangeStuds, 8, "expected height range to reflect min/max terrain spread")
     Assert.equal(steppedSummary.maxStepStuds, 4, "expected max step to follow the steepest adjacent pair")
     Assert.equal(steppedSummary.meanAbsStepStuds, 3, "expected mean step to average the adjacent terrain deltas")
+    Assert.equal(steppedSummary.materialKindCount, 2, "expected stepped terrain to preserve multiple materials")
+    Assert.equal(steppedSummary.dominantMaterial, "Grass", "expected stepped terrain to report grass as dominant")
+    Assert.equal(steppedSummary.dominantMaterialSampleCount, 3, "expected stepped terrain to count dominant samples")
+    Assert.equal(steppedSummary.nonGrassSampleCount, 2, "expected stepped terrain to count non-grass samples")
 
     local sparseSummary = WorldProbeTerrain.summarizeTerrainSamples({
         { terrainY = nil },
         { terrainY = nil },
-        { terrainY = 10.04 },
+        { terrainY = 10.04, terrainMaterial = "Sand" },
         { terrainY = nil },
         { terrainY = nil },
     }, {
@@ -79,4 +87,7 @@ return function()
     Assert.equal(sparseSummary.missingSampleCount, 4, "expected sparse terrain summary to count missing samples")
     Assert.equal(sparseSummary.maxStepStuds, nil, "expected sparse terrain summary not to invent max step")
     Assert.equal(sparseSummary.meanAbsStepStuds, nil, "expected sparse terrain summary not to invent mean step")
+    Assert.equal(sparseSummary.materialKindCount, 1, "expected sparse terrain summary to keep real material hits")
+    Assert.equal(sparseSummary.dominantMaterial, "Sand", "expected sparse terrain summary to keep the sampled material")
+    Assert.equal(sparseSummary.nonGrassSampleCount, 1, "expected sparse terrain summary to count non-grass material hits")
 end

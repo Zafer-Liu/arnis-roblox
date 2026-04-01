@@ -436,7 +436,7 @@ python3 -m unittest \
 Expected:
 - PASS
 
-- [ ] **Step 5: Verify the focused Luau spec on `tertiary`**
+- [x] **Step 5: Verify the focused Luau spec on `tertiary`**
 
 Run on `tertiary`:
 
@@ -450,7 +450,7 @@ Expected:
 - `PASS WorldProbeTelemetryFlags.spec`
 - `ARNIS_MCP_EDIT_ACTION total=1 passed=1 failed=0`
 
-- [ ] **Step 6: Capture preview hotspot telemetry on `tertiary`**
+- [x] **Step 6: Capture preview hotspot telemetry on `tertiary`**
 
 Run:
 
@@ -463,7 +463,7 @@ Expected:
 - `/tmp/arnis-preview-plugin-state.json` exists on `tertiary`
 - `/tmp/arnis-preview-telemetry-summary.txt` exists on `tertiary`
 
-- [ ] **Step 7: Sync the preview hotspot artifacts back to the local machine**
+- [x] **Step 7: Sync the preview hotspot artifacts back to the local machine**
 
 Run:
 
@@ -476,7 +476,7 @@ Expected:
 - local `/tmp/arnis-preview-plugin-state.json` exists for offline audit use
 - local `/tmp/arnis-preview-telemetry-summary.txt` exists for hotspot target selection without local Studio runs
 
-- [ ] **Step 8: Append the proof result to the active status doc**
+- [x] **Step 8: Append the proof result to the active status doc**
 
 Add a dated status note to:
 - `docs/superpowers/status/2026-03-30-outdoor-fidelity-and-source-truth-status.md`
@@ -500,6 +500,8 @@ git commit -m "feat: add selective outdoor telemetry flags"
 
 ## Task 5: Align Canonical Outdoor Contract When Required
 
+Status note: On 2026-04-01, the fresh local truth-pack audit plus the synced `tertiary` preview summary did not justify a canonical manifest/schema expansion for the first outdoor tranche. Current pressure remains in truth-pack/audit surfaces, not missing canonical manifest fields, so Task 5 stays on the `no schema change required` path unless later proof shows otherwise.
+
 **Files:**
 - Modify when required: `specs/chunk-manifest.schema.json`
 - Modify when required: `docs/chunk_schema.md`
@@ -509,7 +511,7 @@ git commit -m "feat: add selective outdoor telemetry flags"
 - Modify when required: `scripts/tests/test_manifest_quality_audit.py`
 - Modify when required: `docs/superpowers/status/2026-03-30-outdoor-fidelity-and-source-truth-status.md`
 
-- [ ] **Step 1: Decide whether the truth-pack findings require canonical outdoor manifest changes**
+- [x] **Step 1: Decide whether the truth-pack findings require canonical outdoor manifest changes**
 
 Review the outputs from Tasks 2 and 3. If the new audit findings reveal that outdoor fidelity improvements require new canonical outdoor semantics or metadata, record the required contract additions before changing runtime builders. If not, append a status note saying no manifest/schema expansion was required for the first outdoor tranche.
 
@@ -557,7 +559,7 @@ python3 -m unittest \
 Expected:
 - PASS
 
-- [ ] **Step 6: Append the contract decision to the active status doc**
+- [x] **Step 6: Append the contract decision to the active status doc**
 
 Record whether:
 - no canonical manifest change was required, or
@@ -581,18 +583,31 @@ Skip this commit if Step 1 concluded no canonical contract change was needed and
 ## Task 6: Use The New Audits To Drive Outdoor Fidelity And Hotspot Fixes
 
 **Files:**
+- Modify: `roblox/src/ReplicatedStorage/Shared/WorldProbeTerrain.lua`
 - Modify: `roblox/src/ServerScriptService/ImportService/Builders/TerrainBuilder.lua`
 - Modify: `roblox/src/ServerScriptService/ImportService/init.lua`
 - Modify: `roblox/src/ServerScriptService/StudioPreview/AustinPreviewBuilder.lua`
-- Modify: `roblox/src/ServerScriptService/ImportService/Builders/BuildingBuilder.lua`
-- Modify: `roblox/src/ServerScriptService/StudioPreview/AustinPreviewTelemetry.lua`
+- Modify: `roblox/src/ServerScriptService/Tests/WorldProbeTerrain.spec.lua`
 - Modify: `scripts/preview_telemetry_summary.py`
+- Modify: `scripts/scene_fidelity_audit.py`
+- Modify: `scripts/scene_parity_audit.py`
+- Modify: `scripts/run_studio_harness.sh`
+- Modify: `scripts/tests/test_run_studio_harness.py`
 - Modify: `scripts/tests/test_preview_telemetry_summary.py`
 - Modify: `scripts/tests/test_play_render_truth.py`
+- Modify: `roblox/src/StarterPlayer/StarterPlayerScripts/WorldProbe.client.lua`
 - Create: `roblox/src/ServerScriptService/Tests/TerrainOutdoorFidelity.spec.lua`
 - Modify: `docs/superpowers/status/2026-03-30-outdoor-fidelity-and-source-truth-status.md`
 
 Status note: On 2026-04-01, the first bounded Task 6 slice targets explicit hotspot availability for missing/errored preview snapshots and truthful terrain-material richness threading from `TerrainBuilder` through `ImportService` into `AustinPreviewBuilder` and the compact preview summary. `BuildingBuilder.lua` and `AustinPreviewTelemetry.lua` were not required for this slice.
+
+Status note: On 2026-04-01, the second bounded Task 6 slice targets terrain supersampling inside the fixed 4-stud Roblox terrain write path plus stronger hotspot classification/context in the preview summary. The current shared-path implementation is local-safe and verified; only the `tertiary` proof remains open for this slice.
+
+Status note: On 2026-04-01, the current Task 6 tranche was tightened around two measured targets from the fresh truth-pack plus synced `tertiary` preview telemetry:
+- terrain/material/detail: player-local terrain telemetry now needs material richness, not just roughness, so edit/play audits can quantify “default grass / textureless” complaints near the player
+- hotspot: the preview slow chunk at `-1_0` remains building-dominant (`153/155 ms`), so the compact hotspot surface now needs building-mesh breakdown plus chunk-shape context instead of only coarse `buildingsMs`
+
+Status note: On 2026-04-01, the direct `tertiary` proof path replaced the staged-clone proof path for this slice. The staged remote clone is still not trustworthy for `arnis-roblox/scripts/` completeness, so focused Studio proof now runs against the persistent `/Users/adpena/Projects/arnis-roblox` tree on `tertiary` with `VSYNC_REPO_DIR=$HOME/.codex-remote-studio/vertigo-sync` until the stage-copy root cause is proven and fixed.
 
 - [x] **Step 1: Use the truth-pack and current audits to name the first outdoor fixes**
 
@@ -610,7 +625,7 @@ Then choose at minimum:
 - one terrain/material/detail target
 - one outdoor-heavy hotspot target from `/tmp/arnis-preview-telemetry-summary.txt`, which was synced locally from `tertiary` in Task 4
 
-- [ ] **Step 2: Write failing tests for those targets**
+- [x] **Step 2: Write failing tests for those targets**
 
 Add or extend:
 - `scripts/tests/test_play_render_truth.py`
@@ -621,7 +636,7 @@ Cover:
 - the selected terrain/material/detail contract
 - the selected hotspot metric/output contract
 
-- [ ] **Step 3: Run the focused local tests to verify they fail**
+- [x] **Step 3: Run the focused local tests to verify they fail**
 
 Run:
 
@@ -659,23 +674,26 @@ python3 -m unittest \
 Expected:
 - PASS
 
-- [ ] **Step 6: Prove the selected outdoor fixes on `tertiary`**
+- [x] **Step 6: Prove the selected outdoor fixes on `tertiary`**
 
 Run the narrowest `tertiary` slices that prove the change:
 
 ```bash
-bash scripts/run_studio_harness_remote.sh --remote-profile tertiary -- --help >/tmp/arnis-tertiary-stage-sync.txt
-ssh tertiary 'cd ~/.codex-remote-studio/arnis-roblox && ARNIS_TELEMETRY_FAMILIES=terrain,roads,water,vegetation,structures,hotspots,player_local bash scripts/run_studio_harness.sh --takeover --hard-restart --no-play --edit-tests --spec-filter TerrainOutdoorFidelity.spec.lua --edit-wait 30 --pattern-wait 120'
-ssh tertiary 'cd ~/.codex-remote-studio/arnis-roblox && ARNIS_TELEMETRY_FAMILIES=terrain,roads,water,vegetation,structures,hotspots,player_local ARNIS_PREVIEW_TELEMETRY_DIR=/tmp bash scripts/run_studio_harness.sh --takeover --hard-restart --skip-edit-tests --play-wait 30 --pattern-wait 120'
+ssh tertiary 'cd /Users/adpena/Projects/arnis-roblox && ARNIS_TELEMETRY_FAMILIES=terrain,roads,water,vegetation,structures,hotspots,player_local VSYNC_REPO_DIR=$HOME/.codex-remote-studio/vertigo-sync bash scripts/run_studio_harness.sh --takeover --hard-restart --no-play --edit-tests --spec-filter WorldProbeTerrain.spec.lua --edit-wait 30 --pattern-wait 120'
+ssh tertiary 'cd /Users/adpena/Projects/arnis-roblox && ARNIS_TELEMETRY_FAMILIES=terrain,roads,water,vegetation,structures,hotspots,player_local VSYNC_REPO_DIR=$HOME/.codex-remote-studio/vertigo-sync bash scripts/run_studio_harness.sh --takeover --hard-restart --no-play --edit-tests --spec-filter TerrainOutdoorFidelity.spec.lua --edit-wait 30 --pattern-wait 120'
+scp tertiary:/tmp/arnis-preview-plugin-state.json /tmp/arnis-preview-plugin-state.json
+scp tertiary:/tmp/arnis-preview-telemetry-summary.txt /tmp/arnis-preview-telemetry-summary.txt
+ssh tertiary 'cd /Users/adpena/Projects/arnis-roblox && ARNIS_TELEMETRY_FAMILIES=terrain,roads,water,vegetation,structures,hotspots,player_local ARNIS_SCENE_AUDIT_DIR=/tmp/arnis-outdoor-audit-play VSYNC_REPO_DIR=$HOME/.codex-remote-studio/vertigo-sync bash scripts/run_studio_harness.sh --takeover --hard-restart --skip-edit-tests --play-wait 30 --pattern-wait 120'
 ```
 
 Expected:
-- the current worktree snapshot is synced to `~/.codex-remote-studio/arnis-roblox`
-- the edit spec passes
+- `WorldProbeTerrain.spec.lua` passes on `tertiary`
+- `TerrainOutdoorFidelity.spec.lua` passes on `tertiary`
+- the synced preview summary keeps the richer hotspot fields (`buildingFeatureCount`, `terrainCellCount`, `terrainSubsampleCount`, `dominantCostCenter`, `terrainSignalStatus`)
 - the play proof reaches `gameplay_ready`
-- the audit output or raw-log markers show the selected outdoor metrics improved or at least newly quantified
+- raw-log markers show `telemetryFamilies` propagated into play and `ARNIS_CLIENT_LOCAL_EXPERIENCE` carries `localTerrain`
 
-- [ ] **Step 7: Append the measured result to the active status doc**
+- [x] **Step 7: Append the measured result to the active status doc**
 
 Record:
 - what was targeted

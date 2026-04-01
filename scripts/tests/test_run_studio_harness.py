@@ -750,6 +750,19 @@ class RunStudioHarnessTests(unittest.TestCase):
         body = play_probe_block.group("body")
         self.assertIn('print(f"[harness-mcp] phase=play error={exc!r}")', body)
 
+    def test_play_probe_propagates_requested_telemetry_families_to_workspace(self) -> None:
+        play_probe_block = re.search(
+            r"run_play_probe_via_mcp\(\) \{\n(?P<body>.*?)\n\}\n\nlog_effective_play_camera_state",
+            self.text,
+            re.DOTALL,
+        )
+        self.assertIsNotNone(play_probe_block, "run_play_probe_via_mcp function not found")
+        body = play_probe_block.group("body")
+        self.assertIn('requested_telemetry_families = os.environ.get("ARNIS_TELEMETRY_FAMILIES", "")', body)
+        self.assertIn('requested_telemetry_families_luau = json.dumps(requested_telemetry_families)', body)
+        self.assertIn('local requested_telemetry_families = """ + requested_telemetry_families_luau + """', body)
+        self.assertIn('Workspace:SetAttribute("ArnisTelemetryFamilies", requested_telemetry_families)', body)
+
     def test_harness_treats_client_camera_marker_as_authoritative_play_signal(self) -> None:
         self.assertIn('log_effective_play_camera_state()', self.text)
         self.assertIn('rg -q "ARNIS_CLIENT_CAMERA " "$summary_source"', self.text)

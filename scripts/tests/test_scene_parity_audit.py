@@ -196,6 +196,10 @@ class SceneParityAuditTests(unittest.TestCase):
                     "heightRangeStuds": 6.04,
                     "maxStepStuds": 4.04,
                     "meanAbsStepStuds": 2.04,
+                    "materialKindCount": 2,
+                    "dominantMaterial": "Grass",
+                    "dominantMaterialSampleCount": 4,
+                    "nonGrassSampleCount": 1,
                 },
             },
         }
@@ -227,6 +231,10 @@ class SceneParityAuditTests(unittest.TestCase):
                     "heightRangeStuds": 6.01,
                     "maxStepStuds": 4.01,
                     "meanAbsStepStuds": 2.01,
+                    "materialKindCount": 2,
+                    "dominantMaterial": "Grass",
+                    "dominantMaterialSampleCount": 4,
+                    "nonGrassSampleCount": 1,
                 },
             },
         }
@@ -237,6 +245,8 @@ class SceneParityAuditTests(unittest.TestCase):
         self.assertNotIn("client_world_mismatch", codes)
         self.assertEqual(report["comparisons"]["clientWorld"]["edit"]["localTerrain"]["maxStepStuds"], 4.0)
         self.assertEqual(report["comparisons"]["clientWorld"]["play"]["localTerrain"]["heightRangeStuds"], 6.0)
+        self.assertEqual(report["comparisons"]["clientWorld"]["edit"]["localTerrain"]["dominantMaterial"], "Grass")
+        self.assertEqual(report["comparisons"]["clientWorld"]["play"]["localTerrain"]["materialKindCount"], 2)
 
     def test_build_report_flags_scalar_and_bucket_parity_gaps(self) -> None:
         audit = load_module()

@@ -58,7 +58,28 @@ The compact historical archive index is:
 
 ### Remote `tertiary`
 
-No verification recorded yet.
+- `ssh tertiary 'cd /Users/adpena/Projects/arnis-roblox && ARNIS_TELEMETRY_FAMILIES=terrain,roads,water,vegetation,structures,hotspots,player_local VSYNC_REPO_DIR=$HOME/.codex-remote-studio/vertigo-sync bash scripts/run_studio_harness.sh --takeover --hard-restart --no-play --edit-tests --spec-filter WorldProbeTelemetryFlags.spec.lua --edit-wait 30 --pattern-wait 120'`
+  - passed on 2026-04-01
+  - proved `WorldProbeTelemetryFlags.spec.lua`
+  - emitted `ARNIS_MCP_READY` and `ARNIS_MCP_EDIT_ACTION` with `total=1 passed=1 failed=0`
+- `ssh tertiary 'cd /Users/adpena/Projects/arnis-roblox && ARNIS_TELEMETRY_FAMILIES=terrain,roads,water,vegetation,structures,hotspots,player_local VSYNC_REPO_DIR=$HOME/.codex-remote-studio/vertigo-sync bash scripts/run_studio_harness.sh --takeover --hard-restart --no-play --edit-tests --spec-filter WorldProbeTerrain.spec.lua --edit-wait 30 --pattern-wait 120'`
+  - passed on 2026-04-01
+- `ssh tertiary 'cd /Users/adpena/Projects/arnis-roblox && ARNIS_TELEMETRY_FAMILIES=terrain,roads,water,vegetation,structures,hotspots,player_local VSYNC_REPO_DIR=$HOME/.codex-remote-studio/vertigo-sync bash scripts/run_studio_harness.sh --takeover --hard-restart --no-play --edit-tests --spec-filter TerrainOutdoorFidelity.spec.lua --edit-wait 30 --pattern-wait 120'`
+  - passed on 2026-04-01 after correcting the spec to model two 2-stud source cells inside one 4-stud write voxel
+- `scp tertiary:/tmp/arnis-preview-plugin-state.json /tmp/arnis-preview-plugin-state.json`
+  - passed on 2026-04-01
+- `scp tertiary:/tmp/arnis-preview-telemetry-summary.txt /tmp/arnis-preview-telemetry-summary.txt`
+  - passed on 2026-04-01
+  - synced the preview hotspot artifacts used for the current Task 5/Task 6 target selection
+- `ssh tertiary 'cd /Users/adpena/Projects/arnis-roblox && ARNIS_TELEMETRY_FAMILIES=terrain,roads,water,vegetation,structures,hotspots,player_local ARNIS_SCENE_AUDIT_DIR=/tmp/arnis-outdoor-audit-play VSYNC_REPO_DIR=$HOME/.codex-remote-studio/vertigo-sync bash scripts/run_studio_harness.sh --takeover --hard-restart --skip-edit-tests --play-wait 30 --pattern-wait 120'`
+  - passed on 2026-04-01
+  - reached `gameplay_ready`
+  - emitted `ARNIS_MCP_PLAY`, `ARNIS_CLIENT_WORLD_COMPACT`, and `ARNIS_CLIENT_LOCAL_EXPERIENCE` with live `localTerrain` metrics
+- Current remote teardown caveat:
+  - the successful proof lanes can still hang after `quit_studio requesting graceful quit`
+  - `tertiary` was manually force-cleaned afterward so no Studio, harness, MCP, Vertigo Sync, or lock residue remained
+- Current remote operator note:
+  - the staged clone under `~/.codex-remote-studio/arnis-roblox` is not the active proof surface for `arnis-roblox` right now because its `scripts/` completeness is still unproven
 
 ## Residual Gaps
 
@@ -136,6 +157,36 @@ No verification recorded yet.
   - `python3 -m unittest scripts.tests.test_preview_telemetry_summary scripts.tests.test_play_render_truth -v`
   - `git diff --check`
 - No Studio or remote `tertiary` run was required for this slice.
+
+### 2026-04-01: Tasks 4, 5, And 6 Are Now Consolidated On One Current Proof Narrative
+
+- Task 4 proof is now anchored to the direct persistent `tertiary` repo at `/Users/adpena/Projects/arnis-roblox`, not the staged clone:
+  - `WorldProbeTelemetryFlags.spec.lua` passed on `tertiary`
+  - preview telemetry artifacts were synced back from `tertiary` to `/tmp/arnis-preview-plugin-state.json` and `/tmp/arnis-preview-telemetry-summary.txt`
+  - the synced summary currently reports `imported=80`, `last_sync_elapsed_ms=18689`, `slow_chunk=-1_0`, `slow_chunk_total_ms=154`, `slow_chunk_buildings_ms=153`, `slow_chunk_building_features=5`, `slow_chunk_dominant_cost_center=buildings`, and `slow_chunk_terrain_signal_status=not_authored`
+- Task 5 remains on the `no schema change required` path after a fresh local truth-pack review:
+  - the bounded audit over `rust/out/austin.truth-pack.sqlite` still shows the real pressure in truth-pack/audit surfaces, not missing canonical manifest fields
+  - the strongest current findings remain structure overlap/collapse and dropped-structure semantics (`23672` overlap collapses, `23107` dropped semantics)
+- Task 6 is now proven on `tertiary` for the current bounded terrain/hotspot slice:
+  - `WorldProbeTerrain.spec.lua` passed on `tertiary`
+  - `TerrainOutdoorFidelity.spec.lua` failed first for a bad test model, then passed after the spec was corrected to model two 2-stud source cells inside one 4-stud Roblox write voxel
+  - the focused play proof on `tertiary` reached `gameplay_ready` and emitted both `ARNIS_MCP_PLAY` and `ARNIS_CLIENT_LOCAL_EXPERIENCE`
+  - live play now carries the requested telemetry families plus the new local terrain block:
+    - `localTerrain.status="ok"`
+    - `localTerrain.materialKindCount=2`
+    - `localTerrain.dominantMaterial="Grass"`
+    - `localTerrain.nonGrassSampleCount=1`
+    - `localTerrain.maxStepStuds=1.3`
+    - `localSupport.surfaceRole="terrain"`
+    - `localEnclosure.nearbyWallParts=4`
+- The play proof also exposed and closed a real harness bug:
+  - `ARNIS_TELEMETRY_FAMILIES` was only being propagated into the edit-MCP path, so play runs still emitted `playerLocalTelemetryEnabled=false`
+  - `scripts/run_studio_harness.sh` now threads the requested telemetry families into the play-MCP Luau payload too
+- The staged-clone proof path is still not trustworthy for `arnis-roblox/scripts/` completeness:
+  - it previously regressed into `ModuleNotFoundError: studio_mcp_proxy_lib`
+  - an experimental directory-skeleton sync patch was not kept because it was not a proven root-cause fix
+  - until a real staged-sync root cause is fixed, direct proof on the persistent `tertiary` tree remains the operator truth
+- `tertiary` was force-cleaned after each proof run; no lingering harness, Studio, MCP, or `vsync serve` processes remain
 
 ### 2026-04-01: Task 2 Narrowed To The First Honest Truth-Pack Slice
 
@@ -264,3 +315,135 @@ No verification recorded yet.
   - `python3 -m unittest scripts.tests.test_run_studio_harness.RunStudioHarnessTests.test_plugin_smoke_uses_snapshot_of_live_log_slice scripts.tests.test_run_studio_harness.RunStudioHarnessTests.test_ui_status_probes_are_bounded_by_shell_timeout_helper scripts.tests.test_run_studio_harness.RunStudioHarnessTests.test_cleanup_uses_bounded_term_then_kill_for_background_helpers scripts.tests.test_run_studio_harness.RunStudioHarnessTests.test_quit_loop_dismisses_dialogs_without_polling_session_status_each_iteration scripts.tests.test_studio_ui_control -v`
   - `bash -n scripts/run_studio_harness.sh`
   - remote staged-clone focused tests for the same harness/UI-control assertions passed on `tertiary`
+
+### 2026-04-01: Task 4 Remote Outdoor Telemetry Proof Captured Fresh `tertiary` Evidence
+
+- Ran the narrow edit/preview proof directly on `tertiary` from the staged clone with:
+  - `ARNIS_TELEMETRY_FAMILIES=terrain,roads,water,vegetation,structures,hotspots,player_local`
+  - `bash scripts/run_studio_harness.sh --takeover --hard-restart --no-play --edit-tests --spec-filter WorldProbeTelemetryFlags.spec.lua --edit-wait 30 --pattern-wait 120`
+- The remote proof passed the intended telemetry gate:
+  - `WorldProbeTelemetryFlags.spec.lua` passed
+  - `ARNIS_MCP_READY` emitted
+  - `ARNIS_MCP_EDIT_ACTION` reported `total=1 passed=1 failed=0`
+- Fresh preview telemetry artifacts were produced on `tertiary` and synced back locally:
+  - `/tmp/arnis-preview-plugin-state.json`
+  - `/tmp/arnis-preview-telemetry-summary.txt`
+- The synced summary established the current outdoor hotspot baseline:
+  - `imported=80`
+  - `hotspot_status=present`
+  - `last_sync_elapsed_ms=17442`
+  - `slow_chunk=-1_0`
+  - `slow_chunk_total_ms=155`
+  - `slow_chunk_buildings_ms=153`
+  - `slow_chunk_terrain_ms=0`
+  - `telemetry_families=terrain,roads,water,vegetation,structures,hotspots,player_local`
+- The remaining harness hygiene gap is unchanged but now tightly bounded:
+  - the run reached `main harness flow complete; exiting`
+  - teardown reached `cleanup starting` and `quit_studio requesting graceful quit`
+  - the run did not emit `quit_studio finished`, `cleanup finished`, or `HARNESS_EXIT:0`
+  - `tertiary` was force-cleaned after the run so no harness, Studio, MCP, Vertigo Sync, or lock state remained resident
+
+### 2026-04-01: Task 5 Stayed On The No-Schema-Expansion Path
+
+- Regenerated the local `austin` compile outputs from the clean active worktree:
+  - `rust/out/austin-manifest.json`
+  - `rust/out/austin-manifest.sqlite`
+  - `rust/out/austin.truth-pack.sqlite`
+  - `rust/out/austin.truth-pack.summary.json`
+- Re-ran `python3 scripts/source_truth_pack_audit.py rust/out/austin.truth-pack.sqlite --json-out /tmp/arnis-outdoor-truth-pack-report.json`.
+- The fresh truth-pack result did not justify a canonical manifest/schema change for this tranche:
+  - `feature_count=83503`
+  - `retained_semantic_count=68939`
+  - `dropped_semantic_count=23107`
+  - `collapse_count=23672`
+  - outdoor coverage stayed complete for `landuse`, `roads`, `vegetation`, and `water`
+  - current loss pressure remains concentrated in `structures` (`overture->osm|cross_source_overlap` and dropped structure semantics), which the truth-pack already captures without new manifest fields
+- Decision:
+  - no `0.4.0` manifest/schema expansion was required for the first outdoor tranche
+  - the next pressure remains in truth-pack/audit surfaces and downstream render/telemetry fidelity, not the canonical manifest contract
+
+### 2026-04-01: Task 6 Local Outdoor Tranche Landed Player-Local Terrain Material Richness And Stronger Building Hotspot Context
+
+- The first measured terrain/material/detail target was upgraded from roughness-only to player-local material richness:
+  - `WorldProbe.client.lua` now emits `terrainMaterial` per local terrain ray hit
+  - `WorldProbeTerrain.lua` now summarizes `materialKindCount`, `dominantMaterial`, `dominantMaterialSampleCount`, and `nonGrassSampleCount`
+  - `scene_fidelity_audit.py` and `scene_parity_audit.py` now preserve and compare those fields so edit/play reports can quantify “default grass / textureless” complaints near the player instead of only reporting height roughness
+- The first measured hotspot target now exposes the building-heavy slow-chunk reality compactly:
+  - `AustinPreviewBuilder.lua` now records `buildingMeshCreateMs`, `buildingMeshPartCount`, `buildingRoofMeshPartCount`, and `buildingMeshTriangleCount` into the compact `slow_chunk` telemetry event
+  - `preview_telemetry_summary.py` now derives `terrainSignalStatus`, `dominantCostCenter`, and `dominantCostRatio`, and carries `terrainCellCount`, `terrainSubsampleCount`, and `buildingFeatureCount`
+  - This turns the current `-1_0` hotspot from a coarse `buildingsMs` clue into a compact, queryable breakdown suitable for fast iteration and log-safe remote proof
+- New/updated focused coverage is green locally:
+  - `scripts/tests/test_play_render_truth.py`
+  - `scripts/tests/test_preview_telemetry_summary.py`
+  - `scripts/tests/test_scene_fidelity_audit.py`
+  - `scripts/tests/test_scene_parity_audit.py`
+  - `roblox/src/ServerScriptService/Tests/WorldProbeTerrain.spec.lua`
+  - `roblox/src/ServerScriptService/Tests/TerrainOutdoorFidelity.spec.lua`
+- Local-safe verification passed after the tranche landed:
+  - `python3 -m unittest scripts.tests.test_play_render_truth scripts.tests.test_preview_telemetry_summary -v`
+  - `python3 -m unittest scripts.tests.test_scene_fidelity_audit scripts.tests.test_scene_parity_audit -v`
+- Remaining next proof:
+  - sync the current worktree snapshot to `tertiary`
+  - run `TerrainOutdoorFidelity.spec.lua`
+  - rerun the narrow play proof with `ARNIS_TELEMETRY_FAMILIES=terrain,roads,water,vegetation,structures,hotspots,player_local`
+  - confirm the remote markers/artifacts preserve the new local terrain material fields and the stronger slow-chunk building breakdown
+
+### 2026-04-01: Task 4 Remote Telemetry-Flags Proof Passed On `tertiary`, With Teardown Still Blocking Final Exit
+
+- Direct staged-clone proof on `tertiary` passed the focused edit spec:
+  - `PASS WorldProbeTelemetryFlags.spec`
+  - `ARNIS_MCP_EDIT_ACTION` reported `total=1 passed=1 failed=0`
+- The same run also produced fresh preview telemetry artifacts and they were synced back locally:
+  - remote `/tmp/arnis-preview-plugin-state.json`
+  - remote `/tmp/arnis-preview-telemetry-summary.txt`
+  - local `/tmp/arnis-preview-plugin-state.json`
+  - local `/tmp/arnis-preview-telemetry-summary.txt`
+- The synced compact preview summary recorded the current hotspot baseline used for the first outdoor target selection:
+  - `imported=80`
+  - `hotspot_status=present`
+  - `last_sync_elapsed_ms=17442`
+  - `slow_chunk=-1_0`
+  - `slow_chunk_phase=foreground`
+  - `slow_chunk_total_ms=155`
+  - `slow_chunk_buildings_ms=153`
+  - `slow_chunk_terrain_ms=0`
+  - `slow_chunk_artifacts=28`
+  - `telemetry_families=terrain,roads,water,vegetation,structures,hotspots,player_local`
+- The remaining Task 4 blocker is still teardown only:
+  - the run reached `main harness flow complete; exiting`
+  - then `cleanup starting`
+  - then `quit_studio requesting graceful quit`
+  - but it still did not emit `quit_studio finished`, `cleanup finished`, or `HARNESS_EXIT:0`
+- `tertiary` was force-cleaned after the run; no harness, Studio, MCP, Vertigo Sync, or lock state was left resident.
+
+### 2026-04-01: Task 5 Stayed On The No-Schema Path After Fresh Truth-Pack Review
+
+- A fresh local truth-pack export and bounded audit confirmed that the first outdoor tranche still does not need canonical manifest/schema expansion.
+- The current upstream pressure is real but remains fully expressible in truth-pack/audit surfaces rather than missing `0.4.0` manifest fields:
+  - `truth_pack_collapse_count = 23672`
+  - `truth_pack_dropped_semantic_count = 23107`
+  - all current outdoor overlap-loss and dropped-semantic pressure is concentrated in `structures`
+  - the dominant collapse bucket remains `overture->osm|cross_source_overlap`
+  - the dominant dropped semantic fields remain `height_m`, `name`, and `levels`
+- No terrain/landuse/roads/water/vegetation schema gap was proven by the fresh report, so the next tranche stays on shared runtime/audit improvements rather than contract churn.
+
+### 2026-04-01: Task 6 Local Slice Landed Shared Terrain Richness And Hotspot Shape Context
+
+- The first local-safe outdoor fidelity/hotspot slice is now materially richer on the shared edit/play path:
+  - `WorldProbeTerrain.lua` and `WorldProbe.client.lua` now carry near-player terrain material richness, not just roughness
+  - `scene_fidelity_audit.py` and `scene_parity_audit.py` now preserve and compare `localTerrain` material richness fields
+  - `preview_telemetry_summary.py` now surfaces existing building hotspot breakdown plus chunk-shape context and dominant-cost interpretation
+- The new/downstream metrics now include:
+  - player-local: `materialKindCount`, `dominantMaterial`, `dominantMaterialSampleCount`, `nonGrassSampleCount`
+  - preview hotspot: `buildingMeshCreateMs`, `buildingMeshPartCount`, `buildingRoofMeshPartCount`, `buildingMeshTriangleCount`, `terrainCellCount`, `terrainSubsampleCount`, `buildingFeatureCount`, `dominantCostCenter`, `dominantCostMs`, `dominantCostRatio`, `terrainSignalStatus`
+- This means the current `-1_0` hotspot is no longer just “buildings are slow”; the compact summary can now distinguish:
+  - whether terrain signal was not authored vs missing
+  - how much of the chunk shape was terrain-driven
+  - how much of the cost center is building-dominated
+- Local-safe verification passed after the slice:
+  - `python3 -m unittest scripts.tests.test_preview_telemetry_summary scripts.tests.test_scene_fidelity_audit scripts.tests.test_scene_parity_audit -v`
+  - `python3 -m unittest scripts.tests.test_play_render_truth scripts.tests.test_austin_runtime_contract scripts.tests.test_preview_telemetry_summary scripts.tests.test_scene_fidelity_audit scripts.tests.test_scene_parity_audit -v`
+- The next open proof step is `tertiary` only:
+  - `WorldProbeTerrain.spec.lua`
+  - `TerrainOutdoorFidelity.spec.lua`
+  - refreshed edit/play preview telemetry from the staged clone

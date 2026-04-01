@@ -3443,6 +3443,8 @@ client = build_mcp_client(
     client_name='arnis-studio-harness-play',
 )
 scene_marker_luau = os.environ["SCENE_MARKER_LUAU"]
+requested_telemetry_families = os.environ.get("ARNIS_TELEMETRY_FAMILIES", "")
+requested_telemetry_families_luau = json.dumps(requested_telemetry_families)
 
 luau = (
     """
@@ -3457,6 +3459,7 @@ local RunAustin = require(ServerScriptService.ImportService.RunAustin)
     + scene_marker_luau
     + """
 local runtimeLoadRadius = RunAustin.LOAD_RADIUS
+local requested_telemetry_families = """ + requested_telemetry_families_luau + """
 local function vectorToTable(v)
     if typeof(v) ~= "Vector3" then
         return nil
@@ -3542,6 +3545,7 @@ local function sample()
     return payload
 end
 
+Workspace:SetAttribute("ArnisTelemetryFamilies", requested_telemetry_families)
 task.wait(__WAIT_SECONDS__)
 local firstSample = sample()
 local firstScene = SceneAudit.summarizeWorld(resolvePlayWorldRoot())

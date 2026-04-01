@@ -744,6 +744,10 @@ class SceneFidelityAuditTests(unittest.TestCase):
                     "heightRangeStuds": 6.0,
                     "maxStepStuds": 4.0,
                     "meanAbsStepStuds": 2.5,
+                    "materialKindCount": 2,
+                    "dominantMaterial": "Grass",
+                    "dominantMaterialSampleCount": 4,
+                    "nonGrassSampleCount": 1,
                 },
             }
             log_path.write_text(
@@ -762,14 +766,19 @@ class SceneFidelityAuditTests(unittest.TestCase):
             self.assertEqual(report["clientWorld"]["localTerrain"]["status"], "ok")
             self.assertEqual(report["clientWorld"]["localTerrain"]["sampleCount"], 5)
             self.assertEqual(report["clientWorld"]["localTerrain"]["heightRangeStuds"], 6.0)
+            self.assertEqual(report["clientWorld"]["localTerrain"]["materialKindCount"], 2)
+            self.assertEqual(report["clientWorld"]["localTerrain"]["dominantMaterial"], "Grass")
             self.assertEqual(report["summary"]["clientLocalTerrainStatus"], "ok")
             self.assertEqual(report["summary"]["clientLocalTerrainMaxStepStuds"], 4.0)
             self.assertEqual(report["summary"]["clientLocalTerrainMeanAbsStepStuds"], 2.5)
+            self.assertEqual(report["summary"]["clientLocalTerrainDominantMaterial"], "Grass")
+            self.assertEqual(report["summary"]["clientLocalTerrainMaterialKindCount"], 2)
 
             html = html_path.read_text(encoding="utf-8")
             self.assertIn("client_local_terrain_status", html)
             self.assertIn("client_local_terrain_height_range_studs", html)
             self.assertIn("client_local_terrain_max_step_studs", html)
+            self.assertIn("client_local_terrain_dominant_material", html)
 
     def test_report_merges_dedicated_local_experience_marker_when_compact_marker_is_truncated(self) -> None:
         audit = load_module()
@@ -823,6 +832,10 @@ class SceneFidelityAuditTests(unittest.TestCase):
                     "heightRangeStuds": 2.4,
                     "maxStepStuds": 1.7,
                     "meanAbsStepStuds": 0.9,
+                    "materialKindCount": 2,
+                    "dominantMaterial": "Grass",
+                    "dominantMaterialSampleCount": 3,
+                    "nonGrassSampleCount": 2,
                 },
                 "localEnclosure": {
                     "nearbyWallParts": 4,
@@ -853,8 +866,10 @@ class SceneFidelityAuditTests(unittest.TestCase):
             self.assertEqual(report["clientWorld"]["bootstrapAttemptId"], "attempt-7")
             self.assertEqual(report["clientWorld"]["localTerrain"]["status"], "ok")
             self.assertEqual(report["clientWorld"]["localTerrain"]["maxStepStuds"], 1.7)
+            self.assertEqual(report["clientWorld"]["localTerrain"]["dominantMaterial"], "Grass")
             self.assertEqual(report["summary"]["clientLocalTerrainStatus"], "ok")
             self.assertEqual(report["summary"]["clientLocalTerrainMaxStepStuds"], 1.7)
+            self.assertEqual(report["summary"]["clientLocalTerrainMaterialKindCount"], 2)
 
     def test_report_flags_missing_local_terrain_roughness_when_support_is_terrain(self) -> None:
         audit = load_module()
@@ -2659,6 +2674,10 @@ class SceneFidelityAuditTests(unittest.TestCase):
                         "phase": "preview",
                         "totalMs": 166,
                         "buildingsMs": 121,
+                        "buildingMeshCreateMs": 97,
+                        "buildingMeshPartCount": 14,
+                        "buildingRoofMeshPartCount": 6,
+                        "buildingMeshTriangleCount": 4096,
                         "terrainMs": 18,
                         "terrainMaterialKindCount": 3,
                         "terrainDominantMaterial": "Grass",
@@ -2686,6 +2705,7 @@ class SceneFidelityAuditTests(unittest.TestCase):
             self.assertIn("previewTelemetry", report["summary"])
             self.assertEqual(report["summary"]["previewTelemetry"]["hotspot"]["status"], "present")
             self.assertEqual(report["summary"]["previewTelemetry"]["hotspot"]["slowChunk"]["chunkId"], "7_5")
+            self.assertEqual(report["summary"]["previewTelemetry"]["hotspot"]["slowChunk"]["buildingMeshCreateMs"], 97)
             self.assertEqual(report["summary"]["previewTelemetry"]["hotspot"]["slowChunk"]["terrainMaterialKindCount"], 3)
             self.assertNotIn(str(plugin_state_path), json.dumps(report, sort_keys=True))
             self.assertIn("Preview Hotspot", html)

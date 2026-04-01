@@ -228,6 +228,7 @@ local function sampleLocalTerrain(rootPart, worldRoot)
         local terrainResult = raycastTerrainAtPosition(rootPosition + offset, worldRoot)
         samples[index] = {
             terrainY = if terrainResult then roundTenths(terrainResult.Position.Y) else nil,
+            terrainMaterial = if terrainResult then terrainResult.Material.Name else nil,
         }
     end
 

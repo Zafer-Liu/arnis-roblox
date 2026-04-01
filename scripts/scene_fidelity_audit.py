@@ -584,6 +584,10 @@ CLIENT_SUMMARY_KEYS = {
     "clientLocalTerrainHeightRangeStuds",
     "clientLocalTerrainMaxStepStuds",
     "clientLocalTerrainMeanAbsStepStuds",
+    "clientLocalTerrainMaterialKindCount",
+    "clientLocalTerrainDominantMaterial",
+    "clientLocalTerrainDominantMaterialSampleCount",
+    "clientLocalTerrainNonGrassSampleCount",
     "clientLocalEnclosureNearbyWallParts",
     "clientLocalEnclosureCollidableWallPartsNearby",
     "clientLocalEnclosureNearestWallDistanceStuds",
@@ -617,6 +621,10 @@ def _apply_client_world_observability(report: dict[str, Any], client_world: dict
         summary["clientLocalTerrainHeightRangeStuds"] = local_terrain.get("heightRangeStuds")
         summary["clientLocalTerrainMaxStepStuds"] = local_terrain.get("maxStepStuds")
         summary["clientLocalTerrainMeanAbsStepStuds"] = local_terrain.get("meanAbsStepStuds")
+        summary["clientLocalTerrainMaterialKindCount"] = local_terrain.get("materialKindCount")
+        summary["clientLocalTerrainDominantMaterial"] = local_terrain.get("dominantMaterial")
+        summary["clientLocalTerrainDominantMaterialSampleCount"] = local_terrain.get("dominantMaterialSampleCount")
+        summary["clientLocalTerrainNonGrassSampleCount"] = local_terrain.get("nonGrassSampleCount")
     if local_enclosure:
         summary["clientLocalEnclosureNearbyWallParts"] = local_enclosure.get("nearbyWallParts")
         summary["clientLocalEnclosureCollidableWallPartsNearby"] = local_enclosure.get("collidableWallPartsNearby")
@@ -1781,6 +1789,10 @@ def write_html_report(report: dict[str, Any], html_path: Path) -> None:
         "heightRangeStuds",
         "maxStepStuds",
         "meanAbsStepStuds",
+        "materialKindCount",
+        "dominantMaterial",
+        "dominantMaterialSampleCount",
+        "nonGrassSampleCount",
     ):
         if key in local_terrain:
             client_metric_entries.append((f"client_local_terrain_{_to_metric_label(key)}", local_terrain[key]))

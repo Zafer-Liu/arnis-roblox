@@ -13,6 +13,8 @@ IMPORT_SERVICE = ROOT / "roblox" / "src" / "ServerScriptService" / "ImportServic
 AUSTIN_PREVIEW_BUILDER = ROOT / "roblox" / "src" / "ServerScriptService" / "StudioPreview" / "AustinPreviewBuilder.lua"
 IMPORT_SIGNATURES = ROOT / "roblox" / "src" / "ServerScriptService" / "ImportService" / "ImportSignatures.lua"
 STREAMING_SERVICE = ROOT / "roblox" / "src" / "ServerScriptService" / "ImportService" / "StreamingService.lua"
+WORLD_PROBE = ROOT / "roblox" / "src" / "StarterPlayer" / "StarterPlayerScripts" / "WorldProbe.client.lua"
+WORLD_PROBE_TERRAIN = ROOT / "roblox" / "src" / "ReplicatedStorage" / "Shared" / "WorldProbeTerrain.lua"
 
 
 class PlayRenderTruthTests(unittest.TestCase):
@@ -92,12 +94,12 @@ class PlayRenderTruthTests(unittest.TestCase):
     def test_sub_4_stud_terrain_materials_quantize_to_center_owning_source_cells(self) -> None:
         source = TERRAIN_BUILDER.read_text(encoding="utf-8")
 
-        self.assertIn("local voxelCenterCellX = table.create(dimX)", source)
-        self.assertIn("local voxelCenterCellZ = table.create(dimZ)", source)
-        self.assertIn("voxelCenterCellX = voxelCenterCellX", source)
-        self.assertIn("voxelCenterCellZ = voxelCenterCellZ", source)
-        self.assertIn("if voxelCenterCellX[ix] ~= cellX then", source)
-        self.assertIn("if voxelCenterCellZ[globalIz] ~= cellZ then", source)
+        self.assertIn("local function buildSubsampleOffsets(writeResolution, requestedSampleResolution)", source)
+        self.assertIn("local function sampleVoxelColumnProfile(plan, ix, globalIz)", source)
+        self.assertIn("voxelSubsampleOffsets = voxelSubsampleOffsets", source)
+        self.assertIn("sampleVoxelColumnProfile = sampleVoxelColumnProfile", source)
+        self.assertIn("dominantMaterialName", source)
+        self.assertIn("averageHeight = totalHeight / sampleCount", source)
 
     def test_terrain_material_richness_flows_from_builder_to_preview_hotspot_summary(self) -> None:
         terrain_source = TERRAIN_BUILDER.read_text(encoding="utf-8")
@@ -119,6 +121,33 @@ class PlayRenderTruthTests(unittest.TestCase):
         self.assertIn("terrainDominantMaterial", preview_builder_source)
         self.assertIn("terrainDominantMaterialCellCount", preview_builder_source)
         self.assertIn("terrainNonGrassCellCount", preview_builder_source)
+
+    def test_preview_hotspot_summary_threads_chunk_shape_context(self) -> None:
+        import_service_source = IMPORT_SERVICE.read_text(encoding="utf-8")
+        preview_builder_source = AUSTIN_PREVIEW_BUILDER.read_text(encoding="utf-8")
+        preview_summary_source = (ROOT / "scripts" / "preview_telemetry_summary.py").read_text(encoding="utf-8")
+
+        self.assertIn("terrainCellCount", import_service_source)
+        self.assertIn("terrainSubsampleCount", import_service_source)
+        self.assertIn("buildingFeatureCount", import_service_source)
+
+        self.assertIn("terrainCellCount", preview_builder_source)
+        self.assertIn("terrainSubsampleCount", preview_builder_source)
+        self.assertIn("buildingFeatureCount", preview_builder_source)
+
+        self.assertIn("dominantCostCenter", preview_summary_source)
+        self.assertIn("dominantCostRatio", preview_summary_source)
+        self.assertIn("terrainSignalStatus", preview_summary_source)
+
+    def test_player_local_terrain_telemetry_carries_material_richness(self) -> None:
+        world_probe_source = WORLD_PROBE.read_text(encoding="utf-8")
+        terrain_probe_source = WORLD_PROBE_TERRAIN.read_text(encoding="utf-8")
+
+        self.assertIn("terrainMaterial = if terrainResult then terrainResult.Material.Name else nil", world_probe_source)
+        self.assertIn("materialKindCount", terrain_probe_source)
+        self.assertIn("dominantMaterial", terrain_probe_source)
+        self.assertIn("dominantMaterialSampleCount", terrain_probe_source)
+        self.assertIn("nonGrassSampleCount", terrain_probe_source)
 
 
 if __name__ == "__main__":

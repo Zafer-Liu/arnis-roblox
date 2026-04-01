@@ -124,6 +124,10 @@ def _normalize_client_world(report: dict[str, Any]) -> dict[str, Any] | None:
                 "meanAbsStepStuds": round(float(value.get("meanAbsStepStuds") or 0), 1)
                 if value.get("meanAbsStepStuds") is not None
                 else None,
+                "materialKindCount": int(value.get("materialKindCount") or 0),
+                "dominantMaterial": _normalize_string(value.get("dominantMaterial")),
+                "dominantMaterialSampleCount": int(value.get("dominantMaterialSampleCount") or 0),
+                "nonGrassSampleCount": int(value.get("nonGrassSampleCount") or 0),
             }
         else:
             normalized[key] = _normalize_json_value(value)
