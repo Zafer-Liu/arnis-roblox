@@ -1,8 +1,10 @@
 from __future__ import annotations
 
 import importlib.util
+import subprocess
 from pathlib import Path
 import unittest
+from unittest import mock
 
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -160,6 +162,29 @@ class StudioUiControlTests(unittest.TestCase):
         self.assertEqual(status["status"], "transitioning")
         self.assertTrue(status["transitioning"])
         self.assertFalse(status["ready_for_harness"])
+
+    def test_run_osascript_returns_timeout_exit_code(self) -> None:
+        mod = load_module()
+        with mock.patch.object(
+            mod.subprocess,
+            "run",
+            side_effect=subprocess.TimeoutExpired(cmd=["osascript"], timeout=5),
+        ) as run_mock:
+            exit_code = mod.run_osascript('tell application "System Events" to return')
+        self.assertEqual(exit_code, 124)
+        self.assertEqual(run_mock.call_args.kwargs["timeout"], mod.OSASCRIPT_TIMEOUT_SECONDS)
+
+    def test_capture_osascript_returns_timeout_exit_code_and_empty_output(self) -> None:
+        mod = load_module()
+        with mock.patch.object(
+            mod.subprocess,
+            "run",
+            side_effect=subprocess.TimeoutExpired(cmd=["osascript"], timeout=5),
+        ) as run_mock:
+            exit_code, output = mod.capture_osascript('tell application "System Events" to return')
+        self.assertEqual(exit_code, 124)
+        self.assertEqual(output, "")
+        self.assertEqual(run_mock.call_args.kwargs["timeout"], mod.OSASCRIPT_TIMEOUT_SECONDS)
 
 
 if __name__ == "__main__":

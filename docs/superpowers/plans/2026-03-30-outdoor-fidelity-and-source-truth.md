@@ -769,6 +769,12 @@ Only do this if verification required a real code or doc fix.
 
 - [ ] **Step 1: Run the final remote proof slices on `tertiary`**
 
+Current remote-lane note as of 2026-04-01:
+- the narrowed edit/preview body is green again on `tertiary` with fresh preview telemetry, `ARNIS_MCP_READY`, `ARNIS_MCP_EDIT_ACTION`, and a passing Vertigo Sync plugin smoke check
+- the repo-side live-log plugin-smoke stall is fixed, raw `osascript` children are now internally timed out, and the watchdog shutdown path is bounded
+- the remaining blocker is now narrower and partly transport-shaped: keep this step in serial debug mode until one direct `tertiary` run records a stable `cleanup finished` / `HARNESS_EXIT:0` transcript without an SSH `255` drop
+- continue force-cleaning `tertiary` after each attempt until that transcript is captured
+
 Run the smallest set that proves the tranche end state:
 
 ```bash
