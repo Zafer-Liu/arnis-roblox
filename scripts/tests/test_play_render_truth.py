@@ -10,6 +10,7 @@ BUILDING_BUILDER = ROOT / "roblox" / "src" / "ServerScriptService" / "ImportServ
 ROOM_BUILDER = ROOT / "roblox" / "src" / "ServerScriptService" / "ImportService" / "Builders" / "RoomBuilder.lua"
 TERRAIN_BUILDER = ROOT / "roblox" / "src" / "ServerScriptService" / "ImportService" / "Builders" / "TerrainBuilder.lua"
 IMPORT_SERVICE = ROOT / "roblox" / "src" / "ServerScriptService" / "ImportService" / "init.lua"
+AUSTIN_PREVIEW_BUILDER = ROOT / "roblox" / "src" / "ServerScriptService" / "StudioPreview" / "AustinPreviewBuilder.lua"
 IMPORT_SIGNATURES = ROOT / "roblox" / "src" / "ServerScriptService" / "ImportService" / "ImportSignatures.lua"
 STREAMING_SERVICE = ROOT / "roblox" / "src" / "ServerScriptService" / "ImportService" / "StreamingService.lua"
 
@@ -97,6 +98,27 @@ class PlayRenderTruthTests(unittest.TestCase):
         self.assertIn("voxelCenterCellZ = voxelCenterCellZ", source)
         self.assertIn("if voxelCenterCellX[ix] ~= cellX then", source)
         self.assertIn("if voxelCenterCellZ[globalIz] ~= cellZ then", source)
+
+    def test_terrain_material_richness_flows_from_builder_to_preview_hotspot_summary(self) -> None:
+        terrain_source = TERRAIN_BUILDER.read_text(encoding="utf-8")
+        import_service_source = IMPORT_SERVICE.read_text(encoding="utf-8")
+        preview_builder_source = AUSTIN_PREVIEW_BUILDER.read_text(encoding="utf-8")
+
+        self.assertIn("terrainStats", terrain_source)
+        self.assertIn("materialKindCount", terrain_source)
+        self.assertIn("dominantMaterial", terrain_source)
+        self.assertIn("dominantMaterialCellCount", terrain_source)
+        self.assertIn("nonGrassCellCount", terrain_source)
+
+        self.assertIn("terrainMaterialKindCount", import_service_source)
+        self.assertIn("terrainDominantMaterial", import_service_source)
+        self.assertIn("terrainDominantMaterialCellCount", import_service_source)
+        self.assertIn("terrainNonGrassCellCount", import_service_source)
+
+        self.assertIn("terrainMaterialKindCount", preview_builder_source)
+        self.assertIn("terrainDominantMaterial", preview_builder_source)
+        self.assertIn("terrainDominantMaterialCellCount", preview_builder_source)
+        self.assertIn("terrainNonGrassCellCount", preview_builder_source)
 
 
 if __name__ == "__main__":

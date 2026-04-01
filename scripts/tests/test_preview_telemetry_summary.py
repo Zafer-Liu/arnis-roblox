@@ -41,7 +41,7 @@ class PreviewTelemetrySummaryTests(unittest.TestCase):
             "runtime=connected=1 attached=1 project_loaded=1 sync_status=connected ws_connected=1; "
             "project=sync_state=idle build_active=0 state_apply_pending=0 full_bake_active=0 "
             "build=1 sync_complete=1 sync_cancelled=0 state_apply_succeeded=1 state_apply_failed=0 "
-            "imported=52 skipped=0 unloaded=0",
+            "imported=52 skipped=0 unloaded=0 hotspot_status=absent",
         )
 
     def test_summarize_plugin_state_falls_back_to_compact_project_facts(self) -> None:
@@ -67,7 +67,7 @@ class PreviewTelemetrySummaryTests(unittest.TestCase):
             summarize_plugin_state(payload),
             "runtime=connected=1 attached=1 project_loaded=0 sync_status=connecting ws_connected=0; "
             "project=sync_state=syncing build_active=1 state_apply_pending=1 full_bake_active=1 "
-            "full_bake_last_result=pending",
+            "hotspot_status=missing_snapshot full_bake_last_result=pending",
         )
 
     def test_summarize_plugin_state_keeps_default_output_compact_without_requested_families(self) -> None:
@@ -104,7 +104,7 @@ class PreviewTelemetrySummaryTests(unittest.TestCase):
             "runtime=connected=1 attached=1 project_loaded=1 sync_status=connected ws_connected=1; "
             "project=sync_state=idle build_active=0 state_apply_pending=0 full_bake_active=0 "
             "build=1 sync_complete=1 sync_cancelled=0 state_apply_succeeded=1 state_apply_failed=0 "
-            "imported=52 skipped=0 unloaded=0",
+            "imported=52 skipped=0 unloaded=0 hotspot_status=absent",
         )
 
     def test_summarize_plugin_state_surfaces_requested_telemetry_families_compactly(self) -> None:
@@ -141,7 +141,7 @@ class PreviewTelemetrySummaryTests(unittest.TestCase):
             "runtime=connected=1 attached=1 project_loaded=1 sync_status=connected ws_connected=1; "
             "project=sync_state=idle build_active=0 state_apply_pending=0 full_bake_active=0 "
             "build=1 sync_complete=1 sync_cancelled=0 state_apply_succeeded=1 state_apply_failed=0 "
-            "imported=80 skipped=0 unloaded=0 telemetry_families=terrain,roads,water",
+            "imported=80 skipped=0 unloaded=0 hotspot_status=absent telemetry_families=terrain,roads,water",
         )
 
     def test_summarize_plugin_state_includes_last_sync_elapsed_and_slow_chunk(self) -> None:
@@ -177,6 +177,10 @@ class PreviewTelemetrySummaryTests(unittest.TestCase):
                     "totalMs": 166,
                     "buildingsMs": 121,
                     "terrainMs": 18,
+                    "terrainMaterialKindCount": 1,
+                    "terrainDominantMaterial": "Grass",
+                    "terrainDominantMaterialCellCount": 64,
+                    "terrainNonGrassCellCount": 0,
                     "roadsMs": 9,
                     "landuseTerrainFillMs": 6,
                     "artifactCount": 2,
@@ -189,10 +193,38 @@ class PreviewTelemetrySummaryTests(unittest.TestCase):
             "runtime=connected=1 attached=1 project_loaded=1 sync_status=connected ws_connected=1; "
             "project=sync_state=idle build_active=0 state_apply_pending=0 full_bake_active=0 "
             "build=1 sync_complete=1 sync_cancelled=0 state_apply_succeeded=1 state_apply_failed=0 "
-            "imported=80 skipped=0 unloaded=0 last_sync_elapsed_ms=17384 slow_chunk=7_5 "
+            "imported=80 skipped=0 unloaded=0 hotspot_status=present last_sync_elapsed_ms=17384 slow_chunk=7_5 "
             "slow_chunk_phase=preview slow_chunk_total_ms=166 slow_chunk_buildings_ms=121 "
-            "slow_chunk_terrain_ms=18 slow_chunk_roads_ms=9 slow_chunk_landuse_terrain_fill_ms=6 "
-            "slow_chunk_artifacts=2",
+            "slow_chunk_terrain_ms=18 slow_chunk_terrain_material_kind_count=1 "
+            "slow_chunk_terrain_dominant_material=Grass "
+            "slow_chunk_terrain_dominant_material_cells=64 slow_chunk_terrain_non_grass_cells=0 "
+            "slow_chunk_roads_ms=9 slow_chunk_landuse_terrain_fill_ms=6 slow_chunk_artifacts=2",
+        )
+
+    def test_summarize_plugin_state_marks_sync_error_hotspot_unavailable(self) -> None:
+        payload = {
+            "preview_runtime": {
+                "studio_connected": True,
+                "plugin_attached": True,
+                "project_loaded": False,
+                "sync_status": "error",
+                "connection": {"ws_connected": False},
+            },
+            "preview_project": {
+                "preview": {
+                    "build_active": False,
+                    "state_apply_pending": False,
+                    "sync_state": "idle",
+                },
+                "full_bake": {"active": False, "last_result": None},
+            },
+        }
+
+        self.assertEqual(
+            summarize_plugin_state(payload),
+            "runtime=connected=1 attached=1 project_loaded=0 sync_status=error ws_connected=0; "
+            "project=sync_state=idle build_active=0 state_apply_pending=0 full_bake_active=0 "
+            "hotspot_status=sync_error",
         )
 
 

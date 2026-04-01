@@ -41,10 +41,28 @@ def summarize_plugin_state(data: dict[str, Any], telemetry_families: Any | None 
     project_preview = project.get("preview") or {}
     project_full_bake = project.get("full_bake") or {}
     project_snapshot = data.get("preview_project_snapshot") or {}
+    if not isinstance(project_snapshot, dict):
+        project_snapshot = {}
     project_counters = project_snapshot.get("counters") or {}
     project_chunks = project_snapshot.get("chunkTotals") or {}
     last_sync = project_snapshot.get("lastSync") or {}
     last_slow_chunk = project_snapshot.get("lastSlowChunk") or {}
+    if not isinstance(project_counters, dict):
+        project_counters = {}
+    if not isinstance(project_chunks, dict):
+        project_chunks = {}
+    if not isinstance(last_sync, dict):
+        last_sync = {}
+    if not isinstance(last_slow_chunk, dict):
+        last_slow_chunk = {}
+    hotspot_status = "sync_error" if runtime.get("sync_status") == "error" else None
+    if hotspot_status is None:
+        if not isinstance(data.get("preview_project_snapshot"), dict):
+            hotspot_status = "missing_snapshot"
+        elif isinstance(last_slow_chunk, dict) and last_slow_chunk.get("chunkId") is not None:
+            hotspot_status = "present"
+        else:
+            hotspot_status = "absent"
 
     runtime_parts = [
         f"connected={_as_bool_flag(runtime.get('studio_connected'))}",
@@ -61,7 +79,8 @@ def summarize_plugin_state(data: dict[str, Any], telemetry_families: Any | None 
         f"full_bake_active={_as_bool_flag(project_full_bake.get('active'))}",
     ]
 
-    if project_counters or project_chunks:
+    has_snapshot_counters = bool(project_counters or project_chunks)
+    if has_snapshot_counters:
         project_parts.extend(
             [
                 f"build={project_counters.get('build_scheduled', 0)}",
@@ -74,23 +93,28 @@ def summarize_plugin_state(data: dict[str, Any], telemetry_families: Any | None 
                 f"unloaded={project_chunks.get('unloaded', 0)}",
             ]
         )
-        if last_sync.get("elapsedMs") is not None:
-            project_parts.append(f"last_sync_elapsed_ms={last_sync.get('elapsedMs')}")
-        slow_chunk_id = last_slow_chunk.get("chunkId")
-        if slow_chunk_id is not None:
-            project_parts.extend(
-                [
-                    f"slow_chunk={slow_chunk_id}",
-                    f"slow_chunk_phase={last_slow_chunk.get('phase', 'unknown')}",
-                    f"slow_chunk_total_ms={last_slow_chunk.get('totalMs', 0)}",
-                    f"slow_chunk_buildings_ms={last_slow_chunk.get('buildingsMs', 0)}",
-                    f"slow_chunk_terrain_ms={last_slow_chunk.get('terrainMs', 0)}",
-                    f"slow_chunk_roads_ms={last_slow_chunk.get('roadsMs', 0)}",
-                    f"slow_chunk_landuse_terrain_fill_ms={last_slow_chunk.get('landuseTerrainFillMs', 0)}",
-                    f"slow_chunk_artifacts={last_slow_chunk.get('artifactCount', 0)}",
-                ]
-            )
-    else:
+    project_parts.append(f"hotspot_status={hotspot_status}")
+    if last_sync.get("elapsedMs") is not None:
+        project_parts.append(f"last_sync_elapsed_ms={last_sync.get('elapsedMs')}")
+    slow_chunk_id = last_slow_chunk.get("chunkId")
+    if slow_chunk_id is not None:
+        project_parts.extend(
+            [
+                f"slow_chunk={slow_chunk_id}",
+                f"slow_chunk_phase={last_slow_chunk.get('phase', 'unknown')}",
+                f"slow_chunk_total_ms={last_slow_chunk.get('totalMs', 0)}",
+                f"slow_chunk_buildings_ms={last_slow_chunk.get('buildingsMs', 0)}",
+                f"slow_chunk_terrain_ms={last_slow_chunk.get('terrainMs', 0)}",
+                f"slow_chunk_terrain_material_kind_count={last_slow_chunk.get('terrainMaterialKindCount', 0)}",
+                f"slow_chunk_terrain_dominant_material={last_slow_chunk.get('terrainDominantMaterial', 'unknown')}",
+                f"slow_chunk_terrain_dominant_material_cells={last_slow_chunk.get('terrainDominantMaterialCellCount', 0)}",
+                f"slow_chunk_terrain_non_grass_cells={last_slow_chunk.get('terrainNonGrassCellCount', 0)}",
+                f"slow_chunk_roads_ms={last_slow_chunk.get('roadsMs', 0)}",
+                f"slow_chunk_landuse_terrain_fill_ms={last_slow_chunk.get('landuseTerrainFillMs', 0)}",
+                f"slow_chunk_artifacts={last_slow_chunk.get('artifactCount', 0)}",
+            ]
+        )
+    elif not has_snapshot_counters:
         full_bake_last_result = project_full_bake.get("last_result")
         if full_bake_last_result is not None:
             project_parts.append(f"full_bake_last_result={full_bake_last_result}")

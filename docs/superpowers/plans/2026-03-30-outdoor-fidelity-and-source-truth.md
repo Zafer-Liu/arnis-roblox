@@ -587,6 +587,8 @@ Skip this commit if Step 1 concluded no canonical contract change was needed and
 
 **Files:**
 - Modify: `roblox/src/ServerScriptService/ImportService/Builders/TerrainBuilder.lua`
+- Modify: `roblox/src/ServerScriptService/ImportService/init.lua`
+- Modify: `roblox/src/ServerScriptService/StudioPreview/AustinPreviewBuilder.lua`
 - Modify: `roblox/src/ServerScriptService/ImportService/Builders/BuildingBuilder.lua`
 - Modify: `roblox/src/ServerScriptService/StudioPreview/AustinPreviewTelemetry.lua`
 - Modify: `scripts/preview_telemetry_summary.py`
@@ -594,6 +596,8 @@ Skip this commit if Step 1 concluded no canonical contract change was needed and
 - Modify: `scripts/tests/test_play_render_truth.py`
 - Create: `roblox/src/ServerScriptService/Tests/TerrainOutdoorFidelity.spec.lua`
 - Modify: `docs/superpowers/status/2026-03-30-outdoor-fidelity-and-source-truth-status.md`
+
+Status note: On 2026-04-01, the first bounded Task 6 slice targets explicit hotspot availability for missing/errored preview snapshots and truthful terrain-material richness threading from `TerrainBuilder` through `ImportService` into `AustinPreviewBuilder` and the compact preview summary. `BuildingBuilder.lua` and `AustinPreviewTelemetry.lua` were not required for this slice.
 
 - [ ] **Step 1: Use the truth-pack and current audits to name the first outdoor fixes**
 
@@ -639,6 +643,8 @@ Expected:
 
 Update:
 - `TerrainBuilder.lua`
+- `ImportService/init.lua`
+- `AustinPreviewBuilder.lua`
 - `BuildingBuilder.lua` only if an outdoor shell artifact is one of the chosen targets
 - `AustinPreviewTelemetry.lua`
 - `preview_telemetry_summary.py`
