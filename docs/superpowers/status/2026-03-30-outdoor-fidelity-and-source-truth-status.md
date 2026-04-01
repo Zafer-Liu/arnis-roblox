@@ -26,7 +26,12 @@ The active implementation plan is:
 
 ### Local Static
 
-No verification recorded yet.
+- `rg -n "^Status: Active$" docs/superpowers/specs docs/superpowers/plans docs/superpowers/status`
+  - passed on 2026-03-30
+  - verified that only the March 30 spec/plan/status stack remained active after the rollover
+- `git diff --check`
+  - passed on 2026-03-30
+  - verified the Task 1 documentation rollover landed cleanly
 
 ### Remote `tertiary`
 

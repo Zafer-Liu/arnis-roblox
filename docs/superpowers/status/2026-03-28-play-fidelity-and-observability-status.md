@@ -42,7 +42,7 @@ The archived design spec for this tranche is:
 - Preview telemetry now preserves the current slow chunk as structured state, clears stale `lastSlowChunk` state on `sync_started`, and the preview telemetry summary now prints compact hotspot timing (`last_sync_elapsed_ms`, `slow_chunk`, `slow_chunk_total_ms`, `slow_chunk_buildings_ms`, `slow_chunk_terrain_ms`, `slow_chunk_roads_ms`, `slow_chunk_landuse_terrain_fill_ms`, `slow_chunk_artifacts`) instead of hiding that data in raw Studio logs only.
 - The scene fidelity audit now also emits explicit player-local exposure findings (`client_local_support_unknown`, `client_local_enclosure_gap`, `client_local_roof_cover_gap`) and shows nested `localSupport` / `localEnclosure` / `localRoofCover` metrics directly in the HTML report.
 - Player-local telemetry now also includes structured `localTerrain` roughness metrics (`status`, sample coverage, center/min/max terrain Y, height range, max step, mean absolute step), and both scene fidelity and parity audits now preserve those fields.
-- On `tertiary`, the new pure terrain reducer is edit-verified through `WorldProbeTerrain.spec.lua`, but the current real play-log artifact still truncates long `ARNIS_CLIENT_WORLD(_COMPACT)` lines before `localTerrain` survives into remote log-derived reports.
+- On `tertiary`, the new pure terrain reducer is edit-verified through `WorldProbeTerrain.spec.lua`, and later dedicated local-experience marker work preserved the high-signal `localTerrain` block in remote raw-log proof.
 
 ## Verification Snapshot
 
