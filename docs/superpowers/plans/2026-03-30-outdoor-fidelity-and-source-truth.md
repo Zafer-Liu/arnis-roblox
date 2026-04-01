@@ -268,6 +268,12 @@ git commit -m "feat: add bounded outdoor truth-pack"
 
 ## Task 3: Surface Truth-Pack Findings In The Audits
 
+Status note: On 2026-04-01, Task 3 was split into smaller reviewable slices. Task 3a is the manifest-quality tranche only:
+- add `scripts/source_truth_pack_audit.py` as the bounded SQLite + compact-summary reader/auditor
+- thread truth-pack findings into `scripts/manifest_quality_audit.py` via the existing summary/findings path
+- keep carry-through compact and capped in JSON/HTML
+- defer `scene_fidelity_audit.py` and `scene_parity_audit.py` changes to later Task 3 slices
+
 **Files:**
 - Create: `scripts/source_truth_pack_audit.py`
 - Create: `scripts/tests/test_source_truth_pack_audit.py`

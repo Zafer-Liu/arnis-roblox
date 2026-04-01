@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import argparse
+import importlib.util
 import json
 import math
 from collections import Counter
@@ -218,6 +219,22 @@ STRONG_IDENTITY_NAME_PATTERNS = (
     ("museum", "name:museum"),
     ("library", "name:library"),
 )
+
+_TRUTH_PACK_AUDIT_MODULE: Any | None = None
+
+
+def _load_truth_pack_audit_module() -> Any:
+    global _TRUTH_PACK_AUDIT_MODULE
+    if _TRUTH_PACK_AUDIT_MODULE is not None:
+        return _TRUTH_PACK_AUDIT_MODULE
+    module_path = Path(__file__).with_name("source_truth_pack_audit.py")
+    spec = importlib.util.spec_from_file_location("source_truth_pack_audit", module_path)
+    if spec is None or spec.loader is None:
+        raise RuntimeError(f"failed to load truth-pack audit module from {module_path}")
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    _TRUTH_PACK_AUDIT_MODULE = module
+    return module
 
 
 def _load_json(path: Path) -> dict[str, Any]:
@@ -2216,12 +2233,14 @@ def build_report(
     manifest_path: Path,
     source_paths: list[Path] | None = None,
     *,
+    truth_pack: Path | None = None,
     focus_x: float | None = None,
     focus_z: float | None = None,
     radius: float | None = None,
 ) -> dict[str, Any]:
     manifest_path = manifest_path.resolve()
     source_paths = [path.resolve() for path in (source_paths or [])]
+    truth_pack = truth_pack.resolve() if truth_pack is not None else None
     manifest = _load_json(manifest_path)
     meta = manifest.get("meta") if isinstance(manifest.get("meta"), dict) else {}
     chunks = manifest.get("chunks") if isinstance(manifest.get("chunks"), list) else []
@@ -2660,6 +2679,10 @@ def build_report(
         focus_z=focus_z,
         radius=radius,
     )
+    truth_pack_report: dict[str, Any] | None = None
+    if truth_pack is not None and truth_pack.exists():
+        truth_pack_audit = _load_truth_pack_audit_module()
+        truth_pack_report = truth_pack_audit.build_report(truth_pack)
     source_bounds_for_scale = (
         (source_summary.get("bounds") or {}).get("in_bbox")
         if isinstance(source_summary.get("bounds"), dict)
@@ -3501,6 +3524,11 @@ def build_report(
         },
         "quality_scores": quality_scores,
     }
+    if truth_pack_report is not None:
+        summary["truth_pack"] = {
+            **truth_pack_report["summary"],
+            "samples": truth_pack_report["samples"],
+        }
 
     findings: list[dict[str, Any]] = []
     if building_count >= 10 and flat_roof_ratio >= 0.95:
@@ -3873,6 +3901,14 @@ def build_report(
             value=height_alignment["building_height_alignment_ratio"],
             threshold="< 0.85",
         )
+    if truth_pack_report is not None:
+        findings.extend(truth_pack_report["findings"])
+        source_summary["truth_pack"] = {
+            "scene": truth_pack_report["scene"],
+            "truth_pack_path": truth_pack_report["truth_pack_path"],
+            **truth_pack_report["summary"],
+            "samples": truth_pack_report["samples"],
+        }
 
     location = {
         "world_name": meta.get("worldName"),
@@ -4274,6 +4310,8 @@ def write_html_report(report: dict[str, Any], destination: Path) -> None:
         <pre id="osm-summary-block"></pre>
         <h2>Scale Alignment</h2>
         <pre id="scale-alignment-block"></pre>
+        <h2>Truth Pack</h2>
+        <pre id="truth-pack-block"></pre>
       </div>
       <aside>
         <h2>Data Sources</h2>
@@ -4471,6 +4509,8 @@ def write_html_report(report: dict[str, Any], destination: Path) -> None:
     function renderSources() {{
       document.getElementById("osm-summary-block").textContent = JSON.stringify(report.osm_summary || {{}}, null, 2);
       document.getElementById("scale-alignment-block").textContent = JSON.stringify(report.summary.scale_alignment || {{}}, null, 2);
+      const truthPackSummary = report.summary["truth_pack"] || report.source_summary["truth_pack"] || {{}};
+      document.getElementById("truth-pack-block").textContent = JSON.stringify(truthPackSummary, null, 2);
       const sources = report.data_sources || [];
       const sourceSummary = report.source_summary || {{}};
       document.getElementById("source-list").innerHTML = sources.length
@@ -4533,6 +4573,7 @@ def main() -> int:
     parser = argparse.ArgumentParser(description="Audit manifest quality and emit JSON/HTML reports.")
     parser.add_argument("--manifest", type=Path, default=DEFAULT_MANIFEST_PATH)
     parser.add_argument("--source", type=Path, action="append", default=[])
+    parser.add_argument("--truth-pack", type=Path)
     parser.add_argument("--json-out", type=Path)
     parser.add_argument("--html-out", type=Path)
     parser.add_argument("--focus-x", type=float)
@@ -4545,6 +4586,7 @@ def main() -> int:
     report = build_report(
         args.manifest,
         source_paths,
+        truth_pack=args.truth_pack,
         focus_x=args.focus_x,
         focus_z=args.focus_z,
         radius=args.radius,
