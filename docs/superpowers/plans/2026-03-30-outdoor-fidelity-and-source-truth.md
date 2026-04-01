@@ -375,19 +375,15 @@ Task 3b coverage:
 
 ## Task 4: Add Selective Outdoor Telemetry Flags
 
-Status note: On 2026-04-01, Task 4a1 landed the harness/operator contract slice only. `ARNIS_TELEMETRY_FAMILIES` is now an explicit `scripts/run_studio_harness.sh` contract and the preview summary can surface a requested family subset compactly, but Luau/runtime gating remains deferred to the later Task 4 implementation steps.
+Status note: On 2026-04-01, Task 4a1 landed the harness/operator contract slice only. `ARNIS_TELEMETRY_FAMILIES` is now an explicit `scripts/run_studio_harness.sh` contract and the preview summary can surface a requested family subset compactly, but Luau/runtime gating remained deferred to the later Task 4 implementation steps.
 
 **Files:**
 - Create: `roblox/src/ReplicatedStorage/Shared/WorldProbeTelemetryFlags.lua`
 - Create: `roblox/src/ServerScriptService/Tests/WorldProbeTelemetryFlags.spec.lua`
 - Modify: `roblox/src/StarterPlayer/StarterPlayerScripts/WorldProbe.client.lua`
-- Modify: `roblox/src/ReplicatedStorage/Shared/WorldProbeTerrain.lua`
-- Modify: `roblox/src/ServerScriptService/StudioPreview/AustinPreviewTelemetry.lua`
 - Modify: `scripts/run_studio_harness.sh`
-- Modify: `scripts/preview_telemetry_summary.py`
 - Modify: `scripts/tests/test_run_studio_harness.py`
 - Modify: `scripts/tests/test_austin_runtime_contract.py`
-- Modify: `scripts/tests/test_preview_telemetry_summary.py`
 
 - [ ] **Step 1: Write the failing telemetry-flag tests**
 
@@ -395,7 +391,6 @@ Add:
 - `roblox/src/ServerScriptService/Tests/WorldProbeTelemetryFlags.spec.lua`
 - Python contract coverage in `scripts/tests/test_austin_runtime_contract.py`
 - harness argument coverage in `scripts/tests/test_run_studio_harness.py`
-- preview hotspot summary coverage in `scripts/tests/test_preview_telemetry_summary.py`
 
 Require:
 - default compact telemetry behavior
@@ -420,9 +415,6 @@ Expected:
 
 Add `WorldProbeTelemetryFlags.lua` and update:
 - `WorldProbe.client.lua`
-- `WorldProbeTerrain.lua`
-- `AustinPreviewTelemetry.lua`
-- `preview_telemetry_summary.py`
 - `scripts/run_studio_harness.sh`
 
 So deep outdoor telemetry is explicit and selectively enabled instead of always-on. Use one harness env contract for proof and debugging:
@@ -430,6 +422,8 @@ So deep outdoor telemetry is explicit and selectively enabled instead of always-
 ```bash
 ARNIS_TELEMETRY_FAMILIES=terrain,roads,water,vegetation,structures,hotspots,player_local
 ```
+
+Preview-summary and Austin preview telemetry changes were not required for this slice; the shared family contract now flows through the harness into Workspace and the client probe reads it directly.
 
 - [ ] **Step 4: Re-run the local static tests**
 

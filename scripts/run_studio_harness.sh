@@ -2791,6 +2791,8 @@ runall_spec_filter = os.environ.get("RUNALL_SPEC_FILTER", "").strip()
 do_play = os.environ.get("HARNESS_DO_PLAY", "0").strip().lower() in {"1", "true", "yes", "on"}
 run_preview_probe = (not do_play) and (runall_spec_filter == "" or "Preview" in runall_spec_filter)
 host_probe_sample = json.loads(os.environ.get("HARNESS_HOST_PROBE_JSON", "{}"))
+requested_telemetry_families = os.environ.get("ARNIS_TELEMETRY_FAMILIES", "")
+requested_telemetry_families_luau = json.dumps(requested_telemetry_families)
 
 def on_alarm(_signum, _frame):
     raise TimeoutError(f"run_edit_actions_via_mcp timed out after {wall_clock_timeout}s")
@@ -2861,6 +2863,7 @@ local runEditTests = """ + ("true" if run_edit_tests else "false") + """
 local runAllSpecFilter = """ + json.dumps(runall_spec_filter) + """
 local runPreviewProbe = """ + ("true" if run_preview_probe else "false") + """
 local hostProbeSample = """ + host_probe_sample_luau + """
+local requested_telemetry_families = """ + requested_telemetry_families_luau + """
 
 local function resolvePreviewWorldRootName()
     local canonicalWorldRootName = Workspace:GetAttribute("ArnisWorldRootName")
@@ -2881,6 +2884,7 @@ end
 
 Workspace:SetAttribute("ArnisStreamingHostProbeAvailableBytes", hostProbeSample.availableBytes)
 Workspace:SetAttribute("ArnisStreamingHostProbePressureLevel", hostProbeSample.pressureLevel)
+Workspace:SetAttribute("ArnisTelemetryFamilies", requested_telemetry_families)
 payload.hostProbe = hostProbeSample
 
 local function waitForPreviewSyncCompletion(timeoutSeconds)

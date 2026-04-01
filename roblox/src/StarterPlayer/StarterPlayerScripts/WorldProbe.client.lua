@@ -5,6 +5,7 @@ local RunService = game:GetService("RunService")
 local Workspace = game:GetService("Workspace")
 local WorldProbeGeometry = require(ReplicatedStorage.Shared.WorldProbeGeometry)
 local WorldProbeSupport = require(ReplicatedStorage.Shared.WorldProbeSupport)
+local WorldProbeTelemetryFlags = require(ReplicatedStorage.Shared.WorldProbeTelemetryFlags)
 local WorldProbeTerrain = require(ReplicatedStorage.Shared.WorldProbeTerrain)
 
 local player = Players.LocalPlayer
@@ -43,6 +44,22 @@ local lastLocalExperiencePayloadJson = nil
 local lastSampleAt = 0
 local lastSamplePosition = nil
 local lastSampleWorldRootName = nil
+local telemetryFamilies = Workspace:GetAttribute(WorldProbeTelemetryFlags.WORKSPACE_ATTR)
+local telemetryFlags = WorldProbeTelemetryFlags.parseTelemetryFamilies(telemetryFamilies)
+
+local function refreshTelemetryFlags()
+    local nextTelemetryFamilies = Workspace:GetAttribute(WorldProbeTelemetryFlags.WORKSPACE_ATTR)
+    if nextTelemetryFamilies == telemetryFamilies then
+        return
+    end
+
+    telemetryFamilies = nextTelemetryFamilies
+    telemetryFlags = WorldProbeTelemetryFlags.parseTelemetryFamilies(telemetryFamilies)
+    lastPayloadJson = nil
+    lastBootstrapPayloadJson = nil
+    lastCompactPayloadJson = nil
+    lastLocalExperiencePayloadJson = nil
+end
 
 local function setPlayerAttributeIfChanged(name, nextValue)
     if player:GetAttribute(name) == nextValue then
@@ -222,7 +239,7 @@ local function sampleLocalTerrain(rootPart, worldRoot)
     })
 end
 
-local function summarizeWorld(rootPart, worldRoot, worldRootName)
+local function summarizeWorld(rootPart, worldRoot, worldRootName, telemetryFlags)
     local rootPosition = rootPart.Position
     local nearbyBuildingModels = 0
     local nearbyMergedBuildingMeshParts = 0
@@ -234,9 +251,18 @@ local function summarizeWorld(rootPart, worldRoot, worldRootName)
     local nearestWallDistanceStuds = nil
     local nearestBuildingSourceIds = {}
     local overheadRoofSourceIds = {}
-    local nearestBuildingDetails = {}
+    local nearestBuildingDetails = nil
     local groundSupport = sampleGroundSupport(rootPart, worldRoot)
-    local localTerrain = sampleLocalTerrain(rootPart, worldRoot)
+    local localTerrain = nil
+    local playerLocalTelemetryEnabled = WorldProbeTelemetryFlags.isEnabled(telemetryFlags, "player_local")
+
+    if WorldProbeTelemetryFlags.isEnabled(telemetryFlags, "terrain") then
+        localTerrain = sampleLocalTerrain(rootPart, worldRoot)
+    end
+
+    if WorldProbeTelemetryFlags.isEnabled(telemetryFlags, "structures") then
+        nearestBuildingDetails = {}
+    end
 
     for _, chunkFolder in ipairs(worldRoot:GetChildren()) do
         local buildingsFolder = chunkFolder:FindFirstChild("Buildings")
@@ -282,12 +308,14 @@ local function summarizeWorld(rootPart, worldRoot, worldRootName)
 
             nearbyBuildingModels += 1
             appendLimited(nearestBuildingSourceIds, sourceId, MAX_BUILDING_IDS)
-            appendLimited(nearestBuildingDetails, {
-                sourceId = sourceId,
-                roofShape = roofShape,
-                buildingTopY = buildingTopY,
-                usage = buildingUsage,
-            }, MAX_BUILDING_IDS)
+            if nearestBuildingDetails ~= nil then
+                appendLimited(nearestBuildingDetails, {
+                    sourceId = sourceId,
+                    roofShape = roofShape,
+                    buildingTopY = buildingTopY,
+                    usage = buildingUsage,
+                }, MAX_BUILDING_IDS)
+            end
 
             for _, descendant in ipairs(model:GetDescendants()) do
                 if not descendant:IsA("BasePart") then
@@ -339,6 +367,37 @@ local function summarizeWorld(rootPart, worldRoot, worldRootName)
         end
     end
 
+    local localSupport = nil
+    local localEnclosure = nil
+    local localRoofCover = nil
+    local characterPosition = nil
+
+    if playerLocalTelemetryEnabled then
+        localSupport = {
+            surfaceRole = groundSupport.supportSurfaceRole,
+            supportY = groundSupport.supportY,
+            terrainY = groundSupport.terrainY,
+            supportMinusTerrainYStuds = groundSupport.supportMinusTerrainYStuds,
+            sourceIds = groundSupport.supportSourceIds,
+        }
+        localEnclosure = {
+            nearbyWallParts = nearbyWallParts,
+            collidableWallPartsNearby = collidableWallPartsNearby,
+            nearestWallDistanceStuds = roundTenths(nearestWallDistanceStuds),
+        }
+        localRoofCover = {
+            nearbyRoofParts = nearbyRoofParts,
+            overheadRoofParts = overheadRoofParts,
+            overheadRoofMinClearanceStuds = roundTenths(overheadRoofMinClearanceStuds),
+            overheadRoofSourceIds = overheadRoofSourceIds,
+        }
+        characterPosition = {
+            x = roundTenths(rootPosition.X),
+            y = roundTenths(rootPosition.Y),
+            z = roundTenths(rootPosition.Z),
+        }
+    end
+
     return {
         worldRootName = worldRootName,
         nearbyBuildingModels = nearbyBuildingModels,
@@ -359,34 +418,16 @@ local function summarizeWorld(rootPart, worldRoot, worldRootName)
         terrainY = groundSupport.terrainY,
         supportMinusTerrainYStuds = groundSupport.supportMinusTerrainYStuds,
         supportSourceIds = groundSupport.supportSourceIds,
-        localSupport = {
-            surfaceRole = groundSupport.supportSurfaceRole,
-            supportY = groundSupport.supportY,
-            terrainY = groundSupport.terrainY,
-            supportMinusTerrainYStuds = groundSupport.supportMinusTerrainYStuds,
-            sourceIds = groundSupport.supportSourceIds,
-        },
+        localSupport = localSupport,
         localTerrain = localTerrain,
-        localEnclosure = {
-            nearbyWallParts = nearbyWallParts,
-            collidableWallPartsNearby = collidableWallPartsNearby,
-            nearestWallDistanceStuds = roundTenths(nearestWallDistanceStuds),
-        },
-        localRoofCover = {
-            nearbyRoofParts = nearbyRoofParts,
-            overheadRoofParts = overheadRoofParts,
-            overheadRoofMinClearanceStuds = roundTenths(overheadRoofMinClearanceStuds),
-            overheadRoofSourceIds = overheadRoofSourceIds,
-        },
-        characterPosition = {
-            x = roundTenths(rootPosition.X),
-            y = roundTenths(rootPosition.Y),
-            z = roundTenths(rootPosition.Z),
-        },
+        localEnclosure = localEnclosure,
+        localRoofCover = localRoofCover,
+        characterPosition = characterPosition,
     }
 end
 
 local function publishWorldTelemetry()
+    refreshTelemetryFlags()
     local rootPart = getCharacterRootPart()
     local worldRoot, worldRootName = getWorldRoot()
     local bootstrapPayload = {
@@ -406,6 +447,7 @@ local function publishWorldTelemetry()
         nearbyRoofParts = 0,
         overheadRoofParts = 0,
         nearestBuildingSourceIds = {},
+        nearestBuildingDetails = nil,
         overheadRoofSourceIds = {},
         groundMaterial = nil,
         groundInstance = nil,
@@ -472,7 +514,7 @@ local function publishWorldTelemetry()
     }
 
     if rootPart and worldRoot then
-        payload = summarizeWorld(rootPart, worldRoot, worldRootName)
+        payload = summarizeWorld(rootPart, worldRoot, worldRootName, telemetryFlags)
         payload.worldRootExists = true
         compactPayload.worldRootName = payload.worldRootName
         compactPayload.worldRootExists = payload.worldRootExists
@@ -495,12 +537,18 @@ local function publishWorldTelemetry()
         compactPayload.localTerrain = payload.localTerrain
         compactPayload.localEnclosure = payload.localEnclosure
         compactPayload.localRoofCover = payload.localRoofCover
-        localExperiencePayload.worldRootName = payload.worldRootName
-        localExperiencePayload.worldRootExists = payload.worldRootExists
-        localExperiencePayload.localSupport = payload.localSupport
-        localExperiencePayload.localTerrain = payload.localTerrain
-        localExperiencePayload.localEnclosure = payload.localEnclosure
-        localExperiencePayload.localRoofCover = payload.localRoofCover
+        if WorldProbeTelemetryFlags.isEnabled(telemetryFlags, "player_local") then
+            localExperiencePayload.worldRootName = payload.worldRootName
+            localExperiencePayload.worldRootExists = payload.worldRootExists
+            localExperiencePayload.localSupport = payload.localSupport
+            localExperiencePayload.localTerrain = payload.localTerrain
+            localExperiencePayload.localEnclosure = payload.localEnclosure
+            localExperiencePayload.localRoofCover = payload.localRoofCover
+        end
+    end
+
+    if not WorldProbeTelemetryFlags.isEnabled(telemetryFlags, "player_local") then
+        localExperiencePayload = nil
     end
 
     setPlayerAttributeIfChanged("ArnisClientWorldRootName", payload.worldRootName)
@@ -521,10 +569,12 @@ local function publishWorldTelemetry()
         lastCompactPayloadJson = compactPayloadJson
         print("ARNIS_CLIENT_WORLD_COMPACT " .. compactPayloadJson)
     end
-    local localExperiencePayloadJson = HttpService:JSONEncode(localExperiencePayload)
-    if localExperiencePayloadJson ~= lastLocalExperiencePayloadJson then
-        lastLocalExperiencePayloadJson = localExperiencePayloadJson
-        print("ARNIS_CLIENT_LOCAL_EXPERIENCE " .. localExperiencePayloadJson)
+    if localExperiencePayload ~= nil then
+        local localExperiencePayloadJson = HttpService:JSONEncode(localExperiencePayload)
+        if localExperiencePayloadJson ~= lastLocalExperiencePayloadJson then
+            lastLocalExperiencePayloadJson = localExperiencePayloadJson
+            print("ARNIS_CLIENT_LOCAL_EXPERIENCE " .. localExperiencePayloadJson)
+        end
     end
 
     local payloadJson = HttpService:JSONEncode(payload)
@@ -555,6 +605,11 @@ local function maybeSampleWorldTelemetry()
     lastSampleWorldRootName = worldRootName
     publishWorldTelemetry()
 end
+
+Workspace:GetAttributeChangedSignal(WorldProbeTelemetryFlags.WORKSPACE_ATTR):Connect(function()
+    refreshTelemetryFlags()
+    publishWorldTelemetry()
+end)
 
 player.CharacterAdded:Connect(function()
     lastPayloadJson = nil
