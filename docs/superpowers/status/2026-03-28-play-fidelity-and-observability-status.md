@@ -7,17 +7,17 @@ Status: Historical
 
 This tranche is complete and archived.
 
-Use this file as the active status trail for:
+Use this file as the archived status trail for:
 
 - what has landed after the completed March 28 baseline tranche
 - what was verified locally and on `tertiary`
 - what still needs measured follow-up for walls, terrain, interiors, and hotspots
 
-The active implementation plan for this tranche is:
+The archived implementation plan for this tranche is:
 
 - `docs/superpowers/plans/2026-03-28-play-fidelity-and-observability.md`
 
-The active design spec for this tranche is:
+The archived design spec for this tranche is:
 
 - `docs/superpowers/specs/2026-03-28-play-fidelity-and-observability-design.md`
 

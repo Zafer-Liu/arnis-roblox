@@ -5,7 +5,7 @@ Status: Historical
 
 This tranche is complete and archived.
 
-Use the paired implementation plan and rolling status document as the current execution and handoff surfaces:
+Use the paired implementation plan and rolling status document as archived context for the completed March 28 tranche:
 
 - `docs/superpowers/plans/2026-03-28-play-fidelity-and-observability.md`
 - `docs/superpowers/status/2026-03-28-play-fidelity-and-observability-status.md`

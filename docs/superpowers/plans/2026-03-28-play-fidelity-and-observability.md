@@ -6,7 +6,7 @@ This tranche is complete and archived.
 
 ## Execution Status
 
-- 2026-03-28: Docs stack rollover started. The completed canonical-baseline tranche is now marked completed, and this plan/status/spec stack is the active truth surface.
+- 2026-03-28: Docs stack rollover started. The completed canonical-baseline tranche is now marked completed, and this plan/status/spec stack is recorded as the March 28 tranche handoff surface.
 - 2026-03-28: Shared resolved config is already aligned across preview and runtime startup import.
 - 2026-03-28: Player-local telemetry now includes support, enclosure, and roof-cover fields.
 - 2026-03-28: Roof-closure decks are now marked internal support and verified on `tertiary` with `GabledRoofClosureTruth.spec.lua`.
