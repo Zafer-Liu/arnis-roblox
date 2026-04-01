@@ -42,3 +42,17 @@ No verification recorded yet.
 - Outdoor fidelity still needs dedicated work on terrain detail, shell nuance, and player-visible exterior realism.
 - Outdoor hotspots still need tighter measurement so preview/edit cost can be traced at chunk scope instead of only at the whole-run level.
 - Source-truth preservation still needs explicit proof across upstream source union, canonical collapse, and downstream audits.
+
+## Status Notes
+
+### 2026-04-01: Task 2 Narrowed To The First Honest Truth-Pack Slice
+
+- A focused codebase audit confirmed that the current pipeline only retains truthful pre-canonical source-union data inside the Overpass/live adapter path plus the Overture building merge seam.
+- The original Task 2 wording overclaimed generic compile-wide truth-pack coverage.
+- The active plan now narrows the first slice to:
+  - `OverpassAdapter`
+  - `LiveOverpassAdapter`
+  - Overpass-derived retained features
+  - Overture building candidates
+  - Overture-to-OSM collapse rows
+- `FileSourceAdapter`, synthetic adapters, and post-canonical export-only seams remain out of scope for this first truth-pack slice until raw lineage is preserved there.

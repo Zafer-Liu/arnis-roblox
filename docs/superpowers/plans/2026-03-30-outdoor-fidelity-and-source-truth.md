@@ -139,6 +139,8 @@ git commit -m "docs: roll active outdoor fidelity stack forward"
 
 ## Task 2: Add The Bounded Outdoor Truth-Pack
 
+Status note: On 2026-04-01, Task 2 was narrowed to the smallest honest slice the current pipeline can support. The first implementation only needs to support `arbx_cli compile` for `OverpassAdapter` / `LiveOverpassAdapter`, with real cross-source truth focused on Overpass-derived retained features plus Overture building candidates and Overture-to-OSM collapse rows. `FileSourceAdapter` remains out of scope until the pipeline preserves raw upstream lineage there.
+
 **Files:**
 - Create: `scripts/source_truth_pack.py`
 - Create: `scripts/tests/test_source_truth_pack.py`
@@ -146,7 +148,6 @@ git commit -m "docs: roll active outdoor fidelity stack forward"
 - Modify: `scripts/tests/test_austin_fidelity.py`
 - Modify: `rust/crates/arbx_cli/src/main.rs`
 - Modify: `rust/crates/arbx_pipeline/`
-- Modify: `rust/crates/arbx_roblox_export/`
 
 - [ ] **Step 1: Refresh the canonical Austin compile artifacts on a clean checkout**
 
@@ -163,9 +164,9 @@ Expected:
 - [ ] **Step 2: Write failing truth-pack contract tests**
 
 Create `scripts/tests/test_source_truth_pack.py` with cases that require:
-- per-feature provenance across OSM, Overpass, and Overture
-- recorded overlap/collapse rows for outdoor features
-- retained vs dropped semantic fields
+- per-feature provenance across Overpass-derived retained features and Overture building candidates
+- recorded Overture-to-OSM overlap/collapse rows for outdoor building features
+- retained vs dropped semantic fields for fields the current adapter code already maps truthfully
 - bounded output contract pointing to `arbx_cli compile` writing:
   - `rust/out/<scene>.truth-pack.sqlite`
   - `rust/out/<scene>.truth-pack.summary.json`
@@ -185,9 +186,9 @@ Expected:
 
 - [ ] **Step 4: Implement compile-path truth-pack emission**
 
-Update the compile path so `arbx_cli compile` emits the truth-pack directly from pre-canonical source-union data. Touch:
+Update the compile path so `arbx_cli compile` emits the truth-pack directly from the pre-canonical Overpass/live adapter path. Touch:
 - `rust/crates/arbx_cli/src/main.rs`
-- the relevant `arbx_pipeline` / `arbx_roblox_export` plumbing
+- the relevant `rust/crates/arbx_pipeline/` plumbing
 - `scripts/export_austin_from_osm.sh`
 
 The SQLite schema should minimally include:
@@ -200,7 +201,16 @@ The SQLite schema should minimally include:
 
 Keep it bounded and query-oriented. Do not add a giant scene-wide JSON dump.
 
-Add `scripts/source_truth_pack.py` only as a bounded inspection/query helper over the emitted truth-pack outputs, not as a second source-of-truth generation path.
+Support this first slice only for:
+- `OverpassAdapter`
+- `LiveOverpassAdapter`
+
+Do not invent fake lineage for:
+- `FileSourceAdapter`
+- synthetic adapters
+- generic post-canonical export paths
+
+Add `scripts/source_truth_pack.py` only as a bounded inspection/query helper over the emitted truth-pack outputs, not as a second source-of-truth generation path, and keep ownership out of `arbx_roblox_export`.
 
 - [ ] **Step 5: Re-run the focused truth-pack tests**
 
@@ -244,8 +254,7 @@ git add scripts/source_truth_pack.py \
   scripts/export_austin_from_osm.sh \
   scripts/tests/test_austin_fidelity.py \
   rust/crates/arbx_cli/src/main.rs \
-  rust/crates/arbx_pipeline \
-  rust/crates/arbx_roblox_export
+  rust/crates/arbx_pipeline
 git commit -m "feat: add bounded outdoor truth-pack"
 ```
 

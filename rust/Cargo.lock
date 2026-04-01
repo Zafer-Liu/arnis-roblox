@@ -75,6 +75,7 @@ name = "arbx_pipeline"
 version = "0.1.0"
 dependencies = [
  "arbx_geo",
+ "rusqlite",
  "serde",
  "serde_json",
 ]

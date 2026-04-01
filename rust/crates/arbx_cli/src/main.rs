@@ -9,7 +9,8 @@ use arbx_geo::{
     OffsetElevationProvider, TerrariumElevationProvider,
 };
 use arbx_pipeline::{
-    run_pipeline, ElevationEnrichmentStage, NormalizeStage, TriangulateStage, ValidateStage,
+    write_source_truth_pack_sqlite, write_source_truth_pack_summary, ElevationEnrichmentStage,
+    NormalizeStage, PipelineContext, SourceTruthPack, TriangulateStage, ValidateStage,
 };
 use arbx_roblox_export::{
     build_sample_multi_chunk, export_to_chunks, read_manifest_sqlite_all, write_manifest_sqlite,
@@ -55,6 +56,11 @@ fn print_help() {
     println!("                         Example: --bbox 30.26,-97.75,30.27,-97.74 (Austin TX)");
     println!("  --out PATH             Output manifest file (default: stdout)");
     println!("  --sqlite-out PATH      Also write a SQLite manifest store");
+    println!(
+        "  --truth-pack-out PATH  Write bounded source truth-pack SQLite (Overpass/live only)"
+    );
+    println!("  --truth-pack-summary-out PATH");
+    println!("                         Write compact source truth-pack summary JSON");
     println!("  --world-name NAME      World name in manifest metadata (default: ExportedWorld)");
     println!("  --meters-per-stud N    Scale factor (default: 0.3 = Roblox humanoid proportional)");
     println!("  --terrain-cell-size N  Terrain grid precision in studs (default: 2, range: 1-32)");
@@ -159,6 +165,86 @@ fn write_manifest_outputs(
     Ok(())
 }
 
+fn stem_without_suffixes(path: &Path) -> Option<String> {
+    let name = path.file_name()?.to_str()?;
+    for suffix in [
+        ".truth-pack.summary.json",
+        ".truth-pack.sqlite",
+        "-manifest.sqlite",
+        "-manifest.json",
+        ".sqlite",
+        ".json",
+    ] {
+        if let Some(stem) = name.strip_suffix(suffix) {
+            return Some(stem.to_string());
+        }
+    }
+    path.file_stem()
+        .and_then(|value| value.to_str())
+        .map(|value| value.to_string())
+}
+
+fn infer_truth_pack_scene_name(
+    truth_pack_out: Option<&PathBuf>,
+    truth_pack_summary_out: Option<&PathBuf>,
+    manifest_out: Option<&PathBuf>,
+    manifest_sqlite_out: Option<&PathBuf>,
+    world_name: &str,
+) -> String {
+    for path in [
+        truth_pack_out,
+        truth_pack_summary_out,
+        manifest_out,
+        manifest_sqlite_out,
+    ]
+    .into_iter()
+    .flatten()
+    {
+        if let Some(stem) = stem_without_suffixes(path) {
+            return stem;
+        }
+    }
+    world_name.to_lowercase()
+}
+
+fn write_truth_pack_outputs(
+    truth_pack: &SourceTruthPack,
+    truth_pack_out: Option<&PathBuf>,
+    truth_pack_summary_out: Option<&PathBuf>,
+    manifest_out: Option<&PathBuf>,
+    manifest_sqlite_out: Option<&PathBuf>,
+    world_name: &str,
+) -> Result<(), String> {
+    let scene = infer_truth_pack_scene_name(
+        truth_pack_out,
+        truth_pack_summary_out,
+        manifest_out,
+        manifest_sqlite_out,
+        world_name,
+    );
+    let summary = truth_pack.summary(scene);
+
+    if let Some(path) = truth_pack_out {
+        if let Some(parent) = path.parent() {
+            fs::create_dir_all(parent).map_err(|err| format!("create dir failed: {err}"))?;
+        }
+        write_source_truth_pack_sqlite(truth_pack, path)
+            .map_err(|err| format!("truth-pack sqlite write failed: {err:?}"))?;
+        println!("Wrote source truth-pack {}", path.display());
+    }
+
+    if let Some(path) = truth_pack_summary_out {
+        if let Some(parent) = path.parent() {
+            fs::create_dir_all(parent).map_err(|err| format!("create dir failed: {err}"))?;
+        }
+        write_source_truth_pack_summary(&summary, path)
+            .map_err(|err| format!("truth-pack summary write failed: {err:?}"))?;
+        println!("Wrote source truth-pack summary {}", path.display());
+    }
+
+    Ok(())
+}
+
 fn cmd_sample(args: &[String]) -> Result<(), String> {
     let mut out_path: Option<PathBuf> = None;
     let mut sqlite_out_path: Option<PathBuf> = None;
@@ -210,6 +296,8 @@ fn cmd_sample(args: &[String]) -> Result<(), String> {
 fn cmd_compile(args: &[String]) -> Result<(), String> {
     let mut out_path: Option<PathBuf> = None;
     let mut sqlite_out_path: Option<PathBuf> = None;
+    let mut truth_pack_out_path: Option<PathBuf> = None;
+    let mut truth_pack_summary_out_path: Option<PathBuf> = None;
     let mut source_path: Option<PathBuf> = None;
     // Default bbox covers downtown Austin. Overridden by --bbox to match the OSM fetch area.
     let mut bbox = BoundingBox::new(30.26, -97.75, 30.27, -97.74);
@@ -237,6 +325,18 @@ fn cmd_compile(args: &[String]) -> Result<(), String> {
             "--sqlite-out" => {
                 let value = args.get(i + 1).ok_or("--sqlite-out requires a path")?;
                 sqlite_out_path = Some(PathBuf::from(value));
+                i += 2;
+            }
+            "--truth-pack-out" => {
+                let value = args.get(i + 1).ok_or("--truth-pack-out requires a path")?;
+                truth_pack_out_path = Some(PathBuf::from(value));
+                i += 2;
+            }
+            "--truth-pack-summary-out" => {
+                let value = args
+                    .get(i + 1)
+                    .ok_or("--truth-pack-summary-out requires a path")?;
+                truth_pack_summary_out_path = Some(PathBuf::from(value));
                 i += 2;
             }
             "--source" => {
@@ -365,6 +465,7 @@ fn cmd_compile(args: &[String]) -> Result<(), String> {
     }
 
     let start = Instant::now();
+    let wants_truth_pack = truth_pack_out_path.is_some() || truth_pack_summary_out_path.is_some();
 
     let adapter: Box<dyn arbx_pipeline::SourceAdapter> = if let Some(path) = &source_path {
         // --source always uses the file-based adapter regardless of --live
@@ -491,8 +592,23 @@ fn cmd_compile(args: &[String]) -> Result<(), String> {
         &enrichment,
     ];
 
-    let ctx = run_pipeline(adapter.as_ref(), bbox, &stages)
-        .map_err(|e| format!("pipeline failed: {:?}", e))?;
+    let (source_features, truth_pack_opt) = adapter
+        .load_features_and_truth_pack(bbox)
+        .map_err(|e| format!("source load failed: {:?}", e))?;
+    let truth_pack = if wants_truth_pack {
+        Some(truth_pack_opt.ok_or_else(|| {
+            "truth-pack output is only supported for OverpassAdapter / LiveOverpassAdapter compile sources".to_string()
+        })?)
+    } else {
+        None
+    };
+
+    let mut ctx = PipelineContext::new(bbox, source_features);
+    for stage in &stages {
+        stage
+            .run(&mut ctx)
+            .map_err(|e| format!("pipeline failed: {:?}", e))?;
+    }
 
     let mut sat_provider = satellite_dir.as_deref().map(SatelliteTileProvider::new);
     let manifest = export_to_chunks(
@@ -510,7 +626,20 @@ fn cmd_compile(args: &[String]) -> Result<(), String> {
         sqlite_out_path.as_ref(),
         "Compiled",
         duration,
-    )
+    )?;
+
+    if let Some(truth_pack) = truth_pack.as_ref() {
+        write_truth_pack_outputs(
+            truth_pack,
+            truth_pack_out_path.as_ref(),
+            truth_pack_summary_out_path.as_ref(),
+            out_path.as_ref(),
+            sqlite_out_path.as_ref(),
+            &world_name,
+        )?;
+    }
+
+    Ok(())
 }
 
 fn cmd_config(args: &[String]) -> Result<(), String> {

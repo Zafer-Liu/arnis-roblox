@@ -18,6 +18,8 @@ set -euo pipefail
 #   rust/data/austin_overpass.json
 #   rust/out/austin-manifest.json
 #   rust/out/austin-manifest.sqlite
+#   rust/out/austin.truth-pack.sqlite
+#   rust/out/austin.truth-pack.summary.json
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 RUST_DIR="$ROOT_DIR/rust"
@@ -58,6 +60,9 @@ cargo run -p arbx_cli -- compile \
   --bbox "30.245,-97.765,30.305,-97.715" \
   "${compile_args[@]}" \
   --out "out/austin-manifest.json" \
-  --sqlite-out "out/austin-manifest.sqlite"
+  --sqlite-out "out/austin-manifest.sqlite" \
+  --truth-pack-out "out/austin.truth-pack.sqlite" \
+  --truth-pack-summary-out "out/austin.truth-pack.summary.json"
 
 echo "[export_austin_from_osm] Done. Manifest written to rust/out/austin-manifest.json and rust/out/austin-manifest.sqlite"
+echo "[export_austin_from_osm] Truth-pack written to rust/out/austin.truth-pack.sqlite and rust/out/austin.truth-pack.summary.json"

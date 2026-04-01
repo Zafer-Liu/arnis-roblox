@@ -1,5 +1,12 @@
 pub mod overpass_client;
 pub mod overture;
+pub mod truth_pack;
+
+pub use truth_pack::{
+    write_source_truth_pack_sqlite, write_source_truth_pack_summary, SourceTruthPack,
+    SourceTruthPackSummary, TruthPackCollapse, TruthPackDroppedSemantic, TruthPackFeature,
+    TruthPackFeatureSource, TruthPackSemantic, TruthPackSource,
+};
 
 use arbx_geo::{
     BoundingBox, ElevationProvider, Footprint, LatLon, Mercator, PerlinElevationProvider, Vec2,
@@ -337,6 +344,15 @@ pub type PipelineResult<T> = Result<T, PipelineError>;
 pub trait SourceAdapter {
     fn name(&self) -> &'static str;
     fn load(&self, bbox: BoundingBox) -> PipelineResult<Vec<Feature>>;
+    fn load_features_and_truth_pack(
+        &self,
+        bbox: BoundingBox,
+    ) -> PipelineResult<(Vec<Feature>, Option<SourceTruthPack>)> {
+        Ok((self.load(bbox)?, None))
+    }
+    fn load_truth_pack(&self, _bbox: BoundingBox) -> PipelineResult<Option<SourceTruthPack>> {
+        Ok(None)
+    }
 }
 
 pub trait PipelineStage {
@@ -655,12 +671,287 @@ struct OverpassResponse {
     elements: Vec<OverpassElement>,
 }
 
-impl SourceAdapter for OverpassAdapter {
-    fn name(&self) -> &'static str {
-        "overpass-json"
-    }
+#[derive(Debug, Clone)]
+struct EmittedSourceFeature {
+    feature_id: String,
+    source_feature_id: String,
+    osm_layer: String,
+    overpass_layer: String,
+}
 
-    fn load(&self, bbox: BoundingBox) -> PipelineResult<Vec<Feature>> {
+#[derive(Debug, Clone)]
+struct OvertureMergeDecision {
+    candidate: BuildingFeature,
+    retained: bool,
+    retained_feature_id: Option<String>,
+    matched_source: Option<String>,
+}
+
+fn truth_feature_kind(feature: &Feature) -> &'static str {
+    match feature {
+        Feature::Road(_) => "road",
+        Feature::Rail(_) => "rail",
+        Feature::Building(_) => "building",
+        Feature::Water(_) => "water",
+        Feature::Prop(_) => "prop",
+        Feature::Barrier(_) => "barrier",
+        Feature::Landuse(_) => "landuse",
+    }
+}
+
+fn source_name_for_building_id(feature_id: &str) -> &'static str {
+    if feature_id.starts_with("ov_") {
+        "overture"
+    } else {
+        "osm"
+    }
+}
+
+fn push_semantic(
+    rows: &mut Vec<TruthPackSemantic>,
+    feature_id: &str,
+    field_name: &str,
+    field_value: Option<String>,
+) {
+    if let Some(field_value) = field_value {
+        let trimmed = field_value.trim();
+        if !trimmed.is_empty() {
+            rows.push(TruthPackSemantic {
+                feature_id: feature_id.to_string(),
+                field_name: field_name.to_string(),
+                field_value: trimmed.to_string(),
+            });
+        }
+    }
+}
+
+fn push_dropped_semantic(
+    rows: &mut Vec<TruthPackDroppedSemantic>,
+    feature_id: &str,
+    retained_feature_id: &str,
+    field_name: &str,
+    field_value: Option<String>,
+) {
+    if let Some(field_value) = field_value {
+        let trimmed = field_value.trim();
+        if !trimmed.is_empty() {
+            rows.push(TruthPackDroppedSemantic {
+                feature_id: feature_id.to_string(),
+                field_name: field_name.to_string(),
+                field_value: trimmed.to_string(),
+                reason: "collapsed_into_retained_feature".to_string(),
+                retained_feature_id: Some(retained_feature_id.to_string()),
+            });
+        }
+    }
+}
+
+fn collect_retained_semantics(feature: &Feature, rows: &mut Vec<TruthPackSemantic>) {
+    match feature {
+        Feature::Building(building) => {
+            push_semantic(rows, &building.id, "name", building.name.clone());
+            push_semantic(
+                rows,
+                &building.id,
+                "height_m",
+                building.height_m.map(|value| value.to_string()),
+            );
+            push_semantic(
+                rows,
+                &building.id,
+                "levels",
+                building.levels.map(|value| value.to_string()),
+            );
+            push_semantic(
+                rows,
+                &building.id,
+                "roof_levels",
+                building.roof_levels.map(|value| value.to_string()),
+            );
+            push_semantic(
+                rows,
+                &building.id,
+                "min_height",
+                building.min_height.map(|value| value.to_string()),
+            );
+            push_semantic(rows, &building.id, "colour", building.colour.clone());
+            push_semantic(
+                rows,
+                &building.id,
+                "material",
+                building.material_tag.clone(),
+            );
+            push_semantic(
+                rows,
+                &building.id,
+                "roof_colour",
+                building.roof_colour.clone(),
+            );
+            push_semantic(
+                rows,
+                &building.id,
+                "roof_material",
+                building.roof_material.clone(),
+            );
+            push_semantic(
+                rows,
+                &building.id,
+                "roof_height",
+                building.roof_height.map(|value| value.to_string()),
+            );
+        }
+        Feature::Road(road) => {
+            push_semantic(
+                rows,
+                &road.id,
+                "lanes",
+                road.lanes.map(|value| value.to_string()),
+            );
+            push_semantic(rows, &road.id, "surface", road.surface.clone());
+            push_semantic(rows, &road.id, "sidewalk", road.sidewalk.clone());
+            push_semantic(
+                rows,
+                &road.id,
+                "maxspeed",
+                road.maxspeed.map(|value| value.to_string()),
+            );
+            push_semantic(
+                rows,
+                &road.id,
+                "lit",
+                road.lit.map(|value| value.to_string()),
+            );
+            push_semantic(
+                rows,
+                &road.id,
+                "oneway",
+                road.oneway.map(|value| value.to_string()),
+            );
+            push_semantic(
+                rows,
+                &road.id,
+                "layer",
+                road.layer.map(|value| value.to_string()),
+            );
+            push_semantic(
+                rows,
+                &road.id,
+                "bridge",
+                road.elevated.map(|value| value.to_string()),
+            );
+            push_semantic(
+                rows,
+                &road.id,
+                "tunnel",
+                road.tunnel.map(|value| value.to_string()),
+            );
+        }
+        Feature::Water(WaterFeature::Ribbon(water)) => {
+            push_semantic(
+                rows,
+                &water.id,
+                "width",
+                water.width.map(|value| value.to_string()),
+            );
+            push_semantic(
+                rows,
+                &water.id,
+                "intermittent",
+                water.intermittent.map(|value| value.to_string()),
+            );
+        }
+        Feature::Water(WaterFeature::Polygon(water)) => {
+            push_semantic(
+                rows,
+                &water.id,
+                "intermittent",
+                water.intermittent.map(|value| value.to_string()),
+            );
+        }
+        Feature::Prop(prop) => {
+            push_semantic(rows, &prop.id, "species", prop.species.clone());
+            push_semantic(
+                rows,
+                &prop.id,
+                "height",
+                prop.height.map(|value| value.to_string()),
+            );
+            push_semantic(rows, &prop.id, "leaf_type", prop.leaf_type.clone());
+            push_semantic(
+                rows,
+                &prop.id,
+                "circumference",
+                prop.circumference.map(|value| value.to_string()),
+            );
+        }
+        Feature::Landuse(landuse) => {
+            push_semantic(rows, &landuse.id, "kind", Some(landuse.kind.clone()));
+        }
+        Feature::Rail(_) | Feature::Barrier(_) => {}
+    }
+}
+
+fn collect_overture_dropped_semantics(
+    building: &BuildingFeature,
+    retained_feature_id: &str,
+    rows: &mut Vec<TruthPackDroppedSemantic>,
+) {
+    push_dropped_semantic(
+        rows,
+        &building.id,
+        retained_feature_id,
+        "name",
+        building.name.clone(),
+    );
+    push_dropped_semantic(
+        rows,
+        &building.id,
+        retained_feature_id,
+        "height_m",
+        building.height_m.map(|value| value.to_string()),
+    );
+    push_dropped_semantic(
+        rows,
+        &building.id,
+        retained_feature_id,
+        "levels",
+        building.levels.map(|value| value.to_string()),
+    );
+    push_dropped_semantic(
+        rows,
+        &building.id,
+        retained_feature_id,
+        "colour",
+        building.colour.clone(),
+    );
+    push_dropped_semantic(
+        rows,
+        &building.id,
+        retained_feature_id,
+        "material",
+        building.material_tag.clone(),
+    );
+    push_dropped_semantic(
+        rows,
+        &building.id,
+        retained_feature_id,
+        "roof_colour",
+        building.roof_colour.clone(),
+    );
+    push_dropped_semantic(
+        rows,
+        &building.id,
+        retained_feature_id,
+        "roof_material",
+        building.roof_material.clone(),
+    );
+}
+
+impl OverpassAdapter {
+    fn load_with_truth_pack(
+        &self,
+        bbox: BoundingBox,
+    ) -> PipelineResult<(Vec<Feature>, SourceTruthPack)> {
         let content = fs::read_to_string(&self.path)
             .map_err(|e| PipelineError::IO(format!("failed to read overpass file: {}", e)))?;
 
@@ -759,6 +1050,29 @@ impl SourceAdapter for OverpassAdapter {
         }
 
         let mut features: Vec<Feature> = Vec::new();
+        let mut source_rows: Vec<EmittedSourceFeature> = Vec::new();
+
+        let mut record_emitted =
+            |source_feature_id: String, overpass_layer: &str, emitted: &[Feature]| {
+                for feature in emitted {
+                    let feature_id = match feature {
+                        Feature::Road(feature) => feature.id.clone(),
+                        Feature::Rail(feature) => feature.id.clone(),
+                        Feature::Building(feature) => feature.id.clone(),
+                        Feature::Water(WaterFeature::Ribbon(feature)) => feature.id.clone(),
+                        Feature::Water(WaterFeature::Polygon(feature)) => feature.id.clone(),
+                        Feature::Prop(feature) => feature.id.clone(),
+                        Feature::Barrier(feature) => feature.id.clone(),
+                        Feature::Landuse(feature) => feature.id.clone(),
+                    };
+                    source_rows.push(EmittedSourceFeature {
+                        feature_id,
+                        source_feature_id: source_feature_id.clone(),
+                        osm_layer: truth_feature_kind(feature).to_string(),
+                        overpass_layer: overpass_layer.to_string(),
+                    });
+                }
+            };
 
         // ── Phase 3a: Process way elements using pre-resolved geometry ────────
         for el in &data.elements {
@@ -795,6 +1109,7 @@ impl SourceAdapter for OverpassAdapter {
                     continue;
                 }
                 let clipped_holes = vec![];
+                let start_len = features.len();
                 emit_area_way(
                     &format!("osm_{}", el.id),
                     tags,
@@ -803,6 +1118,7 @@ impl SourceAdapter for OverpassAdapter {
                     mps,
                     &mut features,
                 );
+                record_emitted(el.id.to_string(), &el.kind, &features[start_len..]);
             } else {
                 // Linear feature — segment-level clip interpolates bbox entry/exit
                 let Some(way_nodes) = &el.nodes else { continue };
@@ -839,7 +1155,9 @@ impl SourceAdapter for OverpassAdapter {
                 if lin_pts.len() < 2 {
                     continue;
                 }
+                let start_len = features.len();
                 emit_linear_way(el.id, tags, lin_pts, self.meters_per_stud, &mut features);
+                record_emitted(el.id.to_string(), &el.kind, &features[start_len..]);
             }
         }
 
@@ -915,6 +1233,7 @@ impl SourceAdapter for OverpassAdapter {
                     } else {
                         format!("osm_{}_outer_{}", el.id, outer_index + 1)
                     };
+                    let start_len = features.len();
                     emit_area_way(
                         &emitted_id,
                         tags,
@@ -923,6 +1242,7 @@ impl SourceAdapter for OverpassAdapter {
                         mps,
                         &mut features,
                     );
+                    record_emitted(el.id.to_string(), &el.kind, &features[start_len..]);
                 }
                 continue;
             }
@@ -956,6 +1276,7 @@ impl SourceAdapter for OverpassAdapter {
                 })
                 .collect();
 
+            let start_len = features.len();
             emit_area_way(
                 &format!("osm_{}", el.id),
                 tags,
@@ -964,6 +1285,7 @@ impl SourceAdapter for OverpassAdapter {
                 mps,
                 &mut features,
             );
+            record_emitted(el.id.to_string(), &el.kind, &features[start_len..]);
         }
 
         // Parse node elements for trees and similar point features
@@ -982,6 +1304,7 @@ impl SourceAdapter for OverpassAdapter {
                 let mut matched = false;
                 for spec in NODE_PROP_SPECS {
                     if tags.get(spec.tag_key) == Some(&spec.tag_value.to_string()) {
+                        let start_len = features.len();
                         features.push(Feature::Prop(PropFeature {
                             id: format!("{}_{}", spec.id_prefix, el.id),
                             kind: spec.kind.to_string(),
@@ -997,6 +1320,7 @@ impl SourceAdapter for OverpassAdapter {
                             leaf_type: None,
                             circumference: None,
                         }));
+                        record_emitted(el.id.to_string(), &el.kind, &features[start_len..]);
                         matched = true;
                         break;
                     }
@@ -1037,6 +1361,7 @@ impl SourceAdapter for OverpassAdapter {
                         .get("circumference")
                         .and_then(|c| c.parse::<f64>().ok());
 
+                    let start_len = features.len();
                     features.push(Feature::Prop(PropFeature {
                         id: format!("tree_{}", el.id),
                         kind: "tree".to_string(),
@@ -1048,8 +1373,44 @@ impl SourceAdapter for OverpassAdapter {
                         leaf_type,
                         circumference,
                     }));
+                    record_emitted(el.id.to_string(), &el.kind, &features[start_len..]);
                 }
             }
+        }
+
+        let mut truth_pack = SourceTruthPack::new();
+        for feature in &features {
+            let feature_id = match feature {
+                Feature::Road(feature) => feature.id.clone(),
+                Feature::Rail(feature) => feature.id.clone(),
+                Feature::Building(feature) => feature.id.clone(),
+                Feature::Water(WaterFeature::Ribbon(feature)) => feature.id.clone(),
+                Feature::Water(WaterFeature::Polygon(feature)) => feature.id.clone(),
+                Feature::Prop(feature) => feature.id.clone(),
+                Feature::Barrier(feature) => feature.id.clone(),
+                Feature::Landuse(feature) => feature.id.clone(),
+            };
+            truth_pack.features.push(TruthPackFeature {
+                feature_id: feature_id.clone(),
+                feature_kind: truth_feature_kind(feature).to_string(),
+                canonical_feature_id: Some(feature_id),
+                is_retained: true,
+            });
+            collect_retained_semantics(feature, &mut truth_pack.retained_semantics);
+        }
+        for row in &source_rows {
+            truth_pack.feature_sources.push(TruthPackFeatureSource {
+                feature_id: row.feature_id.clone(),
+                source_name: "osm".to_string(),
+                source_feature_id: row.source_feature_id.clone(),
+                source_layer: row.osm_layer.clone(),
+            });
+            truth_pack.feature_sources.push(TruthPackFeatureSource {
+                feature_id: row.feature_id.clone(),
+                source_name: "overpass".to_string(),
+                source_feature_id: row.source_feature_id.clone(),
+                source_layer: row.overpass_layer.clone(),
+            });
         }
 
         // Append Overture buildings as gap-fill only when OSM does not already
@@ -1057,9 +1418,76 @@ impl SourceAdapter for OverpassAdapter {
         let overture_path = "rust/data/overture_buildings.geojson";
         let overture_features =
             overture::load_overture_buildings(overture_path, bbox, self.meters_per_stud);
-        merge_overture_gap_fill(&mut features, overture_features);
+        let merge_decisions =
+            merge_overture_gap_fill_with_decisions(&mut features, overture_features);
+        for decision in merge_decisions {
+            let candidate = decision.candidate;
+            truth_pack.features.push(TruthPackFeature {
+                feature_id: candidate.id.clone(),
+                feature_kind: "building".to_string(),
+                canonical_feature_id: if decision.retained {
+                    Some(candidate.id.clone())
+                } else {
+                    decision.retained_feature_id.clone()
+                },
+                is_retained: decision.retained,
+            });
+            truth_pack.feature_sources.push(TruthPackFeatureSource {
+                feature_id: candidate.id.clone(),
+                source_name: "overture".to_string(),
+                source_feature_id: candidate
+                    .id
+                    .strip_prefix("ov_")
+                    .unwrap_or(candidate.id.as_str())
+                    .to_string(),
+                source_layer: "building".to_string(),
+            });
 
-        Ok(features)
+            let candidate_feature = Feature::Building(candidate.clone());
+            if decision.retained {
+                collect_retained_semantics(&candidate_feature, &mut truth_pack.retained_semantics);
+            } else if let Some(retained_feature_id) = decision.retained_feature_id.as_deref() {
+                truth_pack.collapses.push(TruthPackCollapse {
+                    feature_id: candidate.id.clone(),
+                    retained_feature_id: retained_feature_id.to_string(),
+                    collapse_kind: "cross_source_overlap".to_string(),
+                    matched_source: decision
+                        .matched_source
+                        .unwrap_or_else(|| "overture->unknown".to_string()),
+                });
+                collect_overture_dropped_semantics(
+                    &candidate,
+                    retained_feature_id,
+                    &mut truth_pack.dropped_semantics,
+                );
+            }
+        }
+
+        Ok((features, truth_pack))
+    }
+}
+
+impl SourceAdapter for OverpassAdapter {
+    fn name(&self) -> &'static str {
+        "overpass-json"
+    }
+
+    fn load(&self, bbox: BoundingBox) -> PipelineResult<Vec<Feature>> {
+        self.load_with_truth_pack(bbox)
+            .map(|(features, _)| features)
+    }
+
+    fn load_features_and_truth_pack(
+        &self,
+        bbox: BoundingBox,
+    ) -> PipelineResult<(Vec<Feature>, Option<SourceTruthPack>)> {
+        self.load_with_truth_pack(bbox)
+            .map(|(features, truth_pack)| (features, Some(truth_pack)))
+    }
+
+    fn load_truth_pack(&self, bbox: BoundingBox) -> PipelineResult<Option<SourceTruthPack>> {
+        self.load_with_truth_pack(bbox)
+            .map(|(_, truth_pack)| Some(truth_pack))
     }
 }
 
@@ -1086,6 +1514,27 @@ impl SourceAdapter for LiveOverpassAdapter {
             meters_per_stud: self.meters_per_stud,
         };
         file_adapter.load(bbox)
+    }
+
+    fn load_features_and_truth_pack(
+        &self,
+        bbox: BoundingBox,
+    ) -> PipelineResult<(Vec<Feature>, Option<SourceTruthPack>)> {
+        let path = overpass_client::fetch_overpass(bbox, &self.cache_dir)?;
+        let file_adapter = OverpassAdapter {
+            path,
+            meters_per_stud: self.meters_per_stud,
+        };
+        file_adapter.load_features_and_truth_pack(bbox)
+    }
+
+    fn load_truth_pack(&self, bbox: BoundingBox) -> PipelineResult<Option<SourceTruthPack>> {
+        let path = overpass_client::fetch_overpass(bbox, &self.cache_dir)?;
+        let file_adapter = OverpassAdapter {
+            path,
+            meters_per_stud: self.meters_per_stud,
+        };
+        file_adapter.load_truth_pack(bbox)
     }
 }
 
@@ -1577,7 +2026,15 @@ fn should_preserve_named_overture_parent(
     })
 }
 
+#[allow(dead_code)]
 fn merge_overture_gap_fill(features: &mut Vec<Feature>, overture_features: Vec<Feature>) {
+    let _ = merge_overture_gap_fill_with_decisions(features, overture_features);
+}
+
+fn merge_overture_gap_fill_with_decisions(
+    features: &mut Vec<Feature>,
+    overture_features: Vec<Feature>,
+) -> Vec<OvertureMergeDecision> {
     let mut canonical_buildings: Vec<BuildingFeature> = features
         .iter()
         .filter_map(|feature| match feature {
@@ -1585,6 +2042,7 @@ fn merge_overture_gap_fill(features: &mut Vec<Feature>, overture_features: Vec<F
             _ => None,
         })
         .collect();
+    let mut decisions = Vec::new();
 
     for feature in overture_features {
         if let Feature::Building(candidate) = &feature {
@@ -1595,12 +2053,31 @@ fn merge_overture_gap_fill(features: &mut Vec<Feature>, overture_features: Vec<F
             if !overlapping.is_empty()
                 && !should_preserve_named_overture_parent(&overlapping, candidate)
             {
+                let retained_feature_id = overlapping.first().map(|building| building.id.clone());
+                let matched_source = retained_feature_id
+                    .as_deref()
+                    .map(source_name_for_building_id)
+                    .map(|source| format!("overture->{source}"));
+                decisions.push(OvertureMergeDecision {
+                    candidate: candidate.clone(),
+                    retained: false,
+                    retained_feature_id,
+                    matched_source,
+                });
                 continue;
             }
             canonical_buildings.push(candidate.clone());
+            decisions.push(OvertureMergeDecision {
+                candidate: candidate.clone(),
+                retained: true,
+                retained_feature_id: Some(candidate.id.clone()),
+                matched_source: None,
+            });
         }
         features.push(feature);
     }
+
+    decisions
 }
 
 fn refine_generic_building_usage(
@@ -1748,7 +2225,8 @@ fn emit_area_way(
                     .map(|l| l * 3.5)
             })
             .unwrap_or(0.0);
-        let (base_y, height) = if usage.as_deref() == Some("roof") && explicit_min_height.is_none() {
+        let (base_y, height) = if usage.as_deref() == Some("roof") && explicit_min_height.is_none()
+        {
             let inferred_height = inferred_roof_part_thickness.min(explicit_height.max(1.0));
             let inferred_base_y = (explicit_height - inferred_height).max(0.0);
             (inferred_base_y, inferred_height)
