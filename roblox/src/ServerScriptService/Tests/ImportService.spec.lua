@@ -127,6 +127,30 @@ return function()
         "expected chunk profile buildingInteriorMs number"
     )
     Assert.truthy(
+        type(chunkProfiles[1].buildingRoofBuildMs) == "number",
+        "expected chunk profile buildingRoofBuildMs number"
+    )
+    Assert.truthy(
+        type(chunkProfiles[1].buildingFacadeDetailMs) == "number",
+        "expected chunk profile buildingFacadeDetailMs number"
+    )
+    Assert.truthy(
+        type(chunkProfiles[1].buildingPerimeterDetailMs) == "number",
+        "expected chunk profile buildingPerimeterDetailMs number"
+    )
+    Assert.truthy(
+        type(chunkProfiles[1].buildingTerrainFillMs) == "number",
+        "expected chunk profile buildingTerrainFillMs number"
+    )
+    Assert.truthy(
+        type(chunkProfiles[1].buildingRooftopDetailMs) == "number",
+        "expected chunk profile buildingRooftopDetailMs number"
+    )
+    Assert.truthy(
+        type(chunkProfiles[1].buildingNameLabelMs) == "number",
+        "expected chunk profile buildingNameLabelMs number"
+    )
+    Assert.truthy(
         type(chunkProfiles[1].roadsDecorationMs) == "number",
         "expected chunk profile roadsDecorationMs number"
     )

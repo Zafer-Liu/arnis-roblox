@@ -47,6 +47,15 @@ def build_truth_pack_fixture(db_path: Path) -> Path:
             field_name TEXT NOT NULL,
             field_value TEXT NOT NULL
         );
+        CREATE TABLE semantic_lineage (
+            semantic_lineage_id INTEGER PRIMARY KEY AUTOINCREMENT,
+            retained_feature_id TEXT NOT NULL,
+            field_name TEXT NOT NULL,
+            field_value TEXT NOT NULL,
+            source_name TEXT NOT NULL,
+            source_feature_id TEXT NOT NULL,
+            resolution TEXT NOT NULL
+        );
         CREATE TABLE collapses (
             collapse_id INTEGER PRIMARY KEY AUTOINCREMENT,
             feature_id TEXT NOT NULL,
@@ -113,6 +122,21 @@ def build_truth_pack_fixture(db_path: Path) -> Path:
             ("rail_1", "kind", "tram"),
             ("structure_1", "usage", "school"),
             ("structure_1", "name", "Fixture Hall"),
+            ("structure_1", "height_m", "18"),
+        ],
+    )
+    connection.executemany(
+        """
+        INSERT INTO semantic_lineage
+            (retained_feature_id, field_name, field_value, source_name, source_feature_id, resolution)
+        VALUES (?, ?, ?, ?, ?, ?)
+        """,
+        [
+            ("structure_1", "usage", "school", "osm", "structure_1", "retained_original"),
+            ("structure_1", "name", "Fixture Hall", "osm", "structure_1", "retained_original"),
+            ("structure_1", "height_m", "18", "overture", "structure_overlap_1", "merged_from_collapsed_feature"),
+            ("structure_1", "usage", "commercial", "overture", "structure_overlap_1", "conflict_lost_to_retained_feature"),
+            ("structure_1", "material", "glass", "overture", "structure_overlap_2", "merged_from_collapsed_feature"),
         ],
     )
     connection.executemany(
@@ -183,16 +207,25 @@ class SourceTruthPackAuditTests(unittest.TestCase):
             self.assertEqual(report["summary"]["feature_count"], 9)
             self.assertEqual(report["summary"]["collapse_count"], 2)
             self.assertEqual(report["summary"]["dropped_semantic_count"], 3)
-            self.assertEqual(report["summary"]["retained_semantic_count"], 8)
+            self.assertEqual(report["summary"]["retained_semantic_count"], 9)
             self.assertEqual(report["summary"]["headline"]["largestCoverageGapFamily"], "structures")
             self.assertEqual(report["summary"]["headline"]["largestCoverageGapRatio"], 0.6667)
             self.assertEqual(report["summary"]["headline"]["largestDroppedSemanticsFamily"], "structures")
             self.assertEqual(report["summary"]["headline"]["largestDroppedSemanticsCount"], 3)
             self.assertEqual(report["summary"]["headline"]["largestOverlapLossFamily"], "structures")
             self.assertEqual(report["summary"]["headline"]["largestOverlapLossCount"], 2)
+            self.assertEqual(report["summary"]["headline"]["largestMergedSemanticsFamily"], "structures")
+            self.assertEqual(report["summary"]["headline"]["largestMergedSemanticsCount"], 2)
+            self.assertEqual(report["summary"]["headline"]["largestConflictSemanticsFamily"], "structures")
+            self.assertEqual(report["summary"]["headline"]["largestConflictSemanticsCount"], 1)
             self.assertEqual(report["summary"]["retained_semantics_by_family"]["vegetation"], 2)
             self.assertEqual(report["summary"]["dropped_semantics_by_family"]["structures"], 3)
             self.assertEqual(report["summary"]["overlap_loss_by_family"]["structures"], 2)
+            self.assertEqual(report["summary"]["merged_semantics_by_family"]["structures"], 2)
+            self.assertEqual(report["summary"]["semantic_conflicts_by_family"]["structures"], 1)
+            self.assertEqual(report["summary"]["merged_semantics_breakdown"]["structures"]["height_m"], 1)
+            self.assertEqual(report["summary"]["merged_semantics_breakdown"]["structures"]["material"], 1)
+            self.assertEqual(report["summary"]["semantic_conflicts_breakdown"]["structures"]["usage"], 1)
             self.assertEqual(report["summary"]["dropped_semantics_breakdown"]["structures"]["height"], 1)
             self.assertEqual(report["summary"]["dropped_semantics_breakdown"]["structures"]["material"], 1)
             self.assertEqual(
@@ -210,6 +243,8 @@ class SourceTruthPackAuditTests(unittest.TestCase):
             self.assertIn("truth_pack_outdoor_overlap_loss", codes)
             self.assertIn("truth_pack_dropped_semantics", codes)
             self.assertIn("truth_pack_retained_semantics", codes)
+            self.assertIn("truth_pack_merged_semantics", codes)
+            self.assertIn("truth_pack_semantic_conflicts", codes)
             self.assertNotIn("rail", json.dumps(report["summary"]["retained_semantics_by_family"], sort_keys=True))
             self.assertEqual(len(report["samples"]["dropped_semantics"]), 3)
             self.assertEqual(len(report["samples"]["overlap_losses"]), 2)

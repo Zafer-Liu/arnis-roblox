@@ -1139,6 +1139,13 @@ local function recordMeshBuildStats(stats, meshPartCount, vertexCount, triangleC
     stats.roofMeshPartCount += roofMeshPartCount or 0
 end
 
+local function recordBuildingDetailPhase(stats, phaseName, elapsedMs)
+    if type(stats) ~= "table" or type(phaseName) ~= "string" then
+        return
+    end
+    stats[phaseName] = (stats[phaseName] or 0) + (elapsedMs or 0)
+end
+
 local function tryBuildRectangularHippedRoofMesh(
     bldgName,
     footprint,
@@ -2166,6 +2173,12 @@ function BuildingBuilder.MeshBuildAll(parent, buildings, originStuds, chunk, con
                 meshCreateMs = 0,
                 shellDetailMs = 0,
                 roofMeshPartCount = 0,
+                roofBuildMs = 0,
+                facadeDetailMs = 0,
+                perimeterDetailMs = 0,
+                terrainFillMs = 0,
+                rooftopDetailMs = 0,
+                nameLabelMs = 0,
             },
         }
     end
@@ -2186,6 +2199,12 @@ function BuildingBuilder.MeshBuildAll(parent, buildings, originStuds, chunk, con
         meshCreateMs = 0,
         shellDetailMs = 0,
         roofMeshPartCount = 0,
+        roofBuildMs = 0,
+        facadeDetailMs = 0,
+        perimeterDetailMs = 0,
+        terrainFillMs = 0,
+        rooftopDetailMs = 0,
+        nameLabelMs = 0,
     }
     local buildStartedAt = os.clock()
 
@@ -2323,6 +2342,7 @@ function BuildingBuilder.MeshBuildAll(parent, buildings, originStuds, chunk, con
                         0.15
                     )
                 end
+                local roofBuildStartedAt = os.clock()
                 buildRoof(
                     building,
                     worldPts,
@@ -2335,6 +2355,7 @@ function BuildingBuilder.MeshBuildAll(parent, buildings, originStuds, chunk, con
                     buildStats,
                     meshCollisionPolicy
                 )
+                recordBuildingDetailPhase(buildStats, "roofBuildMs", (os.clock() - roofBuildStartedAt) * 1000)
             else
                 -- Merge opaque walls into EditableMesh accumulators
                 local acc = getAccumulator(mat, color)
@@ -2349,6 +2370,7 @@ function BuildingBuilder.MeshBuildAll(parent, buildings, originStuds, chunk, con
 
                 -- Roofs stay explicit even in shellMesh mode so visible roof truth
                 -- does not depend on merged shell evidence alone.
+                local roofBuildStartedAt = os.clock()
                 buildRoof(
                     building,
                     worldPts,
@@ -2361,6 +2383,7 @@ function BuildingBuilder.MeshBuildAll(parent, buildings, originStuds, chunk, con
                     buildStats,
                     meshCollisionPolicy
                 )
+                recordBuildingDetailPhase(buildStats, "roofBuildMs", (os.clock() - roofBuildStartedAt) * 1000)
             end
         end
 
@@ -2385,6 +2408,7 @@ function BuildingBuilder.MeshBuildAll(parent, buildings, originStuds, chunk, con
                 and n <= 8
                 and (n * numFloors * 2) <= 100
             then
+                local facadeDetailStartedAt = os.clock()
                 local budgetExceeded = false
                 for floor = 1, math.min(numFloors - 1, 10) do
                     if budgetExceeded then
@@ -2442,9 +2466,11 @@ function BuildingBuilder.MeshBuildAll(parent, buildings, originStuds, chunk, con
                         end
                     end
                 end
+                recordBuildingDetailPhase(buildStats, "facadeDetailMs", (os.clock() - facadeDetailStartedAt) * 1000)
             end
 
             if not preferSimpleShellDetail then
+                local perimeterDetailStartedAt = os.clock()
                 -- Foundation and cornice quads merged into the shared detailAcc mesh
                 do
                     local nPts = #worldPts
@@ -2482,10 +2508,16 @@ function BuildingBuilder.MeshBuildAll(parent, buildings, originStuds, chunk, con
                 end
 
                 buildAwning(detailFolder, building, baseY, worldPts)
+                recordBuildingDetailPhase(
+                    buildStats,
+                    "perimeterDetailMs",
+                    (os.clock() - perimeterDetailStartedAt) * 1000
+                )
             end
 
             -- Fill interior with terrain
             if shouldFillTerrainInterior(building, config) then
+                local terrainFillStartedAt = os.clock()
                 fillInterior(
                     footprintData.footprintXZ,
                     footprintData.holeXZ,
@@ -2493,15 +2525,23 @@ function BuildingBuilder.MeshBuildAll(parent, buildings, originStuds, chunk, con
                     baseY,
                     getFloorMaterial(building)
                 )
+                recordBuildingDetailPhase(buildStats, "terrainFillMs", (os.clock() - terrainFillStartedAt) * 1000)
             end
 
             if not preferSimpleShellDetail then
+                local rooftopDetailStartedAt = os.clock()
                 buildRooftopEquipment(detailFolder, building, baseY, height, worldPts)
+                recordBuildingDetailPhase(
+                    buildStats,
+                    "rooftopDetailMs",
+                    (os.clock() - rooftopDetailStartedAt) * 1000
+                )
             end
         end
 
         -- Building name label
         if building.name and building.name ~= "" then
+            local nameLabelStartedAt = os.clock()
             local nameLabel = Instance.new("BillboardGui")
             nameLabel.Name = "BuildingName"
             nameLabel.Size = UDim2.new(0, 200, 0, 30)
@@ -2520,6 +2560,7 @@ function BuildingBuilder.MeshBuildAll(parent, buildings, originStuds, chunk, con
             text.Parent = nameLabel
 
             nameLabel.Parent = detailFolder
+            recordBuildingDetailPhase(buildStats, "nameLabelMs", (os.clock() - nameLabelStartedAt) * 1000)
         end
 
         for _, acc in pairs(buildingAccumulators) do

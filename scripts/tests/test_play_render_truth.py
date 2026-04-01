@@ -153,6 +153,26 @@ class PlayRenderTruthTests(unittest.TestCase):
         self.assertIn("buildingShellDetailMs", preview_summary_source)
         self.assertIn("buildingInteriorMs", preview_summary_source)
 
+    def test_preview_hotspot_summary_surfaces_building_detail_subphases(self) -> None:
+        import_service_source = IMPORT_SERVICE.read_text(encoding="utf-8")
+        preview_builder_source = AUSTIN_PREVIEW_BUILDER.read_text(encoding="utf-8")
+        preview_summary_source = (ROOT / "scripts" / "preview_telemetry_summary.py").read_text(encoding="utf-8")
+
+        for field_name in (
+            "buildingRoofBuildMs",
+            "buildingFacadeDetailMs",
+            "buildingPerimeterDetailMs",
+            "buildingTerrainFillMs",
+            "buildingRooftopDetailMs",
+            "buildingNameLabelMs",
+        ):
+            self.assertIn(field_name, import_service_source)
+            self.assertIn(field_name, preview_builder_source)
+            self.assertIn(field_name, preview_summary_source)
+
+        self.assertIn("buildingShellDominantDetailPhase", preview_summary_source)
+        self.assertIn("buildingShellDominantDetailMs", preview_summary_source)
+
     def test_player_local_terrain_telemetry_carries_material_richness(self) -> None:
         world_probe_source = WORLD_PROBE.read_text(encoding="utf-8")
         terrain_probe_source = WORLD_PROBE_TERRAIN.read_text(encoding="utf-8")

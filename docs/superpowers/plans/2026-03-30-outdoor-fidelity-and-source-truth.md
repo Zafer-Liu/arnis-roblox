@@ -159,7 +159,7 @@ Verification after the review correction:
 Run:
 
 ```bash
-bash scripts/export_austin_from_osm.sh --profile balanced
+bash scripts/export_austin_from_osm.sh --profile high
 ```
 
 Expected:
@@ -201,6 +201,7 @@ The SQLite schema should minimally include:
 - `sources`
 - `feature_sources`
 - `retained_semantics`
+- `semantic_lineage`
 - `collapses`
 - `dropped_semantics`
 
@@ -233,7 +234,7 @@ Expected:
 Run:
 
 ```bash
-bash scripts/export_austin_from_osm.sh --profile balanced
+bash scripts/export_austin_from_osm.sh --profile high
 ```
 
 Expected:
@@ -617,6 +618,12 @@ Status note: On 2026-04-01, the current continuation slice expanded the slow-chu
 - `scripts/preview_telemetry_summary.py` now exposes derived building hotspot ratios and residual cost so the current `-1_0` chunk can be reasoned about without a raw log
 - proof continues to run only against the persistent `tertiary` repo, not the staged clone
 
+Status note: On 2026-04-01, the current continuation slice now advances the shared outdoor baseline instead of the harness:
+- `scripts/export_austin_from_osm.sh` now defaults the shared Austin export path to `high`, and `scripts/export_austin_to_lua.sh` now documents that higher shared default explicitly
+- `rust/crates/arbx_pipeline/` now preserves field-level structure semantics from collapsed Overture features into retained OSM buildings and emits `semantic_lineage` rows for merged, identical, and conflict-lost values
+- `scripts/source_truth_pack.py` and `scripts/source_truth_pack_audit.py` now surface merged/conflict lineage compactly, so the current structure-heavy truth-pack pressure is no longer just “dropped semantics” with no winner/loser detail
+- `BuildingBuilder.lua`, `ImportService/init.lua`, `AustinPreviewBuilder.lua`, and `scripts/preview_telemetry_summary.py` now split `buildingShellDetailMs` into roof/facade/perimeter/terrain-fill/rooftop/name-label subphases and expose the dominant shell-detail phase for the current hotspot
+
 - [x] **Step 1: Use the truth-pack and current audits to name the first outdoor fixes**
 
 Generate a focused report locally from existing seeds/artifacts and record the first two measured targets in the status doc. Use the concrete report command below so target selection stays reproducible:
@@ -817,7 +824,7 @@ Expected:
 Run on `tertiary` after the proof slice completes:
 
 ```bash
-ssh tertiary 'cd ~/.codex-remote-studio/arnis-roblox && bash scripts/export_austin_from_osm.sh --profile balanced'
+ssh tertiary 'cd ~/.codex-remote-studio/arnis-roblox && bash scripts/export_austin_from_osm.sh --profile high'
 ssh tertiary 'cd ~/.codex-remote-studio/arnis-roblox && python3 scripts/source_truth_pack_audit.py --truth-pack rust/out/austin.truth-pack.sqlite --summary-json rust/out/austin.truth-pack.summary.json --report-json /tmp/arnis-outdoor-truth-pack-report.json'
 ssh tertiary 'cd ~/.codex-remote-studio/arnis-roblox && test -f /tmp/arnis-outdoor-audit-edit/arnis-scene-fidelity-edit.json'
 ssh tertiary 'cd ~/.codex-remote-studio/arnis-roblox && test -f /tmp/arnis-outdoor-audit-play/arnis-scene-fidelity-play.json'

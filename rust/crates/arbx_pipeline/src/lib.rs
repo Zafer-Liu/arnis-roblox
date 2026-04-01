@@ -5,7 +5,7 @@ pub mod truth_pack;
 pub use truth_pack::{
     write_source_truth_pack_sqlite, write_source_truth_pack_summary, SourceTruthPack,
     SourceTruthPackSummary, TruthPackCollapse, TruthPackDroppedSemantic, TruthPackFeature,
-    TruthPackFeatureSource, TruthPackSemantic, TruthPackSource,
+    TruthPackFeatureSource, TruthPackSemantic, TruthPackSemanticLineage, TruthPackSource,
 };
 
 use arbx_geo::{
@@ -685,6 +685,8 @@ struct OvertureMergeDecision {
     retained: bool,
     retained_feature_id: Option<String>,
     matched_source: Option<String>,
+    semantic_lineage: Vec<TruthPackSemanticLineage>,
+    dropped_semantics: Vec<TruthPackDroppedSemantic>,
 }
 
 fn truth_feature_kind(feature: &Feature) -> &'static str {
@@ -741,6 +743,30 @@ fn push_dropped_semantic(
                 field_value: trimmed.to_string(),
                 reason: "collapsed_into_retained_feature".to_string(),
                 retained_feature_id: Some(retained_feature_id.to_string()),
+            });
+        }
+    }
+}
+
+fn push_semantic_lineage(
+    rows: &mut Vec<TruthPackSemanticLineage>,
+    retained_feature_id: &str,
+    source_feature_id: &str,
+    source_name: &str,
+    field_name: &str,
+    field_value: Option<String>,
+    resolution: &str,
+) {
+    if let Some(field_value) = field_value {
+        let trimmed = field_value.trim();
+        if !trimmed.is_empty() {
+            rows.push(TruthPackSemanticLineage {
+                retained_feature_id: retained_feature_id.to_string(),
+                field_name: field_name.to_string(),
+                field_value: trimmed.to_string(),
+                source_name: source_name.to_string(),
+                source_feature_id: source_feature_id.to_string(),
+                resolution: resolution.to_string(),
             });
         }
     }
@@ -891,60 +917,234 @@ fn collect_retained_semantics(feature: &Feature, rows: &mut Vec<TruthPackSemanti
     }
 }
 
-fn collect_overture_dropped_semantics(
-    building: &BuildingFeature,
-    retained_feature_id: &str,
-    rows: &mut Vec<TruthPackDroppedSemantic>,
-) {
-    push_dropped_semantic(
+fn collect_retained_building_lineage(building: &BuildingFeature, rows: &mut Vec<TruthPackSemanticLineage>) {
+    let source_name = source_name_for_building_id(&building.id);
+    push_semantic_lineage(
         rows,
         &building.id,
-        retained_feature_id,
+        &building.id,
+        source_name,
         "name",
         building.name.clone(),
+        "retained_original",
     );
-    push_dropped_semantic(
+    push_semantic_lineage(
         rows,
         &building.id,
-        retained_feature_id,
+        &building.id,
+        source_name,
         "height_m",
         building.height_m.map(|value| value.to_string()),
+        "retained_original",
     );
-    push_dropped_semantic(
+    push_semantic_lineage(
         rows,
         &building.id,
-        retained_feature_id,
+        &building.id,
+        source_name,
         "levels",
         building.levels.map(|value| value.to_string()),
+        "retained_original",
     );
-    push_dropped_semantic(
+    push_semantic_lineage(
         rows,
         &building.id,
-        retained_feature_id,
+        &building.id,
+        source_name,
         "colour",
         building.colour.clone(),
+        "retained_original",
     );
-    push_dropped_semantic(
+    push_semantic_lineage(
         rows,
         &building.id,
-        retained_feature_id,
+        &building.id,
+        source_name,
         "material",
         building.material_tag.clone(),
+        "retained_original",
     );
-    push_dropped_semantic(
+    push_semantic_lineage(
         rows,
         &building.id,
-        retained_feature_id,
+        &building.id,
+        source_name,
         "roof_colour",
         building.roof_colour.clone(),
+        "retained_original",
     );
-    push_dropped_semantic(
+    push_semantic_lineage(
         rows,
         &building.id,
-        retained_feature_id,
+        &building.id,
+        source_name,
         "roof_material",
         building.roof_material.clone(),
+        "retained_original",
     );
+}
+
+fn merge_overture_semantics_into_retained_building(
+    retained: &mut BuildingFeature,
+    candidate: &BuildingFeature,
+) -> (Vec<TruthPackSemanticLineage>, Vec<TruthPackDroppedSemantic>) {
+    let mut semantic_lineage = Vec::new();
+    let mut dropped_semantics = Vec::new();
+    let retained_feature_id = retained.id.as_str();
+    let candidate_feature_id = candidate.id.as_str();
+
+    let mut merge_string_field =
+        |field_name: &str, retained_value: &mut Option<String>, candidate_value: &Option<String>| {
+            match (retained_value.clone(), candidate_value.clone()) {
+                (None, Some(candidate_field)) => {
+                    let trimmed = candidate_field.trim().to_string();
+                    if !trimmed.is_empty() {
+                        *retained_value = Some(trimmed.clone());
+                        push_semantic_lineage(
+                            &mut semantic_lineage,
+                            retained_feature_id,
+                            candidate_feature_id,
+                            "overture",
+                            field_name,
+                            Some(trimmed),
+                            "merged_from_collapsed_feature",
+                        );
+                    }
+                }
+                (Some(retained_field), Some(candidate_field)) => {
+                    if retained_field.trim() == candidate_field.trim() {
+                        push_semantic_lineage(
+                            &mut semantic_lineage,
+                            retained_feature_id,
+                            candidate_feature_id,
+                            "overture",
+                            field_name,
+                            Some(candidate_field),
+                            "identical_to_retained_feature",
+                        );
+                    } else {
+                        push_semantic_lineage(
+                            &mut semantic_lineage,
+                            retained_feature_id,
+                            candidate_feature_id,
+                            "overture",
+                            field_name,
+                            Some(candidate_field.clone()),
+                            "conflict_lost_to_retained_feature",
+                        );
+                        push_dropped_semantic(
+                            &mut dropped_semantics,
+                            candidate_feature_id,
+                            retained_feature_id,
+                            field_name,
+                            Some(candidate_field),
+                        );
+                    }
+                }
+                _ => {}
+            }
+        };
+
+    merge_string_field("name", &mut retained.name, &candidate.name);
+    merge_string_field("colour", &mut retained.colour, &candidate.colour);
+    merge_string_field("material", &mut retained.material_tag, &candidate.material_tag);
+    merge_string_field("roof_colour", &mut retained.roof_colour, &candidate.roof_colour);
+    merge_string_field("roof_material", &mut retained.roof_material, &candidate.roof_material);
+
+    match (retained.height_m, candidate.height_m) {
+        (None, Some(candidate_height_m)) => {
+            retained.height_m = Some(candidate_height_m);
+            retained.height = candidate.height;
+            push_semantic_lineage(
+                &mut semantic_lineage,
+                retained_feature_id,
+                candidate_feature_id,
+                "overture",
+                "height_m",
+                Some(candidate_height_m.to_string()),
+                "merged_from_collapsed_feature",
+            );
+        }
+        (Some(retained_height_m), Some(candidate_height_m)) => {
+            if (retained_height_m - candidate_height_m).abs() <= f64::EPSILON {
+                push_semantic_lineage(
+                    &mut semantic_lineage,
+                    retained_feature_id,
+                    candidate_feature_id,
+                    "overture",
+                    "height_m",
+                    Some(candidate_height_m.to_string()),
+                    "identical_to_retained_feature",
+                );
+            } else {
+                push_semantic_lineage(
+                    &mut semantic_lineage,
+                    retained_feature_id,
+                    candidate_feature_id,
+                    "overture",
+                    "height_m",
+                    Some(candidate_height_m.to_string()),
+                    "conflict_lost_to_retained_feature",
+                );
+                push_dropped_semantic(
+                    &mut dropped_semantics,
+                    candidate_feature_id,
+                    retained_feature_id,
+                    "height_m",
+                    Some(candidate_height_m.to_string()),
+                );
+            }
+        }
+        _ => {}
+    }
+
+    match (retained.levels, candidate.levels) {
+        (None, Some(candidate_levels)) => {
+            retained.levels = Some(candidate_levels);
+            push_semantic_lineage(
+                &mut semantic_lineage,
+                retained_feature_id,
+                candidate_feature_id,
+                "overture",
+                "levels",
+                Some(candidate_levels.to_string()),
+                "merged_from_collapsed_feature",
+            );
+        }
+        (Some(retained_levels), Some(candidate_levels)) => {
+            if retained_levels == candidate_levels {
+                push_semantic_lineage(
+                    &mut semantic_lineage,
+                    retained_feature_id,
+                    candidate_feature_id,
+                    "overture",
+                    "levels",
+                    Some(candidate_levels.to_string()),
+                    "identical_to_retained_feature",
+                );
+            } else {
+                push_semantic_lineage(
+                    &mut semantic_lineage,
+                    retained_feature_id,
+                    candidate_feature_id,
+                    "overture",
+                    "levels",
+                    Some(candidate_levels.to_string()),
+                    "conflict_lost_to_retained_feature",
+                );
+                push_dropped_semantic(
+                    &mut dropped_semantics,
+                    candidate_feature_id,
+                    retained_feature_id,
+                    "levels",
+                    Some(candidate_levels.to_string()),
+                );
+            }
+        }
+        _ => {}
+    }
+
+    (semantic_lineage, dropped_semantics)
 }
 
 impl OverpassAdapter {
@@ -1379,25 +1579,6 @@ impl OverpassAdapter {
         }
 
         let mut truth_pack = SourceTruthPack::new();
-        for feature in &features {
-            let feature_id = match feature {
-                Feature::Road(feature) => feature.id.clone(),
-                Feature::Rail(feature) => feature.id.clone(),
-                Feature::Building(feature) => feature.id.clone(),
-                Feature::Water(WaterFeature::Ribbon(feature)) => feature.id.clone(),
-                Feature::Water(WaterFeature::Polygon(feature)) => feature.id.clone(),
-                Feature::Prop(feature) => feature.id.clone(),
-                Feature::Barrier(feature) => feature.id.clone(),
-                Feature::Landuse(feature) => feature.id.clone(),
-            };
-            truth_pack.features.push(TruthPackFeature {
-                feature_id: feature_id.clone(),
-                feature_kind: truth_feature_kind(feature).to_string(),
-                canonical_feature_id: Some(feature_id),
-                is_retained: true,
-            });
-            collect_retained_semantics(feature, &mut truth_pack.retained_semantics);
-        }
         for row in &source_rows {
             truth_pack.feature_sources.push(TruthPackFeatureSource {
                 feature_id: row.feature_id.clone(),
@@ -1420,18 +1601,28 @@ impl OverpassAdapter {
             overture::load_overture_buildings(overture_path, bbox, self.meters_per_stud);
         let merge_decisions =
             merge_overture_gap_fill_with_decisions(&mut features, overture_features);
+
+        for feature in &features {
+            let feature_id = match feature {
+                Feature::Road(feature) => feature.id.clone(),
+                Feature::Rail(feature) => feature.id.clone(),
+                Feature::Building(feature) => feature.id.clone(),
+                Feature::Water(WaterFeature::Ribbon(feature)) => feature.id.clone(),
+                Feature::Water(WaterFeature::Polygon(feature)) => feature.id.clone(),
+                Feature::Prop(feature) => feature.id.clone(),
+                Feature::Barrier(feature) => feature.id.clone(),
+                Feature::Landuse(feature) => feature.id.clone(),
+            };
+            truth_pack.features.push(TruthPackFeature {
+                feature_id: feature_id.clone(),
+                feature_kind: truth_feature_kind(feature).to_string(),
+                canonical_feature_id: Some(feature_id),
+                is_retained: true,
+            });
+            collect_retained_semantics(feature, &mut truth_pack.retained_semantics);
+        }
         for decision in merge_decisions {
             let candidate = decision.candidate;
-            truth_pack.features.push(TruthPackFeature {
-                feature_id: candidate.id.clone(),
-                feature_kind: "building".to_string(),
-                canonical_feature_id: if decision.retained {
-                    Some(candidate.id.clone())
-                } else {
-                    decision.retained_feature_id.clone()
-                },
-                is_retained: decision.retained,
-            });
             truth_pack.feature_sources.push(TruthPackFeatureSource {
                 feature_id: candidate.id.clone(),
                 source_name: "overture".to_string(),
@@ -1443,10 +1634,17 @@ impl OverpassAdapter {
                 source_layer: "building".to_string(),
             });
 
-            let candidate_feature = Feature::Building(candidate.clone());
             if decision.retained {
-                collect_retained_semantics(&candidate_feature, &mut truth_pack.retained_semantics);
-            } else if let Some(retained_feature_id) = decision.retained_feature_id.as_deref() {
+                continue;
+            }
+
+            truth_pack.features.push(TruthPackFeature {
+                feature_id: candidate.id.clone(),
+                feature_kind: "building".to_string(),
+                canonical_feature_id: decision.retained_feature_id.clone(),
+                is_retained: false,
+            });
+            if let Some(retained_feature_id) = decision.retained_feature_id.as_deref() {
                 truth_pack.collapses.push(TruthPackCollapse {
                     feature_id: candidate.id.clone(),
                     retained_feature_id: retained_feature_id.to_string(),
@@ -1455,11 +1653,14 @@ impl OverpassAdapter {
                         .matched_source
                         .unwrap_or_else(|| "overture->unknown".to_string()),
                 });
-                collect_overture_dropped_semantics(
-                    &candidate,
-                    retained_feature_id,
-                    &mut truth_pack.dropped_semantics,
-                );
+                truth_pack.semantic_lineage.extend(decision.semantic_lineage);
+                truth_pack.dropped_semantics.extend(decision.dropped_semantics);
+            }
+        }
+
+        for feature in &features {
+            if let Feature::Building(building) = feature {
+                collect_retained_building_lineage(building, &mut truth_pack.semantic_lineage);
             }
         }
 
@@ -2035,50 +2236,69 @@ fn merge_overture_gap_fill_with_decisions(
     features: &mut Vec<Feature>,
     overture_features: Vec<Feature>,
 ) -> Vec<OvertureMergeDecision> {
-    let mut canonical_buildings: Vec<BuildingFeature> = features
-        .iter()
-        .filter_map(|feature| match feature {
-            Feature::Building(building) => Some(building.clone()),
-            _ => None,
-        })
-        .collect();
     let mut decisions = Vec::new();
 
     for feature in overture_features {
-        if let Feature::Building(candidate) = &feature {
-            let overlapping_osm: Vec<&BuildingFeature> = canonical_buildings
+        if let Feature::Building(candidate) = feature {
+            let overlapping_osm: Vec<(usize, BuildingFeature)> = features
                 .iter()
-                .filter(|existing| {
-                    source_name_for_building_id(&existing.id) == "osm"
-                        && buildings_substantially_overlap(existing, candidate)
+                .enumerate()
+                .filter_map(|(index, existing)| match existing {
+                    Feature::Building(building)
+                        if source_name_for_building_id(&building.id) == "osm"
+                            && buildings_substantially_overlap(building, &candidate) =>
+                    {
+                        Some((index, building.clone()))
+                    }
+                    _ => None,
                 })
                 .collect();
-            if !overlapping_osm.is_empty()
-                && !should_preserve_named_overture_parent(&overlapping_osm, candidate)
+            let overlapping_refs: Vec<&BuildingFeature> =
+                overlapping_osm.iter().map(|(_, building)| building).collect();
+
+            if !overlapping_refs.is_empty()
+                && !should_preserve_named_overture_parent(&overlapping_refs, &candidate)
             {
-                let retained_feature_id =
-                    overlapping_osm.first().map(|building| building.id.clone());
-                let matched_source = retained_feature_id
-                    .as_deref()
-                    .map(source_name_for_building_id)
-                    .map(|source| format!("overture->{source}"));
+                let (retained_index, retained_feature_id) = overlapping_osm
+                    .first()
+                    .map(|(index, building)| (*index, building.id.clone()))
+                    .expect("overlapping_osm was checked non-empty");
+                let matched_source = Some(format!(
+                    "overture->{}",
+                    source_name_for_building_id(&retained_feature_id)
+                ));
+                let (semantic_lineage, dropped_semantics) =
+                    if let Some(Feature::Building(retained_building)) =
+                        features.get_mut(retained_index)
+                    {
+                        merge_overture_semantics_into_retained_building(
+                            retained_building,
+                            &candidate,
+                        )
+                    } else {
+                        (Vec::new(), Vec::new())
+                    };
                 decisions.push(OvertureMergeDecision {
-                    candidate: candidate.clone(),
+                    candidate,
                     retained: false,
-                    retained_feature_id,
+                    retained_feature_id: Some(retained_feature_id),
                     matched_source,
+                    semantic_lineage,
+                    dropped_semantics,
                 });
                 continue;
             }
-            canonical_buildings.push(candidate.clone());
+
+            features.push(Feature::Building(candidate.clone()));
             decisions.push(OvertureMergeDecision {
                 candidate: candidate.clone(),
                 retained: true,
                 retained_feature_id: Some(candidate.id.clone()),
                 matched_source: None,
+                semantic_lineage: Vec::new(),
+                dropped_semantics: Vec::new(),
             });
         }
-        features.push(feature);
     }
 
     decisions
@@ -3553,6 +3773,88 @@ mod tests {
             .collect();
 
         assert_eq!(building_ids, vec!["osm_1", "ov_keep"]);
+    }
+
+    #[test]
+    fn overture_gap_fill_backfills_missing_osm_semantics_from_collapsed_overture() {
+        let osm_building = Feature::Building(BuildingFeature {
+            id: "osm_backfill".to_string(),
+            footprint: Footprint::new(vec![
+                Vec2::new(0.0, 0.0),
+                Vec2::new(60.0, 0.0),
+                Vec2::new(60.0, 40.0),
+                Vec2::new(0.0, 40.0),
+            ]),
+            holes: vec![],
+            indices: None,
+            base_y: 0.0,
+            height: 14.0,
+            height_m: None,
+            levels: None,
+            roof_levels: None,
+            min_height: None,
+            usage: Some("commercial".to_string()),
+            roof: "flat".to_string(),
+            colour: None,
+            material_tag: None,
+            roof_colour: None,
+            roof_material: None,
+            roof_height: None,
+            name: None,
+        });
+
+        let overture_duplicate = Feature::Building(BuildingFeature {
+            id: "ov_backfill".to_string(),
+            footprint: Footprint::new(vec![
+                Vec2::new(1.0, 1.0),
+                Vec2::new(61.0, 1.0),
+                Vec2::new(61.0, 40.5),
+                Vec2::new(1.0, 40.5),
+            ]),
+            holes: vec![],
+            indices: None,
+            base_y: 0.0,
+            height: 28.0,
+            height_m: Some(8.5),
+            levels: Some(2),
+            roof_levels: None,
+            min_height: None,
+            usage: Some("commercial".to_string()),
+            roof: "flat".to_string(),
+            colour: Some("#cccccc".to_string()),
+            material_tag: Some("glass".to_string()),
+            roof_colour: None,
+            roof_material: None,
+            roof_height: None,
+            name: Some("Backfilled Hall".to_string()),
+        });
+
+        let mut features = vec![osm_building];
+        merge_overture_gap_fill(&mut features, vec![overture_duplicate]);
+
+        let retained = features
+            .iter()
+            .find_map(|feature| match feature {
+                Feature::Building(building) if building.id == "osm_backfill" => Some(building),
+                _ => None,
+            })
+            .expect("expected retained osm building");
+
+        assert_eq!(retained.name.as_deref(), Some("Backfilled Hall"));
+        assert_eq!(retained.height_m, Some(8.5));
+        assert_eq!(retained.levels, Some(2));
+        assert_eq!(retained.material_tag.as_deref(), Some("glass"));
+        assert_eq!(retained.colour.as_deref(), Some("#cccccc"));
+        assert_eq!(
+            features
+                .iter()
+                .filter_map(|feature| match feature {
+                    Feature::Building(building) => Some(building.id.as_str()),
+                    _ => None,
+                })
+                .collect::<Vec<_>>(),
+            vec!["osm_backfill"]
+        );
     }
 
     #[test]

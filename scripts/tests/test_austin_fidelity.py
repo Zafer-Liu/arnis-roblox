@@ -17,7 +17,7 @@ class AustinFidelityScriptTests(unittest.TestCase):
     def test_export_from_osm_defaults_to_bounded_dev_profile_and_allows_override(self) -> None:
         text = EXPORT_FROM_OSM_SCRIPT.read_text(encoding="utf-8")
 
-        self.assertIn('DEFAULT_PROFILE="${AUSTIN_EXPORT_DEFAULT_PROFILE:-balanced}"', text)
+        self.assertIn('DEFAULT_PROFILE="${AUSTIN_EXPORT_DEFAULT_PROFILE:-high}"', text)
         self.assertIn("explicit_profile=0", text)
         self.assertIn('"--profile"|"--yolo"|"--terrain-cell-size")', text)
         self.assertIn('compile_args=("--profile" "$DEFAULT_PROFILE")', text)
@@ -34,9 +34,10 @@ class AustinFidelityScriptTests(unittest.TestCase):
     def test_export_to_lua_documents_bounded_dev_profile_default(self) -> None:
         text = EXPORT_TO_LUA_SCRIPT.read_text(encoding="utf-8")
 
-        self.assertIn("default bounded dev profile", text)
+        self.assertIn("default shared Austin fidelity profile", text)
         self.assertIn('bash scripts/export_austin_to_lua.sh --profile high --satellite', text)
         self.assertIn('bash "$ROOT_DIR/scripts/export_austin_from_osm.sh" "$@"', text)
+        self.assertIn('python3 "$ROOT_DIR/scripts/verify_generated_austin_assets.py"', text)
 
     def test_build_script_refreshes_stable_latest_export_copy(self) -> None:
         text = BUILD_SCRIPT.read_text(encoding="utf-8")

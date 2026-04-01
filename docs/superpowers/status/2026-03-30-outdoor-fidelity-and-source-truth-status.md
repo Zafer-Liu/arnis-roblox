@@ -55,6 +55,18 @@ The compact historical archive index is:
 - `python3 -m unittest scripts.tests.test_convergence_guardrails scripts.tests.test_run_studio_harness_remote -v`
   - passed on 2026-04-01
   - verified every superpowers spec/plan/status file now has a supported top-level status, the March 30 stack is the only active repo-wide truth surface, and the remote operator doc still matches the harness contract
+- `python3 -m unittest scripts.tests.test_source_truth_pack.SourceTruthPackHelperTests scripts.tests.test_source_truth_pack_audit.SourceTruthPackAuditTests scripts.tests.test_austin_fidelity scripts.tests.test_play_render_truth scripts.tests.test_preview_telemetry_summary -v`
+  - passed on 2026-04-01
+  - verified the new shared Austin export default, compact semantic-lineage audit surface, and building hotspot subphase reporting without running Studio locally
+- `python3 -m py_compile scripts/source_truth_pack.py scripts/source_truth_pack_audit.py scripts/preview_telemetry_summary.py scripts/tests/test_source_truth_pack.py scripts/tests/test_source_truth_pack_audit.py scripts/tests/test_austin_fidelity.py scripts/tests/test_play_render_truth.py scripts/tests/test_preview_telemetry_summary.py`
+  - passed on 2026-04-01
+- `cargo test --manifest-path rust/Cargo.toml -p arbx_pipeline overture_gap_fill_backfills_missing_osm_semantics_from_collapsed_overture -- --nocapture`
+  - passed on 2026-04-01
+  - verified retained OSM buildings now backfill missing Overture structure semantics without keeping the collapsed Overture duplicate
+- `bash -n scripts/run_studio_harness.sh`
+  - passed on 2026-04-01
+- `bash -n scripts/run_studio_harness_remote.sh`
+  - passed on 2026-04-01
 
 ### Remote `tertiary`
 
@@ -475,3 +487,39 @@ The compact historical archive index is:
   - the staged clone is still untrusted for `scripts/` completeness
   - no new harness feature work should be opened from this status note; only bounded teardown/cleanup hygiene remains in scope
 - `tertiary` was force-cleaned after the debugging runs; no Studio, harness, MCP, `vsync serve`, or lock residue was intentionally left behind.
+
+### 2026-04-01: Shared Austin Fidelity Default, Semantic Lineage, And Hotspot Subphases Landed Locally
+
+- The shared Austin export path is now deliberately higher fidelity:
+  - `scripts/export_austin_from_osm.sh` defaults to `high`
+  - `scripts/export_austin_to_lua.sh` now documents that higher shared default explicitly
+  - the plan remains to prove the visual impact on `tertiary`, not to treat the script change itself as the proof
+- The truth-pack now records field-level structure resolution instead of only coarse collapse/drop counts:
+  - `rust/crates/arbx_pipeline/src/lib.rs` now merges missing Overture building semantics into retained overlapping OSM buildings for the current mapped structure fields
+  - `rust/crates/arbx_pipeline/src/truth_pack.rs` now writes `semantic_lineage` rows
+  - `scripts/source_truth_pack.py` and `scripts/source_truth_pack_audit.py` now surface merged/conflict lineage compactly
+  - this means the dominant structure pressure can now distinguish:
+    - values merged from collapsed Overture features
+    - values identical across retained/collapsed features
+    - values lost to retained canonical OSM features
+- Building-heavy preview hotspots are now materially more actionable:
+  - `BuildingBuilder.lua`, `ImportService/init.lua`, `AustinPreviewBuilder.lua`, and `scripts/preview_telemetry_summary.py` now split shell-detail time into:
+    - `buildingRoofBuildMs`
+    - `buildingFacadeDetailMs`
+    - `buildingPerimeterDetailMs`
+    - `buildingTerrainFillMs`
+    - `buildingRooftopDetailMs`
+    - `buildingNameLabelMs`
+  - the compact summary now emits `buildingShellDominantDetailPhase` and `buildingShellDominantDetailMs`
+  - the old blanket `buildingShellDetailMs` helper path was removed from the Rust source-truth seam where it was no longer the truthful unit of analysis
+- Local-safe verification for this continuation slice passed:
+  - `python3 -m unittest scripts.tests.test_source_truth_pack.SourceTruthPackHelperTests scripts.tests.test_source_truth_pack_audit.SourceTruthPackAuditTests scripts.tests.test_austin_fidelity scripts.tests.test_play_render_truth scripts.tests.test_preview_telemetry_summary -v`
+  - `python3 -m py_compile scripts/source_truth_pack.py scripts/source_truth_pack_audit.py scripts/preview_telemetry_summary.py scripts/tests/test_source_truth_pack.py scripts/tests/test_source_truth_pack_audit.py scripts/tests/test_austin_fidelity.py scripts/tests/test_play_render_truth.py scripts/tests/test_preview_telemetry_summary.py`
+  - `cargo test --manifest-path rust/Cargo.toml -p arbx_pipeline overture_gap_fill_backfills_missing_osm_semantics_from_collapsed_overture -- --nocapture`
+  - `bash -n scripts/run_studio_harness.sh`
+  - `bash -n scripts/run_studio_harness_remote.sh`
+- No Studio ran on this machine for this slice.
+- The next proof step is still `tertiary` only:
+  - rerun `AustinPreviewTelemetry.spec.lua`
+  - rerun `ImportService.spec.lua`
+  - capture a fresh preview hotspot artifact from the persistent repo after the higher-fidelity export default lands there

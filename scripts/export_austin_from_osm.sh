@@ -11,7 +11,7 @@ set -euo pipefail
 #   bash scripts/export_austin_from_osm.sh --profile high --satellite
 #
 # Default behavior:
-#   Uses a default bounded dev profile unless explicit fidelity arguments are supplied.
+#   Uses the default shared Austin fidelity profile unless explicit fidelity arguments are supplied.
 #   Override with AUSTIN_EXPORT_DEFAULT_PROFILE=fast|balanced|high|insane.
 #
 # Outputs:
@@ -25,7 +25,7 @@ ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 RUST_DIR="$ROOT_DIR/rust"
 DATA_DIR="$RUST_DIR/data"
 OUT_DIR="$RUST_DIR/out"
-DEFAULT_PROFILE="${AUSTIN_EXPORT_DEFAULT_PROFILE:-balanced}"
+DEFAULT_PROFILE="${AUSTIN_EXPORT_DEFAULT_PROFILE:-high}"
 
 mkdir -p "$DATA_DIR" "$OUT_DIR"
 

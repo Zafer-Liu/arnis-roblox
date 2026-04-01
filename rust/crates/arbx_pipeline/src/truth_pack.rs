@@ -11,6 +11,7 @@ pub struct SourceTruthPack {
     pub sources: Vec<TruthPackSource>,
     pub feature_sources: Vec<TruthPackFeatureSource>,
     pub retained_semantics: Vec<TruthPackSemantic>,
+    pub semantic_lineage: Vec<TruthPackSemanticLineage>,
     pub collapses: Vec<TruthPackCollapse>,
     pub dropped_semantics: Vec<TruthPackDroppedSemantic>,
 }
@@ -38,6 +39,7 @@ impl SourceTruthPack {
             ],
             feature_sources: Vec::new(),
             retained_semantics: Vec::new(),
+            semantic_lineage: Vec::new(),
             collapses: Vec::new(),
             dropped_semantics: Vec::new(),
         }
@@ -52,6 +54,7 @@ impl SourceTruthPack {
             scene: scene.into(),
             feature_count: self.features.len(),
             retained_semantic_count: self.retained_semantics.len(),
+            semantic_lineage_count: self.semantic_lineage.len(),
             dropped_semantic_count: self.dropped_semantics.len(),
             collapse_count: self.collapses.len(),
             source_counts,
@@ -96,6 +99,16 @@ pub struct TruthPackSemantic {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+pub struct TruthPackSemanticLineage {
+    pub retained_feature_id: String,
+    pub field_name: String,
+    pub field_value: String,
+    pub source_name: String,
+    pub source_feature_id: String,
+    pub resolution: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct TruthPackCollapse {
     pub feature_id: String,
     pub retained_feature_id: String,
@@ -117,6 +130,7 @@ pub struct SourceTruthPackSummary {
     pub scene: String,
     pub feature_count: usize,
     pub retained_semantic_count: usize,
+    pub semantic_lineage_count: usize,
     pub dropped_semantic_count: usize,
     pub collapse_count: usize,
     pub source_counts: BTreeMap<String, usize>,
@@ -154,6 +168,15 @@ pub fn write_source_truth_pack_sqlite(pack: &SourceTruthPack, path: &Path) -> Pi
                 feature_id TEXT NOT NULL,
                 field_name TEXT NOT NULL,
                 field_value TEXT NOT NULL
+            );
+            CREATE TABLE semantic_lineage (
+                semantic_lineage_id INTEGER PRIMARY KEY AUTOINCREMENT,
+                retained_feature_id TEXT NOT NULL,
+                field_name TEXT NOT NULL,
+                field_value TEXT NOT NULL,
+                source_name TEXT NOT NULL,
+                source_feature_id TEXT NOT NULL,
+                resolution TEXT NOT NULL
             );
             CREATE TABLE collapses (
                 collapse_id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -242,6 +265,32 @@ pub fn write_source_truth_pack_sqlite(pack: &SourceTruthPack, path: &Path) -> Pi
                 .execute(params![row.feature_id, row.field_name, row.field_value])
                 .map_err(|err| {
                     PipelineError::IO(format!("insert retained semantic failed: {err}"))
+                })?;
+        }
+    }
+
+    {
+        let mut insert_lineage = tx
+            .prepare(
+                "INSERT INTO semantic_lineage
+                 (retained_feature_id, field_name, field_value, source_name, source_feature_id, resolution)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+            )
+            .map_err(|err| {
+                PipelineError::IO(format!("prepare semantic_lineage insert failed: {err}"))
+            })?;
+        for row in &pack.semantic_lineage {
+            insert_lineage
+                .execute(params![
+                    row.retained_feature_id,
+                    row.field_name,
+                    row.field_value,
+                    row.source_name,
+                    row.source_feature_id,
+                    row.resolution,
+                ])
+                .map_err(|err| {
+                    PipelineError::IO(format!("insert semantic_lineage failed: {err}"))
                 })?;
         }
     }

@@ -694,6 +694,12 @@ function ImportService.ImportChunk(chunk, options)
         buildingMeshCreateMs = 0,
         buildingShellDetailMs = 0,
         buildingInteriorMs = 0,
+        buildingRoofBuildMs = 0,
+        buildingFacadeDetailMs = 0,
+        buildingPerimeterDetailMs = 0,
+        buildingTerrainFillMs = 0,
+        buildingRooftopDetailMs = 0,
+        buildingNameLabelMs = 0,
         buildingRoofMeshPartCount = 0,
         buildingFeatureCount = if type(chunk.buildings) == "table" then #chunk.buildings else 0,
         waterMs = 0,
@@ -1025,6 +1031,12 @@ function ImportService.ImportChunk(chunk, options)
             chunkProfile.buildingMeshTriangleCount = tonumber(buildingMeshStats.triangleCount) or 0
             chunkProfile.buildingMeshCreateMs = tonumber(buildingMeshStats.meshCreateMs) or 0
             chunkProfile.buildingShellDetailMs = tonumber(buildingMeshStats.shellDetailMs) or 0
+            chunkProfile.buildingRoofBuildMs = tonumber(buildingMeshStats.roofBuildMs) or 0
+            chunkProfile.buildingFacadeDetailMs = tonumber(buildingMeshStats.facadeDetailMs) or 0
+            chunkProfile.buildingPerimeterDetailMs = tonumber(buildingMeshStats.perimeterDetailMs) or 0
+            chunkProfile.buildingTerrainFillMs = tonumber(buildingMeshStats.terrainFillMs) or 0
+            chunkProfile.buildingRooftopDetailMs = tonumber(buildingMeshStats.rooftopDetailMs) or 0
+            chunkProfile.buildingNameLabelMs = tonumber(buildingMeshStats.nameLabelMs) or 0
             chunkProfile.buildingRoofMeshPartCount = tonumber(buildingMeshStats.roofMeshPartCount) or 0
             if config.EnableRoomInteriors ~= false then
                 -- Build interiors as an optional overlay on top of canonical shell geometry.

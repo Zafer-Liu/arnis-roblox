@@ -22,6 +22,14 @@ def _rows_to_dicts(rows: list[sqlite3.Row]) -> list[dict[str, Any]]:
     return [dict(row) for row in rows]
 
 
+def _table_exists(connection: sqlite3.Connection, table_name: str) -> bool:
+    row = connection.execute(
+        "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = ? LIMIT 1",
+        (table_name,),
+    ).fetchone()
+    return row is not None
+
+
 def load_summary(db_path: Path | str) -> dict[str, Any]:
     db_path = Path(db_path)
     summary_path = summary_path_for_db(db_path)
@@ -98,6 +106,28 @@ def load_feature(db_path: Path | str, feature_id: str) -> dict[str, Any]:
                 (feature_id,),
             ).fetchall()
         )
+        semantic_lineage: list[dict[str, Any]] = []
+        if _table_exists(connection, "semantic_lineage"):
+            semantic_lineage = _rows_to_dicts(
+                connection.execute(
+                    """
+                    SELECT retained_feature_id, field_name, field_value, source_name, source_feature_id, resolution
+                    FROM semantic_lineage
+                    WHERE retained_feature_id = ?
+                    ORDER BY field_name,
+                             CASE
+                                 WHEN LOWER(resolution) LIKE '%conflict%' THEN 0
+                                 WHEN LOWER(resolution) LIKE '%merged%' THEN 1
+                                 ELSE 2
+                             END,
+                             source_name,
+                             source_feature_id,
+                             field_value,
+                             resolution
+                    """,
+                    (feature_id,),
+                ).fetchall()
+            )
         collapses = _rows_to_dicts(
             connection.execute(
                 """
@@ -127,6 +157,7 @@ def load_feature(db_path: Path | str, feature_id: str) -> dict[str, Any]:
         "feature": dict(feature),
         "sources": sources,
         "retained_semantics": retained_semantics,
+        "semantic_lineage": semantic_lineage,
         "collapses": collapses,
         "dropped_semantics": dropped_semantics,
     }

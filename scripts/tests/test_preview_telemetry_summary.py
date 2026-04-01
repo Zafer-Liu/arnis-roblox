@@ -42,6 +42,12 @@ class PreviewTelemetrySummaryTests(unittest.TestCase):
                     "buildingMeshCreateMs": 97,
                     "buildingShellDetailMs": 20,
                     "buildingInteriorMs": 4,
+                    "buildingRoofBuildMs": 8,
+                    "buildingFacadeDetailMs": 6,
+                    "buildingPerimeterDetailMs": 3,
+                    "buildingTerrainFillMs": 2,
+                    "buildingRooftopDetailMs": 1,
+                    "buildingNameLabelMs": 0,
                     "buildingMeshPartCount": 14,
                     "buildingRoofMeshPartCount": 6,
                     "buildingMeshTriangleCount": 4096,
@@ -98,6 +104,12 @@ class PreviewTelemetrySummaryTests(unittest.TestCase):
                         "buildingMeshCreateMs": 97,
                         "buildingShellDetailMs": 20,
                         "buildingInteriorMs": 4,
+                        "buildingRoofBuildMs": 8,
+                        "buildingFacadeDetailMs": 6,
+                        "buildingPerimeterDetailMs": 3,
+                        "buildingTerrainFillMs": 2,
+                        "buildingRooftopDetailMs": 1,
+                        "buildingNameLabelMs": 0,
                         "buildingMeshPartCount": 14,
                         "buildingRoofMeshPartCount": 6,
                         "buildingMeshTriangleCount": 4096,
@@ -116,6 +128,8 @@ class PreviewTelemetrySummaryTests(unittest.TestCase):
                         "buildingResidualRatio": 0.1983,
                         "buildingMeshPartsPerFeature": 1.0,
                         "buildingMeshTrianglesPerFeature": 292.57,
+                        "buildingShellDominantDetailPhase": "roof_build",
+                        "buildingShellDominantDetailMs": 8,
                         "dominantCostCenter": "buildings",
                         "dominantCostMs": 121,
                         "dominantCostRatio": 0.7289,
@@ -299,6 +313,12 @@ class PreviewTelemetrySummaryTests(unittest.TestCase):
                     "buildingMeshCreateMs": 97,
                     "buildingShellDetailMs": 20,
                     "buildingInteriorMs": 4,
+                    "buildingRoofBuildMs": 8,
+                    "buildingFacadeDetailMs": 6,
+                    "buildingPerimeterDetailMs": 3,
+                    "buildingTerrainFillMs": 2,
+                    "buildingRooftopDetailMs": 1,
+                    "buildingNameLabelMs": 0,
                     "buildingMeshPartCount": 14,
                     "buildingRoofMeshPartCount": 6,
                     "buildingMeshTriangleCount": 4096,
@@ -327,9 +347,14 @@ class PreviewTelemetrySummaryTests(unittest.TestCase):
             "slow_chunk_building_mesh_create_ms=97 slow_chunk_building_mesh_parts=14 "
             "slow_chunk_building_roof_mesh_parts=6 slow_chunk_building_mesh_triangles=4096 "
             "slow_chunk_building_shell_detail_ms=20 slow_chunk_building_interior_ms=4 "
+            "slow_chunk_building_roof_build_ms=8 slow_chunk_building_facade_detail_ms=6 "
+            "slow_chunk_building_perimeter_detail_ms=3 slow_chunk_building_terrain_fill_ms=2 "
+            "slow_chunk_building_rooftop_detail_ms=1 slow_chunk_building_name_label_ms=0 "
             "slow_chunk_building_residual_ms=24 slow_chunk_building_mesh_create_ratio=0.8017 "
             "slow_chunk_building_residual_ratio=0.1983 slow_chunk_building_mesh_parts_per_feature=1.0 "
             "slow_chunk_building_mesh_triangles_per_feature=292.57 "
+            "slow_chunk_building_shell_dominant_detail_phase=roof_build "
+            "slow_chunk_building_shell_dominant_detail_ms=8 "
             "slow_chunk_terrain_ms=18 slow_chunk_terrain_material_kind_count=1 "
             "slow_chunk_terrain_dominant_material=Grass "
             "slow_chunk_terrain_dominant_material_cells=64 slow_chunk_terrain_non_grass_cells=0 "

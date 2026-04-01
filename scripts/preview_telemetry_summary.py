@@ -93,6 +93,32 @@ def _building_hotspot_metrics(slow_chunk: dict[str, Any]) -> dict[str, int | flo
     return metrics
 
 
+def _building_detail_phase_metrics(slow_chunk: dict[str, Any]) -> dict[str, int | str]:
+    detail_phase_values = {
+        "roof_build": int(slow_chunk.get("buildingRoofBuildMs", 0) or 0),
+        "facade_detail": int(slow_chunk.get("buildingFacadeDetailMs", 0) or 0),
+        "perimeter_detail": int(slow_chunk.get("buildingPerimeterDetailMs", 0) or 0),
+        "terrain_fill": int(slow_chunk.get("buildingTerrainFillMs", 0) or 0),
+        "rooftop_detail": int(slow_chunk.get("buildingRooftopDetailMs", 0) or 0),
+        "name_label": int(slow_chunk.get("buildingNameLabelMs", 0) or 0),
+    }
+    dominant_phase = "unknown"
+    dominant_ms = 0
+    for phase_name, elapsed_ms in detail_phase_values.items():
+        if elapsed_ms > dominant_ms or (elapsed_ms == dominant_ms and dominant_phase == "unknown" and elapsed_ms > 0):
+            dominant_phase = phase_name
+            dominant_ms = elapsed_ms
+
+    metrics: dict[str, int | str] = {
+        "buildingShellDominantDetailPhase": dominant_phase,
+        "buildingShellDominantDetailMs": dominant_ms,
+    }
+    for phase_name, elapsed_ms in detail_phase_values.items():
+        token_name = "".join(part.capitalize() for part in phase_name.split("_"))
+        metrics[f"building{token_name}Ms"] = elapsed_ms
+    return metrics
+
+
 def build_plugin_state_summary(data: dict[str, Any], telemetry_families: Any | None = None) -> dict[str, Any]:
     runtime = data.get("preview_runtime") or {}
     runtime_connection = runtime.get("connection") or {}
@@ -185,6 +211,7 @@ def build_plugin_state_summary(data: dict[str, Any], telemetry_families: Any | N
             "artifactCount": int(last_slow_chunk.get("artifactCount", 0)),
         }
         summary["hotspot"]["slowChunk"].update(_building_hotspot_metrics(last_slow_chunk))
+        summary["hotspot"]["slowChunk"].update(_building_detail_phase_metrics(last_slow_chunk))
         for source_key in (
             "buildingMeshCreateMs",
             "buildingMeshPartCount",
@@ -260,11 +287,19 @@ def summarize_plugin_state(data: dict[str, Any], telemetry_families: Any | None 
         derived_hotspot_tokens = (
             ("buildingShellDetailMs", "slow_chunk_building_shell_detail_ms"),
             ("buildingInteriorMs", "slow_chunk_building_interior_ms"),
+            ("buildingRoofBuildMs", "slow_chunk_building_roof_build_ms"),
+            ("buildingFacadeDetailMs", "slow_chunk_building_facade_detail_ms"),
+            ("buildingPerimeterDetailMs", "slow_chunk_building_perimeter_detail_ms"),
+            ("buildingTerrainFillMs", "slow_chunk_building_terrain_fill_ms"),
+            ("buildingRooftopDetailMs", "slow_chunk_building_rooftop_detail_ms"),
+            ("buildingNameLabelMs", "slow_chunk_building_name_label_ms"),
             ("buildingResidualMs", "slow_chunk_building_residual_ms"),
             ("buildingMeshCreateRatio", "slow_chunk_building_mesh_create_ratio"),
             ("buildingResidualRatio", "slow_chunk_building_residual_ratio"),
             ("buildingMeshPartsPerFeature", "slow_chunk_building_mesh_parts_per_feature"),
             ("buildingMeshTrianglesPerFeature", "slow_chunk_building_mesh_triangles_per_feature"),
+            ("buildingShellDominantDetailPhase", "slow_chunk_building_shell_dominant_detail_phase"),
+            ("buildingShellDominantDetailMs", "slow_chunk_building_shell_dominant_detail_ms"),
         )
         for source_key, token_key in derived_hotspot_tokens:
             if source_key in slow_chunk:

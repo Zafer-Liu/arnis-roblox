@@ -12,8 +12,8 @@ set -euo pipefail
 #   bash scripts/export_austin_to_lua.sh --profile high --satellite
 #
 # Default behavior:
-#   Uses the default bounded dev profile from export_austin_from_osm.sh unless explicit
-#   fidelity arguments are supplied on the command line.
+#   Uses the default shared Austin fidelity profile from export_austin_from_osm.sh unless
+#   explicit fidelity arguments are supplied on the command line.
 #
 # Outputs:
 #   rust/data/austin_overpass.json
@@ -36,7 +36,7 @@ mkdir -p "$DATA_DIR" "$OUT_DIR" "$SAMPLE_DATA_DIR" "$PREVIEW_DIR"
 echo "=== Fetching Overture building footprints ==="
 python3 "$ROOT_DIR/scripts/fetch_overture_buildings.py" || echo "Warning: Overture fetch failed, continuing with OSM only"
 
-echo "[export_austin_to_lua] Fetching OSM + exporting manifest with the default bounded dev profile unless explicitly overridden..."
+echo "[export_austin_to_lua] Fetching OSM + exporting manifest with the default shared Austin fidelity profile unless explicitly overridden..."
 bash "$ROOT_DIR/scripts/export_austin_from_osm.sh" "$@"
 
 echo "[export_austin_to_lua] Converting SQLite manifest store to sharded Lua modules..."

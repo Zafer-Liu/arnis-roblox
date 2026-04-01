@@ -48,6 +48,14 @@ def _summary_path(db_path: Path) -> Path:
     return db_path.with_suffix(".summary.json")
 
 
+def _table_exists(connection: sqlite3.Connection, table_name: str) -> bool:
+    row = connection.execute(
+        "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = ? LIMIT 1",
+        (table_name,),
+    ).fetchone()
+    return row is not None
+
+
 def _load_summary(db_path: Path) -> dict[str, Any]:
     summary_path = _summary_path(db_path)
     if not summary_path.is_file():
@@ -269,14 +277,58 @@ def build_report(truth_pack: Path) -> dict[str, Any]:
             ,
             (*OUTDOOR_FEATURE_KINDS, HOTSPOT_LIMIT),
         ).fetchall()]
+        semantic_lineage_rows: list[dict[str, Any]] = []
+        semantic_lineage_sample_rows: list[dict[str, Any]] = []
+        if _table_exists(connection, "semantic_lineage"):
+            semantic_lineage_rows = [
+                dict(row)
+                for row in connection.execute(
+                    """
+                    SELECT f.feature_kind, sl.field_name, sl.resolution, COUNT(*) AS semantic_count
+                    FROM semantic_lineage sl
+                    JOIN features f ON f.feature_id = sl.retained_feature_id
+                    WHERE LOWER(f.feature_kind) IN ("""
+                    + kinds_clause
+                    + """)
+                    GROUP BY f.feature_kind, sl.field_name, sl.resolution
+                    ORDER BY f.feature_kind, sl.field_name, sl.resolution
+                    """,
+                    OUTDOOR_FEATURE_KINDS,
+                ).fetchall()
+            ]
+            semantic_lineage_sample_rows = [
+                dict(row)
+                for row in connection.execute(
+                    """
+                    SELECT sl.retained_feature_id, f.feature_kind, sl.field_name, sl.field_value,
+                           sl.source_name, sl.source_feature_id, sl.resolution
+                    FROM semantic_lineage sl
+                    JOIN features f ON f.feature_id = sl.retained_feature_id
+                    WHERE LOWER(f.feature_kind) IN ("""
+                    + kinds_clause
+                    + """)
+                      AND (
+                        LOWER(sl.resolution) LIKE '%merged%'
+                        OR LOWER(sl.resolution) LIKE '%conflict%'
+                      )
+                    ORDER BY f.feature_kind, sl.retained_feature_id, sl.field_name, sl.source_name, sl.source_feature_id
+                    LIMIT ?
+                    """,
+                    (*OUTDOOR_FEATURE_KINDS, HOTSPOT_LIMIT),
+                ).fetchall()
+            ]
     finally:
         connection.close()
 
     retained_semantics_by_family: Counter[str] = Counter()
     dropped_semantics_by_family: Counter[str] = Counter()
     overlap_loss_by_family: Counter[str] = Counter()
+    merged_semantics_by_family: Counter[str] = Counter()
+    semantic_conflicts_by_family: Counter[str] = Counter()
     dropped_semantics_breakdown_by_family: dict[str, Counter[str]] = {family: Counter() for family in OUTDOOR_FAMILIES}
     collapse_breakdown_by_family: dict[str, Counter[str]] = {family: Counter() for family in OUTDOOR_FAMILIES}
+    merged_semantics_breakdown_by_family: dict[str, Counter[str]] = {family: Counter() for family in OUTDOOR_FAMILIES}
+    semantic_conflicts_breakdown_by_family: dict[str, Counter[str]] = {family: Counter() for family in OUTDOOR_FAMILIES}
     source_feature_counts_by_family: Counter[str] = Counter()
     retained_feature_counts_by_family: Counter[str] = Counter()
 
@@ -290,6 +342,17 @@ def build_report(truth_pack: Path) -> dict[str, Any]:
         dropped_semantics_breakdown_by_family.setdefault(family, Counter())[field_name] += int(row["semantic_count"])
     for row in overlap_rows:
         overlap_loss_by_family[_family_for_kind(row.get("feature_kind"))] += int(row["collapse_count"])
+    for row in semantic_lineage_rows:
+        family = _family_for_kind(row.get("feature_kind"))
+        field_name = str(row.get("field_name") or "unknown")
+        resolution = str(row.get("resolution") or "").strip().lower()
+        semantic_count = int(row["semantic_count"])
+        if "merged" in resolution:
+            merged_semantics_by_family[family] += semantic_count
+            merged_semantics_breakdown_by_family.setdefault(family, Counter())[field_name] += semantic_count
+        if "conflict" in resolution:
+            semantic_conflicts_by_family[family] += semantic_count
+            semantic_conflicts_breakdown_by_family.setdefault(family, Counter())[field_name] += semantic_count
     for row in collapse_breakdown_rows:
         family = _family_for_kind(row.get("feature_kind"))
         breakdown_key = f"{row['matched_source']}|{row['collapse_kind']}"
@@ -318,6 +381,12 @@ def build_report(truth_pack: Path) -> dict[str, Any]:
         dropped_semantics_by_family
     )
     largest_overlap_loss_family, largest_overlap_loss_count = _largest_counter_entry(overlap_loss_by_family)
+    largest_merged_semantics_family, largest_merged_semantics_count = _largest_counter_entry(
+        merged_semantics_by_family
+    )
+    largest_conflict_semantics_family, largest_conflict_semantics_count = _largest_counter_entry(
+        semantic_conflicts_by_family
+    )
 
     overlap_samples = [
         {
@@ -340,10 +409,24 @@ def build_report(truth_pack: Path) -> dict[str, Any]:
         }
         for row in dropped_sample_rows
     ]
+    semantic_lineage_samples = [
+        {
+            "retained_feature_id": str(row["retained_feature_id"]),
+            "family": _family_for_kind(row["feature_kind"]),
+            "field_name": str(row["field_name"]),
+            "field_value": str(row["field_value"]),
+            "source_name": str(row["source_name"]),
+            "source_feature_id": str(row["source_feature_id"]),
+            "resolution": str(row["resolution"]),
+        }
+        for row in semantic_lineage_sample_rows
+    ]
 
     retained_semantic_count = sum(retained_semantics_by_family.values())
     dropped_semantic_count = sum(dropped_semantics_by_family.values())
     collapse_count = sum(overlap_loss_by_family.values())
+    merged_semantic_count = sum(merged_semantics_by_family.values())
+    semantic_conflict_count = sum(semantic_conflicts_by_family.values())
 
     source_counts = summary_data.get("source_counts") if isinstance(summary_data.get("source_counts"), dict) else {}
     source_counts = {str(key): int(value) for key, value in source_counts.items()}
@@ -361,6 +444,10 @@ def build_report(truth_pack: Path) -> dict[str, Any]:
             "largestDroppedSemanticsCount": largest_dropped_semantics_count,
             "largestOverlapLossFamily": largest_overlap_loss_family,
             "largestOverlapLossCount": largest_overlap_loss_count,
+            "largestMergedSemanticsFamily": largest_merged_semantics_family,
+            "largestMergedSemanticsCount": largest_merged_semantics_count,
+            "largestConflictSemanticsFamily": largest_conflict_semantics_family,
+            "largestConflictSemanticsCount": largest_conflict_semantics_count,
         },
         "retained_semantics_by_family": {
             family: int(retained_semantics_by_family.get(family, 0)) for family in OUTDOOR_FAMILIES
@@ -375,6 +462,20 @@ def build_report(truth_pack: Path) -> dict[str, Any]:
         "overlap_loss_by_family": {
             family: int(overlap_loss_by_family.get(family, 0)) for family in OUTDOOR_FAMILIES
         },
+        "merged_semantics_by_family": {
+            family: int(merged_semantics_by_family.get(family, 0)) for family in OUTDOOR_FAMILIES
+        },
+        "semantic_conflicts_by_family": {
+            family: int(semantic_conflicts_by_family.get(family, 0)) for family in OUTDOOR_FAMILIES
+        },
+        "merged_semantics_breakdown": {
+            family: _bounded_counter_rows(merged_semantics_breakdown_by_family.get(family, Counter()))
+            for family in OUTDOOR_FAMILIES
+        },
+        "semantic_conflicts_breakdown": {
+            family: _bounded_counter_rows(semantic_conflicts_breakdown_by_family.get(family, Counter()))
+            for family in OUTDOOR_FAMILIES
+        },
         "collapse_breakdown": {
             family: _bounded_counter_rows(collapse_breakdown_by_family.get(family, Counter()))
             for family in OUTDOOR_FAMILIES
@@ -384,6 +485,10 @@ def build_report(truth_pack: Path) -> dict[str, Any]:
     samples = {
         "overlap_losses": _top_samples(overlap_samples, sort_keys=("family", "feature_id", "retained_feature_id")),
         "dropped_semantics": _top_samples(dropped_samples, sort_keys=("family", "feature_id", "field_name")),
+        "semantic_lineage": _top_samples(
+            semantic_lineage_samples,
+            sort_keys=("family", "retained_feature_id", "field_name", "source_name"),
+        ),
     }
 
     findings: list[dict[str, Any]] = []
@@ -416,6 +521,26 @@ def build_report(truth_pack: Path) -> dict[str, Any]:
             metric="truth_pack_retained_semantic_count",
             value=retained_semantic_count,
             threshold="> 0",
+        )
+    if merged_semantic_count > 0:
+        _add_finding(
+            findings,
+            severity="info",
+            code="truth_pack_merged_semantics",
+            message="Truth-pack records merged outdoor semantics that were retained from collapsed source features.",
+            metric="truth_pack_merged_semantic_count",
+            value=merged_semantic_count,
+            threshold="> 0",
+        )
+    if semantic_conflict_count > 0:
+        _add_finding(
+            findings,
+            severity="warning",
+            code="truth_pack_semantic_conflicts",
+            message="Truth-pack records outdoor semantic conflicts where one source value lost to the retained canonical feature.",
+            metric="truth_pack_semantic_conflict_count",
+            value=semantic_conflict_count,
+            threshold="== 0",
         )
 
     return {

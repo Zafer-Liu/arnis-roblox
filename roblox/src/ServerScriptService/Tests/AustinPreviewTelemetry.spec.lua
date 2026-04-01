@@ -28,6 +28,12 @@ return function()
         buildingsMs = 121,
         buildingShellDetailMs = 20,
         buildingInteriorMs = 4,
+        buildingRoofBuildMs = 8,
+        buildingFacadeDetailMs = 6,
+        buildingPerimeterDetailMs = 3,
+        buildingTerrainFillMs = 2,
+        buildingRooftopDetailMs = 1,
+        buildingNameLabelMs = 0,
         terrainMs = 18,
         roadsMs = 9,
         landuseTerrainFillMs = 6,
@@ -101,6 +107,16 @@ return function()
         decoded.lastSlowChunk.buildingInteriorMs,
         4,
         "expected flushed telemetry JSON to preserve interior hotspot cost when present"
+    )
+    Assert.equal(
+        decoded.lastSlowChunk.buildingRoofBuildMs,
+        8,
+        "expected flushed telemetry JSON to preserve roof-build hotspot cost when present"
+    )
+    Assert.equal(
+        decoded.lastSlowChunk.buildingFacadeDetailMs,
+        6,
+        "expected flushed telemetry JSON to preserve facade-detail hotspot cost when present"
     )
     Assert.equal(
         decoded.recentEvents[#decoded.recentEvents].event,
