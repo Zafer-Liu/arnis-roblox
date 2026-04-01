@@ -38,6 +38,7 @@ SCENE_INDEX_VERSION=2
 STUDIO_RELAUNCH_COOLDOWN_SECONDS=3
 HARNESS_LOCK_DIR="${HARNESS_LOCK_DIR:-/tmp/arnis-studio-harness.lock}"
 HARNESS_LOCK_OWNED=0
+export ARNIS_TELEMETRY_FAMILIES="${ARNIS_TELEMETRY_FAMILIES:-}"
 MCP_BINARY="${RBX_STUDIO_MCP_BIN:-}"
 VSYNC_BINARY="${VSYNC_BIN:-}"
 VSYNC_SOURCE_REPO=0
@@ -1185,6 +1186,7 @@ capture_preview_telemetry_artifacts() {
 
   local preview_telemetry_dir="${ARNIS_PREVIEW_TELEMETRY_DIR:-/tmp}"
   mkdir -p "$preview_telemetry_dir"
+  local requested_telemetry_families="${ARNIS_TELEMETRY_FAMILIES:-}"
 
   local plugin_state_json="$preview_telemetry_dir/arnis-preview-plugin-state.json"
   local telemetry_summary_txt="$preview_telemetry_dir/arnis-preview-telemetry-summary.txt"
@@ -1195,7 +1197,7 @@ capture_preview_telemetry_artifacts() {
     return 0
   fi
 
-  python3 -m scripts.preview_telemetry_summary "$plugin_state_json" "$telemetry_summary_txt"
+  ARNIS_TELEMETRY_FAMILIES="$requested_telemetry_families" python3 -m scripts.preview_telemetry_summary "$plugin_state_json" "$telemetry_summary_txt"
 
   log "preview telemetry saved: $plugin_state_json"
   if [[ -f "$telemetry_summary_txt" ]]; then

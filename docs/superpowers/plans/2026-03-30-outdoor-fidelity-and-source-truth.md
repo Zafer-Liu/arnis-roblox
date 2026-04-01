@@ -375,6 +375,8 @@ Task 3b coverage:
 
 ## Task 4: Add Selective Outdoor Telemetry Flags
 
+Status note: On 2026-04-01, Task 4a1 landed the harness/operator contract slice only. `ARNIS_TELEMETRY_FAMILIES` is now an explicit `scripts/run_studio_harness.sh` contract and the preview summary can surface a requested family subset compactly, but Luau/runtime gating remains deferred to the later Task 4 implementation steps.
+
 **Files:**
 - Create: `roblox/src/ReplicatedStorage/Shared/WorldProbeTelemetryFlags.lua`
 - Create: `roblox/src/ServerScriptService/Tests/WorldProbeTelemetryFlags.spec.lua`

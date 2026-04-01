@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 from pathlib import Path
 from typing import Any
 
@@ -11,7 +12,29 @@ def _as_bool_flag(value: Any) -> int:
     return 1 if bool(value) else 0
 
 
-def summarize_plugin_state(data: dict[str, Any]) -> str:
+def _normalize_telemetry_families(value: Any) -> list[str]:
+    if not value:
+        return []
+
+    if isinstance(value, str):
+        raw_families = value.split(",")
+    elif isinstance(value, (list, tuple)):
+        raw_families = value
+    else:
+        raw_families = [value]
+
+    normalized: list[str] = []
+    seen: set[str] = set()
+    for family in raw_families:
+        family_name = str(family).strip()
+        if not family_name or family_name in seen:
+            continue
+        seen.add(family_name)
+        normalized.append(family_name)
+    return normalized
+
+
+def summarize_plugin_state(data: dict[str, Any], telemetry_families: Any | None = None) -> str:
     runtime = data.get("preview_runtime") or {}
     runtime_connection = runtime.get("connection") or {}
     project = data.get("preview_project") or {}
@@ -72,6 +95,10 @@ def summarize_plugin_state(data: dict[str, Any]) -> str:
         if full_bake_last_result is not None:
             project_parts.append(f"full_bake_last_result={full_bake_last_result}")
 
+    requested_families = _normalize_telemetry_families(telemetry_families)
+    if requested_families:
+        project_parts.append(f"telemetry_families={','.join(requested_families)}")
+
     return f"runtime={' '.join(runtime_parts)}; project={' '.join(project_parts)}"
 
 
@@ -84,7 +111,7 @@ def main() -> int:
     args = parser.parse_args()
 
     data = json.loads(args.plugin_state_json.read_text(encoding="utf-8"))
-    summary = summarize_plugin_state(data)
+    summary = summarize_plugin_state(data, telemetry_families=os.environ.get("ARNIS_TELEMETRY_FAMILIES"))
     args.summary_out.write_text(summary, encoding="utf-8")
     print(summary)
     return 0

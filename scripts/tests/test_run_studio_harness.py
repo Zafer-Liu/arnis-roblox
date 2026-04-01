@@ -326,10 +326,15 @@ class RunStudioHarnessTests(unittest.TestCase):
     def test_harness_captures_preview_telemetry_artifacts(self) -> None:
         self.assertIn("capture_preview_telemetry_artifacts()", self.text)
         self.assertIn('local preview_telemetry_dir="${ARNIS_PREVIEW_TELEMETRY_DIR:-/tmp}"', self.text)
+        self.assertIn('export ARNIS_TELEMETRY_FAMILIES="${ARNIS_TELEMETRY_FAMILIES:-}"', self.text)
+        self.assertIn('local requested_telemetry_families="${ARNIS_TELEMETRY_FAMILIES:-}"', self.text)
         self.assertIn('curl -sf "$VSYNC_SERVER_URL/plugin/state"', self.text)
         self.assertIn('local plugin_state_json="$preview_telemetry_dir/arnis-preview-plugin-state.json"', self.text)
         self.assertIn('local telemetry_summary_txt="$preview_telemetry_dir/arnis-preview-telemetry-summary.txt"', self.text)
-        self.assertIn("python3 -m scripts.preview_telemetry_summary", self.text)
+        self.assertIn(
+            'ARNIS_TELEMETRY_FAMILIES="$requested_telemetry_families" python3 -m scripts.preview_telemetry_summary',
+            self.text,
+        )
         self.assertIn('log "preview telemetry saved: $plugin_state_json"', self.text)
         self.assertIn('log "preview telemetry summary: $(cat "$telemetry_summary_txt")"', self.text)
 

@@ -110,3 +110,9 @@ No verification recorded yet.
   - Task 3a manifest-quality truth-pack audit work
   - Task 3b scene-fidelity and scene-parity truth-pack carry-through
 - Hotspot telemetry remains explicitly deferred to a later slice.
+
+### 2026-04-01: Task 4a1 Landed The Harness/Operator Contract Slice
+
+- `ARNIS_TELEMETRY_FAMILIES` is now a first-class `scripts/run_studio_harness.sh` contract and is exported into the preview telemetry summary step.
+- `scripts.preview_telemetry_summary` now surfaces a requested family subset compactly and stably as a `telemetry_families=` token without changing the default compact summary shape.
+- This slice is intentionally limited to the harness/operator contract and summary presentation; Luau/runtime gating remains deferred to the later Task 4 implementation steps.
