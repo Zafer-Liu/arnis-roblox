@@ -102,3 +102,11 @@ No verification recorded yet.
 - Hotspot carry-through was intentionally left out of this slice.
 - Local-safe verification passed:
   - `python3 -m unittest scripts.tests.test_scene_fidelity_audit scripts.tests.test_scene_parity_audit -v`
+
+### 2026-04-01: Task 3 Plan Drift Fixed Again After The Task 3b Review Gate
+
+- A follow-up spec review correctly noted that the active Task 3a steps still listed scene-audit and hotspot coverage after Task 3a had already been narrowed.
+- The active plan now separates:
+  - Task 3a manifest-quality truth-pack audit work
+  - Task 3b scene-fidelity and scene-parity truth-pack carry-through
+- Hotspot telemetry remains explicitly deferred to a later slice.

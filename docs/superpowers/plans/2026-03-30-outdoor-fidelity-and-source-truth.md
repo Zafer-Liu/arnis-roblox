@@ -301,17 +301,12 @@ Status note: On 2026-04-01, Task 3b landed as the scene-audit truth-pack carry-t
 
 Create `scripts/tests/test_source_truth_pack_audit.py` and extend:
 - `scripts/tests/test_manifest_quality_audit.py`
-- `scripts/tests/test_scene_fidelity_audit.py`
-- `scripts/tests/test_scene_parity_audit.py`
 
 Cover:
 - outdoor overlap-loss findings
 - dropped-semantic findings
 - retained-semantic findings and counts by outdoor family
 - per-family outdoor source coverage for `terrain`, `landuse`, `roads`, `water`, `vegetation`, `structures`
-- outdoor hotspot timing/artifact carry-through into scene-fidelity and scene-parity JSON/HTML surfaces
-- carry-through into scene-fidelity JSON/HTML
-- parity normalization that can distinguish intentional bounded-preview subset behavior from real source-truth loss
 
 - [ ] **Task 3a Step 2: Run the focused audit tests to verify they fail**
 
@@ -320,9 +315,7 @@ Run:
 ```bash
 python3 -m unittest \
   scripts.tests.test_source_truth_pack_audit \
-  scripts.tests.test_manifest_quality_audit \
-  scripts.tests.test_scene_fidelity_audit \
-  scripts.tests.test_scene_parity_audit -v
+  scripts.tests.test_manifest_quality_audit -v
 ```
 
 Expected:
@@ -345,9 +338,7 @@ Run:
 ```bash
 python3 -m unittest \
   scripts.tests.test_source_truth_pack_audit \
-  scripts.tests.test_manifest_quality_audit \
-  scripts.tests.test_scene_fidelity_audit \
-  scripts.tests.test_scene_parity_audit -v
+  scripts.tests.test_manifest_quality_audit -v
 ```
 
 Expected:
@@ -366,6 +357,21 @@ git add scripts/source_truth_pack_audit.py \
   scripts/tests/test_scene_parity_audit.py
 git commit -m "feat: audit outdoor source truth"
 ```
+
+### Task 3b: Carry Compact Truth-Pack Summary Into Scene Audits
+
+**Task 3b Files:**
+- Modify: `scripts/scene_fidelity_audit.py`
+- Modify: `scripts/scene_parity_audit.py`
+- Modify: `scripts/tests/test_scene_fidelity_audit.py`
+- Modify: `scripts/tests/test_scene_parity_audit.py`
+
+Task 3b coverage:
+- carry the bounded truth-pack summary into `scene_fidelity_audit.py` JSON/HTML surfaces
+- compare that compact truth-pack surface in `scene_parity_audit.py`
+- keep bounded-preview subset allowances limited to scene geometry metrics
+- treat truth-pack source-truth mismatches as real mismatches
+- defer hotspot telemetry carry-through to a later slice
 
 ## Task 4: Add Selective Outdoor Telemetry Flags
 
