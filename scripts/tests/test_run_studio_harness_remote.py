@@ -6,6 +6,7 @@ import unittest
 
 
 ROOT = Path(__file__).resolve().parents[2]
+PROJECTS_ROOT = ROOT.parent.parent.parent if ROOT.parent.name == ".worktrees" else ROOT.parent
 REMOTE_HARNESS_PATH = ROOT / "scripts" / "run_studio_harness_remote.sh"
 
 
@@ -104,7 +105,7 @@ class RunStudioHarnessRemoteTests(unittest.TestCase):
 
     def test_gitignore_blocks_generated_artifacts_from_git_aware_sync(self) -> None:
         arnis_gitignore = (ROOT / ".gitignore").read_text(encoding="utf-8")
-        vertigo_sync_gitignore = (ROOT.parent / "vertigo-sync" / ".gitignore").read_text(encoding="utf-8")
+        vertigo_sync_gitignore = (PROJECTS_ROOT / "vertigo-sync" / ".gitignore").read_text(encoding="utf-8")
         for text in (arnis_gitignore, vertigo_sync_gitignore):
             with self.subTest(gitignore=text[:32]):
                 self.assertTrue("**/target/" in text or "**/target" in text)
