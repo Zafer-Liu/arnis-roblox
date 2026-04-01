@@ -550,3 +550,33 @@ The compact historical archive index is:
   - `quit_studio starting`
   - `quit_studio requesting graceful quit`
 - After the interleaved proof run, `tertiary` was force-cleaned again. No `run_studio_harness.sh`, `rbx-studio-mcp`, or `vsync serve` process remains, and Studio was explicitly killed to keep the machine polite after the run.
+
+### 2026-04-01: Serialized `tertiary` Play Debug Narrowed The Building Problem To Street-Level Wall/Façade Fidelity, Not Missing Runtime Import
+
+- Ran a fresh serialized play-only proof directly on `tertiary` from `~/Projects/arnis-roblox-main` with:
+  - `ARNIS_TELEMETRY_FAMILIES=terrain,roads,water,vegetation,structures,hotspots,player_local`
+  - `ARNIS_SCENE_AUDIT_DIR=/tmp/arnis-play-debug-buildings`
+  - `VSYNC_REPO_DIR=$HOME/.codex-remote-studio/vertigo-sync bash scripts/run_studio_harness.sh --takeover --hard-restart --skip-edit-tests --play-wait 30 --pattern-wait 150`
+- The runtime world itself is loading in play:
+  - `RunAustin` loaded `AustinCanonicalManifestIndex`
+  - `[ImportManifest]` reported `worldRoot=Workspace.GeneratedWorld_Austin totalInstances=2447 chunksImported=80`
+  - `RunAustin` reported `roads=1046 buildings=92 props=575`
+  - bootstrap advanced through `world_ready,streaming_ready,minimap_ready,gameplay_ready`
+- Fresh player-local play telemetry at `gameplay_ready` shows nearby building content exists around spawn:
+  - `nearbyBuildingModels=7`
+  - `nearbyMergedBuildingMeshParts=5`
+  - `nearbyWallParts=4`
+  - `nearestWallDistanceStuds=2.2`
+  - `nearbyRoofParts=14`
+  - nearby source IDs include `osm_952130555`, `osm_93135618`, `osm_269078411`, `osm_269078413`, `osm_93135675`, and `osm_93135773`
+- Fresh scene-play audit markers also show this is not a wholesale building-loss bug:
+  - `buildingModelsMissingDirectShell=0`
+  - `buildingModelsWithRoofClosureDeck=15`
+  - `buildingModelsWithNoRoofEvidence=2`
+  - wall/roof material buckets and roof-shape buckets were emitted normally for `GeneratedWorld_Austin`
+- Current diagnosis changed:
+  - the user-visible complaint is now best explained as a street-level wall/facade visibility or building simplification problem inside the shared building path, not a play-mode failure to import buildings at all
+  - the strongest local suspects are the merged `shellMesh` wall presentation and the current `shouldPreferSimpleShellDetail(...)` path for low-rise residential/apartment buildings near spawn
+  - the current audit stack is still too aggregate to prove “walls are visually not there” per nearby building even when global shell/roof counts remain green
+- The failed remote screenshot attempt (`screencapture ... could not create image from display`) means this slice still lacks a committed visual artifact; the next tranche should add explicit near-player building façade visibility diagnostics before changing builder behavior.
+- `tertiary` was force-cleaned after the run; lingering `RobloxStudio` and crash-handler processes were killed and the harness lock directory was removed manually.
