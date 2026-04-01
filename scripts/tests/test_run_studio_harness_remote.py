@@ -2,11 +2,27 @@
 from __future__ import annotations
 
 from pathlib import Path
+import subprocess
 import unittest
 
 
 ROOT = Path(__file__).resolve().parents[2]
 REMOTE_HARNESS_PATH = ROOT / "scripts" / "run_studio_harness_remote.sh"
+
+
+def resolve_vertigo_sync_root() -> Path:
+    result = subprocess.run(
+        ["git", "-C", str(ROOT), "rev-parse", "--git-common-dir"],
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+    common_git_dir = Path(result.stdout.strip()).resolve()
+    if common_git_dir.name == ".git":
+        repo_root = common_git_dir.parent
+    else:
+        repo_root = common_git_dir.parents[2]
+    return repo_root.parent / "vertigo-sync"
 
 
 class RunStudioHarnessRemoteTests(unittest.TestCase):
@@ -15,7 +31,7 @@ class RunStudioHarnessRemoteTests(unittest.TestCase):
         cls.text = REMOTE_HARNESS_PATH.read_text(encoding="utf-8")
 
     def test_uses_profile_based_remote_configuration_without_baked_host_defaults(self) -> None:
-        self.assertIn('REMOTE_PROFILE="${ARNIS_REMOTE_STUDIO_PROFILE:-primary}"', self.text)
+        self.assertIn('REMOTE_PROFILE="${ARNIS_REMOTE_STUDIO_PROFILE:-tertiary}"', self.text)
         self.assertIn('LOCAL_REMOTE_CONFIG="$ROOT_DIR/scripts/remote_studio_profiles.local.sh"', self.text)
         self.assertIn('EXAMPLE_REMOTE_CONFIG="$ROOT_DIR/scripts/remote_studio_profiles.example.sh"', self.text)
         self.assertIn('resolve_profile_value', self.text)
@@ -52,21 +68,30 @@ class RunStudioHarnessRemoteTests(unittest.TestCase):
         self.assertIn('missing remote arnis stage', self.text)
         self.assertIn('missing remote vertigo-sync stage', self.text)
         self.assertIn('re-run without --no-sync', self.text)
+        self.assertIn('"$remote_root/arnis-roblox"|"$remote_root/vertigo-sync"', self.text)
+        self.assertIn('refusing to reset unexpected remote stage path', self.text)
 
     def test_runs_same_remote_harness_with_remote_vsync_binary(self) -> None:
         self.assertIn('needs_vsync_build()', self.text)
         self.assertIn('cleanup_remote_harness()', self.text)
         self.assertIn("REMOTE_HARNESS_ACTIVE=0", self.text)
         self.assertIn('trap \'cleanup_remote_harness\' EXIT INT TERM', self.text)
-        self.assertIn('pkill -f "bash scripts/run_studio_harness.sh" || true', self.text)
-        self.assertIn('rm -rf /tmp/arnis-studio-harness.lock', self.text)
+        self.assertIn('REMOTE_HARNESS_PGID_FILE="$REMOTE_ARNIS_DIR/.arnis-remote-harness.pgid"', self.text)
+        self.assertIn('REMOTE_HARNESS_LOCK_DIR="$REMOTE_ARNIS_DIR/.arnis-studio-harness.lock"', self.text)
+        self.assertIn('kill -TERM -- "-$remote_harness_pgid"', self.text)
+        self.assertIn('rm -rf "$remote_harness_lock_dir"', self.text)
+        self.assertNotIn('pkill -f "$remote_arnis_dir/scripts/run_studio_harness.sh" || true', self.text)
+        self.assertNotIn('pkill -f "$remote_vsync_target_dir/debug/vsync serve" || true', self.text)
         self.assertIn('if needs_vsync_build "$remote_vsync_dir" "$remote_vsync_target_dir"; then', self.text)
         self.assertIn('CARGO_TARGET_DIR="$remote_vsync_target_dir"', self.text)
         self.assertIn('cargo build --manifest-path "$remote_vsync_dir/Cargo.toml" --bin vsync >/dev/null', self.text)
+        self.assertIn('"$repo_dir/build.rs"', self.text)
         self.assertIn('cd "$remote_arnis_dir"', self.text)
+        self.assertIn('HARNESS_LOCK_DIR="$remote_harness_lock_dir"', self.text)
         self.assertIn('VSYNC_REPO_DIR="$remote_vsync_dir"', self.text)
         self.assertIn('VSYNC_BIN="$remote_vsync_target_dir/debug/vsync"', self.text)
-        self.assertIn('bash scripts/run_studio_harness.sh "$@"', self.text)
+        self.assertIn('bash "$remote_arnis_dir/scripts/run_studio_harness.sh" "$@"', self.text)
+        self.assertIn('remote_harness_pgid="$(ps -o pgid= "$remote_harness_pid"', self.text)
         self.assertIn("REMOTE_HARNESS_ACTIVE=1", self.text)
         self.assertIn("REMOTE_HARNESS_ACTIVE=0", self.text)
 
@@ -104,7 +129,7 @@ class RunStudioHarnessRemoteTests(unittest.TestCase):
 
     def test_gitignore_blocks_generated_artifacts_from_git_aware_sync(self) -> None:
         arnis_gitignore = (ROOT / ".gitignore").read_text(encoding="utf-8")
-        vertigo_sync_gitignore = (ROOT.parent / "vertigo-sync" / ".gitignore").read_text(encoding="utf-8")
+        vertigo_sync_gitignore = (resolve_vertigo_sync_root() / ".gitignore").read_text(encoding="utf-8")
         for text in (arnis_gitignore, vertigo_sync_gitignore):
             with self.subTest(gitignore=text[:32]):
                 self.assertTrue("**/target/" in text or "**/target" in text)

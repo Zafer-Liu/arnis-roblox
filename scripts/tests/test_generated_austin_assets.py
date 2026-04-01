@@ -23,6 +23,17 @@ def load_module():
 
 
 class GeneratedAustinAssetsVerifierTests(unittest.TestCase):
+    def test_generated_fixture_directory_keeps_only_a_0_4_0_example(self) -> None:
+        generated_dir = ROOT / "specs" / "generated"
+        json_files = sorted(path.name for path in generated_dir.glob("*.json"))
+
+        self.assertEqual(json_files, ["sample-manifest.json"])
+
+        manifest = json.loads((generated_dir / "sample-manifest.json").read_text(encoding="utf-8"))
+        self.assertEqual(manifest.get("schemaVersion"), "0.4.0")
+        self.assertIn("meta", manifest)
+        self.assertIn("chunks", manifest)
+
     def test_parse_preview_chunk_refs_accepts_streaming_metadata(self) -> None:
         verifier = load_module()
         chunk_refs = verifier._parse_preview_chunk_refs(

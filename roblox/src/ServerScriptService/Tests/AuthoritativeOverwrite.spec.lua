@@ -20,7 +20,7 @@ return function()
 
     -- 2. Create a minimal manifest with a DIFFERENT chunk
     local otherManifest = {
-        schemaVersion = "0.2.0",
+        schemaVersion = "0.4.0",
         meta = {
             worldName = "Other",
             generator = "test",

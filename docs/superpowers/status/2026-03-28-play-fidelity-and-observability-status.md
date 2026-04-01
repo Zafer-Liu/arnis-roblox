@@ -1,23 +1,23 @@
 # Play Fidelity And Observability Status
 
 Date: 2026-03-28
-Status: Active
+Status: Completed
 
 ## Purpose
 
-This is the current rolling status and handoff document for the active play-fidelity-and-observability tranche.
+This is the historical rolling status and handoff document for the completed play-fidelity-and-observability tranche.
 
-Use this file as the active status trail for:
+Use this file as the historical status trail for:
 
 - what has landed after the completed March 28 baseline tranche
 - what was verified locally and on `tertiary`
 - what still needs measured follow-up for walls, terrain, interiors, and hotspots
 
-The active implementation plan for this tranche is:
+The implementation plan for this tranche was:
 
 - `docs/superpowers/plans/2026-03-28-play-fidelity-and-observability.md`
 
-The active design spec for this tranche is:
+The design spec for this tranche was:
 
 - `docs/superpowers/specs/2026-03-28-play-fidelity-and-observability-design.md`
 
@@ -72,9 +72,9 @@ The active design spec for this tranche is:
 ### Remote `tertiary`
 
 - `python3 -m unittest scripts.tests.test_austin_runtime_contract scripts.tests.test_scene_parity_audit scripts.tests.test_scene_fidelity_audit -v`
-  - passed on 2026-03-28 in `~/.codex-remote-studio/arnis-roblox`
+  - passed on 2026-03-28 in the remote `tertiary` proof clone
 - `python3 -m unittest scripts.tests.test_austin_runtime_contract scripts.tests.test_scene_fidelity_audit scripts.tests.test_scene_parity_audit -v`
-  - passed on 2026-03-28 in `~/.codex-remote-studio/arnis-roblox`
+  - passed on 2026-03-28 in the remote `tertiary` proof clone
   - verifies the `localTerrain` runtime contract plus fidelity/parity carry-through from the remote clone
 - `bash scripts/run_studio_harness.sh --takeover --hard-restart --no-play --edit-tests --spec-filter WorldProbeTerrain.spec.lua --edit-wait 30 --pattern-wait 120`
   - passed on 2026-03-28 in the remote clone
@@ -101,7 +101,9 @@ The active design spec for this tranche is:
   - passed on 2026-03-28 in the remote clone
   - `PASS WorldProbeSupport.spec`
   - `ARNIS_MCP_EDIT_ACTION` reported `total=1 passed=1 failed=0`
-- `bash scripts/run_studio_harness_remote.sh --remote-profile tertiary --remote-host tertiary -- --no-play --edit-tests --spec-filter AustinPreviewTelemetry.spec.lua --edit-wait 30 --pattern-wait 120`
+- Historical proof command:
+
+  `bash scripts/run_studio_harness_remote.sh --remote-profile tertiary -- --no-play --edit-tests --spec-filter AustinPreviewTelemetry.spec.lua --edit-wait 30 --pattern-wait 120`
   - passed on 2026-03-28 against `tertiary`
   - remote edit action reported `total=1 passed=1 failed=0`
   - verifies both that a populated `lastSlowChunk` survives the compact workspace JSON flush and that `sync_started` clears stale hotspot state before the next flush
@@ -215,6 +217,9 @@ The active design spec for this tranche is:
 - Result: local terrain roughness is now part of the canonical client-world contract and audit schema, but the next observability fix is reliable remote artifact capture for that local block rather than more schema churn.
 
 ### 2026-03-28: Dedicated Local-Experience Marker And Remote Raw-Log Proof
+
+- 2026-03-29: Reframed the remote Studio operator details above as historical proof context; they are no longer current instructions.
+- 2026-03-29: The breaking compatibility purge landed on a separate branch. `0.4.0` is now the only supported manifest schema across runtime/tooling/docs, active March 28 plan/status surfaces were reframed as historical, and remote wrapper guidance/tests now default to the `tertiary` proof lane with stage-scoped cleanup. No fresh `tertiary` Studio proof was required for this purge because runtime world truth did not change.
 
 - Added a dedicated `ARNIS_CLIENT_LOCAL_EXPERIENCE` marker in `WorldProbe.client.lua` so the high-signal local player block (`localSupport`, `localTerrain`, `localEnclosure`, `localRoofCover`, bootstrap identity) no longer depends on the oversized `ARNIS_CLIENT_WORLD_COMPACT` line surviving intact in remote Studio logs.
 - Updated `scene_fidelity_audit.py` so it merges `ARNIS_CLIENT_WORLD_COMPACT` with `ARNIS_CLIENT_LOCAL_EXPERIENCE` both in the normal manifest+log path and in the `--report-json` render path, then rewrites the enriched JSON artifact when `--json-out` is supplied.

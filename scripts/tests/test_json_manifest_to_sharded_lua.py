@@ -29,6 +29,55 @@ class JsonManifestToShardedLuaTests(unittest.TestCase):
             "schema should still allow shard names for generated index artifacts",
         )
 
+    def test_json_manifest_to_sharded_lua_rejects_non_current_json_schema(self) -> None:
+        manifest = {
+            "schemaVersion": "0.5.0",
+            "meta": {
+                "worldName": "UnsupportedSchemaTest",
+                "generator": "test",
+                "source": "test",
+                "metersPerStud": 0.3,
+                "chunkSizeStuds": 256,
+                "bbox": {"minLat": 0, "minLon": 0, "maxLat": 1, "maxLon": 1},
+            },
+            "chunks": [
+                {
+                    "id": "0_0",
+                    "originStuds": {"x": 0, "y": 0, "z": 0},
+                    "roads": [{}],
+                }
+            ],
+        }
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            temp_root = Path(temp_dir)
+            manifest_path = temp_root / "manifest.json"
+            out_dir = temp_root / "out"
+            manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
+
+            with self.assertRaises(subprocess.CalledProcessError) as cm:
+                subprocess.run(
+                    [
+                        "python3",
+                        str(SCRIPT),
+                        "--json",
+                        str(manifest_path),
+                        "--output-dir",
+                        str(out_dir),
+                        "--index-name",
+                        "TestManifestIndex",
+                        "--shard-folder",
+                        "TestManifestChunks",
+                    ],
+                    check=True,
+                    cwd=ROOT,
+                    capture_output=True,
+                    text=True,
+                )
+
+            self.assertIn("unsupported schemaVersion", cm.exception.stderr)
+            self.assertIn("0.5.0", cm.exception.stderr)
+
     def test_chunk_refs_include_streaming_metadata(self) -> None:
         manifest = {
             "schemaVersion": "0.4.0",
@@ -82,6 +131,93 @@ class JsonManifestToShardedLuaTests(unittest.TestCase):
             index_text = (out_dir / "TestManifestIndex.lua").read_text(encoding="utf-8")
             self.assertIn("featureCount=13", index_text)
             self.assertIn("streamingCost=62", index_text)
+
+    def test_json_manifest_to_sharded_lua_rejects_non_current_sqlite_schema(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            temp_root = Path(temp_dir)
+            sqlite_path = temp_root / "manifest.sqlite"
+            out_dir = temp_root / "out"
+
+            connection = sqlite3.connect(sqlite_path)
+            try:
+                connection.executescript(
+                    """
+                    CREATE TABLE manifest_meta (
+                        singleton_id INTEGER PRIMARY KEY CHECK (singleton_id = 1),
+                        schema_version TEXT NOT NULL,
+                        world_name TEXT NOT NULL,
+                        generator TEXT NOT NULL,
+                        source TEXT NOT NULL,
+                        meters_per_stud REAL NOT NULL,
+                        chunk_size_studs INTEGER NOT NULL,
+                        bbox_min_lat REAL NOT NULL,
+                        bbox_min_lon REAL NOT NULL,
+                        bbox_max_lat REAL NOT NULL,
+                        bbox_max_lon REAL NOT NULL,
+                        total_features INTEGER NOT NULL,
+                        notes_json TEXT NOT NULL
+                    );
+                    CREATE TABLE manifest_chunks (
+                        chunk_id TEXT PRIMARY KEY,
+                        origin_x REAL NOT NULL,
+                        origin_y REAL NOT NULL,
+                        origin_z REAL NOT NULL,
+                        feature_count INTEGER NOT NULL,
+                        streaming_cost REAL NOT NULL,
+                        estimated_memory_cost REAL NOT NULL,
+                        partition_version TEXT NOT NULL,
+                        subplans_json TEXT NOT NULL,
+                        chunk_json TEXT NOT NULL
+                    );
+                    """
+                )
+                connection.execute(
+                    """
+                    INSERT INTO manifest_meta (
+                        singleton_id, schema_version, world_name, generator, source,
+                        meters_per_stud, chunk_size_studs,
+                        bbox_min_lat, bbox_min_lon, bbox_max_lat, bbox_max_lon,
+                        total_features, notes_json
+                    ) VALUES (1, '0.5.0', 'SqliteUnsupportedSchemaTest', 'test', 'test', 0.3, 256,
+                              0, 0, 1, 1, 1, '[]')
+                    """
+                )
+                connection.execute(
+                    """
+                    INSERT INTO manifest_chunks (
+                        chunk_id, origin_x, origin_y, origin_z,
+                        feature_count, streaming_cost, estimated_memory_cost,
+                        partition_version, subplans_json, chunk_json
+                    ) VALUES (?, 0, 0, 0, 1, 8, 32, 'subplans.v1', '[]', ?)
+                    """,
+                    ("0_0", json.dumps({"id": "0_0", "originStuds": {"x": 0, "y": 0, "z": 0}, "roads": []})),
+                )
+                connection.commit()
+            finally:
+                connection.close()
+
+            with self.assertRaises(subprocess.CalledProcessError) as cm:
+                subprocess.run(
+                    [
+                        "python3",
+                        str(SCRIPT),
+                        "--sqlite",
+                        str(sqlite_path),
+                        "--output-dir",
+                        str(out_dir),
+                        "--index-name",
+                        "TestManifestIndex",
+                        "--shard-folder",
+                        "TestManifestChunks",
+                    ],
+                    check=True,
+                    cwd=ROOT,
+                    capture_output=True,
+                    text=True,
+                )
+
+            self.assertIn("unsupported schemaVersion", cm.exception.stderr)
+            self.assertIn("0.5.0", cm.exception.stderr)
 
     def test_chunk_refs_include_partition_version_and_subplans(self) -> None:
         manifest = {

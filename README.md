@@ -51,7 +51,7 @@ cargo run --bin arbx_cli -- compile --live --bbox 51.50,-0.13,51.51,-0.12 --sate
 python3 scripts/bootstrap_arnis_studio.py --open --serve
 ```
 
-This builds the supported clean place from [`roblox/default.project.json`](/Users/adpena/Projects/arnis-roblox/roblox/default.project.json) into `roblox/out/arnis-test-clean.rbxlx`, starts the local `vsync serve --project default.project.json` process, and opens it in Studio when available. `scripts/bootstrap_vsync_place.py` remains as a compatibility shim for the older command name.
+This builds the supported clean place from [`roblox/default.project.json`](roblox/default.project.json) into `roblox/out/arnis-test-clean.rbxlx`, starts the local `vsync serve --project default.project.json` process, and opens it in Studio when available. `scripts/bootstrap_vsync_place.py` is retained only as a legacy alias for the older command name.
 
 For a stable Austin export outside `roblox/out`, use:
 
@@ -59,7 +59,7 @@ For a stable Austin export outside `roblox/out`, use:
 bash scripts/build_austin_max_fidelity_place.sh
 ```
 
-That runs the Austin export on the standard non-`--yolo` path (no satellite classification), writes a timestamped local artifact under [`exports/`](/Users/adpena/Projects/arnis-roblox/exports), and refreshes the stable local copy at `exports/austin-max-fidelity-latest.rbxlx`.
+That runs the Austin export on the standard non-`--yolo` path (no satellite classification), writes a timestamped local artifact under [`exports/`](exports), and refreshes the stable local copy at `exports/austin-max-fidelity-latest.rbxlx`.
 
 Canonical Austin baseline inputs and commands:
 
@@ -166,7 +166,7 @@ VertigoSync is an optional Studio-sync integration, not part of the core importe
 
 That does not make it disposable. It is still a key local-development tool for this project, and bugs in sync transport or plugin packaging should be fixed in `vertigo-sync` rather than hidden inside importer/runtime code.
 
-See [docs/vertigo-sync-boundary.md](/Users/adpena/Projects/arnis-roblox/docs/vertigo-sync-boundary.md).
+See [docs/vertigo-sync-boundary.md](docs/vertigo-sync-boundary.md).
 
 ## Data Sources
 

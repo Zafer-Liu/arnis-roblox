@@ -18,7 +18,7 @@
 
 - upstream adapter boundary is implemented
 - exporter can emit more than the canned sample
-- schema migration notes exist for breaking changes
+- schema contract changes are documented for breaking changes
 
 ## Milestone 4: production hardening
 

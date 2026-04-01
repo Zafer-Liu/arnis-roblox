@@ -394,7 +394,7 @@ git commit -m "refactor: remove remaining runtime legacy compatibility shims"
 
 - [ ] **Step 1: Write the failing doc-truth tests or assertions where available**
 
-Where text-based tests exist, add/update them. Otherwise create a small focused verification step that greps for stale claims.
+Where text-based tests exist, add/update them. Otherwise create a small focused verification step that greps for stale claims across the active docs, status, and repo-level operating manuals.
 
 Example command:
 
@@ -408,6 +408,7 @@ Expected before cleanup: matches still exist in active truth surfaces
 
 - `docs/chunk_schema.md` must state that older schemas are unsupported
 - remove active-language compatibility claims from build/architecture/operator docs
+- reframe the March 28 plan/status docs as historical context instead of active instructions
 - append a dated status note explaining the break and the new repo truth
 
 - [ ] **Step 3: Run the doc-truth verification**
@@ -415,7 +416,7 @@ Expected before cleanup: matches still exist in active truth surfaces
 Run:
 
 ```bash
-rg -n "Automatically migrated to `0.4.0`|backward compatibility|0.3.0 manifest JSON|0.1.0|0.2.0|0.3.0" docs/exporter-fixtures.md docs/chunk_schema.md docs/build-pipeline.md docs/architecture.md docs/remote-studio-development.md docs/superpowers/plans/2026-03-28-play-fidelity-and-observability.md docs/superpowers/status/2026-03-28-play-fidelity-and-observability-status.md specs/sample-chunk-manifest.json specs/generated rust/crates/arbx_cli/src/main.rs
+rg -n "Automatically migrated|backward compatibility|migration notes|Status: Active|active truth surface|0\.1\.0|0\.2\.0|0\.3\.0|--remote-host tertiary|~/.codex-remote-studio|schema migrations|compatibility shim|ARNIS_REMOTE_STUDIO_PROFILE:-primary|--remote-profile primary|v0\.3\.0 stable|migration notes mechanism|version upgrade helper|active fidelity/observability stack|0.3.0 manifest JSON" README.md AGENTS.md CLAUDE.md docs/acceptance_criteria.md docs/backlog.md docs/chunk_schema.md docs/build-pipeline.md docs/architecture.md docs/exporter-fixtures.md docs/remote-studio-development.md docs/superpowers/plans/2026-03-28-play-fidelity-and-observability.md docs/superpowers/status/2026-03-28-play-fidelity-and-observability-status.md docs/superpowers/status/2026-03-28-canonical-baseline-status.md scripts/remote_studio_profiles.example.sh scripts/run_studio_harness_remote.sh scripts/tests/test_run_studio_harness_remote.py specs/sample-chunk-manifest.json specs/generated rust/crates/arbx_cli/src/main.rs
 ```
 
 Expected: no stale compatibility claims in active surfaces
@@ -438,12 +439,15 @@ Run:
 
 ```bash
 bash -n scripts/run_studio_harness.sh
+bash -n scripts/run_studio_harness_remote.sh
 python3 -m unittest \
+  scripts.tests.test_check_scaffold \
   scripts.tests.test_run_all_checks \
   scripts.tests.test_generated_austin_assets \
   scripts.tests.test_refresh_preview_from_sample_data \
   scripts.tests.test_refresh_runtime_harness_from_sample_data \
   scripts.tests.test_json_manifest_to_sharded_lua \
+  scripts.tests.test_run_studio_harness_remote \
   scripts.tests.test_run_studio_harness \
   scripts.tests.test_austin_runtime_contract \
   scripts.tests.test_scene_fidelity_audit \
@@ -453,7 +457,6 @@ python3 scripts/check_scaffold.py
 python3 scripts/verify_generated_austin_assets.py
 python3 scripts/run_luau_tests.py \
   roblox/src/ServerScriptService/Tests/ChunkSchema.spec.lua \
-  roblox/src/ServerScriptService/Tests/Migrations.spec.lua \
   roblox/src/ServerScriptService/Tests/AuthoritativeOverwrite.spec.lua \
   roblox/src/ServerScriptService/Tests/ImportChunkPlanKey.spec.lua \
   roblox/src/ServerScriptService/Tests/RoadDetailGroups.spec.lua \
@@ -466,7 +469,7 @@ cargo test --manifest-path rust/Cargo.toml --workspace
 git diff --check
 ```
 
-Expected: all pass
+Expected: all local-safe checks pass. Do not run local Studio/Luau harnesses on this machine; use the `tertiary` profile only if a change touched runtime truth and needs remote proof.
 
 - [ ] **Step 2: Run targeted `tertiary` verification for any touched runtime truth**
 

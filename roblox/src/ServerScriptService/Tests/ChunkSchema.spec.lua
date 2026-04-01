@@ -10,8 +10,45 @@ return function()
     Assert.equal(validated.schemaVersion, "0.4.0", "expected current schema version")
     Assert.equal(#validated.chunks, 1, "expected one sample chunk")
 
-    local oldManifest = {
-        schemaVersion = "0.1.0",
+    local function expectRejectedSchemaVersion(schemaVersion)
+        local oldManifest = {
+            schemaVersion = schemaVersion,
+            meta = {
+                worldName = "Test",
+                generator = "test",
+                source = "test",
+                metersPerStud = 1,
+                chunkSizeStuds = 256,
+                bbox = { minLat = 0, minLon = 0, maxLat = 1, maxLon = 1 },
+            },
+            chunks = {
+                {
+                    id = "0_0",
+                    originStuds = { x = 0, y = 0, z = 0 },
+                    roads = {},
+                    rails = {},
+                    buildings = {},
+                    water = {},
+                    props = {},
+                },
+            },
+        }
+
+        local ok, err = pcall(function()
+            ChunkSchema.validateManifest(oldManifest)
+        end)
+        Assert.falsy(ok, "expected schemaVersion " .. schemaVersion .. " to be rejected")
+        Assert.truthy(
+            tostring(err):find("0.4.0", 1, true) ~= nil or tostring(err):find("schemaVersion", 1, true) ~= nil,
+            "expected rejection error to mention schema version"
+        )
+    end
+
+    expectRejectedSchemaVersion("0.1.0")
+    expectRejectedSchemaVersion("0.2.0")
+    expectRejectedSchemaVersion("0.3.0")
+
+    local missingSchemaVersion = {
         meta = {
             worldName = "Test",
             generator = "test",
@@ -32,11 +69,14 @@ return function()
             },
         },
     }
-    local migrated = ChunkSchema.validateManifest(oldManifest)
-    Assert.equal(migrated.schemaVersion, "0.4.0", "expected migrated schema version")
-    Assert.equal(migrated.meta.totalFeatures, 0, "expected migrated totalFeatures")
-    Assert.equal(#migrated.chunks[1].landuse, 0, "expected migrated empty landuse")
-    Assert.equal(#migrated.chunks[1].barriers, 0, "expected migrated empty barriers")
+    local okMissingSchemaVersion, errMissingSchemaVersion = pcall(function()
+        ChunkSchema.validateManifest(missingSchemaVersion)
+    end)
+    Assert.falsy(okMissingSchemaVersion, "expected missing schemaVersion to fail validation")
+    Assert.truthy(
+        tostring(errMissingSchemaVersion):find("schemaVersion", 1, true) ~= nil,
+        "expected missing schemaVersion error to mention schemaVersion"
+    )
 
     local badManifest = {
         schemaVersion = "0.4.0",

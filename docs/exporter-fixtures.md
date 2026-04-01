@@ -1,21 +1,23 @@
 ## Rust exporter ⇄ Roblox fixture contract
 
-This repository keeps a loose but intentional contract between the Rust exporter samples and the Roblox sample fixtures.
+This repository keeps a narrow contract between the Rust exporter samples and the Roblox sample fixtures.
 
 - **Rust side (source of truth for shape)**:
   - `rust/crates/arbx_roblox_export/src/lib.rs` exposes `build_sample_multi_chunk(count_x, count_z)`.
   - `rust/crates/arbx_cli/src/main.rs` wires the `sample` command:
-    - `arbx_cli sample --grid X,Z` → emits a schema `0.3.0` manifest JSON with an `X × Z` grid of chunks.
+    - `arbx_cli sample --grid X,Z` → emits a schema `0.4.0` manifest JSON with an `X × Z` grid of chunks.
   - `arbx_cli sample --grid 2,2` is the reference command for a small, multi-chunk sample manifest.
 
 - **Roblox side (fixtures used by tests)**:
   - `ServerStorage.SampleData.SampleManifest`:
-    - Single-chunk, hand-authored manifest used by `ImportService.spec.lua` and `ChunkSchema.spec.lua`.
+    - Single-chunk, hand-authored `0.4.0` manifest used by `ImportService.spec.lua` and `ChunkSchema.spec.lua`.
   - `ServerStorage.SampleData.SampleMultiChunkManifest`:
-    - Multi-chunk, hand-authored manifest that mirrors the **shape** of a `--grid 2,2` export (two adjacent chunks with a primary road spanning the boundary).
+    - Multi-chunk, hand-authored `0.4.0` manifest that mirrors the shape of a `--grid 2,2` export (two adjacent chunks with a primary road spanning the boundary).
     - Used by `ServerScriptService.Tests.ImportServiceMultiChunk.spec.lua` to assert:
       - `ImportService.ImportManifest` imports multiple chunks (`stats.chunksImported == 2`).
       - Both chunk folders (`"0_0"` and `"1_0"`) are created under the world root.
+  - `specs/generated/sample-manifest.json`:
+    - Small generated `0.4.0` example that documents the JSON schema shape.
 
 ### Using real OSM data (Overpass) with the full pipeline
 
@@ -74,10 +76,12 @@ You can swap the bbox or output paths in these scripts as needed, or use them as
 - If you change the Rust sample exporter or schema in a way that affects sample manifests:
   1. Run: `cd rust && cargo run -p arbx_cli -- sample --grid 2,2 > /tmp/sample-2x2.json`
   2. Inspect `/tmp/sample-2x2.json` and compare it to:
+     - `specs/generated/sample-manifest.json`
+     - `specs/sample-chunk-manifest.json`
      - `roblox/src/ServerStorage/SampleData/SampleManifest.lua`
      - `roblox/src/ServerStorage/SampleData/SampleMultiChunkManifest.lua`
-  3. Manually update the Lua fixtures to keep:
-     - The same schema version (`0.3.0` unless bumped with migrations).
+  3. Manually update the fixtures to keep:
+     - Schema version `0.4.0`.
      - A compatible field layout for `ChunkSchema.validateManifest`.
      - A small but representative set of features (roads/buildings/terrain) that exercise importer behavior.
   4. Re-run:

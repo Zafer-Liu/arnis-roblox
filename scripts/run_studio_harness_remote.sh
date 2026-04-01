@@ -14,7 +14,7 @@ if [[ -f "$LOCAL_REMOTE_CONFIG" ]]; then
   source "$LOCAL_REMOTE_CONFIG"
 fi
 
-REMOTE_PROFILE="${ARNIS_REMOTE_STUDIO_PROFILE:-primary}"
+REMOTE_PROFILE="${ARNIS_REMOTE_STUDIO_PROFILE:-tertiary}"
 REMOTE_HOME_TOKEN="__REMOTE_HOME__"
 DEFAULT_REMOTE_ROOT="$REMOTE_HOME_TOKEN/.codex-remote-studio"
 DEFAULT_REMOTE_ARNIS_BASE="$REMOTE_HOME_TOKEN/Projects/arnis-roblox"
@@ -50,7 +50,7 @@ render_rsync_remote_path() {
 
 reset_remote_stage_dir() {
   local remote_dir="$1"
-  ssh "$REMOTE_HOST" 'bash -s' -- "$remote_dir" <<'SH'
+  ssh "$REMOTE_HOST" 'bash -s' -- "$remote_dir" "$REMOTE_ROOT" <<'SH'
 set -euo pipefail
 expand_remote_path() {
   case "$1" in
@@ -64,6 +64,15 @@ expand_remote_path() {
 }
 
 remote_dir="$(expand_remote_path "$1")"
+remote_root="$(expand_remote_path "$2")"
+case "$remote_dir" in
+  "$remote_root/arnis-roblox"|"$remote_root/vertigo-sync")
+    ;;
+  *)
+    echo "[remote-harness] refusing to reset unexpected remote stage path: $remote_dir" >&2
+    exit 1
+    ;;
+esac
 rm -rf "$remote_dir"
 mkdir -p "$remote_dir"
 SH
@@ -91,6 +100,8 @@ SYNC_STAGE=1
 
 REMOTE_ARNIS_DIR="$REMOTE_ROOT/arnis-roblox"
 REMOTE_VSYNC_DIR="$REMOTE_ROOT/vertigo-sync"
+REMOTE_HARNESS_PGID_FILE="$REMOTE_ARNIS_DIR/.arnis-remote-harness.pgid"
+REMOTE_HARNESS_LOCK_DIR="$REMOTE_ARNIS_DIR/.arnis-studio-harness.lock"
 RSYNC_REMOTE_ARNIS_DIR="$(render_rsync_remote_path "$REMOTE_ARNIS_DIR")"
 RSYNC_REMOTE_VSYNC_DIR="$(render_rsync_remote_path "$REMOTE_VSYNC_DIR")"
 REMOTE_HARNESS_ACTIVE=0
@@ -99,7 +110,34 @@ cleanup_remote_harness() {
   local exit_code="${1:-$?}"
   trap - EXIT INT TERM
   if [[ $REMOTE_HARNESS_ACTIVE -eq 1 ]]; then
-    ssh "$REMOTE_HOST" 'pkill -f "bash scripts/run_studio_harness.sh" || true; pkill -f "rbx-studio-mcp --stdio" || true; pkill -f "vertigo-sync/target/debug/vsync serve" || true; rm -rf /tmp/arnis-studio-harness.lock' >/dev/null 2>&1 || true
+    ssh "$REMOTE_HOST" 'bash -s' -- "$REMOTE_ARNIS_DIR" "$REMOTE_VSYNC_TARGET_DIR" "$REMOTE_HARNESS_PGID_FILE" "$REMOTE_HARNESS_LOCK_DIR" <<'SH' >/dev/null 2>&1 || true
+set -euo pipefail
+expand_remote_path() {
+  case "$1" in
+    __REMOTE_HOME__/*)
+      printf '%s\n' "$HOME/${1#__REMOTE_HOME__/}"
+      ;;
+    *)
+      printf '%s\n' "$1"
+      ;;
+  esac
+}
+
+remote_arnis_dir="$(expand_remote_path "$1")"
+remote_vsync_target_dir="$(expand_remote_path "$2")"
+remote_harness_pgid_file="$(expand_remote_path "$3")"
+remote_harness_lock_dir="$(expand_remote_path "$4")"
+if [[ -f "$remote_harness_pgid_file" ]]; then
+  remote_harness_pgid="$(tr -d '[:space:]' < "$remote_harness_pgid_file" || true)"
+  if [[ -n "$remote_harness_pgid" ]]; then
+    kill -TERM -- "-$remote_harness_pgid" >/dev/null 2>&1 || true
+    sleep 1
+    kill -KILL -- "-$remote_harness_pgid" >/dev/null 2>&1 || true
+  fi
+  rm -f "$remote_harness_pgid_file"
+fi
+rm -rf "$remote_harness_lock_dir"
+SH
   fi
   exit "$exit_code"
 }
@@ -115,7 +153,7 @@ arnis-roblox worktree and adjacent vertigo-sync snapshot to a persistent remote 
 
 Remote runner options:
   --remote-profile PROFILE
-                      Remote profile alias. Default: ${ARNIS_REMOTE_STUDIO_PROFILE:-primary}
+                      Remote profile alias. Default: ${ARNIS_REMOTE_STUDIO_PROFILE:-tertiary}
   --remote-host HOST   Remote SSH host. Overrides profile/local config.
   --remote-root PATH   Persistent remote stage root. Overrides profile/local config.
   --no-sync            Reuse the existing remote stage without rsyncing local snapshots.
@@ -127,7 +165,7 @@ Local config:
 
 All remaining arguments are forwarded to scripts/run_studio_harness.sh on the remote host.
 Example:
-  $(basename "$0") --remote-profile primary -- --no-play --edit-tests --spec-filter ImportManifestRegistrationChunkTruth.spec
+  $(basename "$0") --remote-profile tertiary -- --no-play --edit-tests --spec-filter ImportManifestRegistrationChunkTruth.spec
 EOF
 }
 
@@ -275,6 +313,8 @@ remote_vsync_dir="$(expand_remote_path "$1")"
 shift
 remote_vsync_target_dir="$(expand_remote_path "$1")"
 shift
+remote_harness_pgid_file="$remote_arnis_dir/.arnis-remote-harness.pgid"
+remote_harness_lock_dir="$remote_arnis_dir/.arnis-studio-harness.lock"
 
 ensure_remote_stage_ready() {
   local arnis_dir="$1"
@@ -305,6 +345,7 @@ needs_vsync_build() {
   for source_path in \
     "$repo_dir/Cargo.toml" \
     "$repo_dir/Cargo.lock" \
+    "$repo_dir/build.rs" \
     "$repo_dir/src" \
     "$repo_dir/assets"; do
     if [[ -e "$source_path" ]] && find "$source_path" -type f -newer "$binary" -print -quit | grep -q .; then
@@ -323,9 +364,16 @@ if needs_vsync_build "$remote_vsync_dir" "$remote_vsync_target_dir"; then
 fi
 
 cd "$remote_arnis_dir"
+rm -f "$remote_harness_pgid_file"
+HARNESS_LOCK_DIR="$remote_harness_lock_dir" \
 VSYNC_REPO_DIR="$remote_vsync_dir" \
 VSYNC_BIN="$remote_vsync_target_dir/debug/vsync" \
-bash scripts/run_studio_harness.sh "$@"
+bash "$remote_arnis_dir/scripts/run_studio_harness.sh" "$@" &
+remote_harness_pid=$!
+remote_harness_pgid="$(ps -o pgid= "$remote_harness_pid" | tr -d '[:space:]')"
+printf '%s\n' "$remote_harness_pgid" > "$remote_harness_pgid_file"
+wait "$remote_harness_pid"
+rm -f "$remote_harness_pgid_file"
 SH
 REMOTE_HARNESS_ACTIVE=0
 

@@ -4,7 +4,7 @@ return function()
     local Assert = require(script.Parent.Assert)
 
     local manifest = {
-        schemaVersion = "0.2.0",
+        schemaVersion = "0.4.0",
         meta = {
             worldName = "PlacementHardening",
             generator = "test",

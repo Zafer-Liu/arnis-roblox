@@ -6,7 +6,7 @@ return function()
     local Profiler = require(script.Parent.Parent.ImportService.Profiler)
 
     local manifest = {
-        schemaVersion = "0.2.0",
+        schemaVersion = "0.4.0",
         meta = {
             worldName = "LandusePerfTruth",
             generator = "test",

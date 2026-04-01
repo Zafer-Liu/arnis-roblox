@@ -26,7 +26,7 @@ The intended long-term pipeline is:
 - classification
 - chunk assignment
 - manifest writing
-- offline validation and migration
+- offline validation and schema enforcement
 
 ### Roblox-side
 
@@ -66,7 +66,7 @@ This preserves freedom to:
 - `chunk-manifest.json`
 - `world-config.json`
 - material palette / style config
-- migration notes when schema changes
+- contract notes when schema changes
 
 ### Developer artifacts
 

@@ -1,5 +1,4 @@
 local Version = require(script.Parent.Version)
-local Migrations = require(script.Parent.Migrations)
 
 local ChunkSchema = {}
 
@@ -163,15 +162,13 @@ end
 function ChunkSchema.validateManifest(manifest)
     assertType(manifest, "table", "manifest must be a table")
 
-    -- 1. Migrate if needed
-    if manifest.schemaVersion ~= Version.SchemaVersion then
-        manifest = Migrations.migrate(manifest, Version.SchemaVersion)
-    end
-
-    -- 2. Validate current version
+    assertType(manifest.schemaVersion, "string", "manifest.schemaVersion must be a string")
     assert(
         manifest.schemaVersion == Version.SchemaVersion,
-        "unexpected schemaVersion after migration"
+        ("unsupported manifest.schemaVersion %q; expected %q"):format(
+            manifest.schemaVersion,
+            Version.SchemaVersion
+        )
     )
 
     assertType(manifest.meta, "table", "manifest.meta must be a table")
