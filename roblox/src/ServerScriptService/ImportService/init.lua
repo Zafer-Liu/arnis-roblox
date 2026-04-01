@@ -692,6 +692,8 @@ function ImportService.ImportChunk(chunk, options)
         buildingMeshVertexCount = 0,
         buildingMeshTriangleCount = 0,
         buildingMeshCreateMs = 0,
+        buildingShellDetailMs = 0,
+        buildingInteriorMs = 0,
         buildingRoofMeshPartCount = 0,
         buildingFeatureCount = if type(chunk.buildings) == "table" then #chunk.buildings else 0,
         waterMs = 0,
@@ -1022,10 +1024,13 @@ function ImportService.ImportChunk(chunk, options)
             chunkProfile.buildingMeshVertexCount = tonumber(buildingMeshStats.vertexCount) or 0
             chunkProfile.buildingMeshTriangleCount = tonumber(buildingMeshStats.triangleCount) or 0
             chunkProfile.buildingMeshCreateMs = tonumber(buildingMeshStats.meshCreateMs) or 0
+            chunkProfile.buildingShellDetailMs = tonumber(buildingMeshStats.shellDetailMs) or 0
             chunkProfile.buildingRoofMeshPartCount = tonumber(buildingMeshStats.roofMeshPartCount) or 0
             if config.EnableRoomInteriors ~= false then
                 -- Build interiors as an optional overlay on top of canonical shell geometry.
+                local interiorStartedAt = os.clock()
                 RoomBuilder.BuildAll(buildingsFolder, chunk.buildings, chunk.originStuds, builtModelsById)
+                chunkProfile.buildingInteriorMs = (os.clock() - interiorStartedAt) * 1000
             end
         elseif config.BuildingMode == "shellParts" then
             forEachWithPacing(chunk.buildings, function(building)

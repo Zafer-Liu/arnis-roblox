@@ -2164,6 +2164,7 @@ function BuildingBuilder.MeshBuildAll(parent, buildings, originStuds, chunk, con
                 vertexCount = 0,
                 triangleCount = 0,
                 meshCreateMs = 0,
+                shellDetailMs = 0,
                 roofMeshPartCount = 0,
             },
         }
@@ -2183,8 +2184,10 @@ function BuildingBuilder.MeshBuildAll(parent, buildings, originStuds, chunk, con
         vertexCount = 0,
         triangleCount = 0,
         meshCreateMs = 0,
+        shellDetailMs = 0,
         roofMeshPartCount = 0,
     }
+    local buildStartedAt = os.clock()
 
     for _, building in ipairs(buildings) do
         local fp = building.footprint
@@ -2558,6 +2561,8 @@ function BuildingBuilder.MeshBuildAll(parent, buildings, originStuds, chunk, con
             maybeYield(false)
         end
     end
+
+    buildStats.shellDetailMs = math.max(((os.clock() - buildStartedAt) * 1000) - buildStats.meshCreateMs, 0)
 
     return {
         builtModelsById = builtModelsById,

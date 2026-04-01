@@ -609,6 +609,14 @@ Status note: On 2026-04-01, the current Task 6 tranche was tightened around two 
 
 Status note: On 2026-04-01, the direct `tertiary` proof path replaced the staged-clone proof path for this slice. The staged remote clone is still not trustworthy for `arnis-roblox/scripts/` completeness, so focused Studio proof now runs against the persistent `/Users/adpena/Projects/arnis-roblox` tree on `tertiary` with `VSYNC_REPO_DIR=$HOME/.codex-remote-studio/vertigo-sync` until the stage-copy root cause is proven and fixed.
 
+Status note: On 2026-04-01, harness work was explicitly put into wrap-up mode for this tranche. New work should improve outdoor fidelity, hotspot attribution, and truth-pack usefulness; harness changes are limited to stabilization or proof-lane hygiene that unblock `tertiary`, not new harness feature surfaces.
+
+Status note: On 2026-04-01, the current continuation slice expanded the slow-chunk building breakdown and compact truth-pack headline instead of opening a new harness subproject:
+- `scripts/source_truth_pack_audit.py` now emits `summary.headline` for the largest outdoor coverage gap, dropped-semantics family, and overlap-loss family
+- `BuildingBuilder.lua`, `ImportService/init.lua`, and `AustinPreviewBuilder.lua` now preserve `buildingShellDetailMs` and `buildingInteriorMs`
+- `scripts/preview_telemetry_summary.py` now exposes derived building hotspot ratios and residual cost so the current `-1_0` chunk can be reasoned about without a raw log
+- proof continues to run only against the persistent `tertiary` repo, not the staged clone
+
 - [x] **Step 1: Use the truth-pack and current audits to name the first outdoor fixes**
 
 Generate a focused report locally from existing seeds/artifacts and record the first two measured targets in the status doc. Use the concrete report command below so target selection stays reproducible:

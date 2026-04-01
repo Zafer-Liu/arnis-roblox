@@ -2675,6 +2675,8 @@ class SceneFidelityAuditTests(unittest.TestCase):
                         "totalMs": 166,
                         "buildingsMs": 121,
                         "buildingMeshCreateMs": 97,
+                        "buildingShellDetailMs": 20,
+                        "buildingInteriorMs": 4,
                         "buildingMeshPartCount": 14,
                         "buildingRoofMeshPartCount": 6,
                         "buildingMeshTriangleCount": 4096,
@@ -2706,6 +2708,12 @@ class SceneFidelityAuditTests(unittest.TestCase):
             self.assertEqual(report["summary"]["previewTelemetry"]["hotspot"]["status"], "present")
             self.assertEqual(report["summary"]["previewTelemetry"]["hotspot"]["slowChunk"]["chunkId"], "7_5")
             self.assertEqual(report["summary"]["previewTelemetry"]["hotspot"]["slowChunk"]["buildingMeshCreateMs"], 97)
+            self.assertEqual(report["summary"]["previewTelemetry"]["hotspot"]["slowChunk"]["buildingShellDetailMs"], 20)
+            self.assertEqual(report["summary"]["previewTelemetry"]["hotspot"]["slowChunk"]["buildingInteriorMs"], 4)
+            self.assertEqual(report["summary"]["previewTelemetry"]["hotspot"]["slowChunk"]["buildingResidualMs"], 24)
+            self.assertEqual(
+                report["summary"]["previewTelemetry"]["hotspot"]["slowChunk"]["buildingMeshCreateRatio"], 0.8017
+            )
             self.assertEqual(report["summary"]["previewTelemetry"]["hotspot"]["slowChunk"]["terrainMaterialKindCount"], 3)
             self.assertNotIn(str(plugin_state_path), json.dumps(report, sort_keys=True))
             self.assertIn("Preview Hotspot", html)

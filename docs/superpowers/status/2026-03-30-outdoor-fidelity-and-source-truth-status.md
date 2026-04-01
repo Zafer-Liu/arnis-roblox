@@ -86,6 +86,7 @@ The compact historical archive index is:
 - Outdoor fidelity still needs dedicated work on terrain detail, shell nuance, and player-visible exterior realism.
 - Outdoor hotspots still need tighter measurement so preview/edit cost can be traced at chunk scope instead of only at the whole-run level.
 - Source-truth preservation still needs explicit proof across upstream source union, canonical collapse, and downstream audits.
+- Harness work is now in wrap-up mode: the direct persistent `tertiary` repo is the only proof lane, and remaining harness work should be limited to teardown/cleanup hygiene instead of new harness feature surfaces.
 
 ## Status Notes
 
@@ -447,3 +448,30 @@ The compact historical archive index is:
   - `WorldProbeTerrain.spec.lua`
   - `TerrainOutdoorFidelity.spec.lua`
   - refreshed edit/play preview telemetry from the staged clone
+
+### 2026-04-01: Task 6 Continued With Compact Building Hotspot Split And Truth-Pack Headline
+
+- `scripts/source_truth_pack_audit.py` now emits a compact `summary.headline` block so the largest outdoor-family coverage gap, dropped-semantics family, and overlap-loss family are visible without reading the full per-family tables.
+- `roblox/src/ServerScriptService/ImportService/Builders/BuildingBuilder.lua` now separates shell/detail time from mesh-creation time with `shellDetailMs`, and `roblox/src/ServerScriptService/ImportService/init.lua` now tracks `buildingShellDetailMs` plus `buildingInteriorMs` in the chunk profile.
+- `roblox/src/ServerScriptService/StudioPreview/AustinPreviewBuilder.lua` now preserves those new building split fields in the compact slow-chunk telemetry event and perf attributes, so preview hotspot evidence is no longer collapsed into one `buildingsMs` bucket.
+- `scripts/preview_telemetry_summary.py` now computes compact derived building metrics:
+  - `buildingResidualMs`
+  - `buildingMeshCreateRatio`
+  - `buildingResidualRatio`
+  - `buildingMeshPartsPerFeature`
+  - `buildingMeshTrianglesPerFeature`
+- Local-safe verification passed for the touched lane:
+  - `python3 -m unittest scripts.tests.test_preview_telemetry_summary scripts.tests.test_scene_fidelity_audit scripts.tests.test_source_truth_pack_audit scripts.tests.test_play_render_truth -v`
+  - `bash -n scripts/run_studio_harness.sh`
+  - `bash -n scripts/run_studio_harness_remote.sh`
+  - `cargo test --manifest-path rust/Cargo.toml --workspace`
+  - `git diff --check`
+- Direct `tertiary` proof against the persistent repo produced fresh live preview evidence for the current hotspot:
+  - `AustinPreviewTelemetry.spec.lua` passed with `ARNIS_MCP_EDIT_ACTION total=1 passed=1 failed=0`
+  - `AustinPreviewBuilder` emitted slow-chunk lines for `chunkId=-1_0` with `buildingsMs=150`, `buildingMeshCreateMs=1`, `buildingShellDetailMs=149`, `buildingInteriorMs=0`, `buildingMeshVertexCount=6112`, and `buildingMeshTriangleCount=3056`
+  - a follow-on `ImportService.spec.lua` run also emitted the new split fields on the same building-dominant chunk before teardown stalled
+- Harness stance for this tranche is now explicit:
+  - direct proof on the persistent `/Users/adpena/Projects/arnis-roblox` tree on `tertiary` remains the operator truth
+  - the staged clone is still untrusted for `scripts/` completeness
+  - no new harness feature work should be opened from this status note; only bounded teardown/cleanup hygiene remains in scope
+- `tertiary` was force-cleaned after the debugging runs; no Studio, harness, MCP, `vsync serve`, or lock residue was intentionally left behind.

@@ -119,6 +119,14 @@ return function()
         "expected chunk profile buildingMeshCreateMs number"
     )
     Assert.truthy(
+        type(chunkProfiles[1].buildingShellDetailMs) == "number",
+        "expected chunk profile buildingShellDetailMs number"
+    )
+    Assert.truthy(
+        type(chunkProfiles[1].buildingInteriorMs) == "number",
+        "expected chunk profile buildingInteriorMs number"
+    )
+    Assert.truthy(
         type(chunkProfiles[1].roadsDecorationMs) == "number",
         "expected chunk profile roadsDecorationMs number"
     )

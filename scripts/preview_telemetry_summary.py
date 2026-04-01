@@ -63,6 +63,36 @@ def _terrain_signal_status(slow_chunk: dict[str, Any]) -> str:
     return "present"
 
 
+def _round_ratio(numerator: int, denominator: int, *, digits: int = 4) -> float:
+    if denominator <= 0:
+        return 0.0
+    return round(numerator / denominator, digits)
+
+
+def _building_hotspot_metrics(slow_chunk: dict[str, Any]) -> dict[str, int | float]:
+    buildings_ms = int(slow_chunk.get("buildingsMs", 0) or 0)
+    mesh_create_ms = int(slow_chunk.get("buildingMeshCreateMs", 0) or 0)
+    shell_detail_ms = int(slow_chunk.get("buildingShellDetailMs", 0) or 0)
+    interior_ms = int(slow_chunk.get("buildingInteriorMs", 0) or 0)
+    feature_count = int(slow_chunk.get("buildingFeatureCount", 0) or 0)
+    mesh_part_count = int(slow_chunk.get("buildingMeshPartCount", 0) or 0)
+    triangle_count = int(slow_chunk.get("buildingMeshTriangleCount", 0) or 0)
+    residual_ms = max(
+        shell_detail_ms + interior_ms if shell_detail_ms > 0 or interior_ms > 0 else buildings_ms - mesh_create_ms,
+        0,
+    )
+
+    metrics: dict[str, int | float] = {
+        "buildingResidualMs": residual_ms,
+        "buildingMeshCreateRatio": _round_ratio(mesh_create_ms, buildings_ms),
+        "buildingResidualRatio": _round_ratio(residual_ms, buildings_ms),
+    }
+    if feature_count > 0:
+        metrics["buildingMeshPartsPerFeature"] = round(mesh_part_count / feature_count, 2)
+        metrics["buildingMeshTrianglesPerFeature"] = round(triangle_count / feature_count, 2)
+    return metrics
+
+
 def build_plugin_state_summary(data: dict[str, Any], telemetry_families: Any | None = None) -> dict[str, Any]:
     runtime = data.get("preview_runtime") or {}
     runtime_connection = runtime.get("connection") or {}
@@ -146,12 +176,15 @@ def build_plugin_state_summary(data: dict[str, Any], telemetry_families: Any | N
             "roadsMs": int(last_slow_chunk.get("roadsMs", 0)),
             "landuseTerrainFillMs": int(last_slow_chunk.get("landuseTerrainFillMs", 0)),
             "buildingFeatureCount": int(last_slow_chunk.get("buildingFeatureCount", 0)),
+            "buildingShellDetailMs": int(last_slow_chunk.get("buildingShellDetailMs", 0)),
+            "buildingInteriorMs": int(last_slow_chunk.get("buildingInteriorMs", 0)),
             "dominantCostCenter": dominant_cost_center,
             "dominantCostMs": dominant_cost_ms,
             "dominantCostRatio": dominant_cost_ratio,
             "terrainSignalStatus": _terrain_signal_status(last_slow_chunk),
             "artifactCount": int(last_slow_chunk.get("artifactCount", 0)),
         }
+        summary["hotspot"]["slowChunk"].update(_building_hotspot_metrics(last_slow_chunk))
         for source_key in (
             "buildingMeshCreateMs",
             "buildingMeshPartCount",
@@ -222,6 +255,18 @@ def summarize_plugin_state(data: dict[str, Any], telemetry_families: Any | None 
             ("buildingMeshTriangleCount", "slow_chunk_building_mesh_triangles"),
         )
         for source_key, token_key in optional_hotspot_tokens:
+            if source_key in slow_chunk:
+                slow_chunk_parts.append(f"{token_key}={slow_chunk.get(source_key, 0)}")
+        derived_hotspot_tokens = (
+            ("buildingShellDetailMs", "slow_chunk_building_shell_detail_ms"),
+            ("buildingInteriorMs", "slow_chunk_building_interior_ms"),
+            ("buildingResidualMs", "slow_chunk_building_residual_ms"),
+            ("buildingMeshCreateRatio", "slow_chunk_building_mesh_create_ratio"),
+            ("buildingResidualRatio", "slow_chunk_building_residual_ratio"),
+            ("buildingMeshPartsPerFeature", "slow_chunk_building_mesh_parts_per_feature"),
+            ("buildingMeshTrianglesPerFeature", "slow_chunk_building_mesh_triangles_per_feature"),
+        )
+        for source_key, token_key in derived_hotspot_tokens:
             if source_key in slow_chunk:
                 slow_chunk_parts.append(f"{token_key}={slow_chunk.get(source_key, 0)}")
         slow_chunk_parts.extend(

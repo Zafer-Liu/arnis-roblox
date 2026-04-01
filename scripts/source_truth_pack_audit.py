@@ -92,6 +92,28 @@ def _bounded_counter_rows(counter: Counter[str]) -> dict[str, int]:
     return {key: int(value) for key, value in rows}
 
 
+def _largest_counter_entry(counter: Counter[str]) -> tuple[str, int]:
+    if not counter:
+        return "none", 0
+    family, count = sorted(counter.items(), key=lambda item: (-item[1], item[0]))[0]
+    return family, int(count)
+
+
+def _largest_coverage_gap(coverage: dict[str, dict[str, float | int]]) -> tuple[str, float]:
+    rows: list[tuple[str, float]] = []
+    for family, row in coverage.items():
+        source_feature_count = int(row.get("source_feature_count", 0))
+        retained_feature_count = int(row.get("retained_feature_count", 0))
+        if source_feature_count <= 0:
+            gap_ratio = 0.0
+        else:
+            gap_ratio = round(max(source_feature_count - retained_feature_count, 0) / source_feature_count, 4)
+        rows.append((family, gap_ratio))
+    if not rows:
+        return "none", 0.0
+    return sorted(rows, key=lambda item: (-item[1], item[0]))[0]
+
+
 def _add_finding(
     findings: list[dict[str, Any]],
     *,
@@ -291,6 +313,12 @@ def build_report(truth_pack: Path) -> dict[str, Any]:
             }
         )
 
+    largest_coverage_gap_family, largest_coverage_gap_ratio = _largest_coverage_gap(outdoor_source_coverage)
+    largest_dropped_semantics_family, largest_dropped_semantics_count = _largest_counter_entry(
+        dropped_semantics_by_family
+    )
+    largest_overlap_loss_family, largest_overlap_loss_count = _largest_counter_entry(overlap_loss_by_family)
+
     overlap_samples = [
         {
             "feature_id": str(row["feature_id"]),
@@ -326,6 +354,14 @@ def build_report(truth_pack: Path) -> dict[str, Any]:
         "dropped_semantic_count": dropped_semantic_count,
         "collapse_count": collapse_count,
         "source_counts": source_counts,
+        "headline": {
+            "largestCoverageGapFamily": largest_coverage_gap_family,
+            "largestCoverageGapRatio": largest_coverage_gap_ratio,
+            "largestDroppedSemanticsFamily": largest_dropped_semantics_family,
+            "largestDroppedSemanticsCount": largest_dropped_semantics_count,
+            "largestOverlapLossFamily": largest_overlap_loss_family,
+            "largestOverlapLossCount": largest_overlap_loss_count,
+        },
         "retained_semantics_by_family": {
             family: int(retained_semantics_by_family.get(family, 0)) for family in OUTDOOR_FAMILIES
         },
