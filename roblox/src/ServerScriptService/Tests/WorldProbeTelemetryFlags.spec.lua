@@ -7,29 +7,70 @@ return function()
     Workspace:SetAttribute(WorldProbeTelemetryFlags.WORKSPACE_ATTR, nil)
 
     local defaultFlags = WorldProbeTelemetryFlags.parseTelemetryFamilies(Workspace:GetAttribute(WorldProbeTelemetryFlags.WORKSPACE_ATTR))
-    local defaultPayload = {
+    local defaultMarkerPayload = {
         worldRootName = "GeneratedWorld_Austin",
         worldRootExists = true,
         nearbyBuildingModels = 3,
     }
-    local defaultShapedPayload = WorldProbeTelemetryFlags.annotateMarkerPayload(defaultPayload, defaultFlags)
-    Assert.equal(defaultShapedPayload, defaultPayload, "expected marker annotation to stay in-place for compact defaults")
+    local defaultShapedPayload = WorldProbeTelemetryFlags.annotateMarkerPayload(defaultMarkerPayload, defaultFlags)
+    Assert.equal(defaultShapedPayload, defaultMarkerPayload, "expected marker annotation to stay in-place for compact defaults")
     Assert.equal(
         defaultShapedPayload.telemetryFamilies,
         nil,
         "expected compact default telemetry markers to omit the family list"
     )
 
+    local defaultLocalExperiencePayload = {
+        worldRootName = "GeneratedWorld_Austin",
+        worldRootExists = true,
+        playerLocalTelemetryEnabled = true,
+        localSupport = { surfaceRole = "terrain" },
+        localTerrain = { samplePattern = "cross_5" },
+        localEnclosure = { nearbyWallParts = 2 },
+        localRoofCover = { nearbyRoofParts = 1 },
+    }
+    WorldProbeTelemetryFlags.shapeLocalExperiencePayload(defaultLocalExperiencePayload, defaultFlags, false)
+    Assert.equal(
+        defaultLocalExperiencePayload.playerLocalTelemetryEnabled,
+        false,
+        "expected default/no-family local experience to be a tombstone"
+    )
+    Assert.equal(
+        defaultLocalExperiencePayload.localSupport,
+        nil,
+        "expected default/no-family local experience to omit live support data"
+    )
+    Assert.equal(
+        defaultLocalExperiencePayload.localTerrain,
+        nil,
+        "expected default/no-family local experience to omit live terrain data"
+    )
+    Assert.equal(
+        defaultLocalExperiencePayload.localEnclosure,
+        nil,
+        "expected default/no-family local experience to omit live enclosure data"
+    )
+    Assert.equal(
+        defaultLocalExperiencePayload.localRoofCover,
+        nil,
+        "expected default/no-family local experience to omit live roof cover data"
+    )
+    Assert.equal(
+        defaultLocalExperiencePayload.telemetryFamilies,
+        nil,
+        "expected default/no-family local experience markers to stay compact"
+    )
+
     local requestedFlags = WorldProbeTelemetryFlags.parseTelemetryFamilies(
         " player_local,terrain,roads,roads,unknown,water,hotspots,vegetation,structures "
     )
-    local requestedPayload = {
+    local requestedMarkerPayload = {
         worldRootName = "GeneratedWorld_Austin",
         worldRootExists = true,
         nearbyBuildingModels = 3,
     }
-    local requestedShapedPayload = WorldProbeTelemetryFlags.annotateMarkerPayload(requestedPayload, requestedFlags)
-    Assert.equal(requestedShapedPayload, requestedPayload, "expected marker annotation to reuse the existing payload table")
+    local requestedShapedPayload = WorldProbeTelemetryFlags.annotateMarkerPayload(requestedMarkerPayload, requestedFlags)
+    Assert.equal(requestedShapedPayload, requestedMarkerPayload, "expected marker annotation to reuse the existing payload table")
     Assert.equal(requestedShapedPayload.worldRootName, "GeneratedWorld_Austin", "expected annotation to preserve the world root name")
     Assert.equal(requestedShapedPayload.nearbyBuildingModels, 3, "expected annotation to preserve the core payload")
     Assert.equal(requestedShapedPayload.telemetryFamilies[1], "terrain", "expected canonical family order to start with terrain")
@@ -54,6 +95,78 @@ return function()
         requestedShapedPayload.telemetryFamilies[7],
         "player_local",
         "expected canonical family order to keep player-local last"
+    )
+
+    local requestedLocalExperiencePayload = {
+        worldRootName = "GeneratedWorld_Austin",
+        worldRootExists = true,
+        playerLocalTelemetryEnabled = false,
+        localSupport = { surfaceRole = "terrain" },
+        localTerrain = { samplePattern = "cross_5" },
+        localEnclosure = { nearbyWallParts = 2 },
+        localRoofCover = { nearbyRoofParts = 1 },
+    }
+    WorldProbeTelemetryFlags.shapeLocalExperiencePayload(requestedLocalExperiencePayload, requestedFlags, true)
+    Assert.equal(
+        requestedLocalExperiencePayload.playerLocalTelemetryEnabled,
+        true,
+        "expected enabled player-local telemetry to preserve the live marker"
+    )
+    Assert.equal(
+        requestedLocalExperiencePayload.localSupport.surfaceRole,
+        "terrain",
+        "expected enabled player-local telemetry to preserve live support data"
+    )
+    Assert.equal(
+        requestedLocalExperiencePayload.localTerrain.samplePattern,
+        "cross_5",
+        "expected enabled player-local telemetry to preserve live terrain data"
+    )
+    Assert.equal(
+        requestedLocalExperiencePayload.telemetryFamilies[1],
+        "terrain",
+        "expected enabled local experience markers to keep canonical family order"
+    )
+    Assert.equal(
+        requestedLocalExperiencePayload.telemetryFamilies[7],
+        "player_local",
+        "expected enabled local experience markers to keep player-local last"
+    )
+
+    local disabledAfterEnabledPayload = {
+        worldRootName = "GeneratedWorld_Austin",
+        worldRootExists = true,
+        playerLocalTelemetryEnabled = true,
+        localSupport = { surfaceRole = "terrain" },
+        localTerrain = { samplePattern = "cross_5" },
+        localEnclosure = { nearbyWallParts = 2 },
+        localRoofCover = { nearbyRoofParts = 1 },
+    }
+    WorldProbeTelemetryFlags.shapeLocalExperiencePayload(disabledAfterEnabledPayload, defaultFlags, false)
+    Assert.equal(
+        disabledAfterEnabledPayload.playerLocalTelemetryEnabled,
+        false,
+        "expected disabling player-local telemetry to replace the live marker with a tombstone"
+    )
+    Assert.equal(
+        disabledAfterEnabledPayload.localSupport,
+        nil,
+        "expected the tombstone marker to drop live support data"
+    )
+    Assert.equal(
+        disabledAfterEnabledPayload.localTerrain,
+        nil,
+        "expected the tombstone marker to drop live terrain data"
+    )
+    Assert.equal(
+        disabledAfterEnabledPayload.localEnclosure,
+        nil,
+        "expected the tombstone marker to drop live enclosure data"
+    )
+    Assert.equal(
+        disabledAfterEnabledPayload.localRoofCover,
+        nil,
+        "expected the tombstone marker to drop live roof cover data"
     )
 
     Workspace:SetAttribute(WorldProbeTelemetryFlags.WORKSPACE_ATTR, "terrain,player_local,vegetation")

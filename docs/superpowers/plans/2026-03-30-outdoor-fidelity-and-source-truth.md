@@ -377,7 +377,7 @@ Task 3b coverage:
 
 Status note: On 2026-04-01, Task 4a1 landed the harness/operator contract slice only. `ARNIS_TELEMETRY_FAMILIES` is now an explicit `scripts/run_studio_harness.sh` contract and the preview summary can surface a requested family subset compactly, but Luau/runtime gating remained deferred to the later Task 4 implementation steps.
 
-Status note: On 2026-04-01, Task 4a2 added the runtime marker-shaping seam. The shared family vocabulary now flows through `WorldProbeTelemetryFlags.lua`, the harness mirrors the requested family list into `Workspace`, and `WorldProbe.client.lua` annotates emitted markers with the canonical `telemetryFamilies` subset when one is requested. Only the real heavy/local slices remain gated where data exists.
+Status note: On 2026-04-01, Task 4a2 added the runtime marker-shaping seam. The shared family vocabulary now flows through `WorldProbeTelemetryFlags.lua`, the harness mirrors the requested family list into `Workspace`, and `WorldProbe.client.lua` annotates emitted markers with the canonical `telemetryFamilies` subset when one is requested. `player_local` now emits a deterministic tombstone payload when disabled so stale local-experience lines do not remain authoritative. Only the real heavy/local slices remain gated where data exists.
 
 **Files:**
 - Create: `roblox/src/ReplicatedStorage/Shared/WorldProbeTelemetryFlags.lua`

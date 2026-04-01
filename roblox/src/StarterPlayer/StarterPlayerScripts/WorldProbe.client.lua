@@ -499,9 +499,11 @@ local function publishWorldTelemetry()
         bootstrapDuplicateCount = bootstrapPayload.bootstrapDuplicateCount,
         bootstrapLastScriptPath = bootstrapPayload.bootstrapLastScriptPath,
     }
+    local playerLocalTelemetryEnabled = WorldProbeTelemetryFlags.isEnabled(telemetryFlags, "player_local")
     local localExperiencePayload = {
         worldRootName = worldRootName,
         worldRootExists = worldRoot ~= nil,
+        playerLocalTelemetryEnabled = false,
         localSupport = nil,
         localTerrain = nil,
         localEnclosure = nil,
@@ -537,7 +539,7 @@ local function publishWorldTelemetry()
         compactPayload.localTerrain = payload.localTerrain
         compactPayload.localEnclosure = payload.localEnclosure
         compactPayload.localRoofCover = payload.localRoofCover
-        if WorldProbeTelemetryFlags.isEnabled(telemetryFlags, "player_local") then
+        if playerLocalTelemetryEnabled then
             localExperiencePayload.worldRootName = payload.worldRootName
             localExperiencePayload.worldRootExists = payload.worldRootExists
             localExperiencePayload.localSupport = payload.localSupport
@@ -545,10 +547,6 @@ local function publishWorldTelemetry()
             localExperiencePayload.localEnclosure = payload.localEnclosure
             localExperiencePayload.localRoofCover = payload.localRoofCover
         end
-    end
-
-    if not WorldProbeTelemetryFlags.isEnabled(telemetryFlags, "player_local") then
-        localExperiencePayload = nil
     end
 
     setPlayerAttributeIfChanged("ArnisClientWorldRootName", payload.worldRootName)
@@ -571,13 +569,15 @@ local function publishWorldTelemetry()
         lastCompactPayloadJson = compactPayloadJson
         print("ARNIS_CLIENT_WORLD_COMPACT " .. compactPayloadJson)
     end
-    if localExperiencePayload ~= nil then
-        WorldProbeTelemetryFlags.annotateMarkerPayload(localExperiencePayload, telemetryFlags)
-        local localExperiencePayloadJson = HttpService:JSONEncode(localExperiencePayload)
-        if localExperiencePayloadJson ~= lastLocalExperiencePayloadJson then
-            lastLocalExperiencePayloadJson = localExperiencePayloadJson
-            print("ARNIS_CLIENT_LOCAL_EXPERIENCE " .. localExperiencePayloadJson)
-        end
+    WorldProbeTelemetryFlags.shapeLocalExperiencePayload(
+        localExperiencePayload,
+        telemetryFlags,
+        playerLocalTelemetryEnabled
+    )
+    local localExperiencePayloadJson = HttpService:JSONEncode(localExperiencePayload)
+    if localExperiencePayloadJson ~= lastLocalExperiencePayloadJson then
+        lastLocalExperiencePayloadJson = localExperiencePayloadJson
+        print("ARNIS_CLIENT_LOCAL_EXPERIENCE " .. localExperiencePayloadJson)
     end
 
     WorldProbeTelemetryFlags.annotateMarkerPayload(payload, telemetryFlags)

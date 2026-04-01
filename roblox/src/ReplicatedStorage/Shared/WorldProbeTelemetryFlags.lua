@@ -1,7 +1,8 @@
 local WorldProbeTelemetryFlags = {}
 
 WorldProbeTelemetryFlags.WORKSPACE_ATTR = "ArnisTelemetryFamilies"
-WorldProbeTelemetryFlags.SUPPORTED_FAMILY_ORDER = {
+
+local SUPPORTED_FAMILY_ORDER = {
     "terrain",
     "roads",
     "water",
@@ -10,15 +11,13 @@ WorldProbeTelemetryFlags.SUPPORTED_FAMILY_ORDER = {
     "hotspots",
     "player_local",
 }
-WorldProbeTelemetryFlags.SUPPORTED_FAMILIES = {
-    terrain = true,
-    roads = true,
-    water = true,
-    vegetation = true,
-    structures = true,
-    hotspots = true,
-    player_local = true,
-}
+WorldProbeTelemetryFlags.SUPPORTED_FAMILY_ORDER = SUPPORTED_FAMILY_ORDER
+
+local SUPPORTED_FAMILIES = {}
+for _, familyName in ipairs(SUPPORTED_FAMILY_ORDER) do
+    SUPPORTED_FAMILIES[familyName] = true
+end
+WorldProbeTelemetryFlags.SUPPORTED_FAMILIES = SUPPORTED_FAMILIES
 
 local function trim(value)
     if type(value) ~= "string" then
@@ -95,6 +94,25 @@ function WorldProbeTelemetryFlags.annotateMarkerPayload(payload, telemetryFlags)
     end
 
     payload.telemetryFamilies = enabledFamilies
+    return payload
+end
+
+function WorldProbeTelemetryFlags.shapeLocalExperiencePayload(payload, telemetryFlags, playerLocalTelemetryEnabled)
+    if type(payload) ~= "table" then
+        return payload
+    end
+
+    WorldProbeTelemetryFlags.annotateMarkerPayload(payload, telemetryFlags)
+    payload.playerLocalTelemetryEnabled = playerLocalTelemetryEnabled == true
+    if payload.playerLocalTelemetryEnabled then
+        return payload
+    end
+
+    payload.localSupport = nil
+    payload.localTerrain = nil
+    payload.localEnclosure = nil
+    payload.localRoofCover = nil
+    payload.characterPosition = nil
     return payload
 end
 

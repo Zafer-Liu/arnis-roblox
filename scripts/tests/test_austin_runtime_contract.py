@@ -254,11 +254,15 @@ class AustinRuntimeContractTests(unittest.TestCase):
         self.assertIn("WorldProbeTelemetryFlags.annotateMarkerPayload(compactPayload, telemetryFlags)", self.world_probe_text)
         self.assertIn("WorldProbeTelemetryFlags.annotateMarkerPayload(payload, telemetryFlags)", self.world_probe_text)
         self.assertIn(
-            "WorldProbeTelemetryFlags.annotateMarkerPayload(localExperiencePayload, telemetryFlags)",
+            "WorldProbeTelemetryFlags.shapeLocalExperiencePayload(",
+            self.world_probe_text,
+        )
+        self.assertIn(
+            "WorldProbeTelemetryFlags.shapeLocalExperiencePayload(",
             self.world_probe_text,
         )
         self.assertIn('if WorldProbeTelemetryFlags.isEnabled(telemetryFlags, "terrain") then', self.world_probe_text)
-        self.assertIn('if WorldProbeTelemetryFlags.isEnabled(telemetryFlags, "player_local") then', self.world_probe_text)
+        self.assertIn('local playerLocalTelemetryEnabled = WorldProbeTelemetryFlags.isEnabled(telemetryFlags, "player_local")', self.world_probe_text)
         self.assertIn('if WorldProbeTelemetryFlags.isEnabled(telemetryFlags, "structures") then', self.world_probe_text)
         self.assertIn("localTerrain = localTerrain", self.world_probe_text)
         self.assertIn("local function sampleLocalTerrain(rootPart, worldRoot)", self.world_probe_text)
@@ -276,7 +280,8 @@ class AustinRuntimeContractTests(unittest.TestCase):
 
     def test_client_world_probe_emits_dedicated_local_experience_marker(self) -> None:
         self.assertIn('print("ARNIS_CLIENT_LOCAL_EXPERIENCE " .. localExperiencePayloadJson)', self.world_probe_text)
-        self.assertIn('if WorldProbeTelemetryFlags.isEnabled(telemetryFlags, "player_local") then', self.world_probe_text)
+        self.assertIn('local playerLocalTelemetryEnabled = WorldProbeTelemetryFlags.isEnabled(telemetryFlags, "player_local")', self.world_probe_text)
+        self.assertIn('playerLocalTelemetryEnabled = false', self.world_probe_text)
         self.assertIn("localExperiencePayload.localSupport = payload.localSupport", self.world_probe_text)
         self.assertIn("localExperiencePayload.localTerrain = payload.localTerrain", self.world_probe_text)
         self.assertIn("localExperiencePayload.localEnclosure = payload.localEnclosure", self.world_probe_text)
@@ -288,18 +293,16 @@ class AustinRuntimeContractTests(unittest.TestCase):
         self.assertIn("function WorldProbeTelemetryFlags.parseTelemetryFamilies(value)", self.world_probe_flags_text)
         self.assertIn("function WorldProbeTelemetryFlags.isEnabled(telemetryFlags, family)", self.world_probe_flags_text)
         self.assertIn("function WorldProbeTelemetryFlags.annotateMarkerPayload(payload, telemetryFlags)", self.world_probe_flags_text)
+        self.assertIn("function WorldProbeTelemetryFlags.shapeLocalExperiencePayload(payload, telemetryFlags, playerLocalTelemetryEnabled)", self.world_probe_flags_text)
         self.assertIn("payload.telemetryFamilies = enabledFamilies", self.world_probe_flags_text)
-        self.assertIn("terrain", self.world_probe_flags_text)
-        self.assertIn("roads", self.world_probe_flags_text)
-        self.assertIn("water", self.world_probe_flags_text)
-        self.assertIn("vegetation", self.world_probe_flags_text)
-        self.assertIn("structures", self.world_probe_flags_text)
-        self.assertIn("hotspots", self.world_probe_flags_text)
-        self.assertIn("player_local", self.world_probe_flags_text)
+        self.assertIn("SUPPORTED_FAMILY_ORDER", self.world_probe_flags_text)
+        self.assertIn("SUPPORTED_FAMILIES[familyName] = true", self.world_probe_flags_text)
         self.assertIn("annotateMarkerPayload", self.world_probe_flags_spec_text)
+        self.assertIn("shapeLocalExperiencePayload", self.world_probe_flags_spec_text)
+        self.assertIn("defaultLocalExperiencePayload.playerLocalTelemetryEnabled", self.world_probe_flags_spec_text)
+        self.assertIn("requestedLocalExperiencePayload.playerLocalTelemetryEnabled", self.world_probe_flags_spec_text)
+        self.assertIn("disabledAfterEnabledPayload.playerLocalTelemetryEnabled", self.world_probe_flags_spec_text)
         self.assertIn("telemetryFamilies", self.world_probe_flags_spec_text)
-        self.assertIn("requestedShapedPayload.telemetryFamilies[1], \"terrain\"", self.world_probe_flags_spec_text)
-        self.assertIn("workspacePayload.telemetryFamilies[3],", self.world_probe_flags_spec_text)
 
     def test_shaped_roof_closure_decks_are_marked_internal_support_not_visible_roof_truth(self) -> None:
         self.assertIn("local function applyRoofPartOptions(part, partOptions)", self.building_builder_text)
