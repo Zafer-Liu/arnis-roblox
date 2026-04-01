@@ -278,17 +278,19 @@ Status note: On 2026-04-01, Task 3a spec review tightened the auditor contract f
 - headline retained/dropped/overlap counts must be scoped to the outdoor families only
 - the truth-pack auditor must use bounded aggregate/sample queries instead of materializing full SQLite tables
 
-**Files:**
+**Task 3a Files:**
 - Create: `scripts/source_truth_pack_audit.py`
 - Create: `scripts/tests/test_source_truth_pack_audit.py`
 - Modify: `scripts/manifest_quality_audit.py`
 - Modify: `scripts/tests/test_manifest_quality_audit.py`
+
+**Later Task 3 Files:**
 - Modify: `scripts/scene_fidelity_audit.py`
 - Modify: `scripts/scene_parity_audit.py`
 - Modify: `scripts/tests/test_scene_fidelity_audit.py`
 - Modify: `scripts/tests/test_scene_parity_audit.py`
 
-- [ ] **Step 1: Write failing truth-pack audit tests**
+- [ ] **Task 3a Step 1: Write failing truth-pack audit tests**
 
 Create `scripts/tests/test_source_truth_pack_audit.py` and extend:
 - `scripts/tests/test_manifest_quality_audit.py`
@@ -304,7 +306,7 @@ Cover:
 - carry-through into scene-fidelity JSON/HTML
 - parity normalization that can distinguish intentional bounded-preview subset behavior from real source-truth loss
 
-- [ ] **Step 2: Run the focused audit tests to verify they fail**
+- [ ] **Task 3a Step 2: Run the focused audit tests to verify they fail**
 
 Run:
 
@@ -319,16 +321,17 @@ python3 -m unittest \
 Expected:
 - FAIL because the new truth-pack findings and report surfaces do not exist yet
 
-- [ ] **Step 3: Implement the truth-pack audit and report carry-through**
+- [ ] **Task 3a Step 3: Implement the truth-pack audit and manifest-quality carry-through**
 
-Add `scripts/source_truth_pack_audit.py` and update the existing audits so they can:
+Add `scripts/source_truth_pack_audit.py` and update `scripts/manifest_quality_audit.py` so they can:
 - read the SQLite truth-pack and compact summary JSON
 - emit explicit outdoor-source findings
-- surface truth-pack-backed provenance and collapse summaries in the main JSON/HTML reports
-- carry structured outdoor hotspot timing and artifact-count summaries into `scene_fidelity_audit.py` and `scene_parity_audit.py`
+- surface truth-pack-backed provenance and collapse summaries in the manifest-quality JSON/HTML report
 - keep token usage bounded by default while allowing deeper report slices when requested
 
-- [ ] **Step 4: Re-run the focused audit tests**
+Defer scene-fidelity, scene-parity, and hotspot carry-through to later Task 3 slices.
+
+- [ ] **Task 3a Step 4: Re-run the focused audit tests**
 
 Run:
 
@@ -343,7 +346,7 @@ python3 -m unittest \
 Expected:
 - PASS
 
-- [ ] **Step 5: Commit**
+- [ ] **Task 3a Step 5: Commit**
 
 ```bash
 git add scripts/source_truth_pack_audit.py \

@@ -84,3 +84,11 @@ No verification recorded yet.
 - Local-safe verification after the fix passed:
   - `python3 -m unittest scripts.tests.test_source_truth_pack_audit scripts.tests.test_manifest_quality_audit -v`
   - `git diff --check`
+
+### 2026-04-01: Task 3 Plan Drift Fixed After The Task 3a Review Gate
+
+- A follow-up spec review correctly noted that the active Task 3 file list and step text still overclaimed `scene_fidelity_audit.py` and `scene_parity_audit.py` as part of the Task 3a manifest-quality-only slice.
+- The active plan now splits Task 3 into:
+  - Task 3a files and steps for truth-pack audit plus manifest-quality carry-through
+  - later Task 3 files for scene-fidelity and scene-parity carry-through
+- This keeps the plan aligned with the actual execution order before Task 3b starts.
