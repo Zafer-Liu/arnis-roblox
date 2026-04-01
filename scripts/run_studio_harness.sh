@@ -36,6 +36,7 @@ HARD_RESTART=0
 SKIP_PLUGIN_SMOKE=0
 SCENE_INDEX_VERSION=2
 STUDIO_RELAUNCH_COOLDOWN_SECONDS=3
+STUDIO_UI_TIMEOUT_SECONDS="${HARNESS_STUDIO_UI_TIMEOUT_SECONDS:-5}"
 HARNESS_LOCK_DIR="${HARNESS_LOCK_DIR:-/tmp/arnis-studio-harness.lock}"
 HARNESS_LOCK_OWNED=0
 export ARNIS_TELEMETRY_FAMILIES="${ARNIS_TELEMETRY_FAMILIES:-}"
@@ -47,7 +48,7 @@ VSYNC_SERVER_PID=""
 VSYNC_SERVER_LOG=""
 MCP_READY=0
 MCP_SIDECAR_PID=""
-MCP_SIDECAR_FEED_PID=""
+MCP_SIDECAR_FD="9"
 MCP_SIDECAR_FIFO=""
 MCP_SIDECAR_LOG=""
 MCP_SIDECAR_DIR=""
@@ -346,6 +347,7 @@ STARTED_AT=0
 CLEANUP_RUNNING=0
 HARNESS_OWNS_STUDIO=0
 ATTACHED_TO_EXISTING_STUDIO=0
+PARENT_WATCHDOG_PID=""
 MEMORY_MONITOR_PID=""
 MEMORY_METRICS_FILE=""
 MEMORY_GUARD_FILE=""
@@ -480,6 +482,49 @@ PY
   fi
 
   log "cleaning orphaned Studio MCP helpers: $orphan_pids"
+  kill $orphan_pids >/dev/null 2>&1 || true
+  sleep 1
+  kill -KILL $orphan_pids >/dev/null 2>&1 || true
+}
+
+cleanup_orphan_harness_processes() {
+  local orphan_pids=""
+  orphan_pids="$(
+    python3 - "$$" <<'PY'
+import subprocess
+import sys
+
+current_pid = sys.argv[1]
+matches = []
+result = subprocess.run(
+    ["ps", "-Ao", "pid=,ppid=,command="],
+    capture_output=True,
+    check=True,
+    text=True,
+)
+for raw_line in result.stdout.splitlines():
+    parts = raw_line.strip().split(None, 2)
+    if len(parts) != 3:
+        continue
+    pid_text, ppid_text, command = parts
+    if pid_text == current_pid:
+        continue
+    if "run_studio_harness.sh" not in command:
+        continue
+    if ppid_text != "1":
+        continue
+    matches.append(pid_text)
+
+if matches:
+    print(" ".join(matches))
+PY
+  )"
+
+  if [[ -z "$orphan_pids" ]]; then
+    return 0
+  fi
+
+  log "cleaning orphaned harness shells: $orphan_pids"
   kill $orphan_pids >/dev/null 2>&1 || true
   sleep 1
   kill -KILL $orphan_pids >/dev/null 2>&1 || true
@@ -711,14 +756,12 @@ ensure_mcp_plugin_installed() {
 
 stop_mcp_sidecar() {
   if [[ -n "$MCP_SIDECAR_PID" ]]; then
-    kill "$MCP_SIDECAR_PID" >/dev/null 2>&1 || true
-    wait "$MCP_SIDECAR_PID" >/dev/null 2>&1 || true
+    terminate_process_pid "$MCP_SIDECAR_PID"
     MCP_SIDECAR_PID=""
   fi
-  if [[ -n "$MCP_SIDECAR_FEED_PID" ]]; then
-    kill "$MCP_SIDECAR_FEED_PID" >/dev/null 2>&1 || true
-    wait "$MCP_SIDECAR_FEED_PID" >/dev/null 2>&1 || true
-    MCP_SIDECAR_FEED_PID=""
+  if [[ -n "$MCP_SIDECAR_FD" ]]; then
+    eval "exec ${MCP_SIDECAR_FD}>&-"
+    MCP_SIDECAR_FD=""
   fi
   if [[ -n "$MCP_SIDECAR_FIFO" ]]; then
     rm -f "$MCP_SIDECAR_FIFO"
@@ -751,14 +794,10 @@ start_mcp_sidecar() {
   MCP_SIDECAR_FIFO="$MCP_SIDECAR_DIR/stdin.fifo"
   MCP_SIDECAR_LOG="$MCP_SIDECAR_DIR/sidecar.log"
   mkfifo "$MCP_SIDECAR_FIFO"
+  eval "exec ${MCP_SIDECAR_FD}<>\"$MCP_SIDECAR_FIFO\""
 
   (
-    tail -f /dev/null >"$MCP_SIDECAR_FIFO"
-  ) &
-  MCP_SIDECAR_FEED_PID=$!
-
-  (
-    cat "$MCP_SIDECAR_FIFO" | "$MCP_BINARY" --stdio >"$MCP_SIDECAR_LOG" 2>&1
+    "$MCP_BINARY" --stdio <"$MCP_SIDECAR_FIFO" >"$MCP_SIDECAR_LOG" 2>&1
   ) &
   MCP_SIDECAR_PID=$!
   MCP_SIDECAR_OWNED=1
@@ -910,6 +949,36 @@ fi
 
 log() {
   printf '[harness] %s\n' "$*"
+}
+
+start_parent_watchdog() {
+  if [[ -n "$PARENT_WATCHDOG_PID" ]]; then
+    return 0
+  fi
+
+  local harness_pid="$$"
+  (
+    while kill -0 "$harness_pid" >/dev/null 2>&1; do
+      local current_ppid=""
+      current_ppid="$(ps -o ppid= -p "$harness_pid" 2>/dev/null | tr -d '[:space:]' || true)"
+      if [[ "$current_ppid" == "1" ]]; then
+        log "harness parent disappeared; terminating to keep the machine clean"
+        kill -TERM "$harness_pid" >/dev/null 2>&1 || true
+        exit 0
+      fi
+      sleep 2
+    done
+  ) &
+  PARENT_WATCHDOG_PID="$!"
+}
+
+stop_parent_watchdog() {
+  if [[ -z "$PARENT_WATCHDOG_PID" ]]; then
+    return 0
+  fi
+
+  terminate_process_pid "$PARENT_WATCHDOG_PID"
+  PARENT_WATCHDOG_PID=""
 }
 
 release_harness_lock() {
@@ -1132,8 +1201,7 @@ PY
 
 stop_memory_monitor() {
   if [[ -n "$MEMORY_MONITOR_PID" ]]; then
-    kill "$MEMORY_MONITOR_PID" >/dev/null 2>&1 || true
-    wait "$MEMORY_MONITOR_PID" >/dev/null 2>&1 || true
+    terminate_process_pid "$MEMORY_MONITOR_PID"
     MEMORY_MONITOR_PID=""
   fi
 }
@@ -1213,17 +1281,55 @@ studio_pids() {
   pgrep -x "RobloxStudio" 2>/dev/null || true
 }
 
+run_studio_ui_control_with_timeout() {
+  local timeout_seconds="${1:-$STUDIO_UI_TIMEOUT_SECONDS}"
+  shift
+
+  local output_file=""
+  output_file="$(mktemp)"
+  ARNIS_STUDIO_UI_CONTROL_TIMEOUT_SECONDS="$timeout_seconds" python3 "$STUDIO_UI_CONTROL" "$@" >"$output_file" 2>/dev/null &
+  local command_pid="$!"
+  local waited=0
+
+  while kill -0 "$command_pid" >/dev/null 2>&1; do
+    if [[ $waited -ge $timeout_seconds ]]; then
+      log "Studio UI control timed out: $*"
+      terminate_child_processes_for_pid "$command_pid" 1
+      kill -TERM "$command_pid" >/dev/null 2>&1 || true
+      sleep 1
+      terminate_child_processes_for_pid "$command_pid" 1
+      kill -0 "$command_pid" >/dev/null 2>&1 && kill -KILL "$command_pid" >/dev/null 2>&1 || true
+      terminate_child_processes_for_pid "$command_pid" 1
+      wait "$command_pid" >/dev/null 2>&1 || true
+      rm -f "$output_file"
+      return 124
+    fi
+    sleep 1
+    waited=$((waited + 1))
+  done
+
+  local command_status=0
+  wait "$command_pid" || command_status=$?
+  cat "$output_file"
+  rm -f "$output_file"
+  return "$command_status"
+}
+
 studio_session_status_json() {
-  python3 "$STUDIO_UI_CONTROL" get-session-status 2>/dev/null || true
+  run_studio_ui_control_with_timeout "$STUDIO_UI_TIMEOUT_SECONDS" get-session-status 2>/dev/null || true
 }
 
 studio_dump_ui_json() {
-  python3 "$STUDIO_UI_CONTROL" dump-ui 2>/dev/null || true
+  run_studio_ui_control_with_timeout "$STUDIO_UI_TIMEOUT_SECONDS" dump-ui 2>/dev/null || true
 }
 
 studio_session_status_value() {
   local field="$1"
-  python3 "$STUDIO_UI_CONTROL" get-session-status-value "$field" 2>/dev/null || true
+  run_studio_ui_control_with_timeout "$STUDIO_UI_TIMEOUT_SECONDS" get-session-status-value "$field" 2>/dev/null || true
+}
+
+run_studio_ui_action() {
+  run_studio_ui_control_with_timeout "$STUDIO_UI_TIMEOUT_SECONDS" "$@" >/dev/null 2>&1
 }
 
 restore_runall_config() {
@@ -1390,6 +1496,45 @@ run_cleanup_helper_if_defined() {
   fi
 }
 
+terminate_process_pid() {
+  local pid="$1"
+  local timeout_seconds="${2:-3}"
+  if [[ -z "$pid" ]] || ! [[ "$pid" =~ ^[0-9]+$ ]]; then
+    return 0
+  fi
+
+  kill -TERM "$pid" >/dev/null 2>&1 || true
+  local waited=0
+  while kill -0 "$pid" >/dev/null 2>&1; do
+    if [[ $waited -ge $timeout_seconds ]]; then
+      kill -KILL "$pid" >/dev/null 2>&1 || true
+      break
+    fi
+    sleep 1
+    waited=$((waited + 1))
+  done
+  wait "$pid" >/dev/null 2>&1 || true
+}
+
+terminate_child_processes_for_pid() {
+  local parent_pid="$1"
+  local timeout_seconds="${2:-2}"
+  if [[ -z "$parent_pid" ]] || ! [[ "$parent_pid" =~ ^[0-9]+$ ]]; then
+    return 0
+  fi
+
+  local child_pids=""
+  child_pids="$(pgrep -P "$parent_pid" 2>/dev/null | tr '\n' ' ' || true)"
+  if [[ -z "$child_pids" ]]; then
+    return 0
+  fi
+
+  local child_pid=""
+  for child_pid in $child_pids; do
+    terminate_process_pid "$child_pid" "$timeout_seconds"
+  done
+}
+
 terminate_owned_child_processes() {
   local child_pids=""
   child_pids="$(
@@ -1412,8 +1557,10 @@ cleanup() {
     return
   fi
   CLEANUP_RUNNING=1
+  log "cleanup starting exit_code=$exit_code"
   run_cleanup_helper_if_defined stop_log_pipe
   run_cleanup_helper_if_defined stop_memory_monitor
+  run_cleanup_helper_if_defined stop_parent_watchdog
   if [[ -n "$LOG_SLICE_FILE" && -f "$LOG_SLICE_FILE" ]]; then
     rm -f "$LOG_SLICE_FILE"
   fi
@@ -1433,9 +1580,12 @@ cleanup() {
     should_close="$(python3 -c 'import json,sys; print(str(bool(json.loads(sys.stdin.read()).get("should_close"))).lower())' <<<"$cleanup_decision" 2>/dev/null || printf 'false')"
     cleanup_reason="$(python3 -c 'import json,sys; print(json.loads(sys.stdin.read()).get("reason","policy_error"))' <<<"$cleanup_decision" 2>/dev/null || printf 'policy_error')"
   fi
+  log "cleanup policy session_status=$session_status should_close=$should_close reason=$cleanup_reason"
 
   if [[ "$should_close" == "true" ]] && declare -F quit_studio >/dev/null 2>&1; then
+    log "cleanup invoking quit_studio"
     quit_studio
+    log "cleanup returned from quit_studio"
     local post_quit_status="unknown"
     if declare -F studio_session_status_value >/dev/null 2>&1; then
       post_quit_status="$(studio_session_status_value status 2>/dev/null || printf 'unknown')"
@@ -1445,12 +1595,19 @@ cleanup() {
       force_quit_studio || true
     fi
   fi
+  log "cleanup summarizing memory monitor"
   run_cleanup_helper_if_defined summarize_memory_monitor
+  log "cleanup releasing harness lock"
   run_cleanup_helper_if_defined release_harness_lock
+  log "cleanup stopping MCP sidecar"
   run_cleanup_helper_if_defined stop_mcp_sidecar
+  log "cleanup stopping Vertigo Sync server"
   run_cleanup_helper_if_defined stop_vsync_server
+  log "cleanup restoring runall config"
   run_cleanup_helper_if_defined restore_runall_config
+  log "cleanup restoring foreign plugins"
   run_cleanup_helper_if_defined restore_foreign_plugins
+  log "cleanup finished exit_code=$exit_code should_close=$should_close reason=$cleanup_reason"
 }
 
 cleanup_on_signal() {
@@ -1464,7 +1621,9 @@ cleanup_on_signal() {
 trap 'cleanup "$?"' EXIT
 trap 'cleanup_on_signal 130' INT TERM
 
+cleanup_orphan_harness_processes
 acquire_harness_lock "$@" || exit 1
+start_parent_watchdog
 
 enable_runall_entry() {
   local edit_enabled="true"
@@ -1519,6 +1678,7 @@ should_start_live_vsync_server() {
 }
 
 quit_studio() {
+  log "quit_studio starting"
   local session_status="not_running"
   session_status="$(studio_session_status_value status 2>/dev/null || printf 'not_running')"
   local log_indicates_play="false"
@@ -1547,32 +1707,29 @@ quit_studio() {
     should_graceful_quit="$(python3 -c 'import json,sys; print(str(bool(json.loads(sys.stdin.read()).get("should_quit"))).lower())' <<<"$graceful_quit_decision" 2>/dev/null || printf 'false')"
   fi
   if [[ "$should_graceful_quit" == "true" ]]; then
-    python3 "$STUDIO_UI_CONTROL" quit >/dev/null 2>&1 || true
+    log "quit_studio requesting graceful quit"
+    run_studio_ui_action quit || true
   else
     log "skipping graceful Studio quit while session is still unstable (status=$session_status)"
   fi
 
   local waited=0
   while [[ -n "$(studio_pids)" ]]; do
-    local current_status="unknown"
-    current_status="$(studio_session_status_value status 2>/dev/null || printf 'unknown')"
-    if [[ "$current_status" == "blocked_dialog" ]]; then
-      log "Studio close dialog detected during quit; dismissing without saving"
-      dismiss_startup_dialogs || true
-      python3 "$STUDIO_UI_CONTROL" dismiss-dont-save >/dev/null 2>&1 || true
-    fi
     sleep 1
     waited=$((waited + 1))
     if [[ $waited -ge 3 ]]; then
-      python3 "$STUDIO_UI_CONTROL" dismiss-dont-save >/dev/null 2>&1 || true
+      dismiss_startup_dialogs || true
+      run_studio_ui_action dismiss-dont-save || true
     fi
     if [[ $waited -ge 20 ]]; then
+      log "quit_studio escalating to TERM for remaining Studio processes"
       local pid
       for pid in $(studio_pids); do
         kill -TERM "$pid" >/dev/null 2>&1 || true
       done
     fi
     if [[ $waited -ge 28 ]]; then
+      log "quit_studio escalating to KILL for remaining Studio processes"
       local pid
       for pid in $(studio_pids); do
         kill -KILL "$pid" >/dev/null 2>&1 || true
@@ -1597,11 +1754,13 @@ quit_studio() {
     sleep 1
     waited_for_not_running=$((waited_for_not_running + 1))
   done
+  log "quit_studio finished"
 }
 
 force_quit_studio() {
+  log "force_quit_studio starting"
   dismiss_startup_dialogs || true
-  python3 "$STUDIO_UI_CONTROL" dismiss-dont-save >/dev/null 2>&1 || true
+  run_studio_ui_action dismiss-dont-save || true
 
   local waited=0
   while [[ -n "$(studio_pids)" && $waited -lt 2 ]]; do
@@ -1610,7 +1769,7 @@ force_quit_studio() {
   done
 
   if [[ -n "$(studio_pids)" ]]; then
-    python3 "$STUDIO_UI_CONTROL" force-quit >/dev/null 2>&1 || true
+    run_studio_ui_action force-quit || true
   fi
 
   waited=0
@@ -1623,6 +1782,7 @@ force_quit_studio() {
     return 1
   fi
 
+  log "force_quit_studio finished"
   return 0
 }
 
@@ -1649,7 +1809,7 @@ open_studio() {
     session_status="$(studio_session_status_value status)"
     if [[ "$session_status" == "blocked_dialog" ]]; then
       dismiss_startup_dialogs
-      python3 "$STUDIO_UI_CONTROL" dismiss-dont-save >/dev/null 2>&1 || true
+      run_studio_ui_action dismiss-dont-save || true
       sleep 1
       session_status="$(studio_session_status_value status)"
     fi
@@ -1863,8 +2023,7 @@ stop_log_pipe() {
   if [[ -z "$TAIL_PID" ]]; then
     return
   fi
-  kill "$TAIL_PID" >/dev/null 2>&1 || true
-  wait "$TAIL_PID" >/dev/null 2>&1 || true
+  terminate_process_pid "$TAIL_PID"
   TAIL_PID=""
 }
 
@@ -1963,10 +2122,7 @@ terminate_stale_vsync_listener() {
 
 stop_vsync_server() {
   if [[ -n "$VSYNC_SERVER_PID" ]]; then
-    if kill -0 "$VSYNC_SERVER_PID" >/dev/null 2>&1; then
-      kill "$VSYNC_SERVER_PID" >/dev/null 2>&1 || true
-      wait "$VSYNC_SERVER_PID" >/dev/null 2>&1 || true
-    fi
+    terminate_process_pid "$VSYNC_SERVER_PID"
   fi
   VSYNC_SERVER_PID=""
 
@@ -2148,9 +2304,11 @@ root = Path(os.environ["HARNESS_ROOT_DIR"])
 vsync_root = Path(os.environ["HARNESS_VSYNC_REPO_DIR"])
 sys.path.insert(0, str(root / 'scripts'))
 from studio_mcp_proxy_lib import build_mcp_client, run_code_in_play_session
-use_proxy = os.environ.get("HARNESS_USE_MCP_PROXY", "").strip().lower() in {"1", "true", "yes", "on"} and bool(
-    os.environ.get("MCP_PROXY_URL", "").strip()
-)
+proxy_requested = os.environ.get("HARNESS_USE_MCP_PROXY", "").strip().lower() in {"1", "true", "yes", "on"}
+proxy_url = os.environ.get("MCP_PROXY_URL", "").strip()
+use_proxy = proxy_requested and bool(proxy_url)
+if proxy_requested and not proxy_url:
+    raise SystemExit(1)
 JsonRpcStdioClient = None
 if not use_proxy:
     sys.path.insert(0, str(vsync_root / 'scripts' / 'dev'))
@@ -2263,11 +2421,11 @@ wait_for_edit_completion() {
 }
 
 activate_studio() {
-  python3 "$STUDIO_UI_CONTROL" activate >/dev/null 2>&1 || true
+  run_studio_ui_action activate || true
 }
 
 dismiss_startup_dialogs() {
-  python3 "$STUDIO_UI_CONTROL" dismiss-startup-dialogs >/dev/null 2>&1 || true
+  run_studio_ui_action dismiss-startup-dialogs || true
 }
 
 studio_state_json() {
@@ -2513,15 +2671,18 @@ vsync_root = Path(os.environ["HARNESS_VSYNC_REPO_DIR"])
 sys.path.insert(0, str(root / 'scripts'))
 from studio_mcp_proxy_lib import best_mode_from_payload, build_mcp_client
 from studio_harness_policy import mcp_mode_stop_decision
-use_proxy = os.environ.get("HARNESS_USE_MCP_PROXY", "").strip().lower() in {"1", "true", "yes", "on"} and bool(
-    os.environ.get("MCP_PROXY_URL", "").strip()
-)
+phase = os.environ["MCP_PHASE"]
+proxy_requested = os.environ.get("HARNESS_USE_MCP_PROXY", "").strip().lower() in {"1", "true", "yes", "on"}
+proxy_url = os.environ.get("MCP_PROXY_URL", "").strip()
+use_proxy = proxy_requested and bool(proxy_url)
 JsonRpcStdioClient = None
+if proxy_requested and not proxy_url:
+    print(f"[harness-mcp] phase={phase} skip=proxy-unavailable")
+    raise SystemExit(0)
 if not use_proxy:
     sys.path.insert(0, str(vsync_root / 'scripts' / 'dev'))
     from studio_mcp_direct_lib import JsonRpcStdioClient
 
-phase = os.environ["MCP_PHASE"]
 bin_path = os.environ["MCP_BINARY_PATH"]
 scene_marker_luau = os.environ["SCENE_MARKER_LUAU"]
 preflight_session_status = os.environ.get("MCP_PREFLIGHT_SESSION_STATUS", "unknown")
@@ -2771,10 +2932,13 @@ vsync_root = Path(os.environ["HARNESS_VSYNC_REPO_DIR"])
 sys.path.insert(0, str(root / 'scripts'))
 from studio_mcp_proxy_lib import build_mcp_client, run_code_in_play_session
 from studio_harness_policy import build_readiness_expectation, mcp_mode_stop_decision
-use_proxy = os.environ.get("HARNESS_USE_MCP_PROXY", "").strip().lower() in {"1", "true", "yes", "on"} and bool(
-    os.environ.get("MCP_PROXY_URL", "").strip()
-)
+proxy_requested = os.environ.get("HARNESS_USE_MCP_PROXY", "").strip().lower() in {"1", "true", "yes", "on"}
+proxy_url = os.environ.get("MCP_PROXY_URL", "").strip()
+use_proxy = proxy_requested and bool(proxy_url)
 JsonRpcStdioClient = None
+if proxy_requested and not proxy_url:
+    print("[harness-mcp] phase=edit skip=proxy-unavailable")
+    raise SystemExit(0)
 if not use_proxy:
     sys.path.insert(0, str(vsync_root / 'scripts' / 'dev'))
     from studio_mcp_direct_lib import JsonRpcStdioClient
@@ -3152,7 +3316,7 @@ click_menu_item() {
   local menu_item="$2"
   local attempts=0
   while [[ $attempts -lt 15 ]]; do
-    if python3 "$STUDIO_UI_CONTROL" click-menu "$menu_bar_item" "$menu_item" >/dev/null 2>&1; then
+    if run_studio_ui_action click-menu "$menu_bar_item" "$menu_item"; then
       return 0
     fi
     sleep 1
@@ -3162,11 +3326,11 @@ click_menu_item() {
 }
 
 new_file_template() {
-  python3 "$STUDIO_UI_CONTROL" new-file >/dev/null 2>&1 || click_menu_item "File" "New"
+  run_studio_ui_action new-file || click_menu_item "File" "New"
 }
 
 enter_play_mode() {
-  if python3 "$STUDIO_UI_CONTROL" start-test-session >/dev/null 2>&1; then
+  if run_studio_ui_action start-test-session; then
     return 0
   fi
   if click_menu_item "Test" "Start Test Session"; then
@@ -3175,7 +3339,7 @@ enter_play_mode() {
   if click_menu_item "Test" "Play"; then
     return 0
   fi
-  python3 "$STUDIO_UI_CONTROL" activate >/dev/null 2>&1 || true
+  run_studio_ui_action activate || true
   osascript -e 'tell application "System Events" to key code 96' >/dev/null 2>&1 || true
 }
 
@@ -3190,10 +3354,12 @@ root = Path(os.environ["HARNESS_ROOT_DIR"])
 vsync_root = Path(os.environ["HARNESS_VSYNC_REPO_DIR"])
 sys.path.insert(0, str(root / 'scripts'))
 from studio_mcp_proxy_lib import build_mcp_client, run_code_in_play_session
-use_proxy = os.environ.get("HARNESS_USE_MCP_PROXY", "").strip().lower() in {"1", "true", "yes", "on"} and bool(
-    os.environ.get("MCP_PROXY_URL", "").strip()
-)
+proxy_requested = os.environ.get("HARNESS_USE_MCP_PROXY", "").strip().lower() in {"1", "true", "yes", "on"}
+proxy_url = os.environ.get("MCP_PROXY_URL", "").strip()
+use_proxy = proxy_requested and bool(proxy_url)
 JsonRpcStdioClient = None
+if proxy_requested and not proxy_url:
+    raise SystemExit(1)
 if not use_proxy:
     sys.path.insert(0, str(vsync_root / 'scripts' / 'dev'))
     from studio_mcp_direct_lib import JsonRpcStdioClient
@@ -3216,7 +3382,7 @@ PY
     fi
     log "MCP stop-play request failed; falling back to Studio UI stop controls"
   fi
-  if python3 "$STUDIO_UI_CONTROL" stop-test-session >/dev/null 2>&1; then
+  if run_studio_ui_action stop-test-session; then
     return 0
   fi
   if click_menu_item "Test" "Stop"; then
@@ -3249,10 +3415,13 @@ root = Path(os.environ["HARNESS_ROOT_DIR"])
 vsync_root = Path(os.environ["HARNESS_VSYNC_REPO_DIR"])
 sys.path.insert(0, str(root / 'scripts'))
 from studio_mcp_proxy_lib import build_mcp_client, run_code_in_play_session
-use_proxy = os.environ.get("HARNESS_USE_MCP_PROXY", "").strip().lower() in {"1", "true", "yes", "on"} and bool(
-    os.environ.get("MCP_PROXY_URL", "").strip()
-)
+proxy_requested = os.environ.get("HARNESS_USE_MCP_PROXY", "").strip().lower() in {"1", "true", "yes", "on"}
+proxy_url = os.environ.get("MCP_PROXY_URL", "").strip()
+use_proxy = proxy_requested and bool(proxy_url)
 JsonRpcStdioClient = None
+if proxy_requested and not proxy_url:
+    print("[harness-mcp] phase=play skip=proxy-unavailable")
+    raise SystemExit(0)
 if not use_proxy:
     sys.path.insert(0, str(vsync_root / 'scripts' / 'dev'))
     from studio_mcp_direct_lib import JsonRpcStdioClient
@@ -3944,8 +4113,15 @@ run_plugin_smoke_check() {
   fi
 
   local summary_source="$ACTIVE_LOG"
+  local summary_snapshot=""
   if [[ -n "$LOG_SLICE_FILE" && -f "$LOG_SLICE_FILE" ]]; then
-    summary_source="$LOG_SLICE_FILE"
+    summary_snapshot="$(mktemp -t arnis-plugin-smoke-log)"
+    if cp "$LOG_SLICE_FILE" "$summary_snapshot" >/dev/null 2>&1; then
+      summary_source="$summary_snapshot"
+    else
+      rm -f "$summary_snapshot"
+      summary_snapshot=""
+    fi
   fi
 
   log "running Vertigo Sync plugin smoke check"
@@ -3954,6 +4130,11 @@ run_plugin_smoke_check() {
     --ignore-cloud-plugins \
     --allow-plugin user_VertigoSyncPlugin.lua \
     --allow-plugin user_MCPStudioPlugin.rbxm
+  local smoke_status=$?
+  if [[ -n "$summary_snapshot" && -f "$summary_snapshot" ]]; then
+    rm -f "$summary_snapshot"
+  fi
+  return "$smoke_status"
 }
 
 enable_runall_entry
@@ -4188,3 +4369,4 @@ summarize_log
 capture_preview_telemetry_artifacts
 run_scene_fidelity_audits
 run_plugin_smoke_check
+log "main harness flow complete; exiting"

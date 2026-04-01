@@ -188,3 +188,48 @@ No verification recorded yet.
 - The preview-summary and Austin preview telemetry modules did not need follow-up edits for this slice; 4a1 remains the only harness/operator summary change.
 - Local-safe verification passed:
   - `python3 -m unittest scripts.tests.test_austin_runtime_contract scripts.tests.test_run_studio_harness scripts.tests.test_preview_telemetry_summary -v`
+
+### 2026-04-01: Remote Harness Hygiene Tightened, But Graceful Quit Still Blocks Final Exit
+
+- `scripts/run_studio_harness.sh` now:
+  - reaps orphan harness shells before taking the remote lock
+  - self-terminates when its SSH parent disappears
+  - bounds all `studio_ui_control.py` reads and actions through the same shell timeout helper
+  - kills timed-out UI helper child processes, not just the Python launcher
+  - uses bounded TERM->KILL helpers for the background MCP sidecar, Vertigo Sync server, memory monitor, and log tail
+  - emits explicit cleanup and `quit_studio` phase logs so teardown is no longer a black box
+- Focused harness regression coverage was extended in `scripts/tests/test_run_studio_harness.py` and remains green locally and on the staged clone on `tertiary`.
+- Remote `tertiary` proof signal is materially better:
+  - the edit/preview body succeeds serially with fresh preview telemetry, `ARNIS_MCP_READY`, `ARNIS_MCP_EDIT_ACTION`, and a passing Vertigo Sync plugin smoke check
+  - teardown now reaches `main harness flow complete`, `cleanup starting`, `cleanup policy`, `cleanup invoking quit_studio`, and `quit_studio starting`
+  - the earlier raw `studio_mcp_direct_lib` fallback failure is gone, and the raw untimed `studio_ui_control.py` action path is gone
+- The remaining blocker is narrower and explicit:
+  - the remote run still does not emit `quit_studio finished`, `cleanup finished`, or `HARNESS_EXIT`
+  - the last observed hang point is after `quit_studio requesting graceful quit`
+  - `tertiary` was force-cleaned after the debugging runs; no harness, Studio, MCP, Vertigo Sync, AppleScript, or lock state was left resident
+- Local-safe verification for this slice passed:
+  - `python3 -m unittest scripts.tests.test_run_studio_harness.RunStudioHarnessTests.test_ui_status_probes_are_bounded_by_shell_timeout_helper scripts.tests.test_run_studio_harness.RunStudioHarnessTests.test_cleanup_uses_bounded_term_then_kill_for_background_helpers scripts.tests.test_run_studio_harness.RunStudioHarnessTests.test_quit_loop_dismisses_dialogs_without_polling_session_status_each_iteration -v`
+  - `bash -n scripts/run_studio_harness.sh`
+  - `git diff --check`
+
+### 2026-04-01: Plugin-Smoke Live-Log Hang Removed, UI Helper Timeouts Moved Into `studio_ui_control.py`
+
+- `scripts/studio_ui_control.py` now enforces its own bounded `osascript` timeout and returns exit code `124` on timeout instead of relying on the shell wrapper to kill the Python launcher from the outside.
+- `scripts/run_studio_harness.sh` now kills timed-out UI helper child processes explicitly, not just the top-level Python helper, and no longer polls `studio_session_status_value` inside every `quit_studio` loop iteration before dismissing save/startup dialogs.
+- `run_plugin_smoke_check()` no longer points `vsync plugin-smoke-log` at the live `LOG_SLICE_FILE`; it snapshots the slice to a temporary file first, which removed the observed post-smoke stall before `main harness flow complete`.
+- `stop_parent_watchdog()` now uses the same bounded TERM->KILL helper as the other background-process shutdown paths.
+- Focused regression coverage was extended locally and on the staged `tertiary` clone:
+  - `scripts/tests/test_studio_ui_control.py` now locks the timeout exit-code behavior
+  - `scripts/tests/test_run_studio_harness.py` now asserts the plugin-smoke snapshot path and the bounded watchdog shutdown path
+- Remote `tertiary` evidence after these fixes:
+  - the serial no-play preview lane still produces fresh preview telemetry and `ARNIS_MCP_EDIT_ACTION`
+  - the live-log plugin-smoke hang is gone; the run now logs `main harness flow complete; exiting`
+  - the cleanup phase now at least begins from the fixed branch, instead of stalling inside plugin smoke or a raw `osascript` child
+  - direct SSH transport remained flaky in one subsequent attempt (`exec_command` returned `255`), but the staged clone was left clean afterward with no harness, Studio, MCP, Vertigo Sync, AppleScript, or lock residue
+- The remaining uncertainty is narrower than before:
+  - the strongest repo-side teardown stalls were removed
+  - the next verification slice should focus on proving a stable `HARNESS_EXIT:0` / `cleanup finished` transcript on `tertiary` without a transport drop
+- Local-safe verification passed:
+  - `python3 -m unittest scripts.tests.test_run_studio_harness.RunStudioHarnessTests.test_plugin_smoke_uses_snapshot_of_live_log_slice scripts.tests.test_run_studio_harness.RunStudioHarnessTests.test_ui_status_probes_are_bounded_by_shell_timeout_helper scripts.tests.test_run_studio_harness.RunStudioHarnessTests.test_cleanup_uses_bounded_term_then_kill_for_background_helpers scripts.tests.test_run_studio_harness.RunStudioHarnessTests.test_quit_loop_dismisses_dialogs_without_polling_session_status_each_iteration scripts.tests.test_studio_ui_control -v`
+  - `bash -n scripts/run_studio_harness.sh`
+  - remote staged-clone focused tests for the same harness/UI-control assertions passed on `tertiary`

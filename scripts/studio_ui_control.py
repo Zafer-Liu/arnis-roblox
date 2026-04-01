@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 import argparse
 import json
+import os
 import subprocess
 import sys
 
@@ -17,6 +18,10 @@ STARTUP_DISMISS_BUTTONS = [
     "Close",
     "No",
 ]
+OSASCRIPT_TIMEOUT_SECONDS = max(
+    1,
+    int(float(os.environ.get("ARNIS_STUDIO_UI_CONTROL_TIMEOUT_SECONDS", "5") or "5")),
+)
 
 
 def normalize_window_name(front_window: str) -> str:
@@ -146,17 +151,28 @@ def classify_session_status(snapshot: dict, pid_count: int) -> dict:
 
 
 def run_osascript(script: str) -> int:
-    result = subprocess.run(["osascript", "-e", script], check=False)
+    try:
+        result = subprocess.run(
+            ["osascript", "-e", script],
+            check=False,
+            timeout=OSASCRIPT_TIMEOUT_SECONDS,
+        )
+    except subprocess.TimeoutExpired:
+        return 124
     return result.returncode
 
 
 def capture_osascript(script: str) -> tuple[int, str]:
-    result = subprocess.run(
-        ["osascript", "-e", script],
-        check=False,
-        capture_output=True,
-        text=True,
-    )
+    try:
+        result = subprocess.run(
+            ["osascript", "-e", script],
+            check=False,
+            capture_output=True,
+            text=True,
+            timeout=OSASCRIPT_TIMEOUT_SECONDS,
+        )
+    except subprocess.TimeoutExpired:
+        return 124, ""
     return result.returncode, result.stdout.strip()
 
 
