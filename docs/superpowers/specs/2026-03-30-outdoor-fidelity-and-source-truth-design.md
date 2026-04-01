@@ -5,7 +5,7 @@ Status: Active
 
 This design defines the next tranche after the March 28 baseline and play-fidelity work.
 
-Use the paired implementation plan and rolling status document as the execution and handoff surfaces once this design is approved and the tranche starts:
+Use the paired implementation plan and rolling status document as the active execution and handoff surfaces for this tranche:
 
 - `docs/superpowers/plans/2026-03-30-outdoor-fidelity-and-source-truth.md`
 - `docs/superpowers/status/2026-03-30-outdoor-fidelity-and-source-truth-status.md`

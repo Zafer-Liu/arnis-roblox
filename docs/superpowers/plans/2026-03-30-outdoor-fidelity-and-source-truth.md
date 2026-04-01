@@ -75,11 +75,14 @@ This is the active implementation surface for the March 30 outdoor fidelity and 
 
 **Files:**
 - Create: `docs/superpowers/status/2026-03-30-outdoor-fidelity-and-source-truth-status.md`
+- Modify: `docs/superpowers/specs/2026-03-30-outdoor-fidelity-and-source-truth-design.md`
+- Modify: `docs/superpowers/plans/2026-03-30-outdoor-fidelity-and-source-truth.md`
+- Modify: `docs/superpowers/specs/2026-03-28-play-fidelity-and-observability-design.md`
 - Modify: `docs/superpowers/plans/2026-03-28-play-fidelity-and-observability.md`
 - Modify: `docs/superpowers/status/2026-03-28-play-fidelity-and-observability-status.md`
 - Modify: `docs/remote-studio-development.md`
 
-- [ ] **Step 1: Write the new outdoor tranche status document**
+- [x] **Step 1: Wrote the new outdoor tranche status document**
 
 Create `docs/superpowers/status/2026-03-30-outdoor-fidelity-and-source-truth-status.md` with:
 - date/status header
@@ -88,7 +91,7 @@ Create `docs/superpowers/status/2026-03-30-outdoor-fidelity-and-source-truth-sta
 - empty verification snapshot sections for `Local Static` and `Remote tertiary`
 - residual gaps focused on outdoor fidelity, outdoor hotspots, and source-truth preservation
 
-- [ ] **Step 2: Mark the March 28 plan/status stack as historical context**
+- [x] **Step 2: Marked the March 28 plan/status/spec stack as historical context**
 
 Update:
 - `docs/superpowers/specs/2026-03-28-play-fidelity-and-observability-design.md`
@@ -97,19 +100,19 @@ Update:
 
 So they no longer read as the active tranche once the new files exist.
 
-- [ ] **Step 3: Mark the approved design doc active**
+- [x] **Step 3: Marked the approved design doc active**
 
 Update `docs/superpowers/specs/2026-03-30-outdoor-fidelity-and-source-truth-design.md` so it clearly reads as the active design surface for the tranche rather than a proposed draft.
 
-- [ ] **Step 4: Mark the implementation plan active**
+- [x] **Step 4: Marked the implementation plan active**
 
 Update `docs/superpowers/plans/2026-03-30-outdoor-fidelity-and-source-truth.md` so it clearly reads as the active implementation surface for the tranche.
 
-- [ ] **Step 5: Update the operator doc**
+- [x] **Step 5: Updated the operator doc**
 
 Update `docs/remote-studio-development.md` so it points operators at the new rolling status file and keeps `tertiary` as the current proof lane without duplicating volatile proof claims.
 
-- [ ] **Step 6: Verify the doc stack has one active truth surface**
+- [x] **Step 6: Verified the doc stack has one active truth surface**
 
 Run:
 
@@ -121,7 +124,7 @@ Expected:
 - the new outdoor status/plan/spec stack is the only active tranche
 - the March 28 play-fidelity docs are clearly historical/completed context
 
-- [ ] **Step 7: Commit**
+- [x] **Step 7: Committed**
 
 ```bash
 git add docs/superpowers/status/2026-03-30-outdoor-fidelity-and-source-truth-status.md \
