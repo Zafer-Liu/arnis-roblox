@@ -75,3 +75,12 @@ No verification recorded yet.
 - This slice intentionally did not touch `scene_fidelity_audit.py` or `scene_parity_audit.py`; those remain follow-on Task 3 work.
 - Local-safe verification passed:
   - `python3 -m unittest scripts.tests.test_source_truth_pack_audit scripts.tests.test_manifest_quality_audit -v`
+
+### 2026-04-01: Task 3a Review Tightened Boundedness And Outdoor-Only Scope
+
+- Spec review found two real issues in the first Task 3a landing: the truth-pack auditor was materializing full SQLite tables, and its headline retained/dropped/overlap counts were not explicitly limited to outdoor families.
+- The auditor now uses bounded aggregate queries plus capped sample queries, and the top-line findings ignore non-outdoor rows.
+- A `rail` fixture row now guards against non-outdoor truth-pack data silently inflating the outdoor headline metrics.
+- Local-safe verification after the fix passed:
+  - `python3 -m unittest scripts.tests.test_source_truth_pack_audit scripts.tests.test_manifest_quality_audit -v`
+  - `git diff --check`

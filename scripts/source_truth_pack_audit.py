@@ -12,6 +12,18 @@ from typing import Any
 
 HOTSPOT_LIMIT = 8
 OUTDOOR_FAMILIES = ("terrain", "landuse", "roads", "water", "vegetation", "structures")
+OUTDOOR_FEATURE_KINDS = (
+    "terrain",
+    "landuse",
+    "road",
+    "roads",
+    "water",
+    "vegetation",
+    "tree",
+    "prop",
+    "structure",
+    "building",
+)
 FEATURE_KIND_TO_FAMILY = {
     "terrain": "terrain",
     "landuse": "landuse",
@@ -71,6 +83,10 @@ def _top_samples(rows: list[dict[str, Any]], *, sort_keys: tuple[str, ...]) -> l
     )[:HOTSPOT_LIMIT]
 
 
+def _placeholders(values: tuple[str, ...]) -> str:
+    return ",".join("?" for _ in values)
+
+
 def _add_finding(
     findings: list[dict[str, Any]],
     *,
@@ -97,54 +113,107 @@ def build_report(truth_pack: Path) -> dict[str, Any]:
     truth_pack = truth_pack.resolve()
     summary_data = _load_summary(truth_pack)
     connection = _connect(truth_pack)
+    kinds_clause = _placeholders(OUTDOOR_FEATURE_KINDS)
     try:
-        feature_kind_by_id = {
-            str(row["feature_id"]): str(row["feature_kind"])
-            for row in connection.execute("SELECT feature_id, feature_kind FROM features").fetchall()
-        }
-
+        feature_count = int(connection.execute("SELECT COUNT(*) FROM features").fetchone()[0])
         retained_semantics_rows = [dict(row) for row in connection.execute(
             """
-            SELECT rs.feature_id, f.feature_kind, rs.field_name, rs.field_value
+            SELECT f.feature_kind, COUNT(*) AS semantic_count
             FROM retained_semantics rs
             JOIN features f ON f.feature_id = rs.feature_id
-            ORDER BY rs.feature_id, rs.field_name, rs.field_value
+            WHERE LOWER(f.feature_kind) IN ("""
+            + kinds_clause
+            + """)
+            GROUP BY f.feature_kind
+            ORDER BY f.feature_kind
             """
+            ,
+            OUTDOOR_FEATURE_KINDS,
         ).fetchall()]
         dropped_semantics_rows = [dict(row) for row in connection.execute(
             """
-            SELECT ds.feature_id, f.feature_kind, ds.field_name, ds.field_value, ds.reason, ds.retained_feature_id
+            SELECT f.feature_kind, COUNT(*) AS semantic_count
             FROM dropped_semantics ds
             JOIN features f ON f.feature_id = ds.feature_id
-            ORDER BY ds.feature_id, ds.field_name, ds.field_value
+            WHERE LOWER(f.feature_kind) IN ("""
+            + kinds_clause
+            + """)
+            GROUP BY f.feature_kind
+            ORDER BY f.feature_kind
             """
+            ,
+            OUTDOOR_FEATURE_KINDS,
         ).fetchall()]
         overlap_rows = [dict(row) for row in connection.execute(
             """
-            SELECT c.feature_id, f.feature_kind, c.retained_feature_id, c.collapse_kind, c.matched_source
+            SELECT f.feature_kind, COUNT(*) AS collapse_count
             FROM collapses c
             JOIN features f ON f.feature_id = c.feature_id
-            ORDER BY c.feature_id, c.retained_feature_id
+            WHERE LOWER(f.feature_kind) IN ("""
+            + kinds_clause
+            + """)
+            GROUP BY f.feature_kind
+            ORDER BY f.feature_kind
             """
+            ,
+            OUTDOOR_FEATURE_KINDS,
         ).fetchall()]
         source_feature_counts_rows = connection.execute(
             """
             SELECT f.feature_kind, COUNT(DISTINCT fs.feature_id) AS source_feature_count
             FROM feature_sources fs
             JOIN features f ON f.feature_id = fs.feature_id
+            WHERE LOWER(f.feature_kind) IN ("""
+            + kinds_clause
+            + """)
             GROUP BY f.feature_kind
             ORDER BY f.feature_kind
             """
+            ,
+            OUTDOOR_FEATURE_KINDS,
         ).fetchall()
         retained_feature_counts_rows = connection.execute(
             """
             SELECT feature_kind, COUNT(*) AS retained_feature_count
             FROM features
             WHERE is_retained = 1
+              AND LOWER(feature_kind) IN ("""
+            + kinds_clause
+            + """)
             GROUP BY feature_kind
             ORDER BY feature_kind
             """
+            ,
+            OUTDOOR_FEATURE_KINDS,
         ).fetchall()
+        overlap_sample_rows = [dict(row) for row in connection.execute(
+            """
+            SELECT c.feature_id, f.feature_kind, c.retained_feature_id, c.collapse_kind, c.matched_source
+            FROM collapses c
+            JOIN features f ON f.feature_id = c.feature_id
+            WHERE LOWER(f.feature_kind) IN ("""
+            + kinds_clause
+            + """)
+            ORDER BY f.feature_kind, c.feature_id, c.retained_feature_id
+            LIMIT ?
+            """
+            ,
+            (*OUTDOOR_FEATURE_KINDS, HOTSPOT_LIMIT),
+        ).fetchall()]
+        dropped_sample_rows = [dict(row) for row in connection.execute(
+            """
+            SELECT ds.feature_id, f.feature_kind, ds.field_name, ds.field_value, ds.reason, ds.retained_feature_id
+            FROM dropped_semantics ds
+            JOIN features f ON f.feature_id = ds.feature_id
+            WHERE LOWER(f.feature_kind) IN ("""
+            + kinds_clause
+            + """)
+            ORDER BY f.feature_kind, ds.feature_id, ds.field_name, ds.field_value
+            LIMIT ?
+            """
+            ,
+            (*OUTDOOR_FEATURE_KINDS, HOTSPOT_LIMIT),
+        ).fetchall()]
     finally:
         connection.close()
 
@@ -155,11 +224,11 @@ def build_report(truth_pack: Path) -> dict[str, Any]:
     retained_feature_counts_by_family: Counter[str] = Counter()
 
     for row in retained_semantics_rows:
-        retained_semantics_by_family[_family_for_kind(row.get("feature_kind"))] += 1
+        retained_semantics_by_family[_family_for_kind(row.get("feature_kind"))] += int(row["semantic_count"])
     for row in dropped_semantics_rows:
-        dropped_semantics_by_family[_family_for_kind(row.get("feature_kind"))] += 1
+        dropped_semantics_by_family[_family_for_kind(row.get("feature_kind"))] += int(row["semantic_count"])
     for row in overlap_rows:
-        overlap_loss_by_family[_family_for_kind(row.get("feature_kind"))] += 1
+        overlap_loss_by_family[_family_for_kind(row.get("feature_kind"))] += int(row["collapse_count"])
     for row in source_feature_counts_rows:
         source_feature_counts_by_family[_family_for_kind(row["feature_kind"])] += int(row["source_feature_count"])
     for row in retained_feature_counts_rows:
@@ -187,7 +256,7 @@ def build_report(truth_pack: Path) -> dict[str, Any]:
             "collapse_kind": str(row["collapse_kind"]),
             "matched_source": str(row["matched_source"]),
         }
-        for row in overlap_rows
+        for row in overlap_sample_rows
     ]
     dropped_samples = [
         {
@@ -198,13 +267,12 @@ def build_report(truth_pack: Path) -> dict[str, Any]:
             "reason": str(row["reason"]),
             "retained_feature_id": row["retained_feature_id"],
         }
-        for row in dropped_semantics_rows
+        for row in dropped_sample_rows
     ]
 
-    feature_count = int(summary_data.get("feature_count", len(feature_kind_by_id)))
-    retained_semantic_count = int(summary_data.get("retained_semantic_count", len(retained_semantics_rows)))
-    dropped_semantic_count = int(summary_data.get("dropped_semantic_count", len(dropped_semantics_rows)))
-    collapse_count = int(summary_data.get("collapse_count", len(overlap_rows)))
+    retained_semantic_count = sum(retained_semantics_by_family.values())
+    dropped_semantic_count = sum(dropped_semantics_by_family.values())
+    collapse_count = sum(overlap_loss_by_family.values())
 
     source_counts = summary_data.get("source_counts") if isinstance(summary_data.get("source_counts"), dict) else {}
     source_counts = {str(key): int(value) for key, value in source_counts.items()}

@@ -81,6 +81,7 @@ def build_truth_pack_fixture(db_path: Path) -> Path:
             ("road_1", "road", "road_1", 1),
             ("water_1", "water", "water_1", 1),
             ("veg_1", "vegetation", "veg_1", 1),
+            ("rail_1", "rail", "rail_1", 1),
             ("structure_1", "structure", "structure_1", 1),
             ("structure_overlap_1", "structure", "structure_1", 0),
             ("structure_overlap_2", "structure", "structure_1", 0),
@@ -94,6 +95,7 @@ def build_truth_pack_fixture(db_path: Path) -> Path:
             ("road_1", "overpass", "road-src-1", "roads"),
             ("water_1", "overpass", "water-src-1", "water"),
             ("veg_1", "overpass", "veg-src-1", "vegetation"),
+            ("rail_1", "overpass", "rail-src-1", "rail"),
             ("structure_1", "overpass", "osm-1", "structures"),
             ("structure_overlap_1", "overture", "ov-1", "structures"),
             ("structure_overlap_2", "overture", "ov-2", "structures"),
@@ -108,6 +110,7 @@ def build_truth_pack_fixture(db_path: Path) -> Path:
             ("water_1", "kind", "river"),
             ("veg_1", "species", "oak"),
             ("veg_1", "leaf_type", "broadleaved"),
+            ("rail_1", "kind", "tram"),
             ("structure_1", "usage", "school"),
             ("structure_1", "name", "Fixture Hall"),
         ],
@@ -115,6 +118,7 @@ def build_truth_pack_fixture(db_path: Path) -> Path:
     connection.executemany(
         "INSERT INTO collapses (feature_id, retained_feature_id, collapse_kind, matched_source) VALUES (?, ?, ?, ?)",
         [
+            ("rail_1", "rail_1", "same_source_overlap", "overpass->overpass"),
             ("structure_overlap_1", "structure_1", "cross_source_overlap", "overture->osm"),
             ("structure_overlap_2", "structure_1", "cross_source_overlap", "overture->osm"),
         ],
@@ -122,6 +126,7 @@ def build_truth_pack_fixture(db_path: Path) -> Path:
     connection.executemany(
         "INSERT INTO dropped_semantics (feature_id, field_name, field_value, reason, retained_feature_id) VALUES (?, ?, ?, ?, ?)",
         [
+            ("rail_1", "surface", "steel", "collapsed_into_retained_feature", "rail_1"),
             ("structure_overlap_1", "usage", "commercial", "collapsed_into_retained_feature", "structure_1"),
             ("structure_overlap_1", "height", "18", "collapsed_into_retained_feature", "structure_1"),
             ("structure_overlap_2", "material", "glass", "collapsed_into_retained_feature", "structure_1"),
@@ -135,14 +140,14 @@ def build_truth_pack_fixture(db_path: Path) -> Path:
         json.dumps(
             {
                 "scene": "fixture",
-                "feature_count": 8,
-                "retained_semantic_count": 8,
-                "dropped_semantic_count": 3,
-                "collapse_count": 2,
+                "feature_count": 9,
+                "retained_semantic_count": 9,
+                "dropped_semantic_count": 4,
+                "collapse_count": 3,
                 "source_counts": {
                     "dem": 1,
                     "landcover": 1,
-                    "overpass": 4,
+                    "overpass": 5,
                     "overture": 2,
                 },
                 "outdoor_source_coverage": {
@@ -175,9 +180,10 @@ class SourceTruthPackAuditTests(unittest.TestCase):
             codes = {finding["code"] for finding in report["findings"]}
 
             self.assertEqual(report["scene"], "fixture")
-            self.assertEqual(report["summary"]["feature_count"], 8)
+            self.assertEqual(report["summary"]["feature_count"], 9)
             self.assertEqual(report["summary"]["collapse_count"], 2)
             self.assertEqual(report["summary"]["dropped_semantic_count"], 3)
+            self.assertEqual(report["summary"]["retained_semantic_count"], 8)
             self.assertEqual(report["summary"]["retained_semantics_by_family"]["vegetation"], 2)
             self.assertEqual(report["summary"]["dropped_semantics_by_family"]["structures"], 3)
             self.assertEqual(report["summary"]["overlap_loss_by_family"]["structures"], 2)
@@ -192,6 +198,7 @@ class SourceTruthPackAuditTests(unittest.TestCase):
             self.assertIn("truth_pack_outdoor_overlap_loss", codes)
             self.assertIn("truth_pack_dropped_semantics", codes)
             self.assertIn("truth_pack_retained_semantics", codes)
+            self.assertNotIn("rail", json.dumps(report["summary"]["retained_semantics_by_family"], sort_keys=True))
             self.assertEqual(len(report["samples"]["dropped_semantics"]), 3)
             self.assertEqual(len(report["samples"]["overlap_losses"]), 2)
 

@@ -274,6 +274,10 @@ Status note: On 2026-04-01, Task 3 was split into smaller reviewable slices. Tas
 - keep carry-through compact and capped in JSON/HTML
 - defer `scene_fidelity_audit.py` and `scene_parity_audit.py` changes to later Task 3 slices
 
+Status note: On 2026-04-01, Task 3a spec review tightened the auditor contract further:
+- headline retained/dropped/overlap counts must be scoped to the outdoor families only
+- the truth-pack auditor must use bounded aggregate/sample queries instead of materializing full SQLite tables
+
 **Files:**
 - Create: `scripts/source_truth_pack_audit.py`
 - Create: `scripts/tests/test_source_truth_pack_audit.py`
