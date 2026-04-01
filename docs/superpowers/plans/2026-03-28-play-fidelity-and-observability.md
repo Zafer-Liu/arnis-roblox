@@ -26,13 +26,13 @@ This tranche is complete and archived.
 - 2026-03-28: A dedicated `ARNIS_CLIENT_LOCAL_EXPERIENCE` marker now carries the local player block separately, the Python audit render step now re-enriches prebuilt JSON from the raw Studio log, and `tertiary` raw-log proof now shows that block surviving through `gameplay_ready`.
 - 2026-03-28: The remaining remote observability gap is no longer marker loss; it is staged-clone operations. The synced remote stage intentionally lacks ignored `rust/out` manifest-summary outputs, so offline scene-fidelity artifact regeneration there still needs a seeded summary or a bounded regenerate step, and the play harness still needs cleaner post-proof exit behavior.
 
-## Tasks
+## Residual Follow-Up
 
 - [x] Roll the docs stack forward so the completed baseline tranche is no longer labeled active.
 - [x] Mark shaped roof-closure decks as internal support rather than visible roof truth.
 - [x] Improve shell-mesh player-local telemetry in `WorldProbe`.
 - [x] Reproduce and classify the remaining wall-gap signal on `tertiary`: actual missing walls vs. spawn/radius/classification artifact.
-- [ ] Measure and reduce the next high-signal fidelity gaps: remaining terrain geometry/detail limits and the remaining richer interior traversal/ceiling-roof edge cases after the top-floor clamp.
-- [ ] Extend player-local observability further with explicit local interior presence metrics and with a remote-stage-friendly way to regenerate or seed scene-fidelity artifacts after proof.
-- [ ] Promote preview/edit slow-chunk hotspot data into structured telemetry and audit surfaces.
-- [ ] Keep the rolling status file current after each meaningful remote run, then commit and push the tranche.
+- Remaining terrain geometry/detail limits and richer interior traversal/ceiling-roof edge cases after the top-floor clamp moved to follow-on work.
+- Further player-local observability, including explicit local interior presence metrics and a remote-stage-friendly way to regenerate or seed scene-fidelity artifacts after proof, moved to follow-on work.
+- Preview/edit slow-chunk hotspot data still needed promotion into structured telemetry and audit surfaces when this tranche handed off.
+- Rolling status maintenance after each meaningful remote run remained part of the tranche handoff discipline while it was active.

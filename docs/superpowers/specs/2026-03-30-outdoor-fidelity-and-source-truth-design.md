@@ -3,7 +3,7 @@
 Date: 2026-03-30
 Status: Active
 
-This design defines the next tranche after the March 28 baseline and play-fidelity work.
+This design defines the active outdoor fidelity and source-truth tranche after the March 28 baseline and play-fidelity work.
 
 Use the paired implementation plan and rolling status document as the active execution and handoff surfaces for this tranche:
 
