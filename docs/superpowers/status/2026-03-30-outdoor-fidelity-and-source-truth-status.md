@@ -45,6 +45,32 @@ No verification recorded yet.
 
 ## Status Notes
 
+### 2026-04-01: Manual Integration Branch Merged The Active Tranches By Hand
+
+- Created `codex/manual-main-integration` in a clean worktree and merged `codex/breaking-compatibility-purge` plus `codex/outdoor-fidelity-source-truth` by hand instead of relying on the dirty root checkout.
+- Conflict resolution was manual in the active docs, `rust/crates/arbx_cli/src/main.rs`, `scripts/scene_fidelity_audit.py`, and `scripts/tests/test_run_studio_harness_remote.py`; the merged result keeps the `0.4.0` hard break, the truth-pack CLI help surface, the bounded truth-pack scene-audit carry-through, and the worktree-safe remote harness path resolution.
+- Fresh local-safe verification on the integration branch passed:
+  - `python3 -m unittest scripts.tests.test_run_studio_harness_remote scripts.tests.test_scene_fidelity_audit -v`
+  - `cargo test --manifest-path rust/Cargo.toml -p arbx_cli --quiet`
+  - `python3 -m unittest scripts.tests.test_source_truth_pack scripts.tests.test_source_truth_pack_audit scripts.tests.test_manifest_quality_audit scripts.tests.test_play_render_truth -v`
+  - `python3 scripts/check_scaffold.py`
+  - `python3 scripts/verify_generated_austin_assets.py`
+  - `cargo test --manifest-path rust/Cargo.toml --workspace`
+  - `git diff --check`
+- No Studio run was performed on this machine for the integration slice; `tertiary` remains the only Studio proof lane.
+
+### 2026-04-01: Workstation Process-Hygiene Root Cause Was Orphaned Tool Helpers, Not Roblox Runtime
+
+- The repeated local session instability was traced to orphaned Codex helper processes on this workstation, not to `arnis-roblox` runtime code and not to a new `run_studio_harness.sh` regression.
+- The concrete failure signature in local session logs was repeated `Too many open files (os error 24)` while stale `chrome-devtools-mcp`, Node helper, and Chrome profile processes remained orphaned under `PPID 1`.
+- The exact truncated plugin-cache message was not located in repo sources, so it should not be treated as a confirmed Roblox/plugin root-cause string.
+- Current operator guardrails for this workstation are:
+  - avoid browser/devtools helper usage in this repo session
+  - keep process-backed verification serial instead of broad local swarms
+  - perform explicit orphan-helper cleanup before and after heavy local verification tranches
+  - keep all Studio proof on `tertiary`
+- Treat this as workstation/tooling hygiene, not as evidence that the active outdoor/source-truth tranche introduced a runtime regression.
+
 ### 2026-04-01: Task 6 Slice Landed Explicit Hotspot Status And Terrain Richness
 
 - The first bounded Task 6 slice now makes preview hotspot availability explicit in the compact summary output, distinguishing `present`, `absent`, `missing_snapshot`, and `sync_error` instead of silently dropping slow-chunk context.

@@ -12,6 +12,8 @@ This is the active implementation surface for the March 30 outdoor fidelity and 
 
 **Tech Stack:** Python audit/report tooling, Rust pipeline/export crates, Luau runtime/import builders, shell harness scripts, remote `tertiary` Studio proof
 
+Status note: On 2026-04-01, `codex/breaking-compatibility-purge` and `codex/outdoor-fidelity-source-truth` were merged by hand into `codex/manual-main-integration` from a clean worktree so the active plan/docs stack could advance without touching the dirty root checkout. The merged branch keeps the `0.4.0` hard break and the current truth-pack/outdoor observability work together; use the rolling status file for the exact verification record.
+
 ---
 
 ## File Map
