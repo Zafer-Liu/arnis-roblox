@@ -4,7 +4,7 @@ Use this repo so Studio execution can move between machines without committing m
 
 Remote Studio validation is profile-based. On this workstation, `tertiary` is the preferred proof profile, but it is still only a local alias, not a committed repo dependency.
 
-Treat `tertiary` as the default remote proof lane when you need cross-machine Studio validation. If wrapper transport is unhealthy, direct SSH into the remote `tertiary` clone is the authoritative fallback for that lane. For current proof state and active follow-on work, use the rolling status file instead of duplicating volatile results here:
+Treat `tertiary` as the default remote proof lane when you need cross-machine Studio validation. If wrapper transport is unhealthy, direct SSH into the remote `tertiary` clone is the authoritative fallback for that lane. For current proof state and active follow-on work, use the single active rolling status file instead of duplicating volatile results here:
 
 - `docs/superpowers/status/2026-03-30-outdoor-fidelity-and-source-truth-status.md`
 

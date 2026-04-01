@@ -61,6 +61,7 @@ For every meaningful code change:
 
 - update or add a test if there is a harness for that area
 - update docs if the contract changed
+- keep exactly one active `docs/superpowers/` spec, one active plan, and one active rolling status file for the whole repo; all other superpowers docs must be marked `Historical` or `Completed`
 - if a spec or implementation plan is active, append a dated status note after any meaningful debugging/verification slice that changes the next agent's understanding, especially after remote Studio runs
 - keep remote Studio host aliases, usernames, and machine-specific paths in ignored local config or env, never in committed scripts
 - treat `primary` and `tertiary` as local profile aliases only; direct development may happen on either machine, and the committed repo must not depend on a specific hostname or pre-seeded sibling clones

@@ -14,18 +14,19 @@ This is the active implementation surface for the March 30 outdoor fidelity and 
 
 Status note: On 2026-04-01, `codex/breaking-compatibility-purge` and `codex/outdoor-fidelity-source-truth` were merged by hand into `codex/manual-main-integration` from a clean worktree so the active plan/docs stack could advance without touching the dirty root checkout. The merged branch keeps the `0.4.0` hard break and the current truth-pack/outdoor observability work together; use the rolling status file for the exact verification record.
 
+Repo governance note: this plan is part of the only active superpowers truth stack. Every other superpowers spec/plan/status file must be marked `Historical` or `Completed`, and guardrail tests enforce that contract.
+
 ---
 
 ## File Map
 
 ### Docs And Status
 
-- Create: `docs/superpowers/status/2026-03-30-outdoor-fidelity-and-source-truth-status.md`
+- Create: `docs/superpowers/archive-index.md`
 - Modify: `docs/superpowers/specs/2026-03-30-outdoor-fidelity-and-source-truth-design.md`
 - Modify: `docs/superpowers/plans/2026-03-30-outdoor-fidelity-and-source-truth.md`
-- Modify: `docs/superpowers/specs/2026-03-28-play-fidelity-and-observability-design.md`
-- Modify: `docs/superpowers/plans/2026-03-28-play-fidelity-and-observability.md`
-- Modify: `docs/superpowers/status/2026-03-28-play-fidelity-and-observability-status.md`
+- Modify: `docs/superpowers/status/2026-03-28-canonical-baseline-status.md`
+- Modify: `docs/superpowers/status/2026-03-30-outdoor-fidelity-and-source-truth-status.md`
 - Modify: `docs/remote-studio-development.md`
 
 ### Truth-Pack Extraction And Audit
@@ -75,12 +76,11 @@ Status note: On 2026-04-01, `codex/breaking-compatibility-purge` and `codex/outd
 ## Task 1: Roll The Active Docs Stack Forward
 
 **Files:**
-- Create: `docs/superpowers/status/2026-03-30-outdoor-fidelity-and-source-truth-status.md`
+- Create: `docs/superpowers/archive-index.md`
 - Modify: `docs/superpowers/specs/2026-03-30-outdoor-fidelity-and-source-truth-design.md`
 - Modify: `docs/superpowers/plans/2026-03-30-outdoor-fidelity-and-source-truth.md`
-- Modify: `docs/superpowers/specs/2026-03-28-play-fidelity-and-observability-design.md`
-- Modify: `docs/superpowers/plans/2026-03-28-play-fidelity-and-observability.md`
-- Modify: `docs/superpowers/status/2026-03-28-play-fidelity-and-observability-status.md`
+- Modify: `docs/superpowers/status/2026-03-28-canonical-baseline-status.md`
+- Modify: `docs/superpowers/status/2026-03-30-outdoor-fidelity-and-source-truth-status.md`
 - Modify: `docs/remote-studio-development.md`
 
 - [x] **Step 1: Wrote the new outdoor tranche status document**
@@ -92,14 +92,9 @@ Create `docs/superpowers/status/2026-03-30-outdoor-fidelity-and-source-truth-sta
 - empty verification snapshot sections for `Local Static` and `Remote tertiary`
 - residual gaps focused on outdoor fidelity, outdoor hotspots, and source-truth preservation
 
-- [x] **Step 2: Marked the March 28 plan/status/spec stack as historical context**
+- [x] **Step 2: Consolidated the historical docs surface**
 
-Update:
-- `docs/superpowers/specs/2026-03-28-play-fidelity-and-observability-design.md`
-- `docs/superpowers/plans/2026-03-28-play-fidelity-and-observability.md`
-- `docs/superpowers/status/2026-03-28-play-fidelity-and-observability-status.md`
-
-So they no longer read as the active tranche once the new files exist.
+Add `docs/superpowers/archive-index.md` as the only historical navigation surface and fold the deleted March 28 play-fidelity and other superseded tranche references into the retained baseline/active docs.
 
 - [x] **Step 3: Marked the approved design doc active**
 
@@ -131,9 +126,9 @@ Expected:
 git add docs/superpowers/status/2026-03-30-outdoor-fidelity-and-source-truth-status.md \
   docs/superpowers/specs/2026-03-30-outdoor-fidelity-and-source-truth-design.md \
   docs/superpowers/plans/2026-03-30-outdoor-fidelity-and-source-truth.md \
-  docs/superpowers/specs/2026-03-28-play-fidelity-and-observability-design.md \
-  docs/superpowers/plans/2026-03-28-play-fidelity-and-observability.md \
-  docs/superpowers/status/2026-03-28-play-fidelity-and-observability-status.md \
+  docs/superpowers/archive-index.md \
+  docs/superpowers/status/2026-03-28-canonical-baseline-status.md \
+  docs/superpowers/status/2026-03-30-outdoor-fidelity-and-source-truth-status.md \
   docs/remote-studio-development.md
 git commit -m "docs: roll active outdoor fidelity stack forward"
 ```

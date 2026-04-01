@@ -15,13 +15,9 @@ The later outdoor fidelity and source-truth stack is:
 
 This file preserves the completed status trail for the canonical baseline tranche. Do not use it for later execution or handoff.
 
-The paired historical implementation plan for this tranche is:
+The deleted paired plan/spec and other superseded tranches are summarized in:
 
-- `docs/superpowers/plans/2026-03-28-canonical-baseline-and-single-source-of-truth.md`
-
-The paired historical design spec for this tranche is:
-
-- `docs/superpowers/specs/2026-03-28-canonical-baseline-and-single-source-of-truth-design.md`
+- `docs/superpowers/archive-index.md`
 
 ## Current Baseline Snapshot
 

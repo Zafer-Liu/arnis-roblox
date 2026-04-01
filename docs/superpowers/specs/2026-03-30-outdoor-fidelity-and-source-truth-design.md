@@ -10,6 +10,18 @@ Use the paired implementation plan and rolling status document as the active exe
 - `docs/superpowers/plans/2026-03-30-outdoor-fidelity-and-source-truth.md`
 - `docs/superpowers/status/2026-03-30-outdoor-fidelity-and-source-truth-status.md`
 
+This repo enforces one active superpowers truth stack only:
+
+- one active spec
+- one active implementation plan
+- one active rolling status file
+
+All other superpowers docs are historical or completed context only.
+
+The deleted historical backlog is summarized in:
+
+- `docs/superpowers/archive-index.md`
+
 ## Goal
 
 Strengthen outdoor fidelity and upstream source-truth preservation from the current clean baseline without introducing a second world-definition path, silent source trampling, or stale proof/documentation surfaces.

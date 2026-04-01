@@ -23,6 +23,7 @@ Kodex should read `AGENTS.md` first.
 - `arnis-roblox` owns canonical world truth, manifest semantics, and scene extraction adapters.
 - `vertigo-sync` owns edit/full-bake orchestration and export-3d user-facing orchestration.
 - Do not add new parallel preview/play/full-bake world-definition paths in `RunAustin.lua`, `AustinPreviewBuilder.lua`, `BootstrapAustin.server.lua`, or `AustinSpawn.lua`.
+- Keep exactly one active `docs/superpowers/` spec, one active plan, and one active rolling status file for the whole repo. Treat every other superpowers doc as `Historical` or `Completed` context only.
 - Treat historical `docs/superpowers/` plan/status/spec files as context unless the current task explicitly says they are active.
 - When work is happening under an active spec or implementation plan, append dated status notes as debugging/verification slices complete so another agent can resume without reconstructing chat history.
 - Keep remote Studio hosts and machine-specific paths in ignored local config or env, not in committed repo scripts.

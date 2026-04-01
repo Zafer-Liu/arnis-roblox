@@ -7,6 +7,8 @@ Status: Active
 
 This is the rolling status and handoff document for the active outdoor fidelity and source-truth tranche.
 
+It is also the only active rolling status file in `docs/superpowers/`. All other superpowers status docs are archived context only.
+
 The active design spec is:
 
 - `docs/superpowers/specs/2026-03-30-outdoor-fidelity-and-source-truth-design.md`
@@ -15,12 +17,17 @@ The active implementation plan is:
 
 - `docs/superpowers/plans/2026-03-30-outdoor-fidelity-and-source-truth.md`
 
+The compact historical archive index is:
+
+- `docs/superpowers/archive-index.md`
+
 ## Current Snapshot
 
 - Inherited from the March 28 baseline and archived play-fidelity tranche: edit/play parity, canonical runtime ownership, and player-local observability are already proven.
 - The compatibility purge is in place: the repo treats `0.4.0` as the supported manifest schema and does not keep older manifest compatibility active.
 - The active tranche is now the March 30 outdoor fidelity and source-truth stack.
-- The earlier March 28 play-fidelity tranche is historical context only.
+- The earlier March 28 play-fidelity tranche and other deleted tactical planning docs are summarized only in the archive index.
+- Guardrail tests enforce one active repo-wide superpowers truth stack: one active spec, one active plan, and this active rolling status file.
 
 ## Verification Snapshot
 
@@ -45,6 +52,9 @@ The active implementation plan is:
 - `git diff --check`
   - passed on 2026-03-30 and 2026-04-01
   - verified both the initial doc rollover and the later merged local-safe tranche stayed text-clean
+- `python3 -m unittest scripts.tests.test_convergence_guardrails scripts.tests.test_run_studio_harness_remote -v`
+  - passed on 2026-04-01
+  - verified every superpowers spec/plan/status file now has a supported top-level status, the March 30 stack is the only active repo-wide truth surface, and the remote operator doc still matches the harness contract
 
 ### Remote `tertiary`
 
@@ -57,6 +67,27 @@ No verification recorded yet.
 - Source-truth preservation still needs explicit proof across upstream source union, canonical collapse, and downstream audits.
 
 ## Status Notes
+
+### 2026-04-01: Single Active Truth Stack Is Now Repo-Enforced
+
+- Added guardrail coverage in `scripts/tests/test_convergence_guardrails.py` to enforce:
+  - exactly one active spec in `docs/superpowers/specs/`
+  - exactly one active plan in `docs/superpowers/plans/`
+  - exactly one active rolling status file in `docs/superpowers/status/`
+  - top-level `Status:` markers on every superpowers doc, restricted to `Active`, `Historical`, or `Completed`
+  - active-status links to the active plan and active spec
+- Normalized the older superpowers plan/spec backlog so every file now declares `Status: Historical` or `Status: Completed` instead of leaving status implicit or using `Draft`.
+- Updated `AGENTS.md`, `CLAUDE.md`, and `docs/remote-studio-development.md` so the single-active-stack rule is written policy instead of only a test.
+- This March 30 outdoor/source-truth stack remains the sole active superpowers truth surface for the repo.
+
+### 2026-04-01: Historical Plan Backlog Consolidated Into A Compact Archive
+
+- Added `docs/superpowers/archive-index.md` as the only historical navigation surface for deleted superseded tranches.
+- Retained only:
+  - the March 30 active spec/plan/status stack
+  - `docs/superpowers/status/2026-03-28-canonical-baseline-status.md` as the completed baseline handoff
+- Deleted the older tactical plan/spec/status backlog after folding their replacement pointers into the archive index and retained docs.
+- The repo no longer keeps a long tail of superseded plan/spec files in-tree just to mark them historical.
 
 ### 2026-04-01: Plan Reconciliation And Audit Observability Tranche Landed Locally
 
