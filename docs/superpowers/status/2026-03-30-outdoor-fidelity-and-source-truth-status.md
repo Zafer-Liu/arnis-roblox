@@ -50,7 +50,10 @@ No verification recorded yet.
 - The first bounded Task 6 slice now makes preview hotspot availability explicit in the compact summary output, distinguishing `present`, `absent`, `missing_snapshot`, and `sync_error` instead of silently dropping slow-chunk context.
 - Slow terrain-chunk telemetry now carries truthful terrain-material richness from the terrain build plan through import-time chunk profiling into preview telemetry and the summary artifact.
 - The selected truth targets were the currently blind local preview summary path and the monolithic terrain-material chunk case; `BuildingBuilder.lua` and `AustinPreviewTelemetry.lua` did not require changes for this slice.
-- Local-safe verification is still pending until the Python test lane can be run on this machine.
+- Local-safe verification passed on 2026-04-01:
+  - `python3 -m unittest scripts.tests.test_preview_telemetry_summary scripts.tests.test_play_render_truth -v`
+  - `git diff --check`
+- No Studio or remote `tertiary` run was required for this slice.
 
 ### 2026-04-01: Task 2 Narrowed To The First Honest Truth-Pack Slice
 
