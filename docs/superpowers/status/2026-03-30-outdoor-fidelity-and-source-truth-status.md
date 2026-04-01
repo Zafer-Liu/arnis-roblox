@@ -17,7 +17,7 @@ The active implementation plan is:
 
 ## Current Snapshot
 
-- Inherited from the March 28 baseline: edit/play parity, canonical runtime ownership, and player-local observability are already proven.
+- Inherited from the March 28 baseline and archived play-fidelity tranche: edit/play parity, canonical runtime ownership, and player-local observability are already proven.
 - The compatibility purge is in place: the repo treats `0.4.0` as the supported manifest schema and does not keep older manifest compatibility active.
 - The active tranche is now the March 30 outdoor fidelity and source-truth stack.
 - The March 28 play-fidelity stack is historical context only.
