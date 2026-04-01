@@ -559,17 +559,20 @@ local function publishWorldTelemetry()
     setPlayerAttributeIfChanged("ArnisClientOverheadRoofParts", payload.overheadRoofParts)
     setPlayerAttributeIfChanged("ArnisClientGroundMaterial", payload.groundMaterial)
     setPlayerAttributeIfChanged("ArnisClientSupportSurfaceRole", payload.supportSurfaceRole)
+    WorldProbeTelemetryFlags.annotateMarkerPayload(bootstrapPayload, telemetryFlags)
     local bootstrapPayloadJson = HttpService:JSONEncode(bootstrapPayload)
     if bootstrapPayloadJson ~= lastBootstrapPayloadJson then
         lastBootstrapPayloadJson = bootstrapPayloadJson
         print("ARNIS_CLIENT_BOOTSTRAP " .. bootstrapPayloadJson)
     end
+    WorldProbeTelemetryFlags.annotateMarkerPayload(compactPayload, telemetryFlags)
     local compactPayloadJson = HttpService:JSONEncode(compactPayload)
     if compactPayloadJson ~= lastCompactPayloadJson then
         lastCompactPayloadJson = compactPayloadJson
         print("ARNIS_CLIENT_WORLD_COMPACT " .. compactPayloadJson)
     end
     if localExperiencePayload ~= nil then
+        WorldProbeTelemetryFlags.annotateMarkerPayload(localExperiencePayload, telemetryFlags)
         local localExperiencePayloadJson = HttpService:JSONEncode(localExperiencePayload)
         if localExperiencePayloadJson ~= lastLocalExperiencePayloadJson then
             lastLocalExperiencePayloadJson = localExperiencePayloadJson
@@ -577,12 +580,13 @@ local function publishWorldTelemetry()
         end
     end
 
+    WorldProbeTelemetryFlags.annotateMarkerPayload(payload, telemetryFlags)
     local payloadJson = HttpService:JSONEncode(payload)
     if payloadJson == lastPayloadJson then
         return
     end
     lastPayloadJson = payloadJson
-    print("ARNIS_CLIENT_WORLD " .. HttpService:JSONEncode(payload))
+    print("ARNIS_CLIENT_WORLD " .. payloadJson)
 end
 
 local function maybeSampleWorldTelemetry()

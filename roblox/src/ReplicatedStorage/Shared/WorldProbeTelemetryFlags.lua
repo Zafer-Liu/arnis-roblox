@@ -83,4 +83,19 @@ function WorldProbeTelemetryFlags.isEnabled(telemetryFlags, family)
         and telemetryFlags.familySet[family] == true
 end
 
+function WorldProbeTelemetryFlags.annotateMarkerPayload(payload, telemetryFlags)
+    if type(payload) ~= "table" then
+        return payload
+    end
+
+    local enabledFamilies = if type(telemetryFlags) == "table" then telemetryFlags.enabledFamilies else nil
+    if type(enabledFamilies) ~= "table" or #enabledFamilies == 0 then
+        payload.telemetryFamilies = nil
+        return payload
+    end
+
+    payload.telemetryFamilies = enabledFamilies
+    return payload
+end
+
 return WorldProbeTelemetryFlags

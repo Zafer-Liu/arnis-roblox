@@ -15,6 +15,7 @@ WORLD_PROBE_PATH = ROOT / "roblox" / "src" / "StarterPlayer" / "StarterPlayerScr
 WORLD_PROBE_SUPPORT_PATH = ROOT / "roblox" / "src" / "ReplicatedStorage" / "Shared" / "WorldProbeSupport.lua"
 WORLD_PROBE_FLAGS_PATH = ROOT / "roblox" / "src" / "ReplicatedStorage" / "Shared" / "WorldProbeTelemetryFlags.lua"
 WORLD_PROBE_TERRAIN_PATH = ROOT / "roblox" / "src" / "ReplicatedStorage" / "Shared" / "WorldProbeTerrain.lua"
+WORLD_PROBE_FLAGS_SPEC_PATH = ROOT / "roblox" / "src" / "ServerScriptService" / "Tests" / "WorldProbeTelemetryFlags.spec.lua"
 WORLD_STATE_APPLIER_PATH = ROOT / "roblox" / "src" / "ServerScriptService" / "ImportService" / "WorldStateApplier.lua"
 MINIMAP_SERVICE_PATH = ROOT / "roblox" / "src" / "ServerScriptService" / "ImportService" / "MinimapService.lua"
 PREVIEW_BUILDER_PATH = ROOT / "roblox" / "src" / "ServerScriptService" / "StudioPreview" / "AustinPreviewBuilder.lua"
@@ -36,6 +37,9 @@ class AustinRuntimeContractTests(unittest.TestCase):
             WORLD_PROBE_SUPPORT_PATH.read_text(encoding="utf-8") if WORLD_PROBE_SUPPORT_PATH.exists() else ""
         )
         cls.world_probe_flags_text = WORLD_PROBE_FLAGS_PATH.read_text(encoding="utf-8") if WORLD_PROBE_FLAGS_PATH.exists() else ""
+        cls.world_probe_flags_spec_text = (
+            WORLD_PROBE_FLAGS_SPEC_PATH.read_text(encoding="utf-8") if WORLD_PROBE_FLAGS_SPEC_PATH.exists() else ""
+        )
         cls.world_probe_terrain_text = (
             WORLD_PROBE_TERRAIN_PATH.read_text(encoding="utf-8") if WORLD_PROBE_TERRAIN_PATH.exists() else ""
         )
@@ -141,7 +145,8 @@ class AustinRuntimeContractTests(unittest.TestCase):
         self.assertIn("perChunkOptions.chunkSignature = ImportSignatures.GetChunkSignature(registrationChunk or chunk)", self.import_service_text)
 
     def test_client_world_probe_publishes_nearby_building_and_overhead_roof_telemetry(self) -> None:
-        self.assertIn('print("ARNIS_CLIENT_WORLD " .. HttpService:JSONEncode(', self.world_probe_text)
+        self.assertIn('local payloadJson = HttpService:JSONEncode(payload)', self.world_probe_text)
+        self.assertIn('print("ARNIS_CLIENT_WORLD " .. payloadJson)', self.world_probe_text)
         self.assertIn('print("ARNIS_CLIENT_WORLD_COMPACT " .. compactPayloadJson)', self.world_probe_text)
         self.assertIn('print("ARNIS_CLIENT_BOOTSTRAP " .. bootstrapPayloadJson)', self.world_probe_text)
         self.assertIn('local WORLD_ROOT_ATTR = "ArnisWorldRootName"', self.world_probe_text)
@@ -245,6 +250,13 @@ class AustinRuntimeContractTests(unittest.TestCase):
         self.assertIn("local WorldProbeTerrain = require(ReplicatedStorage.Shared.WorldProbeTerrain)", self.world_probe_text)
         self.assertIn('local telemetryFamilies = Workspace:GetAttribute(WorldProbeTelemetryFlags.WORKSPACE_ATTR)', self.world_probe_text)
         self.assertIn("local telemetryFlags = WorldProbeTelemetryFlags.parseTelemetryFamilies(telemetryFamilies)", self.world_probe_text)
+        self.assertIn("WorldProbeTelemetryFlags.annotateMarkerPayload(bootstrapPayload, telemetryFlags)", self.world_probe_text)
+        self.assertIn("WorldProbeTelemetryFlags.annotateMarkerPayload(compactPayload, telemetryFlags)", self.world_probe_text)
+        self.assertIn("WorldProbeTelemetryFlags.annotateMarkerPayload(payload, telemetryFlags)", self.world_probe_text)
+        self.assertIn(
+            "WorldProbeTelemetryFlags.annotateMarkerPayload(localExperiencePayload, telemetryFlags)",
+            self.world_probe_text,
+        )
         self.assertIn('if WorldProbeTelemetryFlags.isEnabled(telemetryFlags, "terrain") then', self.world_probe_text)
         self.assertIn('if WorldProbeTelemetryFlags.isEnabled(telemetryFlags, "player_local") then', self.world_probe_text)
         self.assertIn('if WorldProbeTelemetryFlags.isEnabled(telemetryFlags, "structures") then', self.world_probe_text)
@@ -275,6 +287,8 @@ class AustinRuntimeContractTests(unittest.TestCase):
         self.assertIn('WorldProbeTelemetryFlags.WORKSPACE_ATTR = "ArnisTelemetryFamilies"', self.world_probe_flags_text)
         self.assertIn("function WorldProbeTelemetryFlags.parseTelemetryFamilies(value)", self.world_probe_flags_text)
         self.assertIn("function WorldProbeTelemetryFlags.isEnabled(telemetryFlags, family)", self.world_probe_flags_text)
+        self.assertIn("function WorldProbeTelemetryFlags.annotateMarkerPayload(payload, telemetryFlags)", self.world_probe_flags_text)
+        self.assertIn("payload.telemetryFamilies = enabledFamilies", self.world_probe_flags_text)
         self.assertIn("terrain", self.world_probe_flags_text)
         self.assertIn("roads", self.world_probe_flags_text)
         self.assertIn("water", self.world_probe_flags_text)
@@ -282,6 +296,10 @@ class AustinRuntimeContractTests(unittest.TestCase):
         self.assertIn("structures", self.world_probe_flags_text)
         self.assertIn("hotspots", self.world_probe_flags_text)
         self.assertIn("player_local", self.world_probe_flags_text)
+        self.assertIn("annotateMarkerPayload", self.world_probe_flags_spec_text)
+        self.assertIn("telemetryFamilies", self.world_probe_flags_spec_text)
+        self.assertIn("requestedShapedPayload.telemetryFamilies[1], \"terrain\"", self.world_probe_flags_spec_text)
+        self.assertIn("workspacePayload.telemetryFamilies[3],", self.world_probe_flags_spec_text)
 
     def test_shaped_roof_closure_decks_are_marked_internal_support_not_visible_roof_truth(self) -> None:
         self.assertIn("local function applyRoofPartOptions(part, partOptions)", self.building_builder_text)
