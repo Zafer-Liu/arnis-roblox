@@ -1,12 +1,18 @@
 # Play Fidelity And Observability Implementation Plan
 
-Status: Completed
+Status: Historical
 
-**Historical Goal:** Continue from the completed March 28 baseline by tightening roof/interior/wall truth, improving player-local observability, measuring remaining fidelity gaps on `tertiary`, and keeping the docs stack current.
+This tranche is complete and archived.
+
+The active outdoor fidelity and source-truth stack is:
+
+- `docs/superpowers/specs/2026-03-30-outdoor-fidelity-and-source-truth-design.md`
+- `docs/superpowers/plans/2026-03-30-outdoor-fidelity-and-source-truth.md`
+- `docs/superpowers/status/2026-03-30-outdoor-fidelity-and-source-truth-status.md`
 
 ## Execution Status
 
-- 2026-03-28: Docs stack rollover completed. This plan is now historical context for the finished tranche, not the repo's current execution source.
+- 2026-03-28: Docs stack rollover completed. The finished canonical-baseline tranche is marked completed, and this plan/status/spec stack is recorded as the archived March 28 handoff surface.
 - 2026-03-28: Shared resolved config is already aligned across preview and runtime startup import.
 - 2026-03-28: Player-local telemetry now includes support, enclosure, and roof-cover fields.
 - 2026-03-28: Roof-closure decks are now marked internal support and verified on `tertiary` with `GabledRoofClosureTruth.spec.lua`.
@@ -26,13 +32,13 @@ Status: Completed
 - 2026-03-28: A dedicated `ARNIS_CLIENT_LOCAL_EXPERIENCE` marker now carries the local player block separately, the Python audit render step now re-enriches prebuilt JSON from the raw Studio log, and `tertiary` raw-log proof now shows that block surviving through `gameplay_ready`.
 - 2026-03-28: The remaining remote observability gap is no longer marker loss; it is staged-clone operations. The synced remote stage intentionally lacks ignored `rust/out` manifest-summary outputs, so offline scene-fidelity artifact regeneration there still needs a seeded summary or a bounded regenerate step, and the play harness still needs cleaner post-proof exit behavior.
 
-## Historical Outcomes
+## Residual Follow-Up
 
-- Rolled the docs stack forward so the completed baseline tranche was no longer labeled active.
-- Marked shaped roof-closure decks as internal support rather than visible roof truth.
-- Improved shell-mesh player-local telemetry in `WorldProbe`.
-- Reproduced and classified the remaining wall-gap signal on `tertiary` as a probe artifact rather than missing shell walls.
-
-## Follow-On Work
-
-- Terrain geometry/detail limits, richer interior traversal, and later observability/audit expansion moved into subsequent tranches after this plan completed.
+- [x] Roll the docs stack forward so the completed baseline tranche is no longer labeled active.
+- [x] Mark shaped roof-closure decks as internal support rather than visible roof truth.
+- [x] Improve shell-mesh player-local telemetry in `WorldProbe`.
+- [x] Reproduce and classify the remaining wall-gap signal on `tertiary`: actual missing walls vs. spawn/radius/classification artifact.
+- Remaining terrain geometry/detail limits and richer interior traversal/ceiling-roof edge cases after the top-floor clamp moved to follow-on work.
+- Further player-local observability, including explicit local interior presence metrics and a remote-stage-friendly way to regenerate or seed scene-fidelity artifacts after proof, moved to follow-on work.
+- Preview/edit slow-chunk hotspot data still needed promotion into structured telemetry and audit surfaces when this tranche handed off.
+- Rolling status maintenance after each meaningful remote run remained part of the tranche handoff discipline while it was active.

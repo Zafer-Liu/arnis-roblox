@@ -42,6 +42,16 @@ def _normalize_world_identity(report: dict[str, Any]) -> str:
     return _normalize_string(report.get("rootName"))
 
 
+def _normalize_truth_pack(report: dict[str, Any]) -> dict[str, Any] | None:
+    summary = report.get("summary")
+    if not isinstance(summary, dict):
+        return None
+    truth_pack = summary.get("truthPack")
+    if not isinstance(truth_pack, dict):
+        return None
+    return _normalize_json_value(truth_pack)
+
+
 def _normalize_client_world(report: dict[str, Any]) -> dict[str, Any] | None:
     client_world = report.get("clientWorld")
     if not isinstance(client_world, dict):
@@ -442,6 +452,13 @@ def build_report(edit_report: dict[str, Any], play_report: dict[str, Any]) -> di
             "edit": edit_client_world or {},
             "play": play_client_world or {},
         }
+    edit_truth_pack = _normalize_truth_pack(edit_report)
+    play_truth_pack = _normalize_truth_pack(play_report)
+    if edit_truth_pack is not None or play_truth_pack is not None:
+        comparisons["truthPack"] = {
+            "edit": edit_truth_pack or {},
+            "play": play_truth_pack or {},
+        }
 
     code_by_metric = {
         "worldIdentity": "world_identity_mismatch",
@@ -466,6 +483,7 @@ def build_report(edit_report: dict[str, Any], play_report: dict[str, Any]) -> di
         "buildingModelCountByRoofMaterial": "roof_material_count_mismatch",
         "roadSurfacePartCountByKind": "road_kind_surface_mismatch",
         "clientWorld": "client_world_mismatch",
+        "truthPack": "truth_pack_mismatch",
     }
     severity_by_metric = {
         "worldIdentity": "high",
@@ -490,6 +508,7 @@ def build_report(edit_report: dict[str, Any], play_report: dict[str, Any]) -> di
         "buildingModelCountByRoofMaterial": "medium",
         "roadSurfacePartCountByKind": "medium",
         "clientWorld": "high",
+        "truthPack": "high",
     }
 
     findings: list[dict[str, Any]] = []

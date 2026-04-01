@@ -1,11 +1,17 @@
 # Play Fidelity And Observability Design
 
 Date: 2026-03-28
-Status: Active
+Status: Historical
 
-This is the active design spec for the current fidelity/observability tranche.
+This tranche is complete and archived.
 
-Use the paired implementation plan and rolling status document as the current execution and handoff surfaces:
+The active outdoor fidelity and source-truth stack is:
+
+- `docs/superpowers/specs/2026-03-30-outdoor-fidelity-and-source-truth-design.md`
+- `docs/superpowers/plans/2026-03-30-outdoor-fidelity-and-source-truth.md`
+- `docs/superpowers/status/2026-03-30-outdoor-fidelity-and-source-truth-status.md`
+
+Use the paired implementation plan and rolling status document as archived context for the completed March 28 tranche:
 
 - `docs/superpowers/plans/2026-03-28-play-fidelity-and-observability.md`
 - `docs/superpowers/status/2026-03-28-play-fidelity-and-observability-status.md`

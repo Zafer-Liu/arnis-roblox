@@ -4,9 +4,9 @@ Status: Completed
 
 This plan is now historical as the completed baseline tranche.
 
-The active follow-on plan is:
+The later outdoor fidelity and source-truth plan is:
 
-- `docs/superpowers/plans/2026-03-28-play-fidelity-and-observability.md`
+- `docs/superpowers/plans/2026-03-30-outdoor-fidelity-and-source-truth.md`
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
@@ -17,7 +17,7 @@ The active follow-on plan is:
 **Tech Stack:** Luau, Python unittest, Bash harness scripts, existing Roblox Studio remote harness wrapper, current canonical-world and convergence tests
 
 This is the completed implementation plan for the canonical-baseline tranche.
-For current execution, use the active play-fidelity stack instead; the `Execution Status` section below is preserved as historical progress, and the red/green step text under each task is execution history rather than a claim that the work is still pending.
+For later execution history, use the March 30 outdoor fidelity stack instead; the `Execution Status` section below is preserved as historical progress, and the red/green step text under each task is execution history rather than a claim that the work is still pending.
 
 ## Execution Status
 
@@ -27,7 +27,7 @@ For current execution, use the active play-fidelity stack instead; the `Executio
 - 2026-03-28: Task 4 completed locally. Preview/play parity coverage now includes normalized `identitySummary` and `minimapBasis` metadata plus Luau parity assertions.
 - 2026-03-28: Task 5 is complete for the current baseline. The isolated `tertiary` edit contract slice, the `tertiary` play-world slice, and the corrected raw-log parity proof are all green for the aligned `1500`-radius preview baseline (`21/21` matching).
 - 2026-03-28: The parity proof topology is now explicit: use separate clean edit-only and play-only Studio runs on `tertiary`, then compare rebuilt raw-log reports. Do not treat mixed wrapper slices or sliced temp logs as authoritative for fidelity parity.
-- 2026-03-28: The active follow-on tranche is now explicit: strengthen upstream source-truth preservation, raise bounded preview/edit fidelity, and target measured preview/import hotspots on `tertiary` from the proven baseline. Do not reopen baseline/parity proof work unless new evidence invalidates the `1500`-radius contract.
+- 2026-03-28: The later follow-on tranche recorded here is explicit: strengthen upstream source-truth preservation, raise bounded preview/edit fidelity, and target measured preview/import hotspots on `tertiary` from the proven baseline. Do not reopen baseline/parity proof work unless new evidence invalidates the `1500`-radius contract.
 
 ---
 

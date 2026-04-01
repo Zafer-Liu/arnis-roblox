@@ -743,6 +743,106 @@ class SceneParityAuditTests(unittest.TestCase):
             self.assertIn("buildingRoofCoverageByShape", html)
             self.assertIn("roadSurfacePartCountBySubkind", html)
 
+    def test_truth_pack_mismatch_is_not_subset_allowed(self) -> None:
+        audit = load_module()
+        edit_report = {
+            "rootName": "GeneratedWorld_AustinPreview",
+            "worldIdentity": "AustinManifestIndex",
+            "chunkEnvelopeKind": "bounded_preview",
+            "focus": {"x": 0, "z": 0},
+            "radius": 256,
+            "summary": {
+                "marker": "ARNIS_SCENE_EDIT",
+                "truthPack": {
+                    "scene": "fixture",
+                    "collapseCount": 2,
+                    "droppedSemanticCount": 2,
+                    "retainedSemanticCount": 2,
+                    "outdoorSourceCoverage": {
+                        "structures": {
+                            "source_feature_count": 3,
+                            "retained_feature_count": 1,
+                            "coverage_ratio": 0.3333,
+                        }
+                    },
+                },
+            },
+            "scene": {
+                "chunkIds": ["0_0"],
+                "buildingModelCount": 1,
+                "buildingModelsWithDirectShell": 1,
+                "buildingModelsWithRoofClosureDeck": 1,
+                "roadSurfacePartCount": 1,
+                "waterSurfacePartCount": 0,
+                "propInstanceCount": 0,
+                "roadSurfacePartCountBySubkind": {},
+                "waterSurfacePartCountByType": {},
+                "waterSurfacePartCountByKind": {},
+                "railReceiptCountByKind": {},
+                "vegetationInstanceCountByKind": {},
+                "treeInstanceCountBySpecies": {},
+                "buildingRoofCoverageByUsage": {"school": {"buildingModelCount": 1, "withRoofCount": 1, "withoutRoofCount": 0}},
+                "buildingRoofCoverageByShape": {"flat": {"buildingModelCount": 1, "withRoofCount": 1, "withoutRoofCount": 0}},
+                "buildingModelCountByWallMaterial": {},
+                "buildingModelCountByRoofMaterial": {},
+                "roadSurfacePartCountByKind": {},
+            },
+        }
+        play_report = {
+            "rootName": "GeneratedWorld_Austin",
+            "worldIdentity": "AustinManifestIndex",
+            "chunkEnvelopeKind": "runtime_resident",
+            "focus": {"x": 0, "z": 0},
+            "radius": 256,
+            "summary": {
+                "marker": "ARNIS_SCENE_PLAY",
+                "truthPack": {
+                    "scene": "fixture",
+                    "collapseCount": 1,
+                    "droppedSemanticCount": 2,
+                    "retainedSemanticCount": 2,
+                    "outdoorSourceCoverage": {
+                        "structures": {
+                            "source_feature_count": 3,
+                            "retained_feature_count": 1,
+                            "coverage_ratio": 0.3333,
+                        }
+                    },
+                },
+            },
+            "scene": {
+                "chunkIds": ["0_0", "1_0"],
+                "buildingModelCount": 2,
+                "buildingModelsWithDirectShell": 2,
+                "buildingModelsWithRoofClosureDeck": 2,
+                "roadSurfacePartCount": 2,
+                "waterSurfacePartCount": 0,
+                "propInstanceCount": 0,
+                "roadSurfacePartCountBySubkind": {},
+                "waterSurfacePartCountByType": {},
+                "waterSurfacePartCountByKind": {},
+                "railReceiptCountByKind": {},
+                "vegetationInstanceCountByKind": {},
+                "treeInstanceCountBySpecies": {},
+                "buildingRoofCoverageByUsage": {"school": {"buildingModelCount": 2, "withRoofCount": 2, "withoutRoofCount": 0}},
+                "buildingRoofCoverageByShape": {"flat": {"buildingModelCount": 2, "withRoofCount": 2, "withoutRoofCount": 0}},
+                "buildingModelCountByWallMaterial": {},
+                "buildingModelCountByRoofMaterial": {},
+                "roadSurfacePartCountByKind": {},
+            },
+        }
+
+        report = audit.build_report(edit_report, play_report)
+        codes = {finding["code"] for finding in report["findings"]}
+
+        self.assertIn("truth_pack_mismatch", codes)
+        self.assertNotIn("building_model_count_mismatch", codes)
+        self.assertNotIn("building_direct_shell_count_mismatch", codes)
+        self.assertNotIn("building_roof_closure_deck_count_mismatch", codes)
+        self.assertNotIn("road_surface_part_count_mismatch", codes)
+        self.assertEqual(report["comparisons"]["truthPack"]["edit"]["collapseCount"], 2)
+        self.assertEqual(report["comparisons"]["truthPack"]["play"]["collapseCount"], 1)
+
 
 if __name__ == "__main__":
     unittest.main()

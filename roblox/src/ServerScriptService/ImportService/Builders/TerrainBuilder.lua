@@ -47,6 +47,54 @@ local function snap(v, down)
     end
 end
 
+local function summarizeTerrainMaterials(cellMaterials, gridW, gridD)
+    local materialCounts = {}
+    local totalCellCount = 0
+
+    for cellZ = 1, gridD do
+        local materialRow = cellMaterials[cellZ]
+        if materialRow then
+            for cellX = 1, gridW do
+                local material = materialRow[cellX] or Enum.Material.Grass
+                local materialName = material.Name
+                materialCounts[materialName] = (materialCounts[materialName] or 0) + 1
+                totalCellCount += 1
+            end
+        end
+    end
+
+    local materialNames = table.create(#materialCounts)
+    for materialName in pairs(materialCounts) do
+        materialNames[#materialNames + 1] = materialName
+    end
+    table.sort(materialNames)
+
+    local dominantMaterial = nil
+    local dominantMaterialCellCount = -1
+    local nonGrassCellCount = totalCellCount
+    for _, materialName in ipairs(materialNames) do
+        local count = materialCounts[materialName]
+        if materialName == "Grass" then
+            nonGrassCellCount -= count
+        end
+        if
+            count > dominantMaterialCellCount
+            or (count == dominantMaterialCellCount and (dominantMaterial == nil or materialName < dominantMaterial))
+        then
+            dominantMaterial = materialName
+            dominantMaterialCellCount = count
+        end
+    end
+
+    return {
+        materialKindCount = #materialNames,
+        dominantMaterial = dominantMaterial or "Unknown",
+        dominantMaterialCellCount = math.max(dominantMaterialCellCount, 0),
+        nonGrassCellCount = math.max(nonGrassCellCount, 0),
+        totalCellCount = totalCellCount,
+    }
+end
+
 local function buildChunkPlan(chunk)
     local terrainGrid = chunk.terrain
     if not terrainGrid then
@@ -203,6 +251,8 @@ local function buildChunkPlan(chunk)
         voxelCenterCellZ[iz] = math.max(0, math.min(gridD - 1, math.floor((voxelWorldZ - origin.z) / cellSize)))
     end
 
+    local terrainStats = summarizeTerrainMaterials(cellMaterials, gridW, gridD)
+
     return {
         terrainGrid = terrainGrid,
         origin = origin,
@@ -226,6 +276,7 @@ local function buildChunkPlan(chunk)
         cellXRanges = cellXRanges,
         cellZRanges = cellZRanges,
         cellMaterials = cellMaterials,
+        terrainStats = terrainStats,
         voxelCenterCellX = voxelCenterCellX,
         voxelCenterCellZ = voxelCenterCellZ,
         sampleInterpolatedHeight = sampleInterpolatedHeight,

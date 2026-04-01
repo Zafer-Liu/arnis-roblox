@@ -8,6 +8,7 @@ license.workspace = true
 arbx_geo = { path = "../arbx_geo" }
 serde.workspace = true
 serde_json.workspace = true
+rusqlite.workspace = true
 
 [lib]
 path = "src/lib.rs"

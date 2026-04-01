@@ -38,6 +38,7 @@ SCENE_INDEX_VERSION=2
 STUDIO_RELAUNCH_COOLDOWN_SECONDS=3
 HARNESS_LOCK_DIR="${HARNESS_LOCK_DIR:-/tmp/arnis-studio-harness.lock}"
 HARNESS_LOCK_OWNED=0
+export ARNIS_TELEMETRY_FAMILIES="${ARNIS_TELEMETRY_FAMILIES:-}"
 MCP_BINARY="${RBX_STUDIO_MCP_BIN:-}"
 VSYNC_BINARY="${VSYNC_BIN:-}"
 VSYNC_SOURCE_REPO=0
@@ -1185,6 +1186,7 @@ capture_preview_telemetry_artifacts() {
 
   local preview_telemetry_dir="${ARNIS_PREVIEW_TELEMETRY_DIR:-/tmp}"
   mkdir -p "$preview_telemetry_dir"
+  local requested_telemetry_families="${ARNIS_TELEMETRY_FAMILIES:-}"
 
   local plugin_state_json="$preview_telemetry_dir/arnis-preview-plugin-state.json"
   local telemetry_summary_txt="$preview_telemetry_dir/arnis-preview-telemetry-summary.txt"
@@ -1195,7 +1197,7 @@ capture_preview_telemetry_artifacts() {
     return 0
   fi
 
-  python3 -m scripts.preview_telemetry_summary "$plugin_state_json" "$telemetry_summary_txt"
+  ARNIS_TELEMETRY_FAMILIES="$requested_telemetry_families" python3 -m scripts.preview_telemetry_summary "$plugin_state_json" "$telemetry_summary_txt"
 
   log "preview telemetry saved: $plugin_state_json"
   if [[ -f "$telemetry_summary_txt" ]]; then
@@ -2789,6 +2791,8 @@ runall_spec_filter = os.environ.get("RUNALL_SPEC_FILTER", "").strip()
 do_play = os.environ.get("HARNESS_DO_PLAY", "0").strip().lower() in {"1", "true", "yes", "on"}
 run_preview_probe = (not do_play) and (runall_spec_filter == "" or "Preview" in runall_spec_filter)
 host_probe_sample = json.loads(os.environ.get("HARNESS_HOST_PROBE_JSON", "{}"))
+requested_telemetry_families = os.environ.get("ARNIS_TELEMETRY_FAMILIES", "")
+requested_telemetry_families_luau = json.dumps(requested_telemetry_families)
 
 def on_alarm(_signum, _frame):
     raise TimeoutError(f"run_edit_actions_via_mcp timed out after {wall_clock_timeout}s")
@@ -2859,6 +2863,7 @@ local runEditTests = """ + ("true" if run_edit_tests else "false") + """
 local runAllSpecFilter = """ + json.dumps(runall_spec_filter) + """
 local runPreviewProbe = """ + ("true" if run_preview_probe else "false") + """
 local hostProbeSample = """ + host_probe_sample_luau + """
+local requested_telemetry_families = """ + requested_telemetry_families_luau + """
 
 local function resolvePreviewWorldRootName()
     local canonicalWorldRootName = Workspace:GetAttribute("ArnisWorldRootName")
@@ -2879,6 +2884,7 @@ end
 
 Workspace:SetAttribute("ArnisStreamingHostProbeAvailableBytes", hostProbeSample.availableBytes)
 Workspace:SetAttribute("ArnisStreamingHostProbePressureLevel", hostProbeSample.pressureLevel)
+Workspace:SetAttribute("ArnisTelemetryFamilies", requested_telemetry_families)
 payload.hostProbe = hostProbeSample
 
 local function waitForPreviewSyncCompletion(timeoutSeconds)

@@ -24,6 +24,12 @@ class AustinFidelityScriptTests(unittest.TestCase):
         self.assertIn('compile_args+=("$@")', text)
         self.assertIn('using default dev fixture profile: $DEFAULT_PROFILE', text)
         self.assertIn('using explicit compile fidelity arguments', text)
+        self.assertIn('--truth-pack-out "out/austin.truth-pack.sqlite"', text)
+        self.assertIn('--truth-pack-summary-out "out/austin.truth-pack.summary.json"', text)
+        self.assertIn(
+            'rust/out/austin.truth-pack.sqlite and rust/out/austin.truth-pack.summary.json',
+            text,
+        )
 
     def test_export_to_lua_documents_bounded_dev_profile_default(self) -> None:
         text = EXPORT_TO_LUA_SCRIPT.read_text(encoding="utf-8")

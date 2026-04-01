@@ -4,11 +4,11 @@ Status: Historical
 
 This March 26 design is historical context only.
 
-Use the current March 28 docs stack instead:
+Use the March 30 outdoor fidelity docs stack instead:
 
-- `docs/superpowers/specs/2026-03-28-play-fidelity-and-observability-design.md`
-- `docs/superpowers/plans/2026-03-28-play-fidelity-and-observability.md`
-- `docs/superpowers/status/2026-03-28-play-fidelity-and-observability-status.md`
+- `docs/superpowers/specs/2026-03-30-outdoor-fidelity-and-source-truth-design.md`
+- `docs/superpowers/plans/2026-03-30-outdoor-fidelity-and-source-truth.md`
+- `docs/superpowers/status/2026-03-30-outdoor-fidelity-and-source-truth-status.md`
 
 ## Goal
 

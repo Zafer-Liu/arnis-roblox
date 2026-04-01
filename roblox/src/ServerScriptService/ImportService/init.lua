@@ -661,6 +661,10 @@ function ImportService.ImportChunk(chunk, options)
         chunkId = chunk.id,
         worldRootName = options.worldRootName or DEFAULT_WORLD_ROOT_NAME,
         terrainMs = 0,
+        terrainMaterialKindCount = 0,
+        terrainDominantMaterial = nil,
+        terrainDominantMaterialCellCount = 0,
+        terrainNonGrassCellCount = 0,
         landuseMs = 0,
         landusePlanMs = 0,
         landuseExecuteMs = 0,
@@ -884,6 +888,13 @@ function ImportService.ImportChunk(chunk, options)
         local p = Profiler.begin("BuildTerrain")
         TerrainBuilder.Build(terrainFolder, chunk, terrainPlan)
         chunkProfile.terrainMs = Profiler.finish(p).elapsedMs
+        local terrainStats = terrainPlan and terrainPlan.terrainStats
+        if type(terrainStats) == "table" then
+            chunkProfile.terrainMaterialKindCount = tonumber(terrainStats.materialKindCount) or 0
+            chunkProfile.terrainDominantMaterial = terrainStats.dominantMaterial
+            chunkProfile.terrainDominantMaterialCellCount = tonumber(terrainStats.dominantMaterialCellCount) or 0
+            chunkProfile.terrainNonGrassCellCount = tonumber(terrainStats.nonGrassCellCount) or 0
+        end
         if checkpoint() then
             return cancelImport()
         end

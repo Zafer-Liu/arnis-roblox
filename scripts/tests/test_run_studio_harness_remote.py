@@ -7,6 +7,7 @@ import unittest
 
 
 ROOT = Path(__file__).resolve().parents[2]
+PROJECTS_ROOT = ROOT.parent.parent.parent if ROOT.parent.name == ".worktrees" else ROOT.parent
 REMOTE_HARNESS_PATH = ROOT / "scripts" / "run_studio_harness_remote.sh"
 
 

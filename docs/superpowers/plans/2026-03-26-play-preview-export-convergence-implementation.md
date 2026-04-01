@@ -6,9 +6,9 @@ Parts of the convergence work described here have landed, while the export secti
 
 Use instead:
 
-- `docs/superpowers/specs/2026-03-28-canonical-baseline-and-single-source-of-truth-design.md`
-- `docs/superpowers/plans/2026-03-28-canonical-baseline-and-single-source-of-truth.md`
-- `docs/superpowers/status/2026-03-28-canonical-baseline-status.md`
+- `docs/superpowers/specs/2026-03-30-outdoor-fidelity-and-source-truth-design.md`
+- `docs/superpowers/plans/2026-03-30-outdoor-fidelity-and-source-truth.md`
+- `docs/superpowers/status/2026-03-30-outdoor-fidelity-and-source-truth-status.md`
 
 # Play/Preview/Export Convergence Implementation Plan
 

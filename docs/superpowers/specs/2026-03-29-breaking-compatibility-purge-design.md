@@ -1,5 +1,13 @@
 # 2026-03-29 Breaking Compatibility Purge Design
 
+This design is preserved as historical context only.
+
+The active outdoor fidelity and source-truth stack is:
+
+- `docs/superpowers/specs/2026-03-30-outdoor-fidelity-and-source-truth-design.md`
+- `docs/superpowers/plans/2026-03-30-outdoor-fidelity-and-source-truth.md`
+- `docs/superpowers/status/2026-03-30-outdoor-fidelity-and-source-truth-status.md`
+
 ## Goal
 
 Deliberately simplify the repository by removing legacy and backward-compatibility code paths instead

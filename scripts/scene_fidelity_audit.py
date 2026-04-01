@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import argparse
+import importlib.util
 import json
 from datetime import datetime, timezone
 from html import escape
@@ -10,6 +11,21 @@ from typing import Any
 
 
 CURRENT_SCHEMA_VERSION = "0.4.0"
+_TRUTH_PACK_AUDIT_MODULE: Any | None = None
+
+
+def _load_truth_pack_audit_module() -> Any:
+    global _TRUTH_PACK_AUDIT_MODULE
+    if _TRUTH_PACK_AUDIT_MODULE is not None:
+        return _TRUTH_PACK_AUDIT_MODULE
+    module_path = Path(__file__).with_name("source_truth_pack_audit.py")
+    spec = importlib.util.spec_from_file_location("source_truth_pack_audit", module_path)
+    if spec is None or spec.loader is None:
+        raise RuntimeError(f"failed to load truth-pack audit module from {module_path}")
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    _TRUTH_PACK_AUDIT_MODULE = module
+    return module
 
 
 def _load_json(path: Path) -> dict[str, Any]:
@@ -1050,10 +1066,14 @@ def _gap_rows(
     return rows
 
 
-def build_report(manifest_path: Path, log_path: Path, *, marker: str) -> dict[str, Any]:
+def build_report(manifest_path: Path, log_path: Path, *, marker: str, truth_pack: Path | None = None) -> dict[str, Any]:
     manifest = _load_json(manifest_path)
     _require_current_schema_version(manifest, str(manifest_path))
     payload = _parse_latest_marker(log_path, marker)
+    truth_pack_report: dict[str, Any] | None = None
+    if truth_pack is not None and truth_pack.exists():
+        truth_pack_audit = _load_truth_pack_audit_module()
+        truth_pack_report = truth_pack_audit.build_report(truth_pack.resolve())
     client_world = _merge_client_world_markers(
         _parse_latest_simple_marker(log_path, "ARNIS_CLIENT_WORLD_COMPACT"),
         _parse_latest_simple_marker(log_path, "ARNIS_CLIENT_LOCAL_EXPERIENCE"),
@@ -1111,7 +1131,13 @@ def build_report(manifest_path: Path, log_path: Path, *, marker: str) -> dict[st
         "explicitWallMaterialGaps": [],
         "explicitRoofMaterialGaps": [],
     }
+    if truth_pack_report is not None:
+        summary["truthPack"] = _compact_truth_pack_summary(truth_pack_report)
     findings: list[dict[str, Any]] = []
+    if truth_pack_report is not None:
+        findings.extend(
+            finding for finding in truth_pack_report.get("findings", []) if isinstance(finding, dict)
+        )
     if scene_chunk_count < manifest_chunk_count:
         findings.append(
             {
@@ -1616,6 +1642,7 @@ def build_report(manifest_path: Path, log_path: Path, *, marker: str) -> dict[st
 
 def write_html_report(report: dict[str, Any], html_path: Path) -> None:
     client_world = report.get("clientWorld") if isinstance(report.get("clientWorld"), dict) else {}
+    truth_pack_summary = report.get("summary", {}).get("truthPack") if isinstance(report.get("summary"), dict) else None
     scene_metric_keys = [
         "buildingModelsWithDirectShell",
         "buildingModelsMissingDirectShell",
@@ -1980,6 +2007,12 @@ def write_html_report(report: dict[str, Any], html_path: Path) -> None:
     )
     wall_material_gap_rows = render_gap_rows(report["summary"].get("explicitWallMaterialGaps"))
     roof_material_gap_rows = render_gap_rows(report["summary"].get("explicitRoofMaterialGaps"))
+    truth_pack_html = ""
+    if isinstance(truth_pack_summary, dict) and truth_pack_summary:
+        truth_pack_html = (
+            "<h2>Truth Pack</h2>"
+            f"<pre>{escape(json.dumps(truth_pack_summary, indent=2, sort_keys=True))}</pre>"
+        )
 
     html = f"""<!doctype html>
 <html lang="en">
@@ -2168,6 +2201,8 @@ def write_html_report(report: dict[str, Any], html_path: Path) -> None:
 
     {'<h2>Vegetation Kind Gaps</h2><table><thead><tr><th>Vegetation Kind</th><th>Manifest</th><th>Scene</th><th>Missing IDs</th></tr></thead><tbody>' + vegetation_kind_gap_rows + '</tbody></table>' if vegetation_kind_gap_rows else ''}
 
+    {truth_pack_html}
+
     <h2>Scene Payload</h2>
     <pre>{escape(json.dumps(report["scene"], indent=2, sort_keys=True))}</pre>
 
@@ -2192,11 +2227,50 @@ def _to_metric_label(name: str) -> str:
     return "".join(label)
 
 
+def _compact_truth_pack_summary(report: dict[str, Any]) -> dict[str, Any]:
+    summary = report.get("summary") if isinstance(report.get("summary"), dict) else {}
+    findings = report.get("findings") if isinstance(report.get("findings"), list) else []
+    samples = report.get("samples") if isinstance(report.get("samples"), dict) else {}
+    return {
+        "scene": str(report.get("scene") or ""),
+        "featureCount": int(summary.get("feature_count") or 0),
+        "retainedSemanticCount": int(summary.get("retained_semantic_count") or 0),
+        "droppedSemanticCount": int(summary.get("dropped_semantic_count") or 0),
+        "collapseCount": int(summary.get("collapse_count") or 0),
+        "sourceCounts": summary.get("source_counts") if isinstance(summary.get("source_counts"), dict) else {},
+        "retainedSemanticsByFamily": summary.get("retained_semantics_by_family")
+        if isinstance(summary.get("retained_semantics_by_family"), dict)
+        else {},
+        "droppedSemanticsByFamily": summary.get("dropped_semantics_by_family")
+        if isinstance(summary.get("dropped_semantics_by_family"), dict)
+        else {},
+        "overlapLossByFamily": summary.get("overlap_loss_by_family")
+        if isinstance(summary.get("overlap_loss_by_family"), dict)
+        else {},
+        "outdoorSourceCoverage": summary.get("outdoor_source_coverage")
+        if isinstance(summary.get("outdoor_source_coverage"), dict)
+        else {},
+        "samples": samples,
+        "findings": [
+            {
+                "severity": str(finding.get("severity") or ""),
+                "code": str(finding.get("code") or ""),
+                "metric": str(finding.get("metric") or ""),
+                "value": finding.get("value"),
+                "threshold": finding.get("threshold"),
+            }
+            for finding in findings
+            if isinstance(finding, dict)
+        ],
+    }
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="Compare manifest truth to scene summary markers in a Studio log.")
     parser.add_argument("--manifest", type=Path)
     parser.add_argument("--log", type=Path)
     parser.add_argument("--marker", default="ARNIS_SCENE_PLAY")
+    parser.add_argument("--truth-pack", type=Path)
     parser.add_argument("--report-json", type=Path)
     parser.add_argument("--json-out", type=Path)
     parser.add_argument("--html-out", type=Path)
@@ -2213,7 +2287,7 @@ def main(argv: list[str] | None = None) -> int:
     else:
         if args.manifest is None or args.log is None:
             parser.error("--manifest and --log are required unless --report-json is provided")
-        report = build_report(args.manifest, args.log, marker=args.marker)
+        report = build_report(args.manifest, args.log, marker=args.marker, truth_pack=args.truth_pack)
         if args.json_out:
             args.json_out.write_text(json.dumps(report, indent=2, sort_keys=True), encoding="utf-8")
         else:

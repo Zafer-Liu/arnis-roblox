@@ -1,5 +1,13 @@
 # Breaking Compatibility Purge Implementation Plan
 
+This plan is preserved as historical context only.
+
+The active outdoor fidelity and source-truth stack is:
+
+- `docs/superpowers/specs/2026-03-30-outdoor-fidelity-and-source-truth-design.md`
+- `docs/superpowers/plans/2026-03-30-outdoor-fidelity-and-source-truth.md`
+- `docs/superpowers/status/2026-03-30-outdoor-fidelity-and-source-truth-status.md`
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Remove backward-compatibility and legacy-code paths so the repo supports only schema `0.4.0`, carries one canonical runtime truth path, and no longer preserves migration-era fixtures or docs.
@@ -389,8 +397,8 @@ git commit -m "refactor: remove remaining runtime legacy compatibility shims"
 - Modify: `docs/build-pipeline.md`
 - Modify: `docs/architecture.md`
 - Modify: `docs/remote-studio-development.md`
-- Modify: `docs/superpowers/plans/2026-03-28-play-fidelity-and-observability.md`
-- Modify: `docs/superpowers/status/2026-03-28-play-fidelity-and-observability-status.md`
+- Modify: `docs/superpowers/plans/2026-03-30-outdoor-fidelity-and-source-truth.md`
+- Modify: `docs/superpowers/status/2026-03-30-outdoor-fidelity-and-source-truth-status.md`
 
 - [ ] **Step 1: Write the failing doc-truth tests or assertions where available**
 
@@ -399,7 +407,7 @@ Where text-based tests exist, add/update them. Otherwise create a small focused 
 Example command:
 
 ```bash
-rg -n "Automatically migrated|backward compatibility|0.3.0 manifest JSON|0.1.0|0.2.0|0.3.0" docs/exporter-fixtures.md docs/chunk_schema.md docs/build-pipeline.md docs/architecture.md docs/remote-studio-development.md docs/superpowers/plans/2026-03-28-play-fidelity-and-observability.md docs/superpowers/status/2026-03-28-play-fidelity-and-observability-status.md specs/sample-chunk-manifest.json specs/generated rust/crates/arbx_cli/src/main.rs
+rg -n "Automatically migrated|backward compatibility|0.3.0 manifest JSON|0.1.0|0.2.0|0.3.0" docs/exporter-fixtures.md docs/chunk_schema.md docs/build-pipeline.md docs/architecture.md docs/remote-studio-development.md docs/superpowers/plans/2026-03-30-outdoor-fidelity-and-source-truth.md docs/superpowers/status/2026-03-30-outdoor-fidelity-and-source-truth-status.md specs/sample-chunk-manifest.json specs/generated rust/crates/arbx_cli/src/main.rs
 ```
 
 Expected before cleanup: matches still exist in active truth surfaces
@@ -416,7 +424,7 @@ Expected before cleanup: matches still exist in active truth surfaces
 Run:
 
 ```bash
-rg -n "Automatically migrated|backward compatibility|migration notes|Status: Active|active truth surface|0\.1\.0|0\.2\.0|0\.3\.0|--remote-host tertiary|~/.codex-remote-studio|schema migrations|compatibility shim|ARNIS_REMOTE_STUDIO_PROFILE:-primary|--remote-profile primary|v0\.3\.0 stable|migration notes mechanism|version upgrade helper|active fidelity/observability stack|0.3.0 manifest JSON" README.md AGENTS.md CLAUDE.md docs/acceptance_criteria.md docs/backlog.md docs/chunk_schema.md docs/build-pipeline.md docs/architecture.md docs/exporter-fixtures.md docs/remote-studio-development.md docs/superpowers/plans/2026-03-28-play-fidelity-and-observability.md docs/superpowers/status/2026-03-28-play-fidelity-and-observability-status.md docs/superpowers/status/2026-03-28-canonical-baseline-status.md scripts/remote_studio_profiles.example.sh scripts/run_studio_harness_remote.sh scripts/tests/test_run_studio_harness_remote.py specs/sample-chunk-manifest.json specs/generated rust/crates/arbx_cli/src/main.rs
+rg -n "Automatically migrated|backward compatibility|migration notes|Status: Active|active truth surface|0\.1\.0|0\.2\.0|0\.3\.0|--remote-host tertiary|~/.codex-remote-studio|schema migrations|compatibility shim|ARNIS_REMOTE_STUDIO_PROFILE:-primary|--remote-profile primary|v0\.3\.0 stable|migration notes mechanism|version upgrade helper|active fidelity/observability stack|0.3.0 manifest JSON" README.md AGENTS.md CLAUDE.md docs/acceptance_criteria.md docs/backlog.md docs/chunk_schema.md docs/build-pipeline.md docs/architecture.md docs/exporter-fixtures.md docs/remote-studio-development.md docs/superpowers/plans/2026-03-28-play-fidelity-and-observability.md docs/superpowers/plans/2026-03-30-outdoor-fidelity-and-source-truth.md docs/superpowers/status/2026-03-28-play-fidelity-and-observability-status.md docs/superpowers/status/2026-03-28-canonical-baseline-status.md docs/superpowers/status/2026-03-30-outdoor-fidelity-and-source-truth-status.md scripts/remote_studio_profiles.example.sh scripts/run_studio_harness_remote.sh scripts/tests/test_run_studio_harness_remote.py specs/sample-chunk-manifest.json specs/generated rust/crates/arbx_cli/src/main.rs
 ```
 
 Expected: no stale compatibility claims in active surfaces
@@ -424,7 +432,7 @@ Expected: no stale compatibility claims in active surfaces
 - [ ] **Step 4: Commit**
 
 ```bash
-git add docs/chunk_schema.md docs/build-pipeline.md docs/architecture.md docs/remote-studio-development.md docs/superpowers/plans/2026-03-28-play-fidelity-and-observability.md docs/superpowers/status/2026-03-28-play-fidelity-and-observability-status.md
+git add docs/chunk_schema.md docs/build-pipeline.md docs/architecture.md docs/remote-studio-development.md docs/superpowers/plans/2026-03-30-outdoor-fidelity-and-source-truth.md docs/superpowers/status/2026-03-30-outdoor-fidelity-and-source-truth-status.md
 git commit -m "docs: remove stale compatibility claims"
 ```
 
@@ -479,11 +487,11 @@ the touched runtime verification lanes.
 If runtime truth changed materially, also run the narrow Studio proof lane through that same
 profile-based flow.
 
-- [ ] **Step 3: Update the rolling status doc with final measured truth**
+- [ ] **Step 3: Update the active March 30 status doc with final measured truth**
 
 Append a dated note to:
 
-- `docs/superpowers/status/2026-03-28-play-fidelity-and-observability-status.md`
+- `docs/superpowers/status/2026-03-30-outdoor-fidelity-and-source-truth-status.md`
 
 Include:
 
@@ -495,6 +503,6 @@ Include:
 - [ ] **Step 4: Final commit**
 
 ```bash
-git add docs/superpowers/status/2026-03-28-play-fidelity-and-observability-status.md
+git add docs/superpowers/status/2026-03-30-outdoor-fidelity-and-source-truth-status.md
 git commit -m "refactor: complete compatibility purge"
 ```

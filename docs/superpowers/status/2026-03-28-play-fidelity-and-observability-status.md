@@ -1,23 +1,29 @@
 # Play Fidelity And Observability Status
 
 Date: 2026-03-28
-Status: Completed
+Status: Historical
 
 ## Purpose
 
-This is the historical rolling status and handoff document for the completed play-fidelity-and-observability tranche.
+This tranche is complete and archived.
 
-Use this file as the historical status trail for:
+The active outdoor fidelity and source-truth stack is:
+
+- `docs/superpowers/specs/2026-03-30-outdoor-fidelity-and-source-truth-design.md`
+- `docs/superpowers/plans/2026-03-30-outdoor-fidelity-and-source-truth.md`
+- `docs/superpowers/status/2026-03-30-outdoor-fidelity-and-source-truth-status.md`
+
+Use this file as the archived status trail for:
 
 - what has landed after the completed March 28 baseline tranche
 - what was verified locally and on `tertiary`
 - what still needs measured follow-up for walls, terrain, interiors, and hotspots
 
-The implementation plan for this tranche was:
+The archived implementation plan for this tranche is:
 
 - `docs/superpowers/plans/2026-03-28-play-fidelity-and-observability.md`
 
-The design spec for this tranche was:
+The archived design spec for this tranche is:
 
 - `docs/superpowers/specs/2026-03-28-play-fidelity-and-observability-design.md`
 
@@ -42,7 +48,7 @@ The design spec for this tranche was:
 - Preview telemetry now preserves the current slow chunk as structured state, clears stale `lastSlowChunk` state on `sync_started`, and the preview telemetry summary now prints compact hotspot timing (`last_sync_elapsed_ms`, `slow_chunk`, `slow_chunk_total_ms`, `slow_chunk_buildings_ms`, `slow_chunk_terrain_ms`, `slow_chunk_roads_ms`, `slow_chunk_landuse_terrain_fill_ms`, `slow_chunk_artifacts`) instead of hiding that data in raw Studio logs only.
 - The scene fidelity audit now also emits explicit player-local exposure findings (`client_local_support_unknown`, `client_local_enclosure_gap`, `client_local_roof_cover_gap`) and shows nested `localSupport` / `localEnclosure` / `localRoofCover` metrics directly in the HTML report.
 - Player-local telemetry now also includes structured `localTerrain` roughness metrics (`status`, sample coverage, center/min/max terrain Y, height range, max step, mean absolute step), and both scene fidelity and parity audits now preserve those fields.
-- On `tertiary`, the new pure terrain reducer is edit-verified through `WorldProbeTerrain.spec.lua`, but the current real play-log artifact still truncates long `ARNIS_CLIENT_WORLD(_COMPACT)` lines before `localTerrain` survives into remote log-derived reports.
+- On `tertiary`, the new pure terrain reducer is edit-verified through `WorldProbeTerrain.spec.lua`, and later dedicated local-experience marker work preserved the high-signal `localTerrain` block in remote raw-log proof.
 
 ## Verification Snapshot
 
@@ -119,11 +125,10 @@ The design spec for this tranche was:
 ## Residual Gaps
 
 - Terrain fidelity still needs dedicated work; explicit material collapse is fixed, but the current observed issue set still includes inherent 4-stud write-grid boxiness and broader detail questions that this tranche has not yet resolved.
-- Terrain observability is better, and runtime/player-local terrain roughness is now emitted locally, but the current remote play-log artifact still drops that nested `localTerrain` block under long-line truncation and still lacks runtime voxel-material coverage from play.
+- Terrain observability is better, and runtime/player-local terrain roughness is now emitted locally, but runtime voxel-material coverage from play is still missing.
 - Interior work still needs a dedicated follow-up pass; shell terrain fill and top-floor ceiling overshoot are fixed, but richer traversal/interior detail and any remaining multi-level ceiling/roof edge cases are still open.
 - Preview/edit hotspot export is better, but still incomplete; the last slow chunk is now structured, yet it is not joined into scene parity/fidelity outputs or chunk-level hotspot comparison reports yet.
-- Player-local observability is stronger, but still incomplete; the audit now surfaces local support/enclosure/roof-cover signals, yet it still lacks local terrain roughness/step metrics and explicit interior-presence quantification.
-- Player-local observability is stronger, but still incomplete; the audit now surfaces local support/enclosure/roof-cover plus nested `localTerrain` signals, yet it still lacks reliable remote artifact capture for that terrain block and still lacks explicit interior-presence quantification.
+- Player-local observability is stronger, but still incomplete; the audit now surfaces local support/enclosure/roof-cover plus nested `localTerrain` signals, yet it still lacks explicit interior-presence quantification.
 - Remote screenshot capture on `tertiary` is still best-effort only.
 
 ## Status Notes
