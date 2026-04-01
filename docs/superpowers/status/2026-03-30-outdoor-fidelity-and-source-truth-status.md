@@ -29,9 +29,22 @@ The active implementation plan is:
 - `rg -n "^Status: Active$" docs/superpowers/specs docs/superpowers/plans docs/superpowers/status`
   - passed on 2026-03-30
   - verified that the March 30 spec/plan/status stack was the only set of docs carrying active markers after the rollover
+- `python3 -m unittest scripts.tests.test_run_studio_harness_remote scripts.tests.test_scene_fidelity_audit -v`
+  - passed on 2026-04-01
+  - verified the merged integration branch kept the remote harness contract and scene-audit carry-through green
+- `python3 -m unittest scripts.tests.test_source_truth_pack scripts.tests.test_source_truth_pack_audit scripts.tests.test_manifest_quality_audit scripts.tests.test_play_render_truth -v`
+  - passed on 2026-04-01
+  - verified the bounded truth-pack and outdoor-fidelity local-safe lane on the integrated baseline
+- `python3 scripts/check_scaffold.py`
+  - passed on 2026-04-01
+- `python3 scripts/verify_generated_austin_assets.py`
+  - passed on 2026-04-01
+- `cargo test --manifest-path rust/Cargo.toml --workspace`
+  - passed on 2026-04-01
+  - verified the merged baseline stayed green across the Rust workspace
 - `git diff --check`
-  - passed on 2026-03-30
-  - verified the Task 1 documentation rollover landed cleanly
+  - passed on 2026-03-30 and 2026-04-01
+  - verified both the initial doc rollover and the later merged local-safe tranche stayed text-clean
 
 ### Remote `tertiary`
 
@@ -44,6 +57,17 @@ No verification recorded yet.
 - Source-truth preservation still needs explicit proof across upstream source union, canonical collapse, and downstream audits.
 
 ## Status Notes
+
+### 2026-04-01: Plan Reconciliation And Audit Observability Tranche Landed Locally
+
+- Reconciled the active March 30 plan so it no longer understates the already-landed Task 2, Task 3a, Task 3b, Task 4 local slice, and the first bounded Task 6 local slice.
+- `scripts/preview_telemetry_summary.py` now exposes a bounded structured summary helper for preview/plugin telemetry instead of only emitting a compact text line.
+- `scripts/scene_fidelity_audit.py` now accepts an optional preview plugin-state seam and carries a compact `previewTelemetry` block into the JSON/HTML report without dumping raw plugin-state payloads or local file paths.
+- `scripts/source_truth_pack_audit.py` now exposes compact grouped breakdowns for dropped semantics and collapse kinds by outdoor family, which carry through into manifest and scene audits and participate in parity comparison when present.
+- Local-safe verification for this tranche passed:
+  - `python3 -m unittest scripts.tests.test_preview_telemetry_summary.PreviewTelemetrySummaryTests.test_build_plugin_state_summary_returns_compact_structured_blocks scripts.tests.test_scene_fidelity_audit.SceneFidelityAuditTests.test_preview_plugin_state_carries_compact_hotspot_summary_into_json_and_html -v`
+  - `python3 -m unittest scripts.tests.test_source_truth_pack_audit.SourceTruthPackAuditTests.test_truth_pack_audit_reports_compact_outdoor_findings scripts.tests.test_manifest_quality_audit.ManifestQualityAuditTests.test_truth_pack_findings_carry_through_into_manifest_quality_report scripts.tests.test_scene_fidelity_audit.SceneFidelityAuditTests.test_truth_pack_carries_through_compact_summary_into_json_and_html scripts.tests.test_scene_parity_audit.SceneParityAuditTests.test_truth_pack_mismatch_is_not_subset_allowed -v`
+- No Studio run was performed on this machine for this tranche.
 
 ### 2026-04-01: Manual Integration Branch Merged The Active Tranches By Hand
 

@@ -2576,6 +2576,11 @@ class SceneFidelityAuditTests(unittest.TestCase):
             self.assertEqual(report["summary"]["truthPack"]["collapseCount"], 2)
             self.assertEqual(report["summary"]["truthPack"]["droppedSemanticCount"], 2)
             self.assertEqual(report["summary"]["truthPack"]["outdoorSourceCoverage"]["structures"]["retained_feature_count"], 1)
+            self.assertEqual(report["summary"]["truthPack"]["droppedSemanticsBreakdown"]["structures"]["usage"], 1)
+            self.assertEqual(
+                report["summary"]["truthPack"]["collapseBreakdown"]["structures"]["overture->osm|cross_source_overlap"],
+                2,
+            )
             self.assertEqual(len(report["summary"]["truthPack"]["samples"]["overlap_losses"]), 2)
             self.assertEqual(len(report["summary"]["truthPack"]["samples"]["dropped_semantics"]), 2)
             self.assertNotIn("truth_pack_path", report["summary"]["truthPack"])
@@ -2583,6 +2588,109 @@ class SceneFidelityAuditTests(unittest.TestCase):
             self.assertIn("truth_pack_outdoor_overlap_loss", html)
             self.assertIn("structure_overlap_1", html)
             self.assertNotIn(str(truth_pack_path), html)
+
+    def test_preview_plugin_state_carries_compact_hotspot_summary_into_json_and_html(self) -> None:
+        audit = load_module()
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            manifest_path = root / "manifest.json"
+            log_path = root / "studio.log"
+            plugin_state_path = root / "plugin-state.json"
+            html_path = root / "report.html"
+
+            manifest = {
+                "schemaVersion": "0.4.0",
+                "meta": {"worldName": "SceneAuditTown", "metersPerStud": 1.0, "chunkSizeStuds": 256},
+                "chunks": [
+                    {
+                        "id": "0_0",
+                        "originStuds": {"x": 0, "y": 0, "z": 0},
+                        "roads": [],
+                        "buildings": [],
+                        "water": [],
+                        "props": [],
+                        "landuse": [],
+                        "barriers": [],
+                        "rails": [],
+                    }
+                ],
+            }
+            payload = {
+                "phase": "edit",
+                "focus": {"x": 64.0, "z": 64.0},
+                "radius": 256.0,
+                "rootName": "GeneratedWorld_AustinPreview",
+                "worldIdentity": "AustinPreviewBuilder",
+                "chunkEnvelopeKind": "bounded_preview",
+                "scene": {
+                    "chunkCount": 1,
+                    "chunkIds": ["0_0"],
+                },
+            }
+            plugin_state = {
+                "preview_runtime": {
+                    "studio_connected": True,
+                    "plugin_attached": True,
+                    "project_loaded": True,
+                    "sync_status": "connected",
+                    "connection": {"ws_connected": True},
+                },
+                "preview_project": {
+                    "preview": {
+                        "build_active": False,
+                        "state_apply_pending": False,
+                        "sync_state": "idle",
+                    },
+                    "full_bake": {"active": False, "last_result": "success"},
+                },
+                "preview_project_snapshot": {
+                    "counters": {
+                        "build_scheduled": 1,
+                        "sync_complete": 2,
+                        "sync_cancelled": 0,
+                        "state_apply_succeeded": 1,
+                        "state_apply_failed": 0,
+                    },
+                    "chunkTotals": {"imported": 80, "skipped": 0, "unloaded": 0},
+                    "lastSync": {"elapsedMs": 17384},
+                    "lastSlowChunk": {
+                        "chunkId": "7_5",
+                        "phase": "preview",
+                        "totalMs": 166,
+                        "buildingsMs": 121,
+                        "terrainMs": 18,
+                        "terrainMaterialKindCount": 3,
+                        "terrainDominantMaterial": "Grass",
+                        "terrainDominantMaterialCellCount": 64,
+                        "terrainNonGrassCellCount": 12,
+                        "roadsMs": 9,
+                        "landuseTerrainFillMs": 6,
+                        "artifactCount": 2,
+                    },
+                },
+            }
+            manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
+            log_path.write_text("ARNIS_SCENE_EDIT " + json.dumps(payload, separators=(",", ":")), encoding="utf-8")
+            plugin_state_path.write_text(json.dumps(plugin_state), encoding="utf-8")
+
+            report = audit.build_report(
+                manifest_path,
+                log_path,
+                marker="ARNIS_SCENE_EDIT",
+                preview_plugin_state=plugin_state_path,
+            )
+            audit.write_html_report(report, html_path)
+            html = html_path.read_text(encoding="utf-8")
+
+            self.assertIn("previewTelemetry", report["summary"])
+            self.assertEqual(report["summary"]["previewTelemetry"]["hotspot"]["status"], "present")
+            self.assertEqual(report["summary"]["previewTelemetry"]["hotspot"]["slowChunk"]["chunkId"], "7_5")
+            self.assertEqual(report["summary"]["previewTelemetry"]["hotspot"]["slowChunk"]["terrainMaterialKindCount"], 3)
+            self.assertNotIn(str(plugin_state_path), json.dumps(report, sort_keys=True))
+            self.assertIn("Preview Hotspot", html)
+            self.assertIn("7_5", html)
+            self.assertNotIn(str(plugin_state_path), html)
 
 
 if __name__ == "__main__":

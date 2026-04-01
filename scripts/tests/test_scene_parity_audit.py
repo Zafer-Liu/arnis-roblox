@@ -758,6 +758,8 @@ class SceneParityAuditTests(unittest.TestCase):
                     "collapseCount": 2,
                     "droppedSemanticCount": 2,
                     "retainedSemanticCount": 2,
+                    "droppedSemanticsBreakdown": {"structures": {"usage": 1}},
+                    "collapseBreakdown": {"structures": {"overture->osm|cross_source_overlap": 2}},
                     "outdoorSourceCoverage": {
                         "structures": {
                             "source_feature_count": 3,
@@ -801,6 +803,8 @@ class SceneParityAuditTests(unittest.TestCase):
                     "collapseCount": 1,
                     "droppedSemanticCount": 2,
                     "retainedSemanticCount": 2,
+                    "droppedSemanticsBreakdown": {"structures": {"usage": 1}},
+                    "collapseBreakdown": {"structures": {"overture->osm|cross_source_overlap": 1}},
                     "outdoorSourceCoverage": {
                         "structures": {
                             "source_feature_count": 3,
@@ -842,6 +846,10 @@ class SceneParityAuditTests(unittest.TestCase):
         self.assertNotIn("road_surface_part_count_mismatch", codes)
         self.assertEqual(report["comparisons"]["truthPack"]["edit"]["collapseCount"], 2)
         self.assertEqual(report["comparisons"]["truthPack"]["play"]["collapseCount"], 1)
+        self.assertEqual(
+            report["comparisons"]["truthPack"]["edit"]["collapseBreakdown"]["structures"]["overture->osm|cross_source_overlap"],
+            2,
+        )
 
 
 if __name__ == "__main__":

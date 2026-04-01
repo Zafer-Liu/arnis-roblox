@@ -476,6 +476,12 @@ class ManifestQualityAuditTests(unittest.TestCase):
             )
             self.assertEqual(report["summary"]["truth_pack"]["dropped_semantics_by_family"]["structures"], 2)
             self.assertEqual(report["summary"]["truth_pack"]["overlap_loss_by_family"]["structures"], 2)
+            self.assertEqual(report["summary"]["truth_pack"]["dropped_semantics_breakdown"]["structures"]["usage"], 1)
+            self.assertEqual(report["summary"]["truth_pack"]["dropped_semantics_breakdown"]["structures"]["material"], 1)
+            self.assertEqual(
+                report["summary"]["truth_pack"]["collapse_breakdown"]["structures"]["overture->osm|cross_source_overlap"],
+                2,
+            )
             self.assertEqual(len(report["summary"]["truth_pack"]["samples"]["overlap_losses"]), 2)
             self.assertIn("truth_pack_outdoor_overlap_loss", codes)
             self.assertIn("truth_pack_dropped_semantics", codes)

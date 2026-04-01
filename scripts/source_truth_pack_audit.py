@@ -87,6 +87,11 @@ def _placeholders(values: tuple[str, ...]) -> str:
     return ",".join("?" for _ in values)
 
 
+def _bounded_counter_rows(counter: Counter[str]) -> dict[str, int]:
+    rows = sorted(counter.items(), key=lambda item: (-item[1], item[0]))[:HOTSPOT_LIMIT]
+    return {key: int(value) for key, value in rows}
+
+
 def _add_finding(
     findings: list[dict[str, Any]],
     *,
@@ -144,6 +149,20 @@ def build_report(truth_pack: Path) -> dict[str, Any]:
             ,
             OUTDOOR_FEATURE_KINDS,
         ).fetchall()]
+        dropped_semantics_field_rows = [dict(row) for row in connection.execute(
+            """
+            SELECT f.feature_kind, ds.field_name, COUNT(*) AS semantic_count
+            FROM dropped_semantics ds
+            JOIN features f ON f.feature_id = ds.feature_id
+            WHERE LOWER(f.feature_kind) IN ("""
+            + kinds_clause
+            + """)
+            GROUP BY f.feature_kind, ds.field_name
+            ORDER BY f.feature_kind, semantic_count DESC, ds.field_name
+            """
+            ,
+            OUTDOOR_FEATURE_KINDS,
+        ).fetchall()]
         overlap_rows = [dict(row) for row in connection.execute(
             """
             SELECT f.feature_kind, COUNT(*) AS collapse_count
@@ -154,6 +173,20 @@ def build_report(truth_pack: Path) -> dict[str, Any]:
             + """)
             GROUP BY f.feature_kind
             ORDER BY f.feature_kind
+            """
+            ,
+            OUTDOOR_FEATURE_KINDS,
+        ).fetchall()]
+        collapse_breakdown_rows = [dict(row) for row in connection.execute(
+            """
+            SELECT f.feature_kind, c.matched_source, c.collapse_kind, COUNT(*) AS collapse_count
+            FROM collapses c
+            JOIN features f ON f.feature_id = c.feature_id
+            WHERE LOWER(f.feature_kind) IN ("""
+            + kinds_clause
+            + """)
+            GROUP BY f.feature_kind, c.matched_source, c.collapse_kind
+            ORDER BY f.feature_kind, collapse_count DESC, c.matched_source, c.collapse_kind
             """
             ,
             OUTDOOR_FEATURE_KINDS,
@@ -220,6 +253,8 @@ def build_report(truth_pack: Path) -> dict[str, Any]:
     retained_semantics_by_family: Counter[str] = Counter()
     dropped_semantics_by_family: Counter[str] = Counter()
     overlap_loss_by_family: Counter[str] = Counter()
+    dropped_semantics_breakdown_by_family: dict[str, Counter[str]] = {family: Counter() for family in OUTDOOR_FAMILIES}
+    collapse_breakdown_by_family: dict[str, Counter[str]] = {family: Counter() for family in OUTDOOR_FAMILIES}
     source_feature_counts_by_family: Counter[str] = Counter()
     retained_feature_counts_by_family: Counter[str] = Counter()
 
@@ -227,8 +262,16 @@ def build_report(truth_pack: Path) -> dict[str, Any]:
         retained_semantics_by_family[_family_for_kind(row.get("feature_kind"))] += int(row["semantic_count"])
     for row in dropped_semantics_rows:
         dropped_semantics_by_family[_family_for_kind(row.get("feature_kind"))] += int(row["semantic_count"])
+    for row in dropped_semantics_field_rows:
+        family = _family_for_kind(row.get("feature_kind"))
+        field_name = str(row.get("field_name") or "unknown")
+        dropped_semantics_breakdown_by_family.setdefault(family, Counter())[field_name] += int(row["semantic_count"])
     for row in overlap_rows:
         overlap_loss_by_family[_family_for_kind(row.get("feature_kind"))] += int(row["collapse_count"])
+    for row in collapse_breakdown_rows:
+        family = _family_for_kind(row.get("feature_kind"))
+        breakdown_key = f"{row['matched_source']}|{row['collapse_kind']}"
+        collapse_breakdown_by_family.setdefault(family, Counter())[breakdown_key] += int(row["collapse_count"])
     for row in source_feature_counts_rows:
         source_feature_counts_by_family[_family_for_kind(row["feature_kind"])] += int(row["source_feature_count"])
     for row in retained_feature_counts_rows:
@@ -289,8 +332,16 @@ def build_report(truth_pack: Path) -> dict[str, Any]:
         "dropped_semantics_by_family": {
             family: int(dropped_semantics_by_family.get(family, 0)) for family in OUTDOOR_FAMILIES
         },
+        "dropped_semantics_breakdown": {
+            family: _bounded_counter_rows(dropped_semantics_breakdown_by_family.get(family, Counter()))
+            for family in OUTDOOR_FAMILIES
+        },
         "overlap_loss_by_family": {
             family: int(overlap_loss_by_family.get(family, 0)) for family in OUTDOOR_FAMILIES
+        },
+        "collapse_breakdown": {
+            family: _bounded_counter_rows(collapse_breakdown_by_family.get(family, Counter()))
+            for family in OUTDOOR_FAMILIES
         },
         "outdoor_source_coverage": outdoor_source_coverage,
     }

@@ -3,10 +3,103 @@ from __future__ import annotations
 
 import unittest
 
-from scripts.preview_telemetry_summary import summarize_plugin_state
+import scripts.preview_telemetry_summary as preview_telemetry_summary
 
 
 class PreviewTelemetrySummaryTests(unittest.TestCase):
+    def test_build_plugin_state_summary_returns_compact_structured_blocks(self) -> None:
+        payload = {
+            "preview_runtime": {
+                "studio_connected": True,
+                "plugin_attached": True,
+                "project_loaded": True,
+                "sync_status": "connected",
+                "connection": {"ws_connected": True},
+            },
+            "preview_project": {
+                "preview": {
+                    "build_active": False,
+                    "state_apply_pending": False,
+                    "sync_state": "idle",
+                },
+                "full_bake": {"active": False, "last_result": "success"},
+            },
+            "preview_project_snapshot": {
+                "counters": {
+                    "build_scheduled": 1,
+                    "sync_complete": 2,
+                    "sync_cancelled": 0,
+                    "state_apply_succeeded": 1,
+                    "state_apply_failed": 0,
+                },
+                "chunkTotals": {"imported": 52, "skipped": 1, "unloaded": 0},
+                "lastSync": {"elapsedMs": 17384},
+                "lastSlowChunk": {
+                    "chunkId": "7_5",
+                    "phase": "preview",
+                    "totalMs": 166,
+                    "buildingsMs": 121,
+                    "terrainMs": 18,
+                    "terrainMaterialKindCount": 1,
+                    "terrainDominantMaterial": "Grass",
+                    "terrainDominantMaterialCellCount": 64,
+                    "terrainNonGrassCellCount": 0,
+                    "roadsMs": 9,
+                    "landuseTerrainFillMs": 6,
+                    "artifactCount": 2,
+                },
+            },
+        }
+
+        self.assertEqual(
+            preview_telemetry_summary.build_plugin_state_summary(
+                payload, telemetry_families=" terrain ,roads,roads,water ,,"
+            ),
+            {
+                "runtime": {
+                    "connected": True,
+                    "attached": True,
+                    "projectLoaded": True,
+                    "syncStatus": "connected",
+                    "wsConnected": True,
+                },
+                "project": {
+                    "syncState": "idle",
+                    "buildActive": False,
+                    "stateApplyPending": False,
+                    "fullBakeActive": False,
+                    "fullBakeLastResult": "success",
+                    "counters": {
+                        "build_scheduled": 1,
+                        "sync_complete": 2,
+                        "sync_cancelled": 0,
+                        "state_apply_succeeded": 1,
+                        "state_apply_failed": 0,
+                    },
+                    "chunkTotals": {"imported": 52, "skipped": 1, "unloaded": 0},
+                },
+                "hotspot": {
+                    "status": "present",
+                    "lastSyncElapsedMs": 17384,
+                    "slowChunk": {
+                        "chunkId": "7_5",
+                        "phase": "preview",
+                        "totalMs": 166,
+                        "buildingsMs": 121,
+                        "terrainMs": 18,
+                        "terrainMaterialKindCount": 1,
+                        "terrainDominantMaterial": "Grass",
+                        "terrainDominantMaterialCellCount": 64,
+                        "terrainNonGrassCellCount": 0,
+                        "roadsMs": 9,
+                        "landuseTerrainFillMs": 6,
+                        "artifactCount": 2,
+                    },
+                },
+                "telemetryFamilies": ["terrain", "roads", "water"],
+            },
+        )
+
     def test_summarize_plugin_state_prefers_snapshot_counters_when_present(self) -> None:
         payload = {
             "preview_runtime": {
@@ -37,7 +130,7 @@ class PreviewTelemetrySummaryTests(unittest.TestCase):
         }
 
         self.assertEqual(
-            summarize_plugin_state(payload),
+            preview_telemetry_summary.summarize_plugin_state(payload),
             "runtime=connected=1 attached=1 project_loaded=1 sync_status=connected ws_connected=1; "
             "project=sync_state=idle build_active=0 state_apply_pending=0 full_bake_active=0 "
             "build=1 sync_complete=1 sync_cancelled=0 state_apply_succeeded=1 state_apply_failed=0 "
@@ -64,7 +157,7 @@ class PreviewTelemetrySummaryTests(unittest.TestCase):
         }
 
         self.assertEqual(
-            summarize_plugin_state(payload),
+            preview_telemetry_summary.summarize_plugin_state(payload),
             "runtime=connected=1 attached=1 project_loaded=0 sync_status=connecting ws_connected=0; "
             "project=sync_state=syncing build_active=1 state_apply_pending=1 full_bake_active=1 "
             "hotspot_status=missing_snapshot full_bake_last_result=pending",
@@ -100,7 +193,7 @@ class PreviewTelemetrySummaryTests(unittest.TestCase):
         }
 
         self.assertEqual(
-            summarize_plugin_state(payload),
+            preview_telemetry_summary.summarize_plugin_state(payload),
             "runtime=connected=1 attached=1 project_loaded=1 sync_status=connected ws_connected=1; "
             "project=sync_state=idle build_active=0 state_apply_pending=0 full_bake_active=0 "
             "build=1 sync_complete=1 sync_cancelled=0 state_apply_succeeded=1 state_apply_failed=0 "
@@ -137,7 +230,7 @@ class PreviewTelemetrySummaryTests(unittest.TestCase):
         }
 
         self.assertEqual(
-            summarize_plugin_state(payload, telemetry_families=" terrain ,roads,roads,water ,,"),
+            preview_telemetry_summary.summarize_plugin_state(payload, telemetry_families=" terrain ,roads,roads,water ,,"),
             "runtime=connected=1 attached=1 project_loaded=1 sync_status=connected ws_connected=1; "
             "project=sync_state=idle build_active=0 state_apply_pending=0 full_bake_active=0 "
             "build=1 sync_complete=1 sync_cancelled=0 state_apply_succeeded=1 state_apply_failed=0 "
@@ -189,7 +282,7 @@ class PreviewTelemetrySummaryTests(unittest.TestCase):
         }
 
         self.assertEqual(
-            summarize_plugin_state(payload),
+            preview_telemetry_summary.summarize_plugin_state(payload),
             "runtime=connected=1 attached=1 project_loaded=1 sync_status=connected ws_connected=1; "
             "project=sync_state=idle build_active=0 state_apply_pending=0 full_bake_active=0 "
             "build=1 sync_complete=1 sync_cancelled=0 state_apply_succeeded=1 state_apply_failed=0 "
@@ -221,7 +314,7 @@ class PreviewTelemetrySummaryTests(unittest.TestCase):
         }
 
         self.assertEqual(
-            summarize_plugin_state(payload),
+            preview_telemetry_summary.summarize_plugin_state(payload),
             "runtime=connected=1 attached=1 project_loaded=0 sync_status=error ws_connected=0; "
             "project=sync_state=idle build_active=0 state_apply_pending=0 full_bake_active=0 "
             "hotspot_status=sync_error",

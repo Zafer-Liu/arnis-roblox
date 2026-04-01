@@ -159,7 +159,7 @@ Verification after the review correction:
 - Modify: `rust/crates/arbx_cli/src/main.rs`
 - Modify: `rust/crates/arbx_pipeline/`
 
-- [ ] **Step 1: Refresh the canonical Austin compile artifacts on a clean checkout**
+- [x] **Step 1: Refresh the canonical Austin compile artifacts on a clean checkout**
 
 Run:
 
@@ -171,7 +171,7 @@ Expected:
 - `rust/out/austin-manifest.json` exists
 - `rust/out/austin-manifest.sqlite` exists
 
-- [ ] **Step 2: Write failing truth-pack contract tests**
+- [x] **Step 2: Write failing truth-pack contract tests**
 
 Create `scripts/tests/test_source_truth_pack.py` with cases that require:
 - per-feature provenance across Overpass-derived retained features and Overture building candidates
@@ -183,7 +183,7 @@ Create `scripts/tests/test_source_truth_pack.py` with cases that require:
 
 Also extend `scripts/tests/test_austin_fidelity.py` to require that the Austin export wrapper drives the new compile truth-pack outputs.
 
-- [ ] **Step 3: Run the focused tests to verify they fail**
+- [x] **Step 3: Run the focused tests to verify they fail**
 
 Run:
 
@@ -194,7 +194,7 @@ python3 -m unittest scripts.tests.test_source_truth_pack scripts.tests.test_aust
 Expected:
 - FAIL because the truth-pack extractor/output path does not exist yet
 
-- [ ] **Step 4: Implement compile-path truth-pack emission**
+- [x] **Step 4: Implement compile-path truth-pack emission**
 
 Update the compile path so `arbx_cli compile` emits the truth-pack directly from the pre-canonical Overpass/live adapter path. Touch:
 - `rust/crates/arbx_cli/src/main.rs`
@@ -222,7 +222,7 @@ Do not invent fake lineage for:
 
 Add `scripts/source_truth_pack.py` only as a bounded inspection/query helper over the emitted truth-pack outputs, not as a second source-of-truth generation path, and keep ownership out of `arbx_roblox_export`.
 
-- [ ] **Step 5: Re-run the focused truth-pack tests**
+- [x] **Step 5: Re-run the focused truth-pack tests**
 
 Run:
 
@@ -233,7 +233,7 @@ python3 -m unittest scripts.tests.test_source_truth_pack scripts.tests.test_aust
 Expected:
 - PASS
 
-- [ ] **Step 6: Regenerate fresh local truth-pack artifacts for downstream tasks**
+- [x] **Step 6: Regenerate fresh local truth-pack artifacts for downstream tasks**
 
 Run:
 
@@ -245,7 +245,7 @@ Expected:
 - `rust/out/austin.truth-pack.sqlite` exists
 - `rust/out/austin.truth-pack.summary.json` exists
 
-- [ ] **Step 7: Run Rust verification for the touched crates**
+- [x] **Step 7: Run Rust verification for the touched crates**
 
 Run:
 
@@ -256,7 +256,7 @@ cargo test --manifest-path rust/Cargo.toml --workspace
 Expected:
 - PASS, including any new source-truth preservation coverage
 
-- [ ] **Step 8: Commit**
+- [x] **Step 8: Commit**
 
 ```bash
 git add scripts/source_truth_pack.py \
@@ -299,7 +299,7 @@ Status note: On 2026-04-01, Task 3b landed as the scene-audit truth-pack carry-t
 - Modify: `scripts/tests/test_scene_fidelity_audit.py`
 - Modify: `scripts/tests/test_scene_parity_audit.py`
 
-- [ ] **Task 3a Step 1: Write failing truth-pack audit tests**
+- [x] **Task 3a Step 1: Write failing truth-pack audit tests**
 
 Create `scripts/tests/test_source_truth_pack_audit.py` and extend:
 - `scripts/tests/test_manifest_quality_audit.py`
@@ -310,7 +310,7 @@ Cover:
 - retained-semantic findings and counts by outdoor family
 - per-family outdoor source coverage for `terrain`, `landuse`, `roads`, `water`, `vegetation`, `structures`
 
-- [ ] **Task 3a Step 2: Run the focused audit tests to verify they fail**
+- [x] **Task 3a Step 2: Run the focused audit tests to verify they fail**
 
 Run:
 
@@ -323,7 +323,7 @@ python3 -m unittest \
 Expected:
 - FAIL because the new truth-pack findings and report surfaces do not exist yet
 
-- [ ] **Task 3a Step 3: Implement the truth-pack audit and manifest-quality carry-through**
+- [x] **Task 3a Step 3: Implement the truth-pack audit and manifest-quality carry-through**
 
 Add `scripts/source_truth_pack_audit.py` and update `scripts/manifest_quality_audit.py` so they can:
 - read the SQLite truth-pack and compact summary JSON
@@ -333,7 +333,7 @@ Add `scripts/source_truth_pack_audit.py` and update `scripts/manifest_quality_au
 
 Defer scene-fidelity, scene-parity, and hotspot carry-through to later Task 3 slices.
 
-- [ ] **Task 3a Step 4: Re-run the focused audit tests**
+- [x] **Task 3a Step 4: Re-run the focused audit tests**
 
 Run:
 
@@ -346,21 +346,19 @@ python3 -m unittest \
 Expected:
 - PASS
 
-- [ ] **Task 3a Step 5: Commit**
+- [x] **Task 3a Step 5: Commit**
 
 ```bash
 git add scripts/source_truth_pack_audit.py \
   scripts/tests/test_source_truth_pack_audit.py \
   scripts/manifest_quality_audit.py \
-  scripts/tests/test_manifest_quality_audit.py \
-  scripts/scene_fidelity_audit.py \
-  scripts/scene_parity_audit.py \
-  scripts/tests/test_scene_fidelity_audit.py \
-  scripts/tests/test_scene_parity_audit.py
+  scripts/tests/test_manifest_quality_audit.py
 git commit -m "feat: audit outdoor source truth"
 ```
 
 ### Task 3b: Carry Compact Truth-Pack Summary Into Scene Audits
+
+Status: Complete (local-safe). See the 2026-04-01 Task 3b status note in the rolling status file for the verification record.
 
 **Task 3b Files:**
 - Modify: `scripts/scene_fidelity_audit.py`
@@ -389,7 +387,7 @@ Status note: On 2026-04-01, Task 4a2 added the runtime marker-shaping seam. The 
 - Modify: `scripts/tests/test_run_studio_harness.py`
 - Modify: `scripts/tests/test_austin_runtime_contract.py`
 
-- [ ] **Step 1: Write the failing telemetry-flag tests**
+- [x] **Step 1: Write the failing telemetry-flag tests**
 
 Add:
 - `roblox/src/ServerScriptService/Tests/WorldProbeTelemetryFlags.spec.lua`
@@ -401,7 +399,7 @@ Require:
 - opt-in signal families for `terrain`, `roads`, `water`, `vegetation`, `structures`, `hotspots`, `player_local`
 - stable marker output when only a subset of families is enabled
 
-- [ ] **Step 2: Run the local static tests to verify they fail**
+- [x] **Step 2: Run the local static tests to verify they fail**
 
 Run:
 
@@ -415,7 +413,7 @@ python3 -m unittest \
 Expected:
 - FAIL because the flag contract and harness wiring do not exist yet
 
-- [ ] **Step 3: Implement the minimal flag wiring**
+- [x] **Step 3: Implement the minimal flag wiring**
 
 Add `WorldProbeTelemetryFlags.lua` and update:
 - `WorldProbe.client.lua`
@@ -429,7 +427,7 @@ ARNIS_TELEMETRY_FAMILIES=terrain,roads,water,vegetation,structures,hotspots,play
 
 Preview-summary and Austin preview telemetry changes were not required for this slice; the shared family contract now flows through the harness into Workspace and the client probe reads it directly.
 
-- [ ] **Step 4: Re-run the local static tests**
+- [x] **Step 4: Re-run the local static tests**
 
 Run:
 
@@ -488,7 +486,7 @@ Expected:
 Add a dated status note to:
 - `docs/superpowers/status/2026-03-30-outdoor-fidelity-and-source-truth-status.md`
 
-- [ ] **Step 9: Commit**
+- [ ] **Step 9: Commit any remaining remote-proof/doc follow-up**
 
 ```bash
 git add roblox/src/ReplicatedStorage/Shared/WorldProbeTelemetryFlags.lua \
@@ -601,7 +599,7 @@ Skip this commit if Step 1 concluded no canonical contract change was needed and
 
 Status note: On 2026-04-01, the first bounded Task 6 slice targets explicit hotspot availability for missing/errored preview snapshots and truthful terrain-material richness threading from `TerrainBuilder` through `ImportService` into `AustinPreviewBuilder` and the compact preview summary. `BuildingBuilder.lua` and `AustinPreviewTelemetry.lua` were not required for this slice.
 
-- [ ] **Step 1: Use the truth-pack and current audits to name the first outdoor fixes**
+- [x] **Step 1: Use the truth-pack and current audits to name the first outdoor fixes**
 
 Generate a focused report locally from existing seeds/artifacts and record the first two measured targets in the status doc. Use the concrete report command below so target selection stays reproducible:
 
@@ -641,7 +639,7 @@ python3 -m unittest \
 Expected:
 - FAIL on the newly added outdoor-fidelity/hotspot assertions
 
-- [ ] **Step 4: Implement the minimal shared fixes**
+- [x] **Step 4: Implement the minimal shared fixes**
 
 Update:
 - `TerrainBuilder.lua`
@@ -653,7 +651,7 @@ Update:
 
 Keep fixes shared across edit/play truth. Do not add a play-only patch.
 
-- [ ] **Step 5: Re-run the focused local tests**
+- [x] **Step 5: Re-run the focused local tests**
 
 Run:
 

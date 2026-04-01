@@ -12,6 +12,7 @@ from typing import Any
 
 CURRENT_SCHEMA_VERSION = "0.4.0"
 _TRUTH_PACK_AUDIT_MODULE: Any | None = None
+_PREVIEW_TELEMETRY_MODULE: Any | None = None
 
 
 def _load_truth_pack_audit_module() -> Any:
@@ -25,6 +26,20 @@ def _load_truth_pack_audit_module() -> Any:
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
     _TRUTH_PACK_AUDIT_MODULE = module
+    return module
+
+
+def _load_preview_telemetry_module() -> Any:
+    global _PREVIEW_TELEMETRY_MODULE
+    if _PREVIEW_TELEMETRY_MODULE is not None:
+        return _PREVIEW_TELEMETRY_MODULE
+    module_path = Path(__file__).with_name("preview_telemetry_summary.py")
+    spec = importlib.util.spec_from_file_location("preview_telemetry_summary", module_path)
+    if spec is None or spec.loader is None:
+        raise RuntimeError(f"failed to load preview telemetry module from {module_path}")
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    _PREVIEW_TELEMETRY_MODULE = module
     return module
 
 
@@ -1066,14 +1081,64 @@ def _gap_rows(
     return rows
 
 
-def build_report(manifest_path: Path, log_path: Path, *, marker: str, truth_pack: Path | None = None) -> dict[str, Any]:
+def _compact_preview_telemetry_summary(summary: dict[str, Any]) -> dict[str, Any]:
+    runtime = summary.get("runtime") if isinstance(summary.get("runtime"), dict) else {}
+    project = summary.get("project") if isinstance(summary.get("project"), dict) else {}
+    hotspot = summary.get("hotspot") if isinstance(summary.get("hotspot"), dict) else {}
+    compact: dict[str, Any] = {
+        "runtime": {
+            "connected": bool(runtime.get("connected")),
+            "attached": bool(runtime.get("attached")),
+            "projectLoaded": bool(runtime.get("projectLoaded")),
+            "syncStatus": str(runtime.get("syncStatus", "unknown")),
+            "wsConnected": bool(runtime.get("wsConnected")),
+        },
+        "project": {
+            "syncState": str(project.get("syncState", "unknown")),
+            "buildActive": bool(project.get("buildActive")),
+            "stateApplyPending": bool(project.get("stateApplyPending")),
+            "fullBakeActive": bool(project.get("fullBakeActive")),
+        },
+        "hotspot": {
+            "status": str(hotspot.get("status", "unknown")),
+        },
+    }
+    if isinstance(project.get("counters"), dict) and project.get("counters"):
+        compact["project"]["counters"] = project.get("counters")
+    if isinstance(project.get("chunkTotals"), dict) and project.get("chunkTotals"):
+        compact["project"]["chunkTotals"] = project.get("chunkTotals")
+    if project.get("fullBakeLastResult") is not None:
+        compact["project"]["fullBakeLastResult"] = project.get("fullBakeLastResult")
+    if hotspot.get("lastSyncElapsedMs") is not None:
+        compact["hotspot"]["lastSyncElapsedMs"] = hotspot.get("lastSyncElapsedMs")
+    if isinstance(hotspot.get("slowChunk"), dict) and hotspot.get("slowChunk"):
+        compact["hotspot"]["slowChunk"] = hotspot.get("slowChunk")
+    if isinstance(summary.get("telemetryFamilies"), list) and summary.get("telemetryFamilies"):
+        compact["telemetryFamilies"] = [str(family) for family in summary.get("telemetryFamilies", [])]
+    return compact
+
+
+def build_report(
+    manifest_path: Path,
+    log_path: Path,
+    *,
+    marker: str,
+    truth_pack: Path | None = None,
+    preview_plugin_state: Path | None = None,
+) -> dict[str, Any]:
     manifest = _load_json(manifest_path)
     _require_current_schema_version(manifest, str(manifest_path))
     payload = _parse_latest_marker(log_path, marker)
     truth_pack_report: dict[str, Any] | None = None
+    preview_telemetry_summary: dict[str, Any] | None = None
     if truth_pack is not None and truth_pack.exists():
         truth_pack_audit = _load_truth_pack_audit_module()
         truth_pack_report = truth_pack_audit.build_report(truth_pack.resolve())
+    if preview_plugin_state is not None and preview_plugin_state.exists():
+        preview_telemetry = _load_preview_telemetry_module()
+        preview_telemetry_summary = preview_telemetry.build_plugin_state_summary(
+            _load_json(preview_plugin_state.resolve())
+        )
     client_world = _merge_client_world_markers(
         _parse_latest_simple_marker(log_path, "ARNIS_CLIENT_WORLD_COMPACT"),
         _parse_latest_simple_marker(log_path, "ARNIS_CLIENT_LOCAL_EXPERIENCE"),
@@ -1133,6 +1198,8 @@ def build_report(manifest_path: Path, log_path: Path, *, marker: str, truth_pack
     }
     if truth_pack_report is not None:
         summary["truthPack"] = _compact_truth_pack_summary(truth_pack_report)
+    if preview_telemetry_summary is not None:
+        summary["previewTelemetry"] = _compact_preview_telemetry_summary(preview_telemetry_summary)
     findings: list[dict[str, Any]] = []
     if truth_pack_report is not None:
         findings.extend(
@@ -1643,6 +1710,9 @@ def build_report(manifest_path: Path, log_path: Path, *, marker: str, truth_pack
 def write_html_report(report: dict[str, Any], html_path: Path) -> None:
     client_world = report.get("clientWorld") if isinstance(report.get("clientWorld"), dict) else {}
     truth_pack_summary = report.get("summary", {}).get("truthPack") if isinstance(report.get("summary"), dict) else None
+    preview_telemetry_summary = (
+        report.get("summary", {}).get("previewTelemetry") if isinstance(report.get("summary"), dict) else None
+    )
     scene_metric_keys = [
         "buildingModelsWithDirectShell",
         "buildingModelsMissingDirectShell",
@@ -2013,6 +2083,12 @@ def write_html_report(report: dict[str, Any], html_path: Path) -> None:
             "<h2>Truth Pack</h2>"
             f"<pre>{escape(json.dumps(truth_pack_summary, indent=2, sort_keys=True))}</pre>"
         )
+    preview_hotspot_html = ""
+    if isinstance(preview_telemetry_summary, dict) and preview_telemetry_summary:
+        preview_hotspot_html = (
+            "<h2>Preview Hotspot</h2>"
+            f"<pre>{escape(json.dumps(preview_telemetry_summary, indent=2, sort_keys=True))}</pre>"
+        )
 
     html = f"""<!doctype html>
 <html lang="en">
@@ -2202,6 +2278,7 @@ def write_html_report(report: dict[str, Any], html_path: Path) -> None:
     {'<h2>Vegetation Kind Gaps</h2><table><thead><tr><th>Vegetation Kind</th><th>Manifest</th><th>Scene</th><th>Missing IDs</th></tr></thead><tbody>' + vegetation_kind_gap_rows + '</tbody></table>' if vegetation_kind_gap_rows else ''}
 
     {truth_pack_html}
+    {preview_hotspot_html}
 
     <h2>Scene Payload</h2>
     <pre>{escape(json.dumps(report["scene"], indent=2, sort_keys=True))}</pre>
@@ -2244,8 +2321,14 @@ def _compact_truth_pack_summary(report: dict[str, Any]) -> dict[str, Any]:
         "droppedSemanticsByFamily": summary.get("dropped_semantics_by_family")
         if isinstance(summary.get("dropped_semantics_by_family"), dict)
         else {},
+        "droppedSemanticsBreakdown": summary.get("dropped_semantics_breakdown")
+        if isinstance(summary.get("dropped_semantics_breakdown"), dict)
+        else {},
         "overlapLossByFamily": summary.get("overlap_loss_by_family")
         if isinstance(summary.get("overlap_loss_by_family"), dict)
+        else {},
+        "collapseBreakdown": summary.get("collapse_breakdown")
+        if isinstance(summary.get("collapse_breakdown"), dict)
         else {},
         "outdoorSourceCoverage": summary.get("outdoor_source_coverage")
         if isinstance(summary.get("outdoor_source_coverage"), dict)
@@ -2271,6 +2354,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--log", type=Path)
     parser.add_argument("--marker", default="ARNIS_SCENE_PLAY")
     parser.add_argument("--truth-pack", type=Path)
+    parser.add_argument("--preview-plugin-state", type=Path)
     parser.add_argument("--report-json", type=Path)
     parser.add_argument("--json-out", type=Path)
     parser.add_argument("--html-out", type=Path)
@@ -2287,7 +2371,13 @@ def main(argv: list[str] | None = None) -> int:
     else:
         if args.manifest is None or args.log is None:
             parser.error("--manifest and --log are required unless --report-json is provided")
-        report = build_report(args.manifest, args.log, marker=args.marker, truth_pack=args.truth_pack)
+        report = build_report(
+            args.manifest,
+            args.log,
+            marker=args.marker,
+            truth_pack=args.truth_pack,
+            preview_plugin_state=args.preview_plugin_state,
+        )
         if args.json_out:
             args.json_out.write_text(json.dumps(report, indent=2, sort_keys=True), encoding="utf-8")
         else:

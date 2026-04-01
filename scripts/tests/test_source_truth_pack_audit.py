@@ -187,6 +187,12 @@ class SourceTruthPackAuditTests(unittest.TestCase):
             self.assertEqual(report["summary"]["retained_semantics_by_family"]["vegetation"], 2)
             self.assertEqual(report["summary"]["dropped_semantics_by_family"]["structures"], 3)
             self.assertEqual(report["summary"]["overlap_loss_by_family"]["structures"], 2)
+            self.assertEqual(report["summary"]["dropped_semantics_breakdown"]["structures"]["height"], 1)
+            self.assertEqual(report["summary"]["dropped_semantics_breakdown"]["structures"]["material"], 1)
+            self.assertEqual(
+                report["summary"]["collapse_breakdown"]["structures"]["overture->osm|cross_source_overlap"],
+                2,
+            )
             self.assertEqual(
                 report["summary"]["outdoor_source_coverage"]["structures"]["coverage_ratio"],
                 0.3333,
