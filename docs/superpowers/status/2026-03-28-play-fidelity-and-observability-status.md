@@ -7,6 +7,12 @@ Status: Historical
 
 This tranche is complete and archived.
 
+The active outdoor fidelity and source-truth stack is:
+
+- `docs/superpowers/specs/2026-03-30-outdoor-fidelity-and-source-truth-design.md`
+- `docs/superpowers/plans/2026-03-30-outdoor-fidelity-and-source-truth.md`
+- `docs/superpowers/status/2026-03-30-outdoor-fidelity-and-source-truth-status.md`
+
 Use this file as the archived status trail for:
 
 - what has landed after the completed March 28 baseline tranche
