@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import importlib.util
 import json
+import sqlite3
 import tempfile
 from pathlib import Path
 import unittest
@@ -18,6 +19,121 @@ def load_module():
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
     return module
+
+
+def build_truth_pack_fixture(db_path: Path) -> None:
+    connection = sqlite3.connect(db_path)
+    connection.executescript(
+        """
+        CREATE TABLE features (
+            feature_id TEXT PRIMARY KEY,
+            feature_kind TEXT NOT NULL,
+            canonical_feature_id TEXT,
+            is_retained INTEGER NOT NULL
+        );
+        CREATE TABLE sources (
+            source_name TEXT PRIMARY KEY,
+            provider TEXT NOT NULL,
+            dataset TEXT NOT NULL
+        );
+        CREATE TABLE feature_sources (
+            feature_id TEXT NOT NULL,
+            source_name TEXT NOT NULL,
+            source_feature_id TEXT NOT NULL,
+            source_layer TEXT NOT NULL
+        );
+        CREATE TABLE retained_semantics (
+            feature_id TEXT NOT NULL,
+            field_name TEXT NOT NULL,
+            field_value TEXT NOT NULL
+        );
+        CREATE TABLE collapses (
+            collapse_id INTEGER PRIMARY KEY AUTOINCREMENT,
+            feature_id TEXT NOT NULL,
+            retained_feature_id TEXT NOT NULL,
+            collapse_kind TEXT NOT NULL,
+            matched_source TEXT NOT NULL
+        );
+        CREATE TABLE dropped_semantics (
+            dropped_semantic_id INTEGER PRIMARY KEY AUTOINCREMENT,
+            feature_id TEXT NOT NULL,
+            field_name TEXT NOT NULL,
+            field_value TEXT NOT NULL,
+            reason TEXT NOT NULL,
+            retained_feature_id TEXT
+        );
+        """
+    )
+    connection.executemany(
+        "INSERT INTO sources (source_name, provider, dataset) VALUES (?, ?, ?)",
+        [
+            ("overpass", "osm", "overpass"),
+            ("overture", "overture", "buildings"),
+        ],
+    )
+    connection.executemany(
+        "INSERT INTO features (feature_id, feature_kind, canonical_feature_id, is_retained) VALUES (?, ?, ?, ?)",
+        [
+            ("road_1", "road", "road_1", 1),
+            ("structure_1", "structure", "structure_1", 1),
+            ("structure_overlap_1", "structure", "structure_1", 0),
+            ("structure_overlap_2", "structure", "structure_1", 0),
+        ],
+    )
+    connection.executemany(
+        "INSERT INTO feature_sources (feature_id, source_name, source_feature_id, source_layer) VALUES (?, ?, ?, ?)",
+        [
+            ("road_1", "overpass", "road-src-1", "roads"),
+            ("structure_1", "overpass", "osm-1", "structures"),
+            ("structure_overlap_1", "overture", "ov-1", "structures"),
+            ("structure_overlap_2", "overture", "ov-2", "structures"),
+        ],
+    )
+    connection.executemany(
+        "INSERT INTO retained_semantics (feature_id, field_name, field_value) VALUES (?, ?, ?)",
+        [
+            ("road_1", "surface", "asphalt"),
+            ("structure_1", "usage", "school"),
+        ],
+    )
+    connection.executemany(
+        "INSERT INTO collapses (feature_id, retained_feature_id, collapse_kind, matched_source) VALUES (?, ?, ?, ?)",
+        [
+            ("structure_overlap_1", "structure_1", "cross_source_overlap", "overture->osm"),
+            ("structure_overlap_2", "structure_1", "cross_source_overlap", "overture->osm"),
+        ],
+    )
+    connection.executemany(
+        "INSERT INTO dropped_semantics (feature_id, field_name, field_value, reason, retained_feature_id) VALUES (?, ?, ?, ?, ?)",
+        [
+            ("structure_overlap_1", "usage", "commercial", "collapsed_into_retained_feature", "structure_1"),
+            ("structure_overlap_2", "material", "glass", "collapsed_into_retained_feature", "structure_1"),
+        ],
+    )
+    connection.commit()
+    connection.close()
+
+    db_path.with_suffix(".summary.json").write_text(
+        json.dumps(
+            {
+                "scene": "fixture",
+                "feature_count": 4,
+                "retained_semantic_count": 2,
+                "dropped_semantic_count": 2,
+                "collapse_count": 2,
+                "source_counts": {"overpass": 2, "overture": 2},
+                "outdoor_source_coverage": {
+                    "terrain": {"source_feature_count": 0, "retained_feature_count": 0},
+                    "landuse": {"source_feature_count": 0, "retained_feature_count": 0},
+                    "roads": {"source_feature_count": 1, "retained_feature_count": 1},
+                    "water": {"source_feature_count": 0, "retained_feature_count": 0},
+                    "vegetation": {"source_feature_count": 0, "retained_feature_count": 0},
+                    "structures": {"source_feature_count": 3, "retained_feature_count": 1},
+                },
+            }
+        ),
+        encoding="utf-8",
+    )
 
 
 class SceneFidelityAuditTests(unittest.TestCase):
@@ -2334,6 +2450,75 @@ class SceneFidelityAuditTests(unittest.TestCase):
 
             report = audit.build_report(manifest_path, log_path, marker="ARNIS_SCENE_EDIT")
             self.assertNotIn("buildingModelCountByWallMaterial", report["scene"])
+
+    def test_truth_pack_carries_through_compact_summary_into_json_and_html(self) -> None:
+        audit = load_module()
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            manifest_path = root / "manifest.json"
+            log_path = root / "studio.log"
+            html_path = root / "report.html"
+            truth_pack_path = root / "fixture.truth-pack.sqlite"
+
+            manifest = {
+                "schemaVersion": "0.4.0",
+                "meta": {"worldName": "SceneAuditTown", "metersPerStud": 1.0, "chunkSizeStuds": 256},
+                "chunks": [
+                    {
+                        "id": "0_0",
+                        "originStuds": {"x": 0, "y": 0, "z": 0},
+                        "roads": [{"id": "road_1", "kind": "secondary", "subkind": "none"}],
+                        "buildings": [{"id": "structure_1", "usage": "school", "roof": "flat"}],
+                        "water": [],
+                        "props": [],
+                        "landuse": [],
+                        "barriers": [],
+                        "rails": [],
+                    }
+                ],
+            }
+            payload = {
+                "phase": "play",
+                "focus": {"x": 64.0, "z": 64.0},
+                "radius": 256.0,
+                "rootName": "GeneratedWorld_Austin",
+                "worldIdentity": "AustinManifestIndex",
+                "chunkEnvelopeKind": "runtime_resident",
+                "scene": {
+                    "chunkCount": 1,
+                    "chunkIds": ["0_0"],
+                    "buildingModelCount": 1,
+                    "chunksWithBuildingModels": 1,
+                    "roadTaggedPartCount": 1,
+                    "chunksWithRoadGeometry": 1,
+                },
+            }
+            manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
+            log_path.write_text("ARNIS_SCENE_PLAY " + json.dumps(payload, separators=(",", ":")), encoding="utf-8")
+            build_truth_pack_fixture(truth_pack_path)
+
+            report = audit.build_report(
+                manifest_path,
+                log_path,
+                marker="ARNIS_SCENE_PLAY",
+                truth_pack=truth_pack_path,
+            )
+            audit.write_html_report(report, html_path)
+            html = html_path.read_text(encoding="utf-8")
+
+            self.assertIn("truthPack", report["summary"])
+            self.assertEqual(report["summary"]["truthPack"]["scene"], "fixture")
+            self.assertEqual(report["summary"]["truthPack"]["collapseCount"], 2)
+            self.assertEqual(report["summary"]["truthPack"]["droppedSemanticCount"], 2)
+            self.assertEqual(report["summary"]["truthPack"]["outdoorSourceCoverage"]["structures"]["retained_feature_count"], 1)
+            self.assertEqual(len(report["summary"]["truthPack"]["samples"]["overlap_losses"]), 2)
+            self.assertEqual(len(report["summary"]["truthPack"]["samples"]["dropped_semantics"]), 2)
+            self.assertNotIn("truth_pack_path", report["summary"]["truthPack"])
+            self.assertIn("Truth Pack", html)
+            self.assertIn("truth_pack_outdoor_overlap_loss", html)
+            self.assertIn("structure_overlap_1", html)
+            self.assertNotIn(str(truth_pack_path), html)
 
 
 if __name__ == "__main__":

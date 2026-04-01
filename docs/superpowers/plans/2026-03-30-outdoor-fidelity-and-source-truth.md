@@ -278,6 +278,13 @@ Status note: On 2026-04-01, Task 3a spec review tightened the auditor contract f
 - headline retained/dropped/overlap counts must be scoped to the outdoor families only
 - the truth-pack auditor must use bounded aggregate/sample queries instead of materializing full SQLite tables
 
+Status note: On 2026-04-01, Task 3b landed as the scene-audit truth-pack carry-through slice:
+- `scene_fidelity_audit.py` now accepts an optional `--truth-pack` seam and reuses `source_truth_pack_audit.py` as the bounded reader
+- the carried-through `summary.truthPack` payload is compact and capped: family counts, coverage, capped samples, and compact finding rows only
+- `scene_parity_audit.py` now compares that compact truth-pack surface directly
+- bounded-preview subset allowances still apply to scene geometry metrics only; truth-pack mismatches remain real parity mismatches
+- preview/edit hotspot telemetry remains deferred to a later slice
+
 **Task 3a Files:**
 - Create: `scripts/source_truth_pack_audit.py`
 - Create: `scripts/tests/test_source_truth_pack_audit.py`

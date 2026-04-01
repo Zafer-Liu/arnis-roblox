@@ -92,3 +92,13 @@ No verification recorded yet.
   - Task 3a files and steps for truth-pack audit plus manifest-quality carry-through
   - later Task 3 files for scene-fidelity and scene-parity carry-through
 - This keeps the plan aligned with the actual execution order before Task 3b starts.
+
+### 2026-04-01: Task 3b Added Compact Truth-Pack Carry-Through To Scene Audits
+
+- `scripts/scene_fidelity_audit.py` now accepts an optional `--truth-pack` argument and reuses the existing bounded `scripts/source_truth_pack_audit.py` reader instead of inventing a second truth-pack parsing path.
+- The scene-fidelity JSON/HTML carry-through stays compact: `summary.truthPack` contains family counts, coverage, capped samples, and compact finding rows, without raw SQLite dumps or path-heavy payloads.
+- `scripts/scene_parity_audit.py` now compares that compact truth-pack surface directly.
+- Bounded-preview subset allowances remain limited to scene geometry metrics; truth-pack source-truth mismatches are treated as real parity mismatches.
+- Hotspot carry-through was intentionally left out of this slice.
+- Local-safe verification passed:
+  - `python3 -m unittest scripts.tests.test_scene_fidelity_audit scripts.tests.test_scene_parity_audit -v`
