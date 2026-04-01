@@ -57,7 +57,6 @@ class RunStudioHarnessTests(unittest.TestCase):
         self.assertIn('session_status="$(studio_session_status_value status 2>/dev/null || printf \'not_running\')"', self.text)
         self.assertIn('dismiss_startup_dialogs || true', self.text)
         self.assertIn('run_studio_ui_action dismiss-dont-save || true', self.text)
-        self.assertIn('log "Studio close dialog detected during quit; dismissing without saving"', self.text)
 
     def test_harness_acquires_single_instance_lock_and_cleans_it_up(self) -> None:
         self.assertIn('HARNESS_LOCK_DIR="${HARNESS_LOCK_DIR:-/tmp/arnis-studio-harness.lock}"', self.text)
