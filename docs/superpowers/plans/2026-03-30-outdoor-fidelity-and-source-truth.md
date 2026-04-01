@@ -112,7 +112,7 @@ Update `docs/superpowers/plans/2026-03-30-outdoor-fidelity-and-source-truth.md` 
 
 Update `docs/remote-studio-development.md` so it points operators at the new rolling status file and keeps `tertiary` as the current proof lane without duplicating volatile proof claims.
 
-- [x] **Step 6: Verified the doc stack has one active truth surface**
+- [x] **Step 6: Verified the active-marker guardrail for the doc stack**
 
 Run:
 
@@ -121,7 +121,7 @@ rg -n "^Status: Active$" docs/superpowers/specs docs/superpowers/plans docs/supe
 ```
 
 Expected:
-- the new outdoor status/plan/spec stack is the only active tranche
+- the new outdoor status/plan/spec stack is the only set of docs with active markers
 - the March 28 play-fidelity docs are clearly historical/completed context
 
 - [x] **Step 7: Committed**
