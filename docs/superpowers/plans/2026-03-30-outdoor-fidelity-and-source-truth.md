@@ -608,7 +608,7 @@ Status note: On 2026-04-01, the current Task 6 tranche was tightened around two 
 - terrain/material/detail: player-local terrain telemetry now needs material richness, not just roughness, so edit/play audits can quantify “default grass / textureless” complaints near the player
 - hotspot: the preview slow chunk at `-1_0` remains building-dominant (`153/155 ms`), so the compact hotspot surface now needs building-mesh breakdown plus chunk-shape context instead of only coarse `buildingsMs`
 
-Status note: On 2026-04-01, the direct `tertiary` proof path replaced the staged-clone proof path for this slice. The staged remote clone is still not trustworthy for `arnis-roblox/scripts/` completeness, so focused Studio proof now runs against the persistent `/Users/adpena/Projects/arnis-roblox` tree on `tertiary` with `VSYNC_REPO_DIR=$HOME/.codex-remote-studio/vertigo-sync` until the stage-copy root cause is proven and fixed.
+Status note: On 2026-04-01, the direct `tertiary` proof path replaced the staged-clone proof path for this slice. The staged remote clone is still not trustworthy for `arnis-roblox/scripts/` completeness, so focused Studio proof now runs against the git-backed `~/Projects/arnis-roblox-main` clone on `tertiary` with `VSYNC_REPO_DIR=$HOME/.codex-remote-studio/vertigo-sync`.
 
 Status note: On 2026-04-01, harness work was explicitly put into wrap-up mode for this tranche. New work should improve outdoor fidelity, hotspot attribution, and truth-pack usefulness; harness changes are limited to stabilization or proof-lane hygiene that unblock `tertiary`, not new harness feature surfaces.
 
@@ -694,11 +694,11 @@ Expected:
 Run the narrowest `tertiary` slices that prove the change:
 
 ```bash
-ssh tertiary 'cd /Users/adpena/Projects/arnis-roblox && ARNIS_TELEMETRY_FAMILIES=terrain,roads,water,vegetation,structures,hotspots,player_local VSYNC_REPO_DIR=$HOME/.codex-remote-studio/vertigo-sync bash scripts/run_studio_harness.sh --takeover --hard-restart --no-play --edit-tests --spec-filter WorldProbeTerrain.spec.lua --edit-wait 30 --pattern-wait 120'
-ssh tertiary 'cd /Users/adpena/Projects/arnis-roblox && ARNIS_TELEMETRY_FAMILIES=terrain,roads,water,vegetation,structures,hotspots,player_local VSYNC_REPO_DIR=$HOME/.codex-remote-studio/vertigo-sync bash scripts/run_studio_harness.sh --takeover --hard-restart --no-play --edit-tests --spec-filter TerrainOutdoorFidelity.spec.lua --edit-wait 30 --pattern-wait 120'
+ssh tertiary 'cd ~/Projects/arnis-roblox-main && ARNIS_TELEMETRY_FAMILIES=terrain,roads,water,vegetation,structures,hotspots,player_local VSYNC_REPO_DIR=$HOME/.codex-remote-studio/vertigo-sync bash scripts/run_studio_harness.sh --takeover --hard-restart --no-play --edit-tests --spec-filter WorldProbeTerrain.spec.lua --edit-wait 30 --pattern-wait 120'
+ssh tertiary 'cd ~/Projects/arnis-roblox-main && ARNIS_TELEMETRY_FAMILIES=terrain,roads,water,vegetation,structures,hotspots,player_local VSYNC_REPO_DIR=$HOME/.codex-remote-studio/vertigo-sync bash scripts/run_studio_harness.sh --takeover --hard-restart --no-play --edit-tests --spec-filter TerrainOutdoorFidelity.spec.lua --edit-wait 30 --pattern-wait 120'
 scp tertiary:/tmp/arnis-preview-plugin-state.json /tmp/arnis-preview-plugin-state.json
 scp tertiary:/tmp/arnis-preview-telemetry-summary.txt /tmp/arnis-preview-telemetry-summary.txt
-ssh tertiary 'cd /Users/adpena/Projects/arnis-roblox && ARNIS_TELEMETRY_FAMILIES=terrain,roads,water,vegetation,structures,hotspots,player_local ARNIS_SCENE_AUDIT_DIR=/tmp/arnis-outdoor-audit-play VSYNC_REPO_DIR=$HOME/.codex-remote-studio/vertigo-sync bash scripts/run_studio_harness.sh --takeover --hard-restart --skip-edit-tests --play-wait 30 --pattern-wait 120'
+ssh tertiary 'cd ~/Projects/arnis-roblox-main && ARNIS_TELEMETRY_FAMILIES=terrain,roads,water,vegetation,structures,hotspots,player_local ARNIS_SCENE_AUDIT_DIR=/tmp/arnis-outdoor-audit-play VSYNC_REPO_DIR=$HOME/.codex-remote-studio/vertigo-sync bash scripts/run_studio_harness.sh --takeover --hard-restart --skip-edit-tests --play-wait 30 --pattern-wait 120'
 ```
 
 Expected:

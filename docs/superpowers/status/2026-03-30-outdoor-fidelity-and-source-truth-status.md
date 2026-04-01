@@ -70,20 +70,20 @@ The compact historical archive index is:
 
 ### Remote `tertiary`
 
-- `ssh tertiary 'cd /Users/adpena/Projects/arnis-roblox && ARNIS_TELEMETRY_FAMILIES=terrain,roads,water,vegetation,structures,hotspots,player_local VSYNC_REPO_DIR=$HOME/.codex-remote-studio/vertigo-sync bash scripts/run_studio_harness.sh --takeover --hard-restart --no-play --edit-tests --spec-filter WorldProbeTelemetryFlags.spec.lua --edit-wait 30 --pattern-wait 120'`
+- `ssh tertiary 'cd ~/Projects/arnis-roblox-main && ARNIS_TELEMETRY_FAMILIES=terrain,roads,water,vegetation,structures,hotspots,player_local VSYNC_REPO_DIR=$HOME/.codex-remote-studio/vertigo-sync bash scripts/run_studio_harness.sh --takeover --hard-restart --no-play --edit-tests --spec-filter WorldProbeTelemetryFlags.spec.lua --edit-wait 30 --pattern-wait 120'`
   - passed on 2026-04-01
   - proved `WorldProbeTelemetryFlags.spec.lua`
   - emitted `ARNIS_MCP_READY` and `ARNIS_MCP_EDIT_ACTION` with `total=1 passed=1 failed=0`
-- `ssh tertiary 'cd /Users/adpena/Projects/arnis-roblox && ARNIS_TELEMETRY_FAMILIES=terrain,roads,water,vegetation,structures,hotspots,player_local VSYNC_REPO_DIR=$HOME/.codex-remote-studio/vertigo-sync bash scripts/run_studio_harness.sh --takeover --hard-restart --no-play --edit-tests --spec-filter WorldProbeTerrain.spec.lua --edit-wait 30 --pattern-wait 120'`
+- `ssh tertiary 'cd ~/Projects/arnis-roblox-main && ARNIS_TELEMETRY_FAMILIES=terrain,roads,water,vegetation,structures,hotspots,player_local VSYNC_REPO_DIR=$HOME/.codex-remote-studio/vertigo-sync bash scripts/run_studio_harness.sh --takeover --hard-restart --no-play --edit-tests --spec-filter WorldProbeTerrain.spec.lua --edit-wait 30 --pattern-wait 120'`
   - passed on 2026-04-01
-- `ssh tertiary 'cd /Users/adpena/Projects/arnis-roblox && ARNIS_TELEMETRY_FAMILIES=terrain,roads,water,vegetation,structures,hotspots,player_local VSYNC_REPO_DIR=$HOME/.codex-remote-studio/vertigo-sync bash scripts/run_studio_harness.sh --takeover --hard-restart --no-play --edit-tests --spec-filter TerrainOutdoorFidelity.spec.lua --edit-wait 30 --pattern-wait 120'`
+- `ssh tertiary 'cd ~/Projects/arnis-roblox-main && ARNIS_TELEMETRY_FAMILIES=terrain,roads,water,vegetation,structures,hotspots,player_local VSYNC_REPO_DIR=$HOME/.codex-remote-studio/vertigo-sync bash scripts/run_studio_harness.sh --takeover --hard-restart --no-play --edit-tests --spec-filter TerrainOutdoorFidelity.spec.lua --edit-wait 30 --pattern-wait 120'`
   - passed on 2026-04-01 after correcting the spec to model two 2-stud source cells inside one 4-stud write voxel
 - `scp tertiary:/tmp/arnis-preview-plugin-state.json /tmp/arnis-preview-plugin-state.json`
   - passed on 2026-04-01
 - `scp tertiary:/tmp/arnis-preview-telemetry-summary.txt /tmp/arnis-preview-telemetry-summary.txt`
   - passed on 2026-04-01
   - synced the preview hotspot artifacts used for the current Task 5/Task 6 target selection
-- `ssh tertiary 'cd /Users/adpena/Projects/arnis-roblox && ARNIS_TELEMETRY_FAMILIES=terrain,roads,water,vegetation,structures,hotspots,player_local ARNIS_SCENE_AUDIT_DIR=/tmp/arnis-outdoor-audit-play VSYNC_REPO_DIR=$HOME/.codex-remote-studio/vertigo-sync bash scripts/run_studio_harness.sh --takeover --hard-restart --skip-edit-tests --play-wait 30 --pattern-wait 120'`
+- `ssh tertiary 'cd ~/Projects/arnis-roblox-main && ARNIS_TELEMETRY_FAMILIES=terrain,roads,water,vegetation,structures,hotspots,player_local ARNIS_SCENE_AUDIT_DIR=/tmp/arnis-outdoor-audit-play VSYNC_REPO_DIR=$HOME/.codex-remote-studio/vertigo-sync bash scripts/run_studio_harness.sh --takeover --hard-restart --skip-edit-tests --play-wait 30 --pattern-wait 120'`
   - passed on 2026-04-01
   - reached `gameplay_ready`
   - emitted `ARNIS_MCP_PLAY`, `ARNIS_CLIENT_WORLD_COMPACT`, and `ARNIS_CLIENT_LOCAL_EXPERIENCE` with live `localTerrain` metrics
@@ -92,13 +92,14 @@ The compact historical archive index is:
   - `tertiary` was manually force-cleaned afterward so no Studio, harness, MCP, Vertigo Sync, or lock residue remained
 - Current remote operator note:
   - the staged clone under `~/.codex-remote-studio/arnis-roblox` is not the active proof surface for `arnis-roblox` right now because its `scripts/` completeness is still unproven
+  - the active direct proof lane is the git-backed clone at `~/Projects/arnis-roblox-main`
 
 ## Residual Gaps
 
 - Outdoor fidelity still needs dedicated work on terrain detail, shell nuance, and player-visible exterior realism.
 - Outdoor hotspots still need tighter measurement so preview/edit cost can be traced at chunk scope instead of only at the whole-run level.
 - Source-truth preservation still needs explicit proof across upstream source union, canonical collapse, and downstream audits.
-- Harness work is now in wrap-up mode: the direct persistent `tertiary` repo is the only proof lane, and remaining harness work should be limited to teardown/cleanup hygiene instead of new harness feature surfaces.
+- Harness work is now in wrap-up mode: the direct git-backed `tertiary` proof clone is the only proof lane, and remaining harness work should be limited to teardown/cleanup hygiene instead of new harness feature surfaces.
 
 ## Status Notes
 
@@ -173,7 +174,7 @@ The compact historical archive index is:
 
 ### 2026-04-01: Tasks 4, 5, And 6 Are Now Consolidated On One Current Proof Narrative
 
-- Task 4 proof is now anchored to the direct persistent `tertiary` repo at `/Users/adpena/Projects/arnis-roblox`, not the staged clone:
+- Task 4 proof is now anchored to the direct git-backed `tertiary` proof clone at `~/Projects/arnis-roblox-main`, not the staged clone:
   - `WorldProbeTelemetryFlags.spec.lua` passed on `tertiary`
   - preview telemetry artifacts were synced back from `tertiary` to `/tmp/arnis-preview-plugin-state.json` and `/tmp/arnis-preview-telemetry-summary.txt`
   - the synced summary currently reports `imported=80`, `last_sync_elapsed_ms=18689`, `slow_chunk=-1_0`, `slow_chunk_total_ms=154`, `slow_chunk_buildings_ms=153`, `slow_chunk_building_features=5`, `slow_chunk_dominant_cost_center=buildings`, and `slow_chunk_terrain_signal_status=not_authored`
@@ -478,12 +479,12 @@ The compact historical archive index is:
   - `bash -n scripts/run_studio_harness_remote.sh`
   - `cargo test --manifest-path rust/Cargo.toml --workspace`
   - `git diff --check`
-- Direct `tertiary` proof against the persistent repo produced fresh live preview evidence for the current hotspot:
+- Direct `tertiary` proof against the git-backed proof clone produced fresh live preview evidence for the current hotspot:
   - `AustinPreviewTelemetry.spec.lua` passed with `ARNIS_MCP_EDIT_ACTION total=1 passed=1 failed=0`
   - `AustinPreviewBuilder` emitted slow-chunk lines for `chunkId=-1_0` with `buildingsMs=150`, `buildingMeshCreateMs=1`, `buildingShellDetailMs=149`, `buildingInteriorMs=0`, `buildingMeshVertexCount=6112`, and `buildingMeshTriangleCount=3056`
   - a follow-on `ImportService.spec.lua` run also emitted the new split fields on the same building-dominant chunk before teardown stalled
 - Harness stance for this tranche is now explicit:
-  - direct proof on the persistent `/Users/adpena/Projects/arnis-roblox` tree on `tertiary` remains the operator truth
+  - direct proof on `~/Projects/arnis-roblox-main` on `tertiary` remains the operator truth
   - the staged clone is still untrusted for `scripts/` completeness
   - no new harness feature work should be opened from this status note; only bounded teardown/cleanup hygiene remains in scope
 - `tertiary` was force-cleaned after the debugging runs; no Studio, harness, MCP, `vsync serve`, or lock residue was intentionally left behind.
@@ -522,4 +523,30 @@ The compact historical archive index is:
 - The next proof step is still `tertiary` only:
   - rerun `AustinPreviewTelemetry.spec.lua`
   - rerun `ImportService.spec.lua`
-  - capture a fresh preview hotspot artifact from the persistent repo after the higher-fidelity export default lands there
+  - capture a fresh preview hotspot artifact from the git-backed proof clone after the higher-fidelity export default lands there
+
+### 2026-04-01: `tertiary` Proof Lane Moved To A Real Git Clone And Verified The New Hotspot Fields
+
+- The older `~/Projects/arnis-roblox` folder on `tertiary` is not a git repository, so it should not be treated as the canonical remote proof surface anymore.
+- A new shallow git-backed proof clone was seeded at `~/Projects/arnis-roblox-main` directly from `origin/main` at commit `16b6124`.
+- Remote static verification on that clone passed:
+  - `python3 -m unittest scripts.tests.test_source_truth_pack.SourceTruthPackHelperTests scripts.tests.test_source_truth_pack_audit.SourceTruthPackAuditTests scripts.tests.test_preview_telemetry_summary -v`
+- Focused Studio edit proof on that clone surfaced the new fields in the live log:
+  - `PASS AustinPreviewTelemetry.spec`
+  - `PASS ImportService.spec`
+  - the preview slow-chunk line for `chunkId=-1_0` now includes the new shell-detail subphases:
+    - `buildingRoofBuildMs=20`
+    - `buildingFacadeDetailMs=0`
+    - `buildingPerimeterDetailMs=0`
+    - `buildingTerrainFillMs=116`
+    - `buildingRooftopDetailMs=0`
+    - `buildingNameLabelMs=0`
+    - alongside `buildingShellDetailMs=149` and `buildingMeshCreateMs=1`
+- The first attempt launched two edit proofs in parallel and produced avoidable log interleaving on the shared remote Studio lane. The proof findings are still usable, but future `tertiary` runs should stay serialized unless the proof surface is explicitly split.
+- The harness still reached:
+  - `main harness flow complete; exiting`
+  - `cleanup starting exit_code=0`
+  - `cleanup policy ... should_close=true reason=success`
+  - `quit_studio starting`
+  - `quit_studio requesting graceful quit`
+- After the interleaved proof run, `tertiary` was force-cleaned again. No `run_studio_harness.sh`, `rbx-studio-mcp`, or `vsync serve` process remains, and Studio was explicitly killed to keep the machine polite after the run.

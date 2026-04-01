@@ -4,7 +4,7 @@ Use this repo so Studio execution can move between machines without committing m
 
 Remote Studio validation is profile-based. On this workstation, `tertiary` is the preferred proof profile, but it is still only a local alias, not a committed repo dependency.
 
-Treat `tertiary` as the default remote proof lane when you need cross-machine Studio validation. If wrapper transport is unhealthy, direct SSH into the remote `tertiary` clone is the authoritative fallback for that lane. For current proof state and active follow-on work, use the single active rolling status file instead of duplicating volatile results here:
+Treat `tertiary` as the default remote proof lane when you need cross-machine Studio validation. If wrapper transport is unhealthy, direct SSH into a git-backed remote `tertiary` clone is the authoritative fallback for that lane. For current proof state and active follow-on work, use the single active rolling status file instead of duplicating volatile results here:
 
 - `docs/superpowers/status/2026-03-30-outdoor-fidelity-and-source-truth-status.md`
 
@@ -16,7 +16,7 @@ The March 30 outdoor fidelity and source-truth tranche is the current rolling st
 - Use `scripts/remote_studio_profiles.example.sh` as the starting template.
 - Treat `primary` and `tertiary` as profile aliases and machine roles, not as committed transport details.
 - Prefer direct development on the chosen dev machine when possible.
-- Use the remote harness wrapper when Studio must run on another machine from the one holding your current worktree; if wrapper transport is unhealthy, switch to direct SSH on the remote `tertiary` clone for the proof run.
+- Use the remote harness wrapper when Studio must run on another machine from the one holding your current worktree; if wrapper transport is unhealthy, switch to direct SSH on a real remote `tertiary` git clone for the proof run.
 
 ## Direct Development On The Active Dev Machine
 
@@ -68,10 +68,10 @@ cp scripts/remote_studio_profiles.example.sh scripts/remote_studio_profiles.loca
 bash scripts/run_studio_harness_remote.sh --remote-profile tertiary -- --no-play --edit-tests
 ```
 
-If the wrapper is unstable on the current workstation, run the harness directly on the remote clone over SSH instead and record that lane in the status file:
+If the wrapper is unstable on the current workstation, run the harness directly on a git-backed remote clone over SSH instead and record that lane in the status file:
 
 ```bash
-# Replace /path/to/arnis-roblox with the staged clone path on the remote host.
+# Replace /path/to/arnis-roblox with the real git-backed proof clone path on the remote host.
 ssh tertiary 'cd "/path/to/arnis-roblox" && bash scripts/run_studio_harness.sh --no-play --edit-tests'
 ```
 
@@ -84,5 +84,6 @@ ssh tertiary 'cd "/path/to/arnis-roblox" && bash scripts/run_studio_harness.sh -
 - Because remote stage sync intentionally excludes ignored generated outputs, a staged remote clone may not have compiled manifest summaries such as `rust/out/*.scene-index.json`; if a remote proof slice needs offline scene-audit regeneration after the Studio run, regenerate or seed that summary explicitly instead of assuming it is present.
 - Do not disable SSH host-key verification in committed scripts. Accept or rotate host keys out-of-band on each operator machine before using a new remote profile.
 - If a host has no local profile config, the wrapper should fail early with a clear configuration error instead of guessing.
+- If you use direct SSH proof instead of the wrapper, verify that the target path is an actual git clone on the intended branch before treating it as the proof surface; do not rely on loose copied working folders as if they were the canonical remote repo.
 - If a remote Studio lane is selected as the current proof surface, verify Studio launch and MCP/helper readiness there first; do not assume a configured `tertiary` profile is automatically green beyond the specific proof slices already verified.
 - Current `tertiary` proof state is intentionally tracked only in the rolling status file above.
