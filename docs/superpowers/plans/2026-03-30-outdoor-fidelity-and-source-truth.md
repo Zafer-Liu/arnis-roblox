@@ -38,7 +38,6 @@ This is the active implementation surface for the March 30 outdoor fidelity and 
 - Modify: `scripts/tests/test_austin_fidelity.py`
 - Modify: `rust/crates/arbx_cli/src/main.rs`
 - Modify: `rust/crates/arbx_pipeline/`
-- Modify: `rust/crates/arbx_roblox_export/`
 
 ### Scene Fidelity / Telemetry / Harness
 
@@ -140,6 +139,15 @@ git commit -m "docs: roll active outdoor fidelity stack forward"
 ## Task 2: Add The Bounded Outdoor Truth-Pack
 
 Status note: On 2026-04-01, Task 2 was narrowed to the smallest honest slice the current pipeline can support. The first implementation only needs to support `arbx_cli compile` for `OverpassAdapter` / `LiveOverpassAdapter`, with real cross-source truth focused on Overpass-derived retained features plus Overture building candidates and Overture-to-OSM collapse rows. `FileSourceAdapter` remains out of scope until the pipeline preserves raw upstream lineage there.
+
+Status note: On 2026-04-01, the first Task 2 implementation landed and passed local-safe verification, but spec review found two corrections that are now part of the active contract:
+- Overture collapse rows must only target overlapping OSM buildings, not previously retained Overture buildings.
+- The active file map must keep truth-pack ownership out of `arbx_roblox_export`.
+
+Verification after the review correction:
+- `cargo test --manifest-path rust/Cargo.toml -p arbx_pipeline overture_gap_fill_does_not_collapse_against_previously_retained_overture`
+- `python3 -m unittest scripts.tests.test_source_truth_pack -v`
+- `git diff --check`
 
 **Files:**
 - Create: `scripts/source_truth_pack.py`

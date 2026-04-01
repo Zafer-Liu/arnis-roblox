@@ -2046,14 +2046,18 @@ fn merge_overture_gap_fill_with_decisions(
 
     for feature in overture_features {
         if let Feature::Building(candidate) = &feature {
-            let overlapping: Vec<&BuildingFeature> = canonical_buildings
+            let overlapping_osm: Vec<&BuildingFeature> = canonical_buildings
                 .iter()
-                .filter(|existing| buildings_substantially_overlap(existing, candidate))
+                .filter(|existing| {
+                    source_name_for_building_id(&existing.id) == "osm"
+                        && buildings_substantially_overlap(existing, candidate)
+                })
                 .collect();
-            if !overlapping.is_empty()
-                && !should_preserve_named_overture_parent(&overlapping, candidate)
+            if !overlapping_osm.is_empty()
+                && !should_preserve_named_overture_parent(&overlapping_osm, candidate)
             {
-                let retained_feature_id = overlapping.first().map(|building| building.id.clone());
+                let retained_feature_id =
+                    overlapping_osm.first().map(|building| building.id.clone());
                 let matched_source = retained_feature_id
                     .as_deref()
                     .map(source_name_for_building_id)
@@ -3620,6 +3624,78 @@ mod tests {
             building_ids.contains(&"ov_capitol_parent"),
             "named parent building should survive even when anonymous contained parts already exist"
         );
+    }
+
+    #[test]
+    fn overture_gap_fill_does_not_collapse_against_previously_retained_overture() {
+        let first_overture = Feature::Building(BuildingFeature {
+            id: "ov_first".to_string(),
+            footprint: Footprint::new(vec![
+                Vec2::new(0.0, 0.0),
+                Vec2::new(60.0, 0.0),
+                Vec2::new(60.0, 40.0),
+                Vec2::new(0.0, 40.0),
+            ]),
+            holes: vec![],
+            indices: None,
+            base_y: 0.0,
+            height: 24.0,
+            height_m: Some(7.5),
+            levels: Some(2),
+            roof_levels: None,
+            min_height: None,
+            usage: Some("office".to_string()),
+            roof: "flat".to_string(),
+            colour: None,
+            material_tag: None,
+            roof_colour: None,
+            roof_material: None,
+            roof_height: None,
+            name: Some("First Overture".to_string()),
+        });
+
+        let second_overture = Feature::Building(BuildingFeature {
+            id: "ov_second".to_string(),
+            footprint: Footprint::new(vec![
+                Vec2::new(1.0, 1.0),
+                Vec2::new(59.0, 1.0),
+                Vec2::new(59.0, 39.0),
+                Vec2::new(1.0, 39.0),
+            ]),
+            holes: vec![],
+            indices: None,
+            base_y: 0.0,
+            height: 23.0,
+            height_m: Some(7.0),
+            levels: Some(2),
+            roof_levels: None,
+            min_height: None,
+            usage: Some("office".to_string()),
+            roof: "flat".to_string(),
+            colour: None,
+            material_tag: None,
+            roof_colour: None,
+            roof_material: None,
+            roof_height: None,
+            name: Some("Second Overture".to_string()),
+        });
+
+        let mut features = vec![first_overture];
+        let decisions = merge_overture_gap_fill_with_decisions(&mut features, vec![second_overture]);
+
+        let building_ids: Vec<&str> = features
+            .iter()
+            .filter_map(|feature| match feature {
+                Feature::Building(building) => Some(building.id.as_str()),
+                _ => None,
+            })
+            .collect();
+
+        assert_eq!(building_ids, vec!["ov_first", "ov_second"]);
+        assert_eq!(decisions.len(), 1);
+        assert!(decisions[0].retained);
+        assert_eq!(decisions[0].matched_source, None);
+        assert_eq!(decisions[0].retained_feature_id.as_deref(), Some("ov_second"));
     }
 
     #[test]

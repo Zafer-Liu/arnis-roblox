@@ -56,3 +56,13 @@ No verification recorded yet.
   - Overture building candidates
   - Overture-to-OSM collapse rows
 - `FileSourceAdapter`, synthetic adapters, and post-canonical export-only seams remain out of scope for this first truth-pack slice until raw lineage is preserved there.
+
+### 2026-04-01: Task 2 Review Fix Locked Collapse Rows Back To Overture-To-OSM
+
+- Spec review found one real seam bug and one doc-drift bug in the first Task 2 landing.
+- The merge seam now only records collapse rows against overlapping OSM buildings, so the truth-pack no longer emits `overture->overture` collapse rows.
+- The active plan file map no longer lists `rust/crates/arbx_roblox_export/` under truth-pack ownership.
+- Local-safe verification after the fix passed:
+  - `cargo test --manifest-path rust/Cargo.toml -p arbx_pipeline overture_gap_fill_does_not_collapse_against_previously_retained_overture`
+  - `python3 -m unittest scripts.tests.test_source_truth_pack -v`
+  - `git diff --check`
