@@ -5,15 +5,15 @@ Status: Completed
 
 This tranche is complete and now historical as the baseline handoff for March 28.
 
-The active fidelity/observability stack is:
+The later outdoor fidelity and source-truth stack is:
 
-- `docs/superpowers/specs/2026-03-28-play-fidelity-and-observability-design.md`
-- `docs/superpowers/plans/2026-03-28-play-fidelity-and-observability.md`
-- `docs/superpowers/status/2026-03-28-play-fidelity-and-observability-status.md`
+- `docs/superpowers/specs/2026-03-30-outdoor-fidelity-and-source-truth-design.md`
+- `docs/superpowers/plans/2026-03-30-outdoor-fidelity-and-source-truth.md`
+- `docs/superpowers/status/2026-03-30-outdoor-fidelity-and-source-truth-status.md`
 
 ## Purpose
 
-This file preserves the completed status trail for the canonical baseline tranche. Do not use it for current execution or current handoff.
+This file preserves the completed status trail for the canonical baseline tranche. Do not use it for later execution or handoff.
 
 The paired historical implementation plan for this tranche is:
 
@@ -30,7 +30,7 @@ The paired historical design spec for this tranche is:
 - Live bootstrap now uses the canonical bootstrap-state owner and publishes canonical attempt/state-trace telemetry.
 - Canonical world-root publication is owned by `WorldStateApplier`; minimap only mirrors the active root for UI consumers.
 - Preview-vs-play parity coverage now includes normalized source-identity and minimap-basis metadata, and the corrected split-lane raw-log proof on `tertiary` is green for the aligned `1500`-radius preview baseline (`21/21`).
-- March 26 convergence plans are historical context only and are no longer the active execution source of truth.
+- March 26 convergence plans are historical context only and are no longer execution source of truth.
 
 ## Verification Snapshot
 
@@ -110,7 +110,7 @@ The paired historical design spec for this tranche is:
 
 ### 2026-03-28: Docs Baseline Consolidation
 
-- Added this rolling status trail as the active handoff file for the tranche.
+- Added this rolling status trail as the handoff file for the tranche.
 - Marked the March 26 convergence plans as historical context.
 - Updated remote Studio docs so profile aliases remain generic and `tertiary` is documented only as the local default for this workstation.
 - Verification:

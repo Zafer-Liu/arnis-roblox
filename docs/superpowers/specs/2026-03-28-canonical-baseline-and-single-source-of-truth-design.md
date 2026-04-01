@@ -5,16 +5,16 @@ Status: Completed
 
 This design is now historical as the completed March 28 baseline tranche.
 
-The active follow-on design is:
+The later outdoor fidelity and source-truth design is:
 
-- `docs/superpowers/specs/2026-03-28-play-fidelity-and-observability-design.md`
+- `docs/superpowers/specs/2026-03-30-outdoor-fidelity-and-source-truth-design.md`
 
 This is the completed design spec for the canonical-baseline tranche.
-For current execution and handoff, use the active play-fidelity stack instead:
+For later execution and handoff, use the March 30 outdoor fidelity stack instead:
 
-- `docs/superpowers/specs/2026-03-28-play-fidelity-and-observability-design.md`
-- `docs/superpowers/plans/2026-03-28-play-fidelity-and-observability.md`
-- `docs/superpowers/status/2026-03-28-play-fidelity-and-observability-status.md`
+- `docs/superpowers/specs/2026-03-30-outdoor-fidelity-and-source-truth-design.md`
+- `docs/superpowers/plans/2026-03-30-outdoor-fidelity-and-source-truth.md`
+- `docs/superpowers/status/2026-03-30-outdoor-fidelity-and-source-truth-status.md`
 
 ## Goal
 

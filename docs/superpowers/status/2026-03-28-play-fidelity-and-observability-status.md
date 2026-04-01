@@ -117,11 +117,10 @@ The archived design spec for this tranche is:
 ## Residual Gaps
 
 - Terrain fidelity still needs dedicated work; explicit material collapse is fixed, but the current observed issue set still includes inherent 4-stud write-grid boxiness and broader detail questions that this tranche has not yet resolved.
-- Terrain observability is better, and runtime/player-local terrain roughness is now emitted locally, but the current remote play-log artifact still drops that nested `localTerrain` block under long-line truncation and still lacks runtime voxel-material coverage from play.
+- Terrain observability is better, and runtime/player-local terrain roughness is now emitted locally, but runtime voxel-material coverage from play is still missing.
 - Interior work still needs a dedicated follow-up pass; shell terrain fill and top-floor ceiling overshoot are fixed, but richer traversal/interior detail and any remaining multi-level ceiling/roof edge cases are still open.
 - Preview/edit hotspot export is better, but still incomplete; the last slow chunk is now structured, yet it is not joined into scene parity/fidelity outputs or chunk-level hotspot comparison reports yet.
-- Player-local observability is stronger, but still incomplete; the audit now surfaces local support/enclosure/roof-cover signals, yet it still lacks local terrain roughness/step metrics and explicit interior-presence quantification.
-- Player-local observability is stronger, but still incomplete; the audit now surfaces local support/enclosure/roof-cover plus nested `localTerrain` signals, yet it still lacks reliable remote artifact capture for that terrain block and still lacks explicit interior-presence quantification.
+- Player-local observability is stronger, but still incomplete; the audit now surfaces local support/enclosure/roof-cover plus nested `localTerrain` signals, yet it still lacks explicit interior-presence quantification.
 - Remote screenshot capture on `tertiary` is still best-effort only.
 
 ## Status Notes
