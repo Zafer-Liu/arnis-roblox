@@ -1033,9 +1033,11 @@ preview_source_looks_heavy() {
   return 1
 }
 
-if [[ "$ALLOW_HEAVY_PREVIEW_SOURCE" != "1" ]] && preview_source_looks_heavy; then
-  echo "[harness] preview source appears to be insane/yolo-grade terrain data; regenerate lighter Austin preview assets or rerun with HARNESS_ALLOW_HEAVY_PREVIEW_SOURCE=1" >&2
-  exit 1
+if [[ "$ALLOW_HEAVY_PREVIEW_SOURCE" != "1" ]]; then
+  if preview_source_looks_heavy; then
+    echo "[harness] preview source appears to be insane/yolo-grade terrain data; regenerate lighter Austin preview assets or rerun with HARNESS_ALLOW_HEAVY_PREVIEW_SOURCE=1" >&2
+    exit 1
+  fi
 fi
 
 sample_harness_memory_json() {
@@ -1679,6 +1681,19 @@ should_start_live_vsync_server() {
     return 1
   fi
   return 0
+}
+
+should_require_vsync_plugin() {
+  if [[ $DO_PLAY -ne 1 ]]; then
+    return 0
+  fi
+  if [[ $RUNALL_EDIT_ENABLED -ne 0 ]]; then
+    return 0
+  fi
+  if [[ -n "$RUNALL_SPEC_FILTER" ]]; then
+    return 0
+  fi
+  return 1
 }
 
 quit_studio() {
@@ -4196,7 +4211,11 @@ run_plugin_smoke_check() {
 }
 
 enable_runall_entry
-ensure_vsync_plugin_installed
+if should_require_vsync_plugin; then
+  ensure_vsync_plugin_installed
+else
+  log "skipping Vertigo Sync plugin install for play-focused harness run"
+fi
 ensure_mcp_plugin_installed || {
   echo "[harness] failed to install/update the Roblox Studio MCP plugin" >&2
   exit 1

@@ -507,6 +507,15 @@ class RunStudioHarnessTests(unittest.TestCase):
         self.assertNotIn("ensure_vsync_plugin_installed || true", self.text)
         self.assertIn("ensure_mcp_plugin_installed()", self.text)
         self.assertNotIn("ensure_mcp_plugin_installed || true", self.text)
+        self.assertIn("if should_require_vsync_plugin; then", self.text)
+        self.assertIn('log "skipping Vertigo Sync plugin install for play-focused harness run"', self.text)
+
+    def test_play_focused_runs_do_not_require_vsync_plugin_install(self) -> None:
+        self.assertIn("should_require_vsync_plugin()", self.text)
+        self.assertIn("if [[ $RUNALL_EDIT_ENABLED -ne 0 ]]; then", self.text)
+        self.assertIn("if [[ $DO_PLAY -ne 1 ]]; then", self.text)
+        self.assertIn('if should_require_vsync_plugin; then', self.text)
+        self.assertIn('log "skipping Vertigo Sync plugin install for play-focused harness run"', self.text)
 
     def test_vsync_repo_ownership_survives_prebuilt_binary_override(self) -> None:
         self.assertIn('if [[ -f "$VSYNC_REPO_DIR/Cargo.toml" ]] && command -v cargo >/dev/null 2>&1; then', self.text)
@@ -1065,7 +1074,9 @@ class RunStudioHarnessTests(unittest.TestCase):
     def test_harness_fails_fast_on_heavy_preview_source_unless_explicitly_allowed(self) -> None:
         self.assertIn("preview_source_looks_heavy()", self.text)
         self.assertIn('HARNESS_ALLOW_HEAVY_PREVIEW_SOURCE=1', self.text)
-        self.assertIn('if [[ "$ALLOW_HEAVY_PREVIEW_SOURCE" != "1" ]] && preview_source_looks_heavy; then', self.text)
+        self.assertIn('if [[ "$ALLOW_HEAVY_PREVIEW_SOURCE" != "1" ]]; then', self.text)
+        self.assertIn('if preview_source_looks_heavy; then', self.text)
+        self.assertNotIn('if [[ "$ALLOW_HEAVY_PREVIEW_SOURCE" != "1" ]] && preview_source_looks_heavy; then', self.text)
         self.assertIn('preview source appears to be insane/yolo-grade terrain data', self.text)
 
     def test_play_probe_captures_bootstrap_attempt_identity_and_trace(self) -> None:
