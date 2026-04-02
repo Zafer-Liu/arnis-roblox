@@ -45,6 +45,7 @@ class AustinFidelityScriptTests(unittest.TestCase):
         self.assertIn("satellite opt-in only", text)
         self.assertIn('DEFAULT_FIDELITY_ARGS=("--terrain-cell-size" "2")', text)
         self.assertIn('emit_targets="all"', text)
+        self.assertIn('RUNTIME_SHARD_MAX_BYTES="${AUSTIN_RUNTIME_SHARD_MAX_BYTES:-199998}"', text)
         self.assertIn('"--emit")', text)
         self.assertIn('echo "[export_austin_to_lua] Emit targets: runtime=$emit_runtime preview=$emit_preview harness=$emit_harness verify=$emit_verify"', text)
         self.assertIn('if [[ $emit_preview -eq 1 || $emit_harness -eq 1 || $emit_verify -eq 1 ]]; then', text)
@@ -56,6 +57,7 @@ class AustinFidelityScriptTests(unittest.TestCase):
             text,
         )
         self.assertIn('if [[ $emit_runtime -eq 1 ]]; then', text)
+        self.assertIn('--max-bytes "$RUNTIME_SHARD_MAX_BYTES"', text)
         self.assertIn('if [[ $emit_preview -eq 1 ]]; then', text)
         self.assertIn('if [[ $emit_harness -eq 1 ]]; then', text)
         self.assertIn('if [[ $emit_verify -eq 1 ]]; then', text)

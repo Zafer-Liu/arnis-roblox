@@ -18,9 +18,8 @@ import subprocess
 from pathlib import Path
 from typing import Any
 
+from chunk_fragmentation import fragment_chunk_for_lua_shards
 from json_manifest_to_sharded_lua import (
-    CHUNK_LIST_FIELDS,
-    INDEX_ONLY_FIELDS,
     _require_current_schema_version,
     lua_len,
     write_lua_module,
@@ -929,123 +928,13 @@ def write_preview_style_shards(
     return shard_names
 
 
-def base_preview_chunk_fragment(chunk: dict) -> dict:
-    fragment: dict = {"id": chunk["id"]}
-    for key, value in chunk.items():
-        if key == "id":
-            continue
-        if key in INDEX_ONLY_FIELDS:
-            continue
-        if key in CHUNK_LIST_FIELDS and isinstance(value, list):
-            continue
-        if key == "terrain" and isinstance(value, dict):
-            terrain_fragment = {
-                nested_key: nested_value
-                for nested_key, nested_value in value.items()
-                if nested_key not in {"heights", "materials"}
-            }
-            if terrain_fragment:
-                fragment[key] = terrain_fragment
-            continue
-        fragment[key] = value
-    return fragment
-
-
-def chunk_fragment_len(fragment: dict) -> int:
-    return lua_len({"chunks": [fragment]})
-
-
-def fragment_list_payloads(
-    chunk_id: str,
-    values: list[Any],
-    max_bytes: int,
-    field_label: str,
-    fragment_builder,
-) -> list[dict]:
-    fragments: list[dict] = []
-
-    start = 0
-    while start < len(values):
-        low = start + 1
-        high = len(values)
-        best_end = start
-
-        while low <= high:
-            mid = (low + high) // 2
-            if chunk_fragment_len(fragment_builder(values[start:mid])) <= max_bytes:
-                best_end = mid
-                low = mid + 1
-            else:
-                high = mid - 1
-
-        if best_end == start:
-            raise SystemExit(f"preview chunk {chunk_id} {field_label} contains an entry larger than max bytes {max_bytes}")
-
-        fragments.append(fragment_builder(values[start:best_end]))
-        start = best_end
-
-    return fragments
-
-
 def fragment_preview_chunk(chunk: dict, max_bytes: int) -> list[dict]:
-    fragments: list[dict] = []
-
-    base_fragment = base_preview_chunk_fragment(chunk)
-    if chunk_fragment_len(base_fragment) > max_bytes:
-        raise SystemExit(f"preview chunk {chunk.get('id')} base metadata exceeds max bytes {max_bytes}")
-    fragments.append(base_fragment)
-
-    terrain = chunk.get("terrain")
-    if isinstance(terrain, dict):
-        for terrain_key in ("heights", "materials"):
-            terrain_value = terrain.get(terrain_key)
-            if terrain_value is None:
-                continue
-            if isinstance(terrain_value, list):
-                fragments.extend(
-                    fragment_list_payloads(
-                        chunk["id"],
-                        terrain_value,
-                        max_bytes,
-                        f"terrain field {terrain_key}",
-                        lambda items: {
-                            "id": chunk["id"],
-                            "terrain": {
-                                terrain_key: list(items),
-                            },
-                        },
-                    )
-                )
-                continue
-
-            fragment = {
-                "id": chunk["id"],
-                "terrain": {
-                    terrain_key: terrain_value,
-                },
-            }
-            if chunk_fragment_len(fragment) > max_bytes:
-                raise SystemExit(
-                    f"preview chunk {chunk.get('id')} terrain field {terrain_key} exceeds max bytes {max_bytes}"
-                )
-            fragments.append(fragment)
-
-    for field in CHUNK_LIST_FIELDS:
-        values = chunk.get(field)
-        if not isinstance(values, list) or not values:
-            continue
-
-        fragments.extend(
-            fragment_list_payloads(
-                chunk["id"],
-                values,
-                max_bytes,
-                f"field {field}",
-                lambda items: {"id": chunk["id"], field: list(items)},
-            )
-        )
-
-    return fragments
+    return fragment_chunk_for_lua_shards(
+        chunk,
+        max_bytes,
+        lua_len_fn=lambda payload: lua_len(payload),
+        chunk_label="preview chunk",
+    )
 
 
 def main() -> int:

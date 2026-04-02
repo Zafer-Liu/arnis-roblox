@@ -123,6 +123,11 @@ The compact historical archive index is:
   - `--emit runtime,preview`
   - default remains `all`
 - This keeps the canonical compile path and scene truth unchanged while letting proof/deploy loops skip unneeded derivative refreshes, which is a direct step toward chunked, demand-driven planetary workflows instead of always materializing every downstream family.
+- Extended the same no-regression shard-bounding work into canonical runtime emission:
+  - extracted the preview/harness fragment contract into `scripts/chunk_fragmentation.py`
+  - `scripts/json_manifest_to_sharded_lua.py` now fragments canonical runtime chunks under `--max-bytes` using the same terrain/list-field splitting semantics preview and harness already rely on
+  - `scripts/export_austin_to_lua.sh` now passes `--max-bytes "$AUSTIN_RUNTIME_SHARD_MAX_BYTES"` for runtime shard generation, defaulting to the same bounded Lua-module budget used by the preview path
+- This is the next real streaming/DX primitive after SQLite-first compile: canonical runtime output no longer has to stay at whole-chunk shard granularity when a bounded byte-cap is requested.
 - Local-safe verification for the wrapper slice passed:
   - `python3 -m unittest scripts.tests.test_austin_fidelity -v`
   - `bash -n scripts/export_austin_to_lua.sh`

@@ -33,6 +33,7 @@ DATA_DIR="$RUST_DIR/data"
 OUT_DIR="$RUST_DIR/out"
 SAMPLE_DATA_DIR="$ROOT_DIR/roblox/src/ServerStorage/SampleData"
 PREVIEW_DIR="$ROOT_DIR/roblox/src/ServerScriptService/StudioPreview"
+RUNTIME_SHARD_MAX_BYTES="${AUSTIN_RUNTIME_SHARD_MAX_BYTES:-199998}"
 
 mkdir -p "$DATA_DIR" "$OUT_DIR" "$SAMPLE_DATA_DIR" "$PREVIEW_DIR"
 
@@ -150,7 +151,8 @@ if [[ $emit_runtime -eq 1 ]]; then
     --output-dir "$SAMPLE_DATA_DIR" \
     --index-name "AustinManifestIndex" \
     --shard-folder "AustinManifestChunks" \
-    --chunks-per-shard 1
+    --chunks-per-shard 1 \
+    --max-bytes "$RUNTIME_SHARD_MAX_BYTES"
 fi
 
 if [[ $emit_preview -eq 1 ]]; then

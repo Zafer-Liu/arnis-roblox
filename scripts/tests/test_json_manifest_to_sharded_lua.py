@@ -132,6 +132,80 @@ class JsonManifestToShardedLuaTests(unittest.TestCase):
             self.assertIn("featureCount=13", index_text)
             self.assertIn("streamingCost=62", index_text)
 
+    def test_runtime_shards_fragment_large_chunk_payloads_under_byte_cap(self) -> None:
+        manifest = {
+            "schemaVersion": "0.4.0",
+            "meta": {
+                "worldName": "RuntimeFragmentationTest",
+                "generator": "test",
+                "source": "test",
+                "metersPerStud": 0.3,
+                "chunkSizeStuds": 256,
+                "bbox": {"minLat": 0, "minLon": 0, "maxLat": 1, "maxLon": 1},
+            },
+            "chunks": [
+                {
+                    "id": "0_0",
+                    "originStuds": {"x": 0, "y": 0, "z": 0},
+                    "terrain": {
+                        "cellSizeStuds": 2,
+                        "width": 64,
+                        "depth": 64,
+                        "heights": list(range(512)),
+                        "materials": ["Grass"] * 512,
+                    },
+                    "roads": [{"kind": "residential", "points": [{"x": float(i), "y": 0.0, "z": 0.0}]} for i in range(8)],
+                }
+            ],
+        }
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            temp_root = Path(temp_dir)
+            manifest_path = temp_root / "manifest.json"
+            out_dir = temp_root / "out"
+            manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
+
+            subprocess.run(
+                [
+                    "python3",
+                    str(SCRIPT),
+                    "--json",
+                    str(manifest_path),
+                    "--output-dir",
+                    str(out_dir),
+                    "--index-name",
+                    "TestManifestIndex",
+                    "--shard-folder",
+                    "TestManifestChunks",
+                    "--chunks-per-shard",
+                    "1",
+                    "--max-bytes",
+                    "1200",
+                ],
+                check=True,
+                cwd=ROOT,
+            )
+
+            index_text = (out_dir / "TestManifestIndex.lua").read_text(encoding="utf-8")
+            shard_dir = out_dir / "TestManifestChunks"
+            shard_texts = [path.read_text(encoding="utf-8") for path in sorted(shard_dir.glob("*.lua"))]
+
+            self.assertIn("fragmentCount=", index_text)
+            self.assertIn('shards={"TestManifestIndex_001","TestManifestIndex_002"', index_text)
+            self.assertGreater(len(shard_texts), 2)
+            self.assertTrue(
+                any('terrain={cellSizeStuds=2,width=64,depth=64}' in text for text in shard_texts),
+                f"expected base terrain metadata fragment, got {shard_texts}",
+            )
+            self.assertTrue(
+                any("terrain={heights={" in text for text in shard_texts),
+                f"expected terrain heights fragment, got {shard_texts}",
+            )
+            self.assertTrue(
+                any("terrain={materials={" in text for text in shard_texts),
+                f"expected terrain materials fragment, got {shard_texts}",
+            )
+
     def test_json_manifest_to_sharded_lua_rejects_non_current_sqlite_schema(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             temp_root = Path(temp_dir)

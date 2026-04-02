@@ -18,6 +18,11 @@ import sqlite3
 from pathlib import Path
 from typing import Any, TextIO
 
+from chunk_fragmentation import (
+    INDEX_ONLY_FIELDS,
+    fragment_chunk_for_lua_shards,
+)
+
 CURRENT_SCHEMA_VERSION = "0.4.0"
 
 
@@ -85,77 +90,17 @@ def clear_existing_shards(shard_dir: Path, index_name: str) -> None:
     for existing in shard_dir.glob(pattern):
         existing.unlink()
 
-
-CHUNK_LIST_FIELDS = [
-    "roads",
-    "rails",
-    "buildings",
-    "water",
-    "props",
-    "landuse",
-    "barriers",
-    "rooms",
-]
-INDEX_ONLY_FIELDS = {
-    "partitionVersion",
-    "subplans",
-}
-
-
-def empty_chunk_fragment(chunk: dict[str, Any]) -> dict[str, Any]:
-    fragment = {}
-    for key, value in chunk.items():
-        if key in INDEX_ONLY_FIELDS:
-            continue
-        if key in CHUNK_LIST_FIELDS and isinstance(value, list):
-            fragment[key] = []
-        else:
-            fragment[key] = value
-    return fragment
-
-
 def strip_index_only_fields(chunk: dict[str, Any]) -> dict[str, Any]:
     return {key: value for key, value in chunk.items() if key not in INDEX_ONLY_FIELDS}
 
 
 def fragment_chunk(chunk: dict[str, Any], max_bytes: int | None) -> list[dict[str, Any]]:
-    if max_bytes is None:
-        return [strip_index_only_fields(chunk)]
-
-    base = empty_chunk_fragment(chunk)
-    if lua_len({"chunks": [base]}) > max_bytes:
-        raise SystemExit(f"chunk {chunk.get('id')} base metadata exceeds max bytes {max_bytes}")
-
-    fragments: list[dict[str, Any]] = []
-    current = empty_chunk_fragment(chunk)
-
-    for field in CHUNK_LIST_FIELDS:
-        values = chunk.get(field)
-        if not isinstance(values, list) or not values:
-            continue
-
-        for item in values:
-            current[field].append(item)
-            if lua_len({"chunks": [current]}) <= max_bytes:
-                continue
-
-            current[field].pop()
-            if any(isinstance(current.get(k), list) and current[k] for k in CHUNK_LIST_FIELDS):
-                fragments.append(current)
-                current = empty_chunk_fragment(chunk)
-
-            current[field].append(item)
-            if lua_len({"chunks": [current]}) > max_bytes:
-                raise SystemExit(
-                    f"chunk {chunk.get('id')} field {field} contains an entry larger than max bytes {max_bytes}"
-                )
-
-    if any(isinstance(current.get(k), list) and current[k] for k in CHUNK_LIST_FIELDS):
-        fragments.append(current)
-    elif not fragments:
-        fragments.append(current)
-
-    return fragments
+    return fragment_chunk_for_lua_shards(
+        strip_index_only_fields(chunk),
+        max_bytes,
+        lua_len_fn=lua_len,
+        chunk_label="runtime chunk",
+    )
 
 
 def chunk_feature_count(chunk: dict[str, Any]) -> int:
