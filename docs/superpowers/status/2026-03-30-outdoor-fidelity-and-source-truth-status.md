@@ -734,3 +734,21 @@ The compact historical archive index is:
   - local-safe: `python3 -m unittest scripts.tests.test_play_render_truth scripts.tests.test_preview_telemetry_summary scripts.tests.test_convergence_guardrails -v`
   - local-safe: `git diff --check`
   - remote `tertiary`: focused edit proof for `SimpleResidentialShell.spec.lua`
+
+### 2026-04-02: Truth-Pack Now Records Retained-Original Road Semantics
+
+- The next no-trampling outdoor audit tranche stayed in the producer, not the manifest schema:
+  - `arbx_pipeline` now emits retained-original semantic lineage for retained road features
+  - the road lineage fields intentionally mirror the existing retained road semantic surface: `lanes`, `surface`, `sidewalk`, `maxspeed`, `lit`, `oneway`, `layer`, `bridge`, and `tunnel`
+  - source attribution is explicit and bounded: retained road lineage currently records `overpass` as the source surface for these semantics
+- The value of this slice is observability, not cosmetic metric inflation:
+  - structure lineage was already explicit, but retained roads still looked like canonical facts with no upstream provenance trail
+  - this closes that blind spot for the most immediately valuable non-structure outdoor family without widening the schema or inventing a second audit path
+  - the existing Python truth-pack helper now proves the retained-original road lineage is readable from the sqlite artifact without needing Studio
+- Current interpretation after the change:
+  - roads are now a first-class truth-pack lineage family instead of a retained-semantics-only family
+  - merge/conflict-heavy road lineage is still future work; this slice only proves retained-original provenance survives into the truth-pack
+  - the next outdoor no-trampling tranche can build on this producer seam instead of starting from zero
+- Verification for this slice:
+  - local-safe: `cargo test --manifest-path rust/Cargo.toml -p arbx_pipeline overpass_truth_pack_records_retained_original_road_lineage -- --nocapture`
+  - local-safe: `python3 -m unittest scripts.tests.test_source_truth_pack.SourceTruthPackHelperTests -v`

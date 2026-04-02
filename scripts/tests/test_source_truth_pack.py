@@ -81,6 +81,7 @@ def build_fixture_truth_pack(db_path: Path) -> None:
         [
             ("osm_10", "building", "osm_10", 1),
             ("ov_fixture_1", "building", "osm_10", 0),
+            ("road_701", "road", "road_701", 1),
         ],
     )
     connection.executemany(
@@ -97,6 +98,7 @@ def build_fixture_truth_pack(db_path: Path) -> None:
             ("osm_10", "osm", "10", "building"),
             ("osm_10", "overpass", "10", "way"),
             ("ov_fixture_1", "overture", "fixture-1", "building"),
+            ("road_701", "overpass", "701", "roads"),
         ],
     )
     connection.executemany(
@@ -105,6 +107,9 @@ def build_fixture_truth_pack(db_path: Path) -> None:
             ("osm_10", "usage", "school"),
             ("osm_10", "name", "Fixture Hall"),
             ("osm_10", "height_m", "12.5"),
+            ("road_701", "surface", "asphalt"),
+            ("road_701", "sidewalk", "both"),
+            ("road_701", "maxspeed", "30"),
         ],
     )
     connection.executemany(
@@ -125,6 +130,9 @@ def build_fixture_truth_pack(db_path: Path) -> None:
                 "ov_fixture_1",
                 "conflict_lost_to_retained_feature",
             ),
+            ("road_701", "surface", "asphalt", "overpass", "road_701", "retained_original"),
+            ("road_701", "sidewalk", "both", "overpass", "road_701", "retained_original"),
+            ("road_701", "maxspeed", "30", "overpass", "road_701", "retained_original"),
         ],
     )
     connection.execute(
@@ -193,6 +201,42 @@ class SourceTruthPackHelperTests(unittest.TestCase):
                 ],
             )
             self.assertEqual(feature["collapses"], [])
+
+    def test_helper_reads_retained_original_road_lineage(self) -> None:
+        module = load_module()
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            db_path = root / "fixture.truth-pack.sqlite"
+            summary_path = root / "fixture.truth-pack.summary.json"
+            build_fixture_truth_pack(db_path)
+            summary_path.write_text(
+                json.dumps({"scene": "fixture", "feature_count": 3}),
+                encoding="utf-8",
+            )
+
+            feature = module.load_feature(db_path, "road_701")
+
+            self.assertEqual(feature["feature"]["feature_kind"], "road")
+            self.assertEqual(
+                [row["source_name"] for row in feature["sources"]],
+                ["overpass"],
+            )
+            self.assertEqual(
+                [row["field_name"] for row in feature["retained_semantics"]],
+                ["maxspeed", "sidewalk", "surface"],
+            )
+            self.assertEqual(
+                [
+                    (row["field_name"], row["field_value"], row["source_name"], row["resolution"])
+                    for row in feature["semantic_lineage"]
+                ],
+                [
+                    ("maxspeed", "30", "overpass", "retained_original"),
+                    ("sidewalk", "both", "overpass", "retained_original"),
+                    ("surface", "asphalt", "overpass", "retained_original"),
+                ],
+            )
 
 
 class SourceTruthPackCompileTests(unittest.TestCase):

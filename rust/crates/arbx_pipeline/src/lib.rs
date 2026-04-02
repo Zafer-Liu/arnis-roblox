@@ -984,6 +984,91 @@ fn collect_retained_building_lineage(building: &BuildingFeature, rows: &mut Vec<
     );
 }
 
+fn collect_retained_road_lineage(road: &RoadFeature, rows: &mut Vec<TruthPackSemanticLineage>) {
+    let source_name = "overpass";
+    push_semantic_lineage(
+        rows,
+        &road.id,
+        &road.id,
+        source_name,
+        "lanes",
+        road.lanes.map(|value| value.to_string()),
+        "retained_original",
+    );
+    push_semantic_lineage(
+        rows,
+        &road.id,
+        &road.id,
+        source_name,
+        "surface",
+        road.surface.clone(),
+        "retained_original",
+    );
+    push_semantic_lineage(
+        rows,
+        &road.id,
+        &road.id,
+        source_name,
+        "sidewalk",
+        road.sidewalk.clone(),
+        "retained_original",
+    );
+    push_semantic_lineage(
+        rows,
+        &road.id,
+        &road.id,
+        source_name,
+        "maxspeed",
+        road.maxspeed.map(|value| value.to_string()),
+        "retained_original",
+    );
+    push_semantic_lineage(
+        rows,
+        &road.id,
+        &road.id,
+        source_name,
+        "lit",
+        road.lit.map(|value| value.to_string()),
+        "retained_original",
+    );
+    push_semantic_lineage(
+        rows,
+        &road.id,
+        &road.id,
+        source_name,
+        "oneway",
+        road.oneway.map(|value| value.to_string()),
+        "retained_original",
+    );
+    push_semantic_lineage(
+        rows,
+        &road.id,
+        &road.id,
+        source_name,
+        "layer",
+        road.layer.map(|value| value.to_string()),
+        "retained_original",
+    );
+    push_semantic_lineage(
+        rows,
+        &road.id,
+        &road.id,
+        source_name,
+        "bridge",
+        road.elevated.map(|value| value.to_string()),
+        "retained_original",
+    );
+    push_semantic_lineage(
+        rows,
+        &road.id,
+        &road.id,
+        source_name,
+        "tunnel",
+        road.tunnel.map(|value| value.to_string()),
+        "retained_original",
+    );
+}
+
 fn merge_overture_semantics_into_retained_building(
     retained: &mut BuildingFeature,
     candidate: &BuildingFeature,
@@ -1661,6 +1746,8 @@ impl OverpassAdapter {
         for feature in &features {
             if let Feature::Building(building) = feature {
                 collect_retained_building_lineage(building, &mut truth_pack.semantic_lineage);
+            } else if let Feature::Road(road) = feature {
+                collect_retained_road_lineage(road, &mut truth_pack.semantic_lineage);
             }
         }
 
@@ -3613,6 +3700,82 @@ mod tests {
                 max_z
             );
         }
+    }
+
+    #[test]
+    fn overpass_truth_pack_records_retained_original_road_lineage() {
+        use std::io::Write;
+
+        let json = serde_json::json!({
+            "elements": [
+                {"type": "node", "id": 1, "lat": 30.2500, "lon": -97.7500},
+                {"type": "node", "id": 2, "lat": 30.2500, "lon": -97.7480},
+                {
+                    "type": "way",
+                    "id": 701,
+                    "nodes": [1, 2],
+                    "tags": {
+                        "highway": "residential",
+                        "lanes": "2",
+                        "surface": "asphalt",
+                        "sidewalk": "both",
+                        "lit": "yes",
+                        "oneway": "yes",
+                        "maxspeed": "30",
+                        "layer": "1",
+                        "bridge": "yes"
+                    }
+                }
+            ]
+        });
+
+        let tmp_path = std::env::temp_dir().join("arbx_test_truth_pack_road_lineage.json");
+        let mut f = std::fs::File::create(&tmp_path).unwrap();
+        f.write_all(json.to_string().as_bytes()).unwrap();
+
+        let bbox = arbx_geo::BoundingBox::new(30.245, -97.765, 30.305, -97.715);
+        let adapter = OverpassAdapter {
+            path: tmp_path.clone(),
+            meters_per_stud: 1.0,
+        };
+
+        let (features, truth_pack) = adapter
+            .load_features_and_truth_pack(bbox)
+            .expect("truth-pack load should succeed");
+
+        let _ = std::fs::remove_file(&tmp_path);
+
+        let truth_pack = truth_pack.expect("expected truth-pack output");
+        let road = features
+            .iter()
+            .find_map(|feature| match feature {
+                Feature::Road(road) => Some(road),
+                _ => None,
+            })
+            .expect("expected retained road feature");
+
+        let lineage: Vec<_> = truth_pack
+            .semantic_lineage
+            .iter()
+            .filter(|row| row.retained_feature_id == road.id)
+            .map(|row| {
+                (
+                    row.field_name.as_str(),
+                    row.field_value.as_str(),
+                    row.source_name.as_str(),
+                    row.resolution.as_str(),
+                )
+            })
+            .collect();
+
+        assert!(lineage.contains(&("lanes", "2", "overpass", "retained_original")));
+        assert!(lineage.contains(&("surface", "asphalt", "overpass", "retained_original")));
+        assert!(lineage.contains(&("sidewalk", "both", "overpass", "retained_original")));
+        assert!(lineage.contains(&("maxspeed", "30", "overpass", "retained_original")));
+        assert!(lineage.contains(&("lit", "true", "overpass", "retained_original")));
+        assert!(lineage.contains(&("oneway", "true", "overpass", "retained_original")));
+        assert!(lineage.contains(&("layer", "1", "overpass", "retained_original")));
+        assert!(lineage.contains(&("bridge", "true", "overpass", "retained_original")));
     }
 
     #[test]
