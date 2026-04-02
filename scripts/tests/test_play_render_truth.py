@@ -185,6 +185,19 @@ class PlayRenderTruthTests(unittest.TestCase):
         self.assertIn("buildingShellDominantDetailPhase", preview_summary_source)
         self.assertIn("buildingShellDominantDetailMs", preview_summary_source)
 
+    def test_simple_shells_keep_bounded_corner_accents_for_vertical_readability(self) -> None:
+        source = BUILDING_BUILDER.read_text(encoding="utf-8")
+
+        self.assertIn('detailFolder:SetAttribute("ArnisCornerAccentCount", 0)', source)
+        self.assertIn("local function buildCornerAccents(parent, worldPts, baseY, height)", source)
+        self.assertIn("local function addCornerAccentsToAccumulator(acc, worldPts, baseY, height)", source)
+        self.assertIn('accent.Name = "CornerAccent"', source)
+        self.assertRegex(
+            source,
+            r"if\s+preferSimpleShellDetail\s+then[\s\S]*ArnisCornerAccentCount",
+            "expected bounded corner accents to be limited to the simple-shell detail path",
+        )
+
     def test_player_local_terrain_telemetry_carries_material_richness(self) -> None:
         world_probe_source = WORLD_PROBE.read_text(encoding="utf-8")
         terrain_probe_source = WORLD_PROBE_TERRAIN.read_text(encoding="utf-8")

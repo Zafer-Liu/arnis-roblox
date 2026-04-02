@@ -33,11 +33,27 @@ PREVIEW_DIR="$ROOT_DIR/roblox/src/ServerScriptService/StudioPreview"
 
 mkdir -p "$DATA_DIR" "$OUT_DIR" "$SAMPLE_DATA_DIR" "$PREVIEW_DIR"
 
+DEFAULT_FIDELITY_ARGS=()
+explicit_fidelity=0
+for arg in "$@"; do
+  case "$arg" in
+    "--profile"|"--yolo"|"--terrain-cell-size"|"--satellite")
+      explicit_fidelity=1
+      ;;
+  esac
+done
+
+if [[ $explicit_fidelity -eq 0 ]]; then
+  DEFAULT_FIDELITY_ARGS=("--profile" "high" "--satellite")
+  echo "[export_austin_to_lua] Fetching OSM + exporting manifest with the default shared Austin high-fidelity profile..."
+else
+  echo "[export_austin_to_lua] Fetching OSM + exporting manifest with explicit fidelity arguments..."
+fi
+
 echo "=== Fetching Overture building footprints ==="
 python3 "$ROOT_DIR/scripts/fetch_overture_buildings.py" || echo "Warning: Overture fetch failed, continuing with OSM only"
 
-echo "[export_austin_to_lua] Fetching OSM + exporting manifest with the default shared Austin fidelity profile unless explicitly overridden..."
-bash "$ROOT_DIR/scripts/export_austin_from_osm.sh" "$@"
+bash "$ROOT_DIR/scripts/export_austin_from_osm.sh" "${DEFAULT_FIDELITY_ARGS[@]}" "$@"
 
 echo "[export_austin_to_lua] Converting SQLite manifest store to sharded Lua modules..."
 python3 "$ROOT_DIR/scripts/json_manifest_to_sharded_lua.py" \

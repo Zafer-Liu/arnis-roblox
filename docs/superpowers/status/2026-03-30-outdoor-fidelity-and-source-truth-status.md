@@ -752,3 +752,28 @@ The compact historical archive index is:
 - Verification for this slice:
   - local-safe: `cargo test --manifest-path rust/Cargo.toml -p arbx_pipeline overpass_truth_pack_records_retained_original_road_lineage -- --nocapture`
   - local-safe: `python3 -m unittest scripts.tests.test_source_truth_pack.SourceTruthPackHelperTests -v`
+
+### 2026-04-02: Shared Austin Export Defaults Are Higher Fidelity, And Simple Shells Now Add Bounded Corner Accents
+
+- I kept this tranche product-side and explicitly avoided more harness engineering except where it directly affected fidelity work.
+- Shared Austin export defaults are now stronger:
+  - `export_austin_to_lua.sh` injects `--profile high --satellite` when the caller does not already pass explicit fidelity arguments
+  - `export_austin_from_osm.sh` now describes that default honestly as a higher-fidelity default rather than a generic dev fixture profile
+  - I did **not** keep the new generated-asset verifier guardrail that rejected universally coarse terrain, because the currently committed Austin sample-data and preview shards are still universally `cellSizeStuds=4`, and flipping that guardrail on before regenerating the shared assets would have created immediate doc/test drift instead of improving truth
+- Shared simple-shell readability also moved one bounded step forward:
+  - simple low-rise shells now publish `ArnisCornerAccentCount`
+  - both fallback and mesh-backed simple-shell paths now add cheap vertical `CornerAccent` geometry at footprint corners
+  - this keeps the shared readability stack bounded and cheap: foundation + beltline + cornice + corner accents
+  - no glass bands, full pilasters, or broader facade systems were reopened
+- Important process note:
+  - one dispatched worker violated the standing repo rule and started a local `run_studio_harness.sh` edit proof on this machine
+  - I stopped that work, killed/confirmed cleanup of the related local harness/MCP/vsync processes, restored the only repo residue (`RunAllConfig.lua` spec filter), and closed the offending worker
+  - local Studio remains forbidden; all future Studio proof stays on `tertiary`
+- Current interpretation after the change:
+  - the shared export defaults are now pointed at the fidelity target, but the committed generated Austin assets have not yet been regenerated from that stronger default
+  - the next true proof for this slice is on `tertiary`: regenerate shared Austin assets there, then re-measure terrain/material richness and visually confirm the new simple-shell corner accents
+- Verification for this slice:
+  - local-safe: `python3 -m unittest scripts.tests.test_austin_fidelity.AustinFidelityScriptTests scripts.tests.test_generated_austin_assets.GeneratedAustinAssetsVerifierTests.test_collect_errors_accepts_split_preview_terrain_fragments scripts.tests.test_play_render_truth.PlayRenderTruthTests.test_simple_shells_keep_bounded_corner_accents_for_vertical_readability -v`
+  - local-safe: `bash -n scripts/export_austin_from_osm.sh`
+  - local-safe: `bash -n scripts/export_austin_to_lua.sh`
+  - local-safe: `git diff --check`

@@ -40,7 +40,7 @@ for arg in "$@"; do
 done
 
 if [[ $explicit_profile -eq 0 && -n "$DEFAULT_PROFILE" ]]; then
-  echo "[export_austin_from_osm] using default dev fixture profile: $DEFAULT_PROFILE"
+  echo "[export_austin_from_osm] using default higher-fidelity profile: $DEFAULT_PROFILE"
   compile_args=("--profile" "$DEFAULT_PROFILE")
 else
   echo "[export_austin_from_osm] using explicit compile fidelity arguments"

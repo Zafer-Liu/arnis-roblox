@@ -1982,6 +1982,48 @@ local function addCorniceToAccumulator(acc, worldPts, topY)
     return builtCount
 end
 
+local function buildCornerAccents(parent, worldPts, baseY, height)
+    local builtCount = 0
+    local accentHeight = math.max(3, math.min(height - 1.2, height * 0.72))
+    local accentCenterY = baseY + accentHeight * 0.5
+    for _, pt in ipairs(worldPts) do
+        local accent = Instance.new("Part")
+        accent.Name = "CornerAccent"
+        accent.Size = Vector3.new(0.32, accentHeight, 0.32)
+        accent.Material = Enum.Material.Concrete
+        accent.Color = Color3.fromRGB(205, 200, 190)
+        accent.Anchored = true
+        accent.CanCollide = false
+        accent.CastShadow = false
+        accent.CFrame = CFrame.new(pt.X, accentCenterY, pt.Z)
+        accent.Parent = parent
+        builtCount += 1
+    end
+
+    return builtCount
+end
+
+local function addCornerAccentsToAccumulator(acc, worldPts, baseY, height)
+    local builtCount = 0
+    local accentHeight = math.max(3, math.min(height - 1.2, height * 0.72))
+    local accentCenterY = baseY + accentHeight * 0.5
+    local halfSize = Vector3.new(0.16, accentHeight * 0.5, 0.16)
+
+    for _, pt in ipairs(worldPts) do
+        addOrientedBox(
+            acc,
+            Vector3.new(pt.X, accentCenterY, pt.Z),
+            Vector3.xAxis,
+            Vector3.yAxis,
+            Vector3.zAxis,
+            halfSize * 2
+        )
+        builtCount += 1
+    end
+
+    return builtCount
+end
+
 local function buildPilasters(parent, worldPts, baseY, height, material, color)
     for _, pt in ipairs(worldPts) do
         local pilaster = Instance.new("Part")
@@ -2170,6 +2212,7 @@ function BuildingBuilder.FallbackBuild(parent, building, originStuds, chunk, win
     detailFolder:SetAttribute("ArnisLodGroupKind", "detail")
     detailFolder:SetAttribute("ArnisFacadeBeltlineCount", 0)
     detailFolder:SetAttribute("ArnisCorniceCount", 0)
+    detailFolder:SetAttribute("ArnisCornerAccentCount", 0)
     CollectionService:AddTag(detailFolder, "LOD_DetailGroup")
 
     -- World coordinates of footprint vertices
@@ -2325,6 +2368,7 @@ function BuildingBuilder.FallbackBuild(parent, building, originStuds, chunk, win
     buildFoundation(detailFolder, worldPts, baseY)
     if preferSimpleShellDetail then
         detailFolder:SetAttribute("ArnisFacadeBeltlineCount", buildFacadeBeltlines(detailFolder, worldPts, baseY, height))
+        detailFolder:SetAttribute("ArnisCornerAccentCount", buildCornerAccents(detailFolder, worldPts, baseY, height))
     end
     detailFolder:SetAttribute("ArnisCorniceCount", buildCornice(detailFolder, worldPts, baseY + height))
     if not preferSimpleShellDetail then
@@ -2476,6 +2520,7 @@ function BuildingBuilder.MeshBuildAll(parent, buildings, originStuds, chunk, con
         detailFolder:SetAttribute("ArnisLodGroupKind", "detail")
         detailFolder:SetAttribute("ArnisFacadeBeltlineCount", 0)
         detailFolder:SetAttribute("ArnisCorniceCount", 0)
+        detailFolder:SetAttribute("ArnisCornerAccentCount", 0)
         CollectionService:AddTag(detailFolder, "LOD_DetailGroup")
 
         local buildingAccumulators = {}
@@ -2739,6 +2784,10 @@ function BuildingBuilder.MeshBuildAll(parent, buildings, originStuds, chunk, con
                     detailFolder:SetAttribute(
                         "ArnisFacadeBeltlineCount",
                         addFacadeBeltlinesToAccumulator(detailAcc, worldPts, baseY, height)
+                    )
+                    detailFolder:SetAttribute(
+                        "ArnisCornerAccentCount",
+                        addCornerAccentsToAccumulator(detailAcc, worldPts, baseY, height)
                     )
                 end
                 detailFolder:SetAttribute("ArnisCorniceCount", addCorniceToAccumulator(detailAcc, worldPts, baseY + height))

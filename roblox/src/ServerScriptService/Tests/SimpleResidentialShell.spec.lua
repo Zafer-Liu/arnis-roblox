@@ -87,13 +87,18 @@ return function()
 
     local detailPartCount = 0
     local facadeBandCount = 0
+    local cornerAccentCount = 0
     local facadeBeltlineCount = detailFolder:GetAttribute("ArnisFacadeBeltlineCount") or 0
     local corniceCount = detailFolder:GetAttribute("ArnisCorniceCount") or 0
+    local cornerAccentDetailCount = detailFolder:GetAttribute("ArnisCornerAccentCount") or 0
     for _, descendant in ipairs(detailFolder:GetDescendants()) do
         if descendant:IsA("BasePart") then
             detailPartCount += 1
             if string.find(descendant.Name, "_facade_", 1, true) then
                 facadeBandCount += 1
+            end
+            if string.find(descendant.Name, "CornerAccent", 1, true) then
+                cornerAccentCount += 1
             end
         end
     end
@@ -115,6 +120,14 @@ return function()
     Assert.truthy(
         corniceCount >= 1,
         "expected sparse residential building to retain a bounded roofline cornice cue"
+    )
+    Assert.truthy(
+        cornerAccentDetailCount >= 1,
+        "expected sparse residential building to retain corner accents for shell readability"
+    )
+    Assert.truthy(
+        cornerAccentCount >= 1,
+        "expected sparse residential building to emit corner accent geometry"
     )
 
     worldRoot:Destroy()
