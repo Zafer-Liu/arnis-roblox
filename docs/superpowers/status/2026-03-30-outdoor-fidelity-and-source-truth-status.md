@@ -934,3 +934,34 @@ The compact historical archive index is:
   - remote `tertiary`: full `bash scripts/export_austin_to_lua.sh` completed successfully from the proof clone
   - local-safe: `python3 -m unittest scripts.tests.test_refresh_preview_from_sample_data scripts.tests.test_refresh_runtime_harness_from_sample_data -v`
   - local-safe: `git diff --check`
+
+### 2026-04-02: Simple-Shell Exterior Openings Are Proven On `tertiary`, And The Real Focused-Lane Failure Was `vsync` Path Drift
+
+- I kept the next building-readability tranche bounded and shared:
+  - `BuildingBuilder.lua` now adds sparse `SimpleShellDoorCue` and `SimpleShellWindowPane` parts only on the simple low-rise shell path
+  - those window panes retain `BaseTransparency` and register through the existing night-window reactive flow
+- Before I could prove that tranche, the focused direct-SSH `tertiary` lane failed before Studio launch. The real root cause was not the builder change:
+  - the direct command omitted `VSYNC_REPO_DIR`
+  - `tertiary` did not have a usable `vsync` at the default adjacent sibling path
+  - the only healthy `vsync` source on that machine was the operator-owned stage at `$HOME/.codex-remote-studio/vertigo-sync`
+- I reran the focused proof from the SSD-backed proof clone with the explicit operator path:
+  - `ssh tertiary 'cd /Volumes/APDataStore/arnis-roblox-proof && VSYNC_REPO_DIR=$HOME/.codex-remote-studio/vertigo-sync bash scripts/run_studio_harness.sh --takeover --hard-restart --no-play --edit-tests --spec-filter SimpleResidentialShell.spec.lua --edit-wait 30 --pattern-wait 120'`
+- That produced the first real product-side red/green cycle for this tranche:
+  - first red: the spec was still asserting named `CornerAccent` parts in the merged shell-mesh path
+  - root cause: merged accumulator detail preserves the authoritative `ArnisCornerAccentCount` attribute, but not per-corner part names
+  - fix: remove the stale named-part assertion and keep the stronger attribute-level contract plus the new door/window/reactive assertions
+  - second run: `PASS SimpleResidentialShell.spec`
+- Additional measured truth from the successful proof run:
+  - preview remained the same bounded downtown sample
+  - hotspot still centered on chunk `-1_0`
+  - slow-chunk totals were roughly unchanged (`slow_chunk_total_ms=238`, `slow_chunk_buildings_ms=236`, `slow_chunk_building_terrain_fill_ms=197`)
+  - `slow_chunk_building_facade_detail_ms` stayed `0`, which is expected because this tranche adds bounded simple-shell readability cues, not office-style facade-band work
+- Cleanup outcome:
+  - the successful harness run exited `0`
+  - `quit_studio` still needed TERM/KILL escalation during shutdown
+  - after cleanup, `tertiary` had no lingering `run_studio_harness.sh`, `rbx-studio-mcp`, `vsync serve`, or `RobloxStudio` processes
+- Repo-truth consequences:
+  - the direct SSH operator doc now states that direct remote proof must supply `VSYNC_REPO_DIR` (or `VSYNC_BIN`) explicitly
+  - this was operator path drift, not a reason to add another committed machine-specific fallback
+- Verification for this slice:
+  - remote `tertiary`: focused `SimpleResidentialShell.spec.lua` pass from `/Volumes/APDataStore/arnis-roblox-proof` with explicit `VSYNC_REPO_DIR=$HOME/.codex-remote-studio/vertigo-sync`

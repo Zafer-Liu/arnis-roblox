@@ -71,8 +71,9 @@ bash scripts/run_studio_harness_remote.sh --remote-profile tertiary -- --no-play
 If the wrapper is unstable on the current workstation, run the harness directly on a git-backed remote clone over SSH instead and record that lane in the status file:
 
 ```bash
-# Replace /path/to/arnis-roblox with the real git-backed proof clone path on the remote host.
-ssh tertiary 'cd "/path/to/arnis-roblox" && bash scripts/run_studio_harness.sh --no-play --edit-tests'
+# Replace the placeholder paths with the real git-backed proof clone and the operator-owned
+# vertigo-sync checkout or stage on the remote host.
+ssh tertiary 'cd "/path/to/arnis-roblox" && VSYNC_REPO_DIR="/path/to/vertigo-sync" bash scripts/run_studio_harness.sh --no-play --edit-tests'
 ```
 
 ## Notes
@@ -85,5 +86,6 @@ ssh tertiary 'cd "/path/to/arnis-roblox" && bash scripts/run_studio_harness.sh -
 - Do not disable SSH host-key verification in committed scripts. Accept or rotate host keys out-of-band on each operator machine before using a new remote profile.
 - If a host has no local profile config, the wrapper should fail early with a clear configuration error instead of guessing.
 - If you use direct SSH proof instead of the wrapper, verify that the target path is an actual git clone on the intended branch before treating it as the proof surface; do not rely on loose copied working folders as if they were the canonical remote repo.
+- If you use direct SSH proof instead of the wrapper, provide an explicit `VSYNC_REPO_DIR` (or `VSYNC_BIN`) for that remote machine; do not assume an adjacent `~/Projects/vertigo-sync` checkout exists.
 - If a remote Studio lane is selected as the current proof surface, verify Studio launch and MCP/helper readiness there first; do not assume a configured `tertiary` profile is automatically green beyond the specific proof slices already verified.
 - Current `tertiary` proof state is intentionally tracked only in the rolling status file above.

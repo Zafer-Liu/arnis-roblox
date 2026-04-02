@@ -1,6 +1,7 @@
 return function()
     local Workspace = game:GetService("Workspace")
     local ImportService = require(script.Parent.Parent.ImportService)
+    local ChunkLoader = require(script.Parent.Parent.ImportService.ChunkLoader)
     local Assert = require(script.Parent.Assert)
 
     local manifest = {
@@ -87,7 +88,8 @@ return function()
 
     local detailPartCount = 0
     local facadeBandCount = 0
-    local cornerAccentCount = 0
+    local doorCueCount = 0
+    local windowPaneCount = 0
     local facadeBeltlineCount = detailFolder:GetAttribute("ArnisFacadeBeltlineCount") or 0
     local corniceCount = detailFolder:GetAttribute("ArnisCorniceCount") or 0
     local cornerAccentDetailCount = detailFolder:GetAttribute("ArnisCornerAccentCount") or 0
@@ -97,11 +99,17 @@ return function()
             if string.find(descendant.Name, "_facade_", 1, true) then
                 facadeBandCount += 1
             end
-            if string.find(descendant.Name, "CornerAccent", 1, true) then
-                cornerAccentCount += 1
+            if descendant.Name == "SimpleShellDoorCue" then
+                doorCueCount += 1
+            end
+            if descendant.Name == "SimpleShellWindowPane" then
+                windowPaneCount += 1
             end
         end
     end
+
+    local chunkEntry = ChunkLoader.GetChunkEntry("0_0", worldRootName)
+    Assert.truthy(chunkEntry, "expected simple residential chunk entry")
 
     Assert.truthy(shellPartCount >= 1, "expected shell geometry for sparse residential building")
     Assert.equal(
@@ -126,8 +134,16 @@ return function()
         "expected sparse residential building to retain corner accents for shell readability"
     )
     Assert.truthy(
-        cornerAccentCount >= 1,
-        "expected sparse residential building to emit corner accent geometry"
+        doorCueCount >= 1,
+        "expected sparse residential building to emit a street-facing door cue"
+    )
+    Assert.truthy(
+        windowPaneCount >= 2,
+        "expected sparse residential building to emit bounded exterior window panes"
+    )
+    Assert.truthy(
+        chunkEntry.reactives and #chunkEntry.reactives.nightWindows >= 2,
+        "expected sparse residential window panes to register as night-window reactives"
     )
 
     worldRoot:Destroy()

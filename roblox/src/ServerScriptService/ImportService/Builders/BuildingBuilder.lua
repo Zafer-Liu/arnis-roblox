@@ -2024,6 +2024,114 @@ local function addCornerAccentsToAccumulator(acc, worldPts, baseY, height)
     return builtCount
 end
 
+local function collectSimpleShellReadableEdges(worldPts)
+    local edges = {}
+    for i = 1, #worldPts do
+        local p1 = worldPts[i]
+        local p2 = worldPts[(i % #worldPts) + 1]
+        local edgeVec = p2 - p1
+        local edgeLen = edgeVec.Magnitude
+        if edgeLen >= 8 then
+            edges[#edges + 1] = {
+                p1 = p1,
+                p2 = p2,
+                dir = edgeVec.Unit,
+                len = edgeLen,
+                mid = (p1 + p2) * 0.5,
+            }
+        end
+    end
+    table.sort(edges, function(a, b)
+        if math.abs(a.len - b.len) > 0.05 then
+            return a.len > b.len
+        end
+        if math.abs(a.mid.X - b.mid.X) > 0.05 then
+            return a.mid.X < b.mid.X
+        end
+        return a.mid.Z < b.mid.Z
+    end)
+    return edges
+end
+
+local function buildSimpleShellOpenings(parent, worldPts, baseY, height, windowBudget)
+    local edges = collectSimpleShellReadableEdges(worldPts)
+    if #edges == 0 then
+        return 0, 0
+    end
+
+    local doorCueCount = 0
+    local windowPaneCount = 0
+    local doorEdge = edges[1]
+    local doorHeight = math.max(3.4, math.min(height - 1.1, 4.2))
+    local doorWidth = math.clamp(doorEdge.len * 0.14, 1.8, 2.6)
+    local doorDepth = 0.18
+    local doorCenterY = baseY + doorHeight * 0.5
+    local doorOutward = Vector3.new(-doorEdge.dir.Z, 0, doorEdge.dir.X) * 0.12
+
+    local doorCue = Instance.new("Part")
+    doorCue.Name = "SimpleShellDoorCue"
+    doorCue.Size = Vector3.new(doorWidth, doorHeight, doorDepth)
+    doorCue.Material = Enum.Material.WoodPlanks
+    doorCue.Color = Color3.fromRGB(96, 76, 58)
+    doorCue.Anchored = true
+    doorCue.CanCollide = false
+    doorCue.CastShadow = false
+    doorCue.CFrame = CFrame.lookAt(
+        doorEdge.mid + doorOutward + Vector3.new(0, doorCenterY, 0),
+        doorEdge.mid + doorOutward + Vector3.new(0, doorCenterY, 0) + doorEdge.dir
+    )
+    doorCue.Parent = parent
+    doorCueCount += 1
+
+    local maxWindowEdges = math.min(#edges, 2)
+    local maxWindows = if windowBudget and windowBudget.max then windowBudget.max else math.huge
+    for edgeIndex = 1, maxWindowEdges do
+        if windowBudget and windowBudget.used >= maxWindows then
+            break
+        end
+
+        local edge = edges[edgeIndex]
+        local paneCount = math.clamp(math.floor(edge.len / 12), 1, 2)
+        local usableHalfSpan = math.max(1.4, edge.len * 0.28)
+        local offsets
+        if paneCount <= 1 then
+            offsets = { 0 }
+        else
+            offsets = { -usableHalfSpan * 0.5, usableHalfSpan * 0.5 }
+        end
+
+        for _, offset in ipairs(offsets) do
+            if windowBudget and windowBudget.used >= maxWindows then
+                break
+            end
+
+            local paneCenter = edge.mid + edge.dir * offset
+            local outward = Vector3.new(-edge.dir.Z, 0, edge.dir.X) * 0.13
+            local pane = Instance.new("Part")
+            pane.Name = "SimpleShellWindowPane"
+            pane.Size = Vector3.new(math.min(2.1, math.max(1.4, edge.len * 0.08)), 1.65, 0.12)
+            pane.Material = Enum.Material.Glass
+            pane.Color = Color3.fromRGB(58, 74, 96)
+            pane.Anchored = true
+            pane.CanCollide = false
+            pane.CastShadow = false
+            pane.Transparency = 0.35
+            pane:SetAttribute("BaseTransparency", 0.35)
+            pane.CFrame = CFrame.lookAt(
+                paneCenter + outward + Vector3.new(0, baseY + 2.9, 0),
+                paneCenter + outward + Vector3.new(0, baseY + 2.9, 0) + edge.dir
+            )
+            pane.Parent = parent
+            windowPaneCount += 1
+            if windowBudget then
+                windowBudget.used += 1
+            end
+        end
+    end
+
+    return doorCueCount, windowPaneCount
+end
+
 local function buildPilasters(parent, worldPts, baseY, height, material, color)
     for _, pt in ipairs(worldPts) do
         local pilaster = Instance.new("Part")
@@ -2213,6 +2321,8 @@ function BuildingBuilder.FallbackBuild(parent, building, originStuds, chunk, win
     detailFolder:SetAttribute("ArnisFacadeBeltlineCount", 0)
     detailFolder:SetAttribute("ArnisCorniceCount", 0)
     detailFolder:SetAttribute("ArnisCornerAccentCount", 0)
+    detailFolder:SetAttribute("ArnisSimpleShellDoorCueCount", 0)
+    detailFolder:SetAttribute("ArnisSimpleShellWindowPaneCount", 0)
     CollectionService:AddTag(detailFolder, "LOD_DetailGroup")
 
     -- World coordinates of footprint vertices
@@ -2369,6 +2479,9 @@ function BuildingBuilder.FallbackBuild(parent, building, originStuds, chunk, win
     if preferSimpleShellDetail then
         detailFolder:SetAttribute("ArnisFacadeBeltlineCount", buildFacadeBeltlines(detailFolder, worldPts, baseY, height))
         detailFolder:SetAttribute("ArnisCornerAccentCount", buildCornerAccents(detailFolder, worldPts, baseY, height))
+        local doorCueCount, windowPaneCount = buildSimpleShellOpenings(detailFolder, worldPts, baseY, height, windowBudget)
+        detailFolder:SetAttribute("ArnisSimpleShellDoorCueCount", doorCueCount)
+        detailFolder:SetAttribute("ArnisSimpleShellWindowPaneCount", windowPaneCount)
     end
     detailFolder:SetAttribute("ArnisCorniceCount", buildCornice(detailFolder, worldPts, baseY + height))
     if not preferSimpleShellDetail then
@@ -2521,6 +2634,8 @@ function BuildingBuilder.MeshBuildAll(parent, buildings, originStuds, chunk, con
         detailFolder:SetAttribute("ArnisFacadeBeltlineCount", 0)
         detailFolder:SetAttribute("ArnisCorniceCount", 0)
         detailFolder:SetAttribute("ArnisCornerAccentCount", 0)
+        detailFolder:SetAttribute("ArnisSimpleShellDoorCueCount", 0)
+        detailFolder:SetAttribute("ArnisSimpleShellWindowPaneCount", 0)
         CollectionService:AddTag(detailFolder, "LOD_DetailGroup")
 
         local buildingAccumulators = {}
@@ -2789,6 +2904,10 @@ function BuildingBuilder.MeshBuildAll(parent, buildings, originStuds, chunk, con
                         "ArnisCornerAccentCount",
                         addCornerAccentsToAccumulator(detailAcc, worldPts, baseY, height)
                     )
+                    local doorCueCount, windowPaneCount =
+                        buildSimpleShellOpenings(detailFolder, worldPts, baseY, height, windowBudget)
+                    detailFolder:SetAttribute("ArnisSimpleShellDoorCueCount", doorCueCount)
+                    detailFolder:SetAttribute("ArnisSimpleShellWindowPaneCount", windowPaneCount)
                 end
                 detailFolder:SetAttribute("ArnisCorniceCount", addCorniceToAccumulator(detailAcc, worldPts, baseY + height))
 
