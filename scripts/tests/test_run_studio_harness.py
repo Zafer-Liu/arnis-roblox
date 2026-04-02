@@ -546,6 +546,14 @@ class RunStudioHarnessTests(unittest.TestCase):
         self.assertNotIn('mv "$ROBLOX_PLUGIN_DIR" "$sandbox_source_dir"', self.text)
         self.assertNotIn('mv "$PLUGIN_SANDBOX_SOURCE_DIR" "$ROBLOX_PLUGIN_DIR"', self.text)
 
+    def test_play_focused_quarantine_sandboxes_vsync_plugin_but_keeps_mcp_plugin(self) -> None:
+        self.assertIn("plugin_should_be_sandboxed_for_run()", self.text)
+        self.assertIn('if [[ "$plugin_name" == "MCPStudioPlugin.rbxm" ]]; then', self.text)
+        self.assertIn('if [[ "$plugin_name" == "VertigoSyncPlugin.lua" ]]; then', self.text)
+        self.assertIn("if should_require_vsync_plugin; then", self.text)
+        self.assertIn('if plugin_should_be_sandboxed_for_run "$plugin_name"; then', self.text)
+        self.assertIn('if [[ -f "$ROBLOX_PLUGIN_DIR/$plugin_name" ]]; then', self.text)
+
     def test_screenshot_capture_failure_is_best_effort_only(self) -> None:
         self.assertIn('if screencapture -x "$target"; then', self.text)
         self.assertIn('log "failed to capture Studio screenshot: $target"', self.text)

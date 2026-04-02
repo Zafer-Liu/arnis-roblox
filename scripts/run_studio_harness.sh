@@ -356,15 +356,13 @@ MEMORY_SAMPLE_SECONDS="${HARNESS_MEMORY_SAMPLE_SECONDS:-2}"
 ALLOW_HEAVY_PREVIEW_SOURCE="${HARNESS_ALLOW_HEAVY_PREVIEW_SOURCE:-0}"
 PLUGIN_SANDBOX_DIR=""
 PLUGIN_SANDBOXED_FILES=()
-FOREIGN_PLUGIN_CANDIDATES=(
+MANAGED_PLUGIN_CANDIDATES=(
+  "MCPStudioPlugin.rbxm"
+  "VertigoSyncPlugin.lua"
   "VertigoBroadcastCam.lua"
   "VertigoEditRenderer.lua"
   "VertigoEditRuntime.lua"
   "VertigoEditSync.lua"
-)
-ALLOWED_PLUGIN_FILES=(
-  "MCPStudioPlugin.rbxm"
-  "VertigoSyncPlugin.lua"
 )
 
 mcp_sidecar_port_open() {
@@ -1364,6 +1362,20 @@ restore_foreign_plugins() {
   PLUGIN_SANDBOXED_FILES=()
 }
 
+plugin_should_be_sandboxed_for_run() {
+  local plugin_name="${1:-}"
+  if [[ "$plugin_name" == "MCPStudioPlugin.rbxm" ]]; then
+    return 1
+  fi
+  if [[ "$plugin_name" == "VertigoSyncPlugin.lua" ]]; then
+    if should_require_vsync_plugin; then
+      return 1
+    fi
+    return 0
+  fi
+  return 0
+}
+
 quarantine_foreign_plugins() {
   if [[ ! -d "$ROBLOX_PLUGIN_DIR" || -n "$PLUGIN_SANDBOX_DIR" ]]; then
     return
@@ -1376,18 +1388,22 @@ quarantine_foreign_plugins() {
   sandbox_dir="$(mktemp -d)"
   PLUGIN_SANDBOXED_FILES=()
 
-  for plugin_name in "${ALLOWED_PLUGIN_FILES[@]}"; do
+  for plugin_name in "${MANAGED_PLUGIN_CANDIDATES[@]}"; do
     if [[ -f "$ROBLOX_PLUGIN_DIR/$plugin_name" ]]; then
-      kept_count=$((kept_count + 1))
+      if ! plugin_should_be_sandboxed_for_run "$plugin_name"; then
+        kept_count=$((kept_count + 1))
+      fi
     fi
   done
 
-  for plugin_name in "${FOREIGN_PLUGIN_CANDIDATES[@]}"; do
+  for plugin_name in "${MANAGED_PLUGIN_CANDIDATES[@]}"; do
     if [[ -f "$ROBLOX_PLUGIN_DIR/$plugin_name" ]]; then
-      cp "$ROBLOX_PLUGIN_DIR/$plugin_name" "$sandbox_dir/$plugin_name"
-      rm -f "$ROBLOX_PLUGIN_DIR/$plugin_name"
-      PLUGIN_SANDBOXED_FILES+=("$plugin_name")
-      quarantined_count=$((quarantined_count + 1))
+      if plugin_should_be_sandboxed_for_run "$plugin_name"; then
+        cp "$ROBLOX_PLUGIN_DIR/$plugin_name" "$sandbox_dir/$plugin_name"
+        rm -f "$ROBLOX_PLUGIN_DIR/$plugin_name"
+        PLUGIN_SANDBOXED_FILES+=("$plugin_name")
+        quarantined_count=$((quarantined_count + 1))
+      fi
     fi
   done
 
@@ -1398,7 +1414,7 @@ quarantine_foreign_plugins() {
   fi
 
   PLUGIN_SANDBOX_DIR="$sandbox_dir"
-  log "sandboxed Roblox plugins for this harness run: kept $kept_count allowed plugin(s), quarantined $quarantined_count foreign Vertigo edit plugin file(s)"
+  log "sandboxed Roblox plugins for this harness run: kept $kept_count allowed plugin(s), quarantined $quarantined_count disallowed managed plugin file(s)"
   if [[ -n "$(studio_pids)" ]]; then
     log "sandboxed plugins only affect Studio after restart; attached sessions may still have them loaded"
   fi
