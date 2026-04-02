@@ -622,6 +622,11 @@ build_clean_place() {
   printf '%s\n' "$output_place"
 }
 
+vsync_repo_dir_looks_usable() {
+  local repo_dir="$1"
+  [[ -f "$repo_dir/Cargo.toml" ]] || [[ -x "$repo_dir/target/debug/vsync" ]]
+}
+
 resolve_vsync_repo_dir() {
   local sibling_repo="$(cd "$ROOT_DIR/.." && pwd)/vertigo-sync"
   local fallback_repos=(
@@ -629,19 +634,19 @@ resolve_vsync_repo_dir() {
     "$HOME/Projects/vertigo"
   )
 
-  if [[ -n "$VSYNC_REPO_DIR" && -f "$VSYNC_REPO_DIR/Cargo.toml" ]]; then
+  if [[ -n "$VSYNC_REPO_DIR" ]] && vsync_repo_dir_looks_usable "$VSYNC_REPO_DIR"; then
     printf '%s\n' "$VSYNC_REPO_DIR"
     return 0
   fi
 
-  if [[ -f "$sibling_repo/Cargo.toml" ]]; then
+  if vsync_repo_dir_looks_usable "$sibling_repo"; then
     printf '%s\n' "$sibling_repo"
     return 0
   fi
 
   local candidate=""
   for candidate in "${fallback_repos[@]}"; do
-    if [[ -f "$candidate/Cargo.toml" ]]; then
+    if vsync_repo_dir_looks_usable "$candidate"; then
       printf '%s\n' "$candidate"
       return 0
     fi

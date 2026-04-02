@@ -932,7 +932,10 @@ class RunStudioHarnessTests(unittest.TestCase):
         self.assertIn('local fallback_repos=(', self.text)
         self.assertIn('"$HOME/Projects/vertigo-sync"', self.text)
         self.assertIn('"$HOME/Projects/vertigo"', self.text)
-        self.assertIn('if [[ -n "$VSYNC_REPO_DIR" && -f "$VSYNC_REPO_DIR/Cargo.toml" ]]; then', self.text)
+        self.assertIn('vsync_repo_dir_looks_usable()', self.text)
+        self.assertIn('[[ -f "$repo_dir/Cargo.toml" ]]', self.text)
+        self.assertIn('[[ -x "$repo_dir/target/debug/vsync" ]]', self.text)
+        self.assertIn('if [[ -n "$VSYNC_REPO_DIR" ]] && vsync_repo_dir_looks_usable "$VSYNC_REPO_DIR"; then', self.text)
         self.assertIn('VSYNC_REPO_DIR="$(resolve_vsync_repo_dir)"', self.text)
 
     def test_edit_only_auto_build_omits_runtime_sample_data_from_clean_place(self) -> None:
