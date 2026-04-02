@@ -357,4 +357,29 @@ return function()
         "1_0:landuse,1_0:roads,0_0:landuse,0_0:roads,chunk:2_0",
         "expected forward same-band subplans to outrank nearer same-band work before whole-chunk fallback"
     )
+
+    local wholeChunkItems = {
+        {
+            chunkId = "guardrail_anchor",
+            originStuds = { x = -40, y = 0, z = 0 },
+        },
+        {
+            chunkId = "guardrail_deferred",
+            originStuds = { x = 20, y = 0, z = 0 },
+        },
+        {
+            chunkId = "guardrail_resumed",
+            originStuds = { x = 1000, y = 0, z = 0 },
+        },
+    }
+    ChunkPriority.SortWorkItems(wholeChunkItems, Vector3.new(0, 0, 0), chunkSizeStuds, Vector3.new(1, 0, 0), nil)
+    Assert.equal(
+        table.concat({
+            wholeChunkItems[1].chunkId,
+            wholeChunkItems[2].chunkId,
+            wholeChunkItems[3].chunkId,
+        }, ","),
+        "guardrail_anchor,guardrail_deferred,guardrail_resumed",
+        "expected whole-chunk work to preserve already-prioritized chunk admission order"
+    )
 end

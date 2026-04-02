@@ -2968,32 +2968,36 @@ run_edit_actions_via_mcp() {
   local edit_readiness_target="preview"
   if [[ $DO_PLAY -eq 1 ]]; then
     edit_readiness_target="edit_sync"
-  elif [[ -n "$RUNALL_SPEC_FILTER" ]]; then
-    edit_readiness_target="edit_sync"
+  elif [[ -n "$RUNALL_SPEC_FILTER" && "$RUNALL_SPEC_FILTER" != *Preview* ]]; then
+    edit_readiness_target=""
   fi
   local edit_readiness_json=""
-  local readiness_attempt=1
-  local readiness_max_attempts=2
-  while [[ $readiness_attempt -le $readiness_max_attempts ]]; do
-    if edit_readiness_json="$(VSYNC_EDIT_READINESS_TARGET="$edit_readiness_target" wait_for_vsync_edit_readiness)"; then
-      break
-    fi
+  if [[ -n "$edit_readiness_target" ]]; then
+    local readiness_attempt=1
+    local readiness_max_attempts=2
+    while [[ $readiness_attempt -le $readiness_max_attempts ]]; do
+      if edit_readiness_json="$(VSYNC_EDIT_READINESS_TARGET="$edit_readiness_target" wait_for_vsync_edit_readiness)"; then
+        break
+      fi
 
-    if [[ $readiness_attempt -ge $readiness_max_attempts ]]; then
-      log "edit-mode setup did not reach Vertigo Sync readiness before timeout"
-      return 1
-    fi
+      if [[ $readiness_attempt -ge $readiness_max_attempts ]]; then
+        log "edit-mode setup did not reach Vertigo Sync readiness before timeout"
+        return 1
+      fi
 
-    log "edit-mode setup did not reach Vertigo Sync readiness before timeout; attempting Vertigo Sync recovery"
-    recover_vsync_server_for_edit_readiness || {
-      log "edit-mode readiness recovery failed"
-      return 1
-    }
-    wait_for_mcp_ready || {
-      log "Studio MCP helper did not become ready after Vertigo Sync recovery; retrying readiness anyway"
-    }
-    readiness_attempt=$((readiness_attempt + 1))
-  done
+      log "edit-mode setup did not reach Vertigo Sync readiness before timeout; attempting Vertigo Sync recovery"
+      recover_vsync_server_for_edit_readiness || {
+        log "edit-mode readiness recovery failed"
+        return 1
+      }
+      wait_for_mcp_ready || {
+        log "Studio MCP helper did not become ready after Vertigo Sync recovery; retrying readiness anyway"
+      }
+      readiness_attempt=$((readiness_attempt + 1))
+    done
+  else
+    edit_readiness_json='{"skipped":true,"reason":"mcp_direct_runall"}'
+  fi
 
   local mcp_wall_timeout=$((EDIT_WAIT_SECONDS + 150))
   if [[ $mcp_wall_timeout -lt 120 ]]; then
@@ -3072,7 +3076,14 @@ preflight_session_status = os.environ.get("MCP_PREFLIGHT_SESSION_STATUS", "unkno
 log_indicates_play = os.environ.get("MCP_LOG_INDICATES_PLAY", "false").strip().lower() in {"1", "true", "yes", "on"}
 scene_marker_luau = os.environ["SCENE_MARKER_LUAU"]
 readiness_record = json.loads(os.environ["VSYNC_READINESS_JSON"])
-readiness = build_readiness_expectation(readiness_record)
+readiness = None
+if (
+    isinstance(readiness_record, dict)
+    and readiness_record.get("ready") is True
+    and isinstance(readiness_record.get("target"), str)
+    and readiness_record["target"] in {"edit_sync", "preview", "full_bake_start", "full_bake_result"}
+):
+    readiness = build_readiness_expectation(readiness_record)
 run_edit_tests = os.environ.get("RUNALL_EDIT_ENABLED", "0").strip().lower() not in {"0", "false", "no", "off"}
 runall_spec_filter = os.environ.get("RUNALL_SPEC_FILTER", "").strip()
 do_play = os.environ.get("HARNESS_DO_PLAY", "0").strip().lower() in {"1", "true", "yes", "on"}

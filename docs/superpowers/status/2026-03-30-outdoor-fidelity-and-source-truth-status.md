@@ -1201,3 +1201,28 @@ The compact historical archive index is:
   - local-safe green: `bash -n scripts/run_studio_harness.sh`
   - local-safe green: `git diff --check`
   - remote `tertiary`: focused `StreamingPriority.spec.lua` harness run reached clean-place build, live Vertigo Sync serve, Studio open, and `ARNIS_MCP_READY`, then exposed the remaining `edit_sync`/RunAll marker blocker above
+
+### 2026-04-02: Isolated StreamingPriority Proof Exposed A Real Whole-Chunk Scheduling Regression
+
+- I kept the next slice on the real product path instead of widening the harness again.
+- The focused isolated-spec proof on `tertiary` is now meaningfully better:
+  - green: isolated non-preview edit specs can bypass the old `edit_sync` readiness gate when the harness is run with `--no-play`
+  - green: the MCP path now runs `StreamingPriority.spec.lua` end-to-end and surfaces real `RunAll` failures instead of timing out before test execution
+- That proof exposed a real runtime scheduler regression, not a harness problem:
+  - the guardrail section in `StreamingPriority.spec.lua` imported `guardrail_deferred` before `guardrail_anchor`
+  - that meant whole-chunk work was being reshuffled after chunk prioritization, so the memory guardrail paused around the wrong first admission
+- I fixed that at the scheduling layer:
+  - `ChunkPriority.lua` now preserves already-prioritized source order for whole-chunk work items from different chunks
+  - `ChunkSubplanPriority.spec.lua` now includes a regression check that whole-chunk work preserves chunk scheduler admission order
+- Current remote proof status after the product fix:
+  - partial green: the earlier proof now gets through MCP execution and identifies the real scheduler failure correctly
+  - remaining blocker: a follow-on `tertiary` rerun hit an intermittent MCP relay/proxy stall (`http://localhost:44755/request` returning repeated `423 Locked` before `ARNIS_MCP_READY`), so I do not yet have a fresh remote-green post-fix `StreamingPriority.spec.lua` run
+- Verification for the landed local slice:
+  - local-safe red then green: `python3 -m unittest scripts.tests.test_run_studio_harness.RunStudioHarnessTests.test_isolated_non_preview_specs_skip_edit_sync_gate -v`
+  - local-safe green: `python3 -m unittest scripts.tests.test_run_studio_harness scripts.tests.test_austin_runtime_contract scripts.tests.test_play_render_truth -v`
+  - local-safe green: `bash -n scripts/run_studio_harness.sh`
+  - local-safe green: `git diff --check`
+- Interpretation:
+  - the harness unblock has now paid off by finding a real streaming-engine bug
+  - the product fix is in with a regression guard
+  - the next proof step is to burn down the intermittent MCP `423 Locked` path just enough to re-run the isolated `StreamingPriority.spec.lua` slice and confirm the scheduler is green remotely

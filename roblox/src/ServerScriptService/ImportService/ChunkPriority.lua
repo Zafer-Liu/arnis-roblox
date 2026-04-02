@@ -468,6 +468,12 @@ local function compareWorkItemKeys(leftKey, rightKey)
     local rightIsWholeChunk = rightKey.subplanId == ""
     local bothWholeChunks = leftIsWholeChunk and rightIsWholeChunk
 
+    if bothWholeChunks and leftKey.chunkId ~= rightKey.chunkId and leftKey.sourceOrder ~= rightKey.sourceOrder then
+        -- Whole-chunk work is already emitted from chunk-priority order. Preserve that admission order here
+        -- so the work-item sorter does not reshuffle chunk-level scheduling decisions.
+        return leftKey.sourceOrder < rightKey.sourceOrder
+    end
+
     if leftKey.distanceBand ~= rightKey.distanceBand then
         return leftKey.distanceBand < rightKey.distanceBand
     end

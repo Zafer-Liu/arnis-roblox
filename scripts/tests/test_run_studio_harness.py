@@ -603,11 +603,13 @@ class RunStudioHarnessTests(unittest.TestCase):
         self.assertIn('triggered edit-mode actions via RunAllEntry fallback', self.text)
         self.assertIn('if [[ -z "$MCP_BINARY" || ! -x "$MCP_BINARY" || $MCP_READY -ne 1 ]]; then', self.text)
 
-    def test_isolated_preview_specs_gate_on_edit_sync_not_preview(self) -> None:
+    def test_isolated_non_preview_specs_skip_edit_sync_gate(self) -> None:
         self.assertIn('local edit_readiness_target="preview"', self.text)
-        self.assertIn('if [[ -n "$RUNALL_SPEC_FILTER" ]]; then', self.text)
+        self.assertIn('if [[ $DO_PLAY -eq 1 ]]; then', self.text)
         self.assertIn('edit_readiness_target="edit_sync"', self.text)
-        self.assertNotIn('if [[ -n "$RUNALL_SPEC_FILTER" && "$RUNALL_SPEC_FILTER" != *Preview* ]]; then', self.text)
+        self.assertIn('elif [[ -n "$RUNALL_SPEC_FILTER" && "$RUNALL_SPEC_FILTER" != *Preview* ]]; then', self.text)
+        self.assertIn('edit_readiness_target=""', self.text)
+        self.assertIn('if [[ -n "$edit_readiness_target" ]]; then', self.text)
 
     def test_harness_tracks_real_mcp_bridge_readiness_before_using_edit_actions(self) -> None:
         self.assertIn('MCP_READY_WAIT_SECONDS="${HARNESS_MCP_READY_WAIT_SECONDS:-12}"', self.text)
