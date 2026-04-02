@@ -865,6 +865,20 @@ start_mcp_sidecar() {
   return 1
 }
 
+is_isolated_non_preview_edit_proof() {
+  [[ $DO_PLAY -eq 0 && -n "$RUNALL_SPEC_FILTER" && "$RUNALL_SPEC_FILTER" != *Preview* ]]
+}
+
+should_start_mcp_sidecar() {
+  if [[ -z "$MCP_BINARY" || ! -x "$MCP_BINARY" ]]; then
+    return 1
+  fi
+  if is_isolated_non_preview_edit_proof; then
+    return 1
+  fi
+  return 0
+}
+
 auto_prepare_place() {
   local output_place=""
   local include_runtime_sample_data="true"
@@ -1698,7 +1712,7 @@ start_parent_watchdog
 enable_runall_entry() {
   local edit_enabled="true"
   local play_enabled="false"
-  if [[ $RUNALL_EDIT_ENABLED -eq 0 || -n "$MCP_BINARY" ]]; then
+  if ! should_preconfigure_runall_entry_edit_mode; then
     edit_enabled="false"
   fi
   if [[ $RUNALL_PLAY_ENABLED -eq 1 ]]; then
@@ -1714,6 +1728,17 @@ can_run_runall_entry_edit_fallback() {
   [[ $RUNALL_EDIT_ENABLED -eq 1 ]] || return 1
   [[ -n "$RUNALL_SPEC_FILTER" ]] || return 1
   if [[ "$RUNALL_SPEC_FILTER" == *Preview* ]]; then
+    return 1
+  fi
+  return 0
+}
+
+should_preconfigure_runall_entry_edit_mode() {
+  [[ $RUNALL_EDIT_ENABLED -eq 1 ]] || return 1
+  if can_run_runall_entry_edit_fallback && is_isolated_non_preview_edit_proof; then
+    return 0
+  fi
+  if [[ -n "$MCP_BINARY" ]]; then
     return 1
   fi
   return 0
@@ -2409,13 +2434,14 @@ wait_for_mcp_ready() {
   if [[ -z "$MCP_BINARY" || ! -x "$MCP_BINARY" ]]; then
     return 0
   fi
+  if is_isolated_non_preview_edit_proof; then
+    return 1
+  fi
 
   local waited=0
   while [[ $waited -lt $PATTERN_WAIT_SECONDS ]]; do
     dismiss_startup_dialogs
     if MCP_BINARY_PATH="$MCP_BINARY" \
-      HARNESS_USE_MCP_PROXY=1 \
-      MCP_PROXY_URL="$(mcp_proxy_url_for_harness)" \
       HARNESS_ROOT_DIR="$ROOT_DIR" \
       HARNESS_VSYNC_REPO_DIR="$VSYNC_REPO_DIR" \
       python3 - <<'PY' >/dev/null 2>&1
@@ -3034,8 +3060,6 @@ run_edit_actions_via_mcp() {
 
     (
     MCP_BINARY_PATH="$MCP_BINARY" \
-    HARNESS_USE_MCP_PROXY=1 \
-    MCP_PROXY_URL="$(mcp_proxy_url_for_harness)" \
     EDIT_WAIT_SECONDS="$EDIT_WAIT_SECONDS" \
     MCP_WALL_TIMEOUT="$mcp_wall_timeout" \
     MCP_PREFLIGHT_SESSION_STATUS="$preflight_status_for_mcp" \
@@ -4300,7 +4324,11 @@ ensure_mcp_plugin_installed || {
   exit 1
 }
 cleanup_orphan_mcp_helpers
-start_mcp_sidecar || true
+if should_start_mcp_sidecar; then
+  start_mcp_sidecar || true
+else
+  log "skipping Studio MCP sidecar for isolated edit-only non-preview proof"
+fi
 auto_prepare_place
 if should_start_live_vsync_server; then
   ensure_vsync_server_running
@@ -4351,11 +4379,14 @@ if [[ "$CURRENT_STUDIO_STATUS" != "not_running" ]]; then
     wait_for_editor_ready "$PATTERN_WAIT_SECONDS" || {
       log "Studio editor did not become ready after relaunch before timeout; continuing with best effort"
     }
-    if wait_for_mcp_ready; then
-      MCP_READY=1
-    else
-      MCP_READY=0
-      log "Studio MCP helper did not become ready after relaunch; edit-mode MCP actions will stay disabled"
+  if wait_for_mcp_ready; then
+    MCP_READY=1
+  elif is_isolated_non_preview_edit_proof; then
+    MCP_READY=0
+    log "skipping Studio MCP readiness wait for isolated edit-only non-preview proof"
+  else
+    MCP_READY=0
+    log "Studio MCP helper did not become ready after relaunch; edit-mode MCP actions will stay disabled"
     fi
   else
     log "reusing existing Roblox Studio session without restart (status=$CURRENT_STUDIO_STATUS)"
@@ -4385,6 +4416,9 @@ if [[ "$CURRENT_STUDIO_STATUS" != "not_running" ]]; then
       }
       if wait_for_mcp_ready; then
         MCP_READY=1
+      elif is_isolated_non_preview_edit_proof; then
+        MCP_READY=0
+        log "skipping Studio MCP readiness wait while attaching isolated edit-only non-preview proof"
       else
         MCP_READY=0
         log "Studio MCP helper did not become ready while attaching to edit mode; edit-mode MCP actions will stay disabled"
@@ -4411,6 +4445,9 @@ else
   }
   if wait_for_mcp_ready; then
     MCP_READY=1
+  elif is_isolated_non_preview_edit_proof; then
+    MCP_READY=0
+    log "skipping Studio MCP readiness wait for isolated edit-only non-preview proof"
   else
     MCP_READY=0
     log "Studio MCP helper did not become ready after initial launch; edit-mode MCP actions will stay disabled"

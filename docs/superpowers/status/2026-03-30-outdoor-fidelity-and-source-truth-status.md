@@ -1226,3 +1226,26 @@ The compact historical archive index is:
   - the harness unblock has now paid off by finding a real streaming-engine bug
   - the product fix is in with a regression guard
   - the next proof step is to burn down the intermittent MCP `423 Locked` path just enough to re-run the isolated `StreamingPriority.spec.lua` slice and confirm the scheduler is green remotely
+
+### 2026-04-02: Isolated Tertiary Proof No Longer Depends On The MCP Relay, But RunAllEntry Still Fails To Prove Completion
+
+- I kept this slice narrow and only changed the isolated edit-only proof path that was still burning time on `tertiary`.
+- The harness is now materially tighter for isolated non-preview edit proofs:
+  - it no longer forces proxy-backed MCP env into the isolated readiness/edit-action path
+  - it no longer starts the local Studio MCP sidecar for `--no-play --spec-filter <non-preview>`
+  - it no longer burns the full MCP readiness wait on that path
+  - it now preconfigures `RunAllEntry` before Studio launch for that isolated proof shape instead of trying to toggle it after Studio has already booted
+- Remote `tertiary` proof consequences:
+  - green: the old repeated `http://localhost:44755/request` `423 Locked` relay contention is gone
+  - green: there is no `rbx-studio-mcp --stdio` sidecar process in the isolated proof run anymore
+  - green: the harness now reaches the isolated `RunAllEntry` fallback deterministically instead of hanging behind proxy churn
+  - remaining blocker: even with `RunAllConfig.lua` pre-armed before launch, the isolated `StreamingPriority.spec.lua` proof still does not emit `Filtering tests to spec:` / `Running tests:` / `TestEZ tests complete` markers on `tertiary`
+  - the live Studio log now shows only repeated `CURLINFO_OS_ERRNO: 61 Connection refused` from the MCP plugin polling `localhost:44755`; that noise no longer reflects the harness control path, but the isolated proof is still not self-reporting completion through `RunAllEntry`
+- Verification for this slice:
+  - local-safe green: `python3 -m unittest scripts.tests.test_run_studio_harness scripts.tests.test_austin_runtime_contract scripts.tests.test_play_render_truth -v`
+  - local-safe green: `bash -n scripts/run_studio_harness.sh`
+  - local-safe green: `git diff --check`
+  - remote `tertiary`: isolated `StreamingPriority.spec.lua` proof now skips sidecar and MCP-ready wait, reaches `RunAllEntry` fallback, and then times out specifically on missing completion markers
+- Interpretation:
+  - the relay/proxy blocker is no longer the reason the isolated proof is failing
+  - the next targeted fix should focus on how isolated edit proofs are triggered and observed in Studio, not on reviving the old localhost relay

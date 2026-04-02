@@ -282,11 +282,13 @@ class RunStudioHarnessTests(unittest.TestCase):
         self.assertIn('resultType = existingRoot and "existing" or typeof(previewResult)', self.text)
 
     def test_harness_runs_persistent_mcp_sidecar_for_plugin_relay(self) -> None:
+        self.assertIn("is_isolated_non_preview_edit_proof()", self.text)
         self.assertIn("mcp_sidecar_port_open()", self.text)
         self.assertIn("mcp_sidecar_listener_owned_by_binary()", self.text)
         self.assertIn("terminate_stale_mcp_sidecar_listener()", self.text)
         self.assertIn("cleanup_orphan_mcp_helpers()", self.text)
         self.assertIn("start_mcp_sidecar()", self.text)
+        self.assertIn("should_start_mcp_sidecar()", self.text)
         self.assertIn("stop_mcp_sidecar()", self.text)
         self.assertIn('"$MCP_BINARY" --stdio', self.text)
         self.assertIn('["ps", "-Ao", "pid=,ppid=,command="]', self.text)
@@ -296,10 +298,12 @@ class RunStudioHarnessTests(unittest.TestCase):
         self.assertIn('lsof -nP -iTCP:44755 -sTCP:LISTEN -t', self.text)
         self.assertIn('log "refusing to reuse non-harness Studio MCP listener on port 44755', self.text)
         self.assertIn('log "stopping stale Studio MCP listener on port 44755', self.text)
-        self.assertIn("cleanup_orphan_mcp_helpers\nstart_mcp_sidecar || true", self.text)
+        self.assertIn("cleanup_orphan_mcp_helpers", self.text)
+        self.assertIn("if should_start_mcp_sidecar; then", self.text)
         self.assertIn('start_mcp_sidecar || true', self.text)
         self.assertIn('log "started Studio MCP sidecar on localhost:44755"', self.text)
         self.assertIn('log "Studio MCP sidecar failed to expose localhost:44755; continuing without persistent relay"', self.text)
+        self.assertIn('log "skipping Studio MCP sidecar for isolated edit-only non-preview proof"', self.text)
         self.assertIn('MCP_SIDECAR_FD="9"', self.text)
         self.assertIn('eval "exec ${MCP_SIDECAR_FD}<>\\\"$MCP_SIDECAR_FIFO\\\""', self.text)
         self.assertIn('"$MCP_BINARY" --stdio <"$MCP_SIDECAR_FIFO" >"$MCP_SIDECAR_LOG" 2>&1', self.text)
@@ -428,8 +432,10 @@ class RunStudioHarnessTests(unittest.TestCase):
     def test_harness_uses_proxy_only_when_explicitly_requested(self) -> None:
         self.assertIn('use_proxy = os.environ.get("HARNESS_USE_MCP_PROXY", "").strip().lower() in {', self.proxy_lib_text)
         self.assertIn("if use_proxy and proxy_url:", self.proxy_lib_text)
-        self.assertIn('HARNESS_USE_MCP_PROXY=1 \\', self.text)
-        self.assertIn('MCP_BINARY_PATH="$MCP_BINARY" HARNESS_USE_MCP_PROXY=1 MCP_PROXY_URL="$(mcp_proxy_url_for_harness)"', self.text)
+        ready_block = self.text[self.text.index("wait_for_mcp_ready() {"):self.text.index("run_edit_actions_via_runall_entry() {")]
+        self.assertNotIn('HARNESS_USE_MCP_PROXY=1 \\', ready_block)
+        edit_block = self.text[self.text.index("run_edit_actions_via_mcp() {"):self.text.index("capture_preview_telemetry_artifacts() {")]
+        self.assertNotIn('HARNESS_USE_MCP_PROXY=1 \\', edit_block)
 
     def test_proxy_backed_mcp_snippets_do_not_require_direct_client_module(self) -> None:
         self.assertIn('JsonRpcStdioClient = None', self.text)
@@ -590,7 +596,12 @@ class RunStudioHarnessTests(unittest.TestCase):
         self.assertIn("specNameFilter = runAllSpecFilter", self.text)
 
     def test_runall_entry_edit_mode_is_disabled_when_mcp_drives_edit_tests(self) -> None:
-        self.assertIn('if [[ $RUNALL_EDIT_ENABLED -eq 0 || -n "$MCP_BINARY" ]]; then', self.text)
+        self.assertIn("should_preconfigure_runall_entry_edit_mode()", self.text)
+        self.assertIn("if ! should_preconfigure_runall_entry_edit_mode; then", self.text)
+
+    def test_isolated_non_preview_specs_preconfigure_runall_entry_before_launch(self) -> None:
+        self.assertIn("should_preconfigure_runall_entry_edit_mode()", self.text)
+        self.assertIn('if can_run_runall_entry_edit_fallback && is_isolated_non_preview_edit_proof; then', self.text)
 
     def test_non_preview_edit_specs_can_fallback_to_runall_entry_when_mcp_bridge_is_unready(self) -> None:
         self.assertIn('MCP_READY=0', self.text)
@@ -610,6 +621,18 @@ class RunStudioHarnessTests(unittest.TestCase):
         self.assertIn('elif [[ -n "$RUNALL_SPEC_FILTER" && "$RUNALL_SPEC_FILTER" != *Preview* ]]; then', self.text)
         self.assertIn('edit_readiness_target=""', self.text)
         self.assertIn('if [[ -n "$edit_readiness_target" ]]; then', self.text)
+
+    def test_isolated_non_preview_specs_skip_mcp_sidecar_startup(self) -> None:
+        self.assertIn("is_isolated_non_preview_edit_proof()", self.text)
+        self.assertIn("should_start_mcp_sidecar()", self.text)
+        self.assertIn('[[ $DO_PLAY -eq 0 && -n "$RUNALL_SPEC_FILTER" && "$RUNALL_SPEC_FILTER" != *Preview* ]]', self.text)
+        self.assertIn('log "skipping Studio MCP sidecar for isolated edit-only non-preview proof"', self.text)
+
+    def test_isolated_non_preview_specs_skip_mcp_readiness_wait(self) -> None:
+        self.assertIn("is_isolated_non_preview_edit_proof()", self.text)
+        self.assertIn('if is_isolated_non_preview_edit_proof; then\n    return 1\n  fi', self.text)
+        self.assertIn('log "skipping Studio MCP readiness wait for isolated edit-only non-preview proof"', self.text)
+        self.assertIn('log "skipping Studio MCP readiness wait while attaching isolated edit-only non-preview proof"', self.text)
 
     def test_harness_tracks_real_mcp_bridge_readiness_before_using_edit_actions(self) -> None:
         self.assertIn('MCP_READY_WAIT_SECONDS="${HARNESS_MCP_READY_WAIT_SECONDS:-12}"', self.text)
