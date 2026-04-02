@@ -9,7 +9,7 @@ set -euo pipefail
 # Usage (from repo root):
 #   bash scripts/export_austin_to_lua.sh
 #   bash scripts/export_austin_to_lua.sh --yolo
-#   bash scripts/export_austin_to_lua.sh --profile high
+#   bash scripts/export_austin_to_lua.sh --terrain-cell-size 2
 #   bash scripts/export_austin_to_lua.sh --profile high --satellite
 #
 # Default behavior:
@@ -45,8 +45,8 @@ for arg in "$@"; do
 done
 
 if [[ $explicit_fidelity -eq 0 ]]; then
-  DEFAULT_FIDELITY_ARGS=("--profile" "high")
-  echo "[export_austin_to_lua] Fetching OSM + exporting manifest with the default shared Austin high-fidelity profile (satellite opt-in only)..."
+  DEFAULT_FIDELITY_ARGS=("--terrain-cell-size" "2")
+  echo "[export_austin_to_lua] Fetching OSM + exporting manifest with the default shared Austin cell=2 path (satellite opt-in only)..."
 else
   echo "[export_austin_to_lua] Fetching OSM + exporting manifest with explicit fidelity arguments..."
 fi

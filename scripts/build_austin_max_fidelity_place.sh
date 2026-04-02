@@ -20,8 +20,8 @@ rsync -a "$ROOT_DIR/scripts/" "$TEMP_WORKSPACE/scripts/"
 rsync -a --exclude "target" --exclude "out" "$ROOT_DIR/rust/" "$TEMP_WORKSPACE/rust/"
 rsync -a --exclude "out" "$ROOT_DIR/roblox/" "$TEMP_WORKSPACE/roblox/"
 
-echo "[build_austin_max_fidelity_place] Exporting Austin manifest/shards with bounded high fidelity..."
-bash "$TEMP_WORKSPACE/scripts/export_austin_to_lua.sh" --profile high
+echo "[build_austin_max_fidelity_place] Exporting Austin manifest/shards with bounded cell=2 fidelity..."
+bash "$TEMP_WORKSPACE/scripts/export_austin_to_lua.sh" --terrain-cell-size 2
 
 echo "[build_austin_max_fidelity_place] Building clean place to $OUTPUT_PLACE"
 python3 "$ROOT_DIR/scripts/bootstrap_arnis_studio.py" --roblox-root "$TEMP_WORKSPACE/roblox" --output "$OUTPUT_PLACE"

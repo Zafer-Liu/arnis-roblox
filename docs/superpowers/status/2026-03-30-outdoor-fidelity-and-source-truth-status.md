@@ -779,10 +779,11 @@ The compact historical archive index is:
 ### 2026-04-02: Shared Austin Defaults Are Now Bounded For Planetary Streaming
 
 - I corrected the shared export defaults after the repo briefly drifted toward satellite-backed Austin as the normal path.
+- The first pass only removed explicit `--satellite` from the wrapper, but that was not sufficient because `arbx_cli --profile high` still implies satellite internally.
 - The committed default behavior is now:
-  - `export_austin_to_lua.sh` injects `--profile high` only
+  - `export_austin_to_lua.sh` injects `--terrain-cell-size 2` only
   - satellite imagery remains explicit opt-in, not part of the shared default
-  - `build_austin_max_fidelity_place.sh` now builds from bounded high fidelity instead of forcing `--satellite`
+  - `build_austin_max_fidelity_place.sh` now builds from bounded `cell=2` fidelity instead of forcing `--satellite`
 - This keeps the default iteration path aligned with the current priorities:
   - faster compile/export loops
   - lower data weight
