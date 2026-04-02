@@ -50,12 +50,12 @@ class AustinFidelityScriptTests(unittest.TestCase):
         self.assertIn('echo "[export_austin_to_lua] Emit targets: runtime=$emit_runtime preview=$emit_preview harness=$emit_harness verify=$emit_verify"', text)
         self.assertIn('if [[ $emit_preview -eq 1 || $emit_harness -eq 1 || $emit_verify -eq 1 ]]; then', text)
         self.assertIn('emit_runtime=1', text)
+        self.assertIn('export_from_osm_args=("${DEFAULT_FIDELITY_ARGS[@]}")', text)
+        self.assertIn('if [[ ${#compile_args[@]} -gt 0 ]]; then', text)
+        self.assertIn('export_from_osm_args+=("${compile_args[@]}")', text)
         self.assertIn("explicit_json_out=0", text)
         self.assertIn('rm -f "$OUT_DIR/austin-manifest.json"', text)
-        self.assertIn(
-            'bash "$ROOT_DIR/scripts/export_austin_from_osm.sh" "${DEFAULT_FIDELITY_ARGS[@]}" "${compile_args[@]}"',
-            text,
-        )
+        self.assertIn('bash "$ROOT_DIR/scripts/export_austin_from_osm.sh" "${export_from_osm_args[@]}"', text)
         self.assertIn('if [[ $emit_runtime -eq 1 ]]; then', text)
         self.assertIn('--max-bytes "$RUNTIME_SHARD_MAX_BYTES"', text)
         self.assertIn('if [[ $emit_preview -eq 1 ]]; then', text)

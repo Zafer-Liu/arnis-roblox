@@ -138,7 +138,12 @@ if [[ $explicit_json_out -eq 0 ]]; then
   rm -f "$OUT_DIR/austin-manifest.json"
 fi
 
-bash "$ROOT_DIR/scripts/export_austin_from_osm.sh" "${DEFAULT_FIDELITY_ARGS[@]}" "${compile_args[@]}"
+export_from_osm_args=("${DEFAULT_FIDELITY_ARGS[@]}")
+if [[ ${#compile_args[@]} -gt 0 ]]; then
+  export_from_osm_args+=("${compile_args[@]}")
+fi
+
+bash "$ROOT_DIR/scripts/export_austin_from_osm.sh" "${export_from_osm_args[@]}"
 
 if [[ $explicit_json_out -eq 0 ]]; then
   rm -f "$OUT_DIR/austin-manifest.json"
