@@ -27,7 +27,9 @@ local KIND_MATERIAL = {
     meadow = Enum.Material.Grass,
     flowerbed = Enum.Material.Grass,
     leisure = Enum.Material.Grass,
+    pitch = Enum.Material.Grass,
     -- Dense vegetation
+    golf_course = Enum.Material.LeafyGrass,
     forest = Enum.Material.LeafyGrass,
     wood = Enum.Material.LeafyGrass,
     scrub = Enum.Material.LeafyGrass,

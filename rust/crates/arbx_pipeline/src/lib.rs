@@ -2721,7 +2721,7 @@ fn emit_area_way(
 
         let kind = match amenity.as_str() {
             "parking" | "parking_space" => "parking",
-            "school" | "university" | "college" => "school",
+            "school" | "university" | "college" => "education",
             "hospital" | "clinic" => "hospital",
             "place_of_worship" => "religious",
             "marketplace" => "retail",
@@ -4802,6 +4802,37 @@ mod tests {
                 assert_eq!(water.footprint.points.len(), 4);
             }
             other => panic!("expected fountain water polygon, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn emit_area_way_normalizes_school_amenity_to_education_landuse() {
+        let mut features = Vec::new();
+        let tags = HashMap::from([("amenity".to_string(), "school".to_string())]);
+        let footprint = vec![
+            Vec2::new(0.0, 0.0),
+            Vec2::new(24.0, 0.0),
+            Vec2::new(24.0, 12.0),
+            Vec2::new(0.0, 12.0),
+        ];
+
+        emit_area_way(
+            "school_way",
+            &tags,
+            &footprint,
+            Vec::new(),
+            0.3,
+            &mut features,
+        );
+
+        assert_eq!(features.len(), 1, "expected exactly one emitted feature");
+        match &features[0] {
+            Feature::Landuse(landuse) => {
+                assert_eq!(landuse.id, "school_way");
+                assert_eq!(landuse.kind, "education");
+                assert_eq!(landuse.footprint.points.len(), 4);
+            }
+            other => panic!("expected education landuse, got {:?}", other),
         }
     }
 

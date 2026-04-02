@@ -122,13 +122,18 @@ fn parse_css_color(s: &str) -> Option<crate::manifest::Color> {
 fn landuse_material(kind: &str) -> String {
     match kind {
         "park" | "garden" | "recreation_ground" | "village_green" | "leisure" => "Grass",
-        "forest" | "wood" => "LeafyGrass",
+        "pitch" => "Grass",
+        "golf_course" | "forest" | "wood" => "LeafyGrass",
         "farmland" | "orchard" | "vineyard" | "allotments" => "Mud",
         "beach" | "sand" => "Sand",
         "bare_rock" | "cliff" => "Rock",
-        "residential" | "cemetery" => "Ground",
-        "commercial" | "retail" | "civic" => "Concrete",
-        "industrial" | "railway" => "SmoothPlastic",
+        "residential" => "Ground",
+        "cemetery" | "religious" => "Sandstone",
+        "commercial" | "civic" => "Concrete",
+        "retail" => "Limestone",
+        "education" => "Brick",
+        "hospital" | "industrial" => "SmoothPlastic",
+        "railway" => "Slate",
         "parking" | "road" => "Asphalt",
         "grass" | "meadow" | "heath" => "Grass",
         "scrub" | "greenfield" => "LeafyGrass",
@@ -141,7 +146,7 @@ fn landuse_material(kind: &str) -> String {
 fn terrain_material_priority(material: &str) -> u8 {
     match material {
         "Water" => 100,
-        "Asphalt" | "Concrete" | "SmoothPlastic" => 80,
+        "Asphalt" | "Concrete" | "SmoothPlastic" | "Brick" | "Limestone" | "Slate" => 80,
         "Rock" | "Sandstone" | "Granite" => 70,
         "Sand" | "Mud" => 60,
         "LeafyGrass" => 50,

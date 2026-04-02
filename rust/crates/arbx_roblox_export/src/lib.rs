@@ -970,6 +970,90 @@ mod tests {
     }
 
     #[test]
+    fn export_preserves_richer_landuse_material_semantics() {
+        let features = vec![
+            Feature::Landuse(LanduseFeature {
+                id: "pitch_semantics".to_string(),
+                kind: "pitch".to_string(),
+                footprint: Footprint::new(vec![
+                    Vec2::new(0.0, 0.0),
+                    Vec2::new(16.0, 0.0),
+                    Vec2::new(16.0, 16.0),
+                    Vec2::new(0.0, 16.0),
+                ]),
+            }),
+            Feature::Landuse(LanduseFeature {
+                id: "education_semantics".to_string(),
+                kind: "education".to_string(),
+                footprint: Footprint::new(vec![
+                    Vec2::new(20.0, 0.0),
+                    Vec2::new(36.0, 0.0),
+                    Vec2::new(36.0, 16.0),
+                    Vec2::new(20.0, 16.0),
+                ]),
+            }),
+            Feature::Landuse(LanduseFeature {
+                id: "religious_semantics".to_string(),
+                kind: "religious".to_string(),
+                footprint: Footprint::new(vec![
+                    Vec2::new(40.0, 0.0),
+                    Vec2::new(56.0, 0.0),
+                    Vec2::new(56.0, 16.0),
+                    Vec2::new(40.0, 16.0),
+                ]),
+            }),
+            Feature::Landuse(LanduseFeature {
+                id: "retail_semantics".to_string(),
+                kind: "retail".to_string(),
+                footprint: Footprint::new(vec![
+                    Vec2::new(60.0, 0.0),
+                    Vec2::new(76.0, 0.0),
+                    Vec2::new(76.0, 16.0),
+                    Vec2::new(60.0, 16.0),
+                ]),
+            }),
+            Feature::Landuse(LanduseFeature {
+                id: "railway_semantics".to_string(),
+                kind: "railway".to_string(),
+                footprint: Footprint::new(vec![
+                    Vec2::new(80.0, 0.0),
+                    Vec2::new(96.0, 0.0),
+                    Vec2::new(96.0, 16.0),
+                    Vec2::new(80.0, 16.0),
+                ]),
+            }),
+        ];
+
+        let elevation = FlatElevationProvider { height: 0.0 };
+        let manifest = export_features(&features, &ExportConfig::default(), &elevation);
+        let chunk = &manifest.chunks[0];
+        let terrain = chunk.terrain.as_ref().expect("expected terrain grid");
+        let materials = terrain
+            .materials
+            .as_ref()
+            .expect("expected terrain materials");
+
+        let material_by_id: std::collections::HashMap<_, _> = chunk
+            .landuse
+            .iter()
+            .map(|landuse| (landuse.id.as_str(), landuse.material.as_str()))
+            .collect();
+
+        assert_eq!(material_by_id.get("pitch_semantics"), Some(&"Grass"));
+        assert_eq!(material_by_id.get("education_semantics"), Some(&"Brick"));
+        assert_eq!(material_by_id.get("religious_semantics"), Some(&"Sandstone"));
+        assert_eq!(material_by_id.get("retail_semantics"), Some(&"Limestone"));
+        assert_eq!(material_by_id.get("railway_semantics"), Some(&"Slate"));
+
+        for expected in ["Grass", "Brick", "Sandstone", "Limestone", "Slate"] {
+            assert!(
+                materials.iter().any(|material| material == expected),
+                "expected terrain materials to preserve {expected} semantics"
+            );
+        }
+    }
+
+    #[test]
     fn export_omits_per_cell_terrain_materials_when_no_overrides_are_needed() {
         let features = vec![Feature::Road(RoadFeature {
             id: "road_only".to_string(),

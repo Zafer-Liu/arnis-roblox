@@ -965,3 +965,28 @@ The compact historical archive index is:
   - this was operator path drift, not a reason to add another committed machine-specific fallback
 - Verification for this slice:
   - remote `tertiary`: focused `SimpleResidentialShell.spec.lua` pass from `/Volumes/APDataStore/arnis-roblox-proof` with explicit `VSYNC_REPO_DIR=$HOME/.codex-remote-studio/vertigo-sync`
+
+### 2026-04-02: Landuse Surface Semantics No Longer Collapse `education` And Richer Urban Materials In The Export Path
+
+- I took the next bounded outdoor seam immediately after the simple-shell tranche: landuse semantic-material truth.
+- Root cause from the red/green loop:
+  - the pipeline still normalized `amenity=school|university|college` to `school` instead of the richer canonical `education`
+  - the exporter still treated `Brick`, `Limestone`, and `Slate` like low-priority unknown terrain materials, so explicit landuse surfaces could lose to the default terrain fill even after their manifest `material` was richer
+- Minimal fixes landed in the clean worktree:
+  - `arbx_pipeline` now normalizes school-like amenities to `education`
+  - `arbx_roblox_export` now maps `pitch`, `golf_course`, `education`, `religious`, `retail`, `hospital`, and `railway` to richer manifest/terrain materials
+  - terrain-material priority now lets explicit `Brick`, `Limestone`, and `Slate` overrides beat the default base terrain
+  - `LanduseBuilder.lua` now carries `pitch` and `golf_course` in the Roblox fallback table so the downstream fallback vocabulary matches the Rust side
+- New local-safe contract coverage:
+  - `emit_area_way_normalizes_school_amenity_to_education_landuse`
+  - `export_preserves_richer_landuse_material_semantics`
+  - `scripts.tests.test_landuse_material_contract`
+- Current interpretation after this slice:
+  - one of the biggest remaining outdoor-fidelity gaps is now narrowed before Studio even runs
+  - large parcels like education/religious/retail/railway landuse shells no longer need to collapse to generic `Ground`/`Concrete` semantics by default
+  - the next proof step for this slice is not another harness change; it is a regenerated Austin export on `tertiary` from the SSD-backed proof clone so the new semantics flow into the real bounded sample
+- Verification for this slice:
+  - local-safe red: `cargo test --manifest-path rust/Cargo.toml -p arbx_pipeline emit_area_way_normalizes_school_amenity_to_education_landuse -- --nocapture`
+  - local-safe red: `cargo test --manifest-path rust/Cargo.toml -p arbx_roblox_export export_preserves_richer_landuse_material_semantics -- --nocapture`
+  - local-safe green: same two cargo tests after the fixes
+  - local-safe green: `python3 -m unittest scripts.tests.test_landuse_material_contract -v`
