@@ -87,6 +87,7 @@ return function()
 
     local detailPartCount = 0
     local facadeBandCount = 0
+    local facadeBeltlineCount = detailFolder:GetAttribute("ArnisFacadeBeltlineCount") or 0
     for _, descendant in ipairs(detailFolder:GetDescendants()) do
         if descendant:IsA("BasePart") then
             detailPartCount += 1
@@ -105,6 +106,10 @@ return function()
     Assert.truthy(
         detailPartCount >= 1,
         "expected sparse residential building to retain minimal perimeter/readability detail"
+    )
+    Assert.truthy(
+        facadeBeltlineCount >= 1,
+        "expected sparse residential building to retain a bounded facade beltline cue"
     )
 
     worldRoot:Destroy()

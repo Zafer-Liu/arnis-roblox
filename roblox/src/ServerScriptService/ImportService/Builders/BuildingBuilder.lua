@@ -642,44 +642,99 @@ local function fillInterior(footprintXZ, holeXZ, bounds, baseY, material)
     local GRID_SIZE = 4 -- 4-stud grid matching voxel resolution
     local WALL_THICKNESS = 0.6
     local INTERIOR_FILL_EDGE_CLEARANCE = GRID_SIZE * 0.5 + WALL_THICKNESS
-    local function flushRowSpan(startX, endX, z)
-        if startX == nil or endX == nil then
+    local function centerXForColumn(columnIndex)
+        return minX + GRID_SIZE * 0.5 + columnIndex * GRID_SIZE
+    end
+
+    local function centerZForRow(rowIndex)
+        return minZ + GRID_SIZE * 0.5 + rowIndex * GRID_SIZE
+    end
+
+    local function flushRect(rect)
+        if rect == nil then
             return
         end
 
-        local spanCount = math.floor(((endX - startX) / GRID_SIZE) + 0.5) + 1
-        local spanCenterX = (startX + endX) * 0.5
+        local startX = centerXForColumn(rect.startColumn)
+        local endX = centerXForColumn(rect.endColumn)
+        local startZ = centerZForRow(rect.startRow)
+        local endZ = centerZForRow(rect.endRow)
         BuildingBuilder._fillTerrainBlock(
-            CFrame.new(spanCenterX, baseY, z),
-            Vector3.new(spanCount * GRID_SIZE, GRID_SIZE, GRID_SIZE),
+            CFrame.new((startX + endX) * 0.5, baseY, (startZ + endZ) * 0.5),
+            Vector3.new(
+                (rect.endColumn - rect.startColumn + 1) * GRID_SIZE,
+                GRID_SIZE,
+                (rect.endRow - rect.startRow + 1) * GRID_SIZE
+            ),
             material
         )
     end
 
-    local z = minZ + GRID_SIZE * 0.5
+    local activeRects = {}
+    local rowIndex = 0
+    local z = centerZForRow(rowIndex)
     while z < maxZ do
-        local rowSpanStartX = nil
-        local rowSpanEndX = nil
-        local x = minX + GRID_SIZE * 0.5
+        local rowSpans = {}
+        local rowSpanStartColumn = nil
+        local rowSpanEndColumn = nil
+        local columnIndex = 0
+        local x = centerXForColumn(columnIndex)
         while x < maxX do
             local isInteriorCell = GeoUtils.pointInPolygonWithHoles(x, z, footprintXZ, holeXZ)
                 and distanceToPolygonWithHoleEdges2D(x, z, footprintXZ, holeXZ) >= INTERIOR_FILL_EDGE_CLEARANCE
             if isInteriorCell then
-                if rowSpanStartX == nil then
-                    rowSpanStartX = x
+                if rowSpanStartColumn == nil then
+                    rowSpanStartColumn = columnIndex
                 end
-                rowSpanEndX = x
-            elseif rowSpanStartX ~= nil then
-                flushRowSpan(rowSpanStartX, rowSpanEndX, z)
-                rowSpanStartX = nil
-                rowSpanEndX = nil
+                rowSpanEndColumn = columnIndex
+            elseif rowSpanStartColumn ~= nil then
+                rowSpans[#rowSpans + 1] = {
+                    startColumn = rowSpanStartColumn,
+                    endColumn = rowSpanEndColumn,
+                }
+                rowSpanStartColumn = nil
+                rowSpanEndColumn = nil
             end
-            x = x + GRID_SIZE
+            columnIndex += 1
+            x = centerXForColumn(columnIndex)
         end
-        if rowSpanStartX ~= nil then
-            flushRowSpan(rowSpanStartX, rowSpanEndX, z)
+        if rowSpanStartColumn ~= nil then
+            rowSpans[#rowSpans + 1] = {
+                startColumn = rowSpanStartColumn,
+                endColumn = rowSpanEndColumn,
+            }
         end
-        z = z + GRID_SIZE
+
+        local nextActiveRects = {}
+        for _, span in ipairs(rowSpans) do
+            local spanKey = string.format("%d:%d", span.startColumn, span.endColumn)
+            local activeRect = activeRects[spanKey]
+            if activeRect and activeRect.endRow == rowIndex - 1 then
+                activeRect.endRow = rowIndex
+                nextActiveRects[spanKey] = activeRect
+            else
+                nextActiveRects[spanKey] = {
+                    startColumn = span.startColumn,
+                    endColumn = span.endColumn,
+                    startRow = rowIndex,
+                    endRow = rowIndex,
+                }
+            end
+        end
+
+        for spanKey, rect in pairs(activeRects) do
+            if nextActiveRects[spanKey] == nil then
+                flushRect(rect)
+            end
+        end
+
+        activeRects = nextActiveRects
+        rowIndex += 1
+        z = centerZForRow(rowIndex)
+    end
+
+    for _, rect in pairs(activeRects) do
+        flushRect(rect)
     end
 end
 
@@ -1802,6 +1857,74 @@ local function buildFoundation(parent, worldPts, baseY)
     end
 end
 
+local function getFacadeBeltlineY(baseY, height)
+    local floorHeight = 5
+    return baseY + math.min(math.max(floorHeight + 0.4, height * 0.32), math.max(1.8, height - 1.2))
+end
+
+local function buildFacadeBeltlines(parent, worldPts, baseY, height)
+    local beltlineHeight = 0.28
+    local beltlineDepth = 0.42
+    local beltlineY = getFacadeBeltlineY(baseY, height)
+    local builtCount = 0
+
+    for i = 1, #worldPts do
+        local p1 = worldPts[i]
+        local p2 = worldPts[(i % #worldPts) + 1]
+        local edgeLen = (p2 - p1).Magnitude
+        if edgeLen < 4 then
+            continue
+        end
+
+        local mid = (p1 + p2) * 0.5
+        local dir = (p2 - p1).Unit
+
+        local beltline = Instance.new("Part")
+        beltline.Name = "FacadeBeltline"
+        beltline.Size = Vector3.new(edgeLen, beltlineHeight, beltlineDepth)
+        beltline.Material = Enum.Material.Concrete
+        beltline.Color = Color3.fromRGB(200, 195, 185)
+        beltline.Anchored = true
+        beltline.CanCollide = false
+        beltline.CastShadow = false
+        beltline.CFrame = CFrame.lookAt(mid + Vector3.new(0, beltlineY, 0), mid + Vector3.new(0, beltlineY, 0) + dir)
+            * CFrame.new(0, 0, -0.14)
+        beltline.Parent = parent
+        builtCount += 1
+    end
+
+    return builtCount
+end
+
+local function addFacadeBeltlinesToAccumulator(acc, worldPts, baseY, height)
+    local beltlineHeight = 0.28
+    local beltlineY = getFacadeBeltlineY(baseY, height)
+    local builtCount = 0
+
+    for i = 1, #worldPts do
+        local p1 = worldPts[i]
+        local p2 = worldPts[(i % #worldPts) + 1]
+        local edgeVec = p2 - p1
+        local edgeLen = edgeVec.Magnitude
+        if edgeLen < 4 then
+            continue
+        end
+
+        local dir = edgeVec.Unit
+        local outward = Vector3.new(-dir.Z, 0, dir.X) * 0.14
+        acc:addQuad(
+            p1 + outward + Vector3.new(0, beltlineY - beltlineHeight * 0.5, 0),
+            p2 + outward + Vector3.new(0, beltlineY - beltlineHeight * 0.5, 0),
+            p2 + outward + Vector3.new(0, beltlineY + beltlineHeight * 0.5, 0),
+            p1 + outward + Vector3.new(0, beltlineY + beltlineHeight * 0.5, 0),
+            outward.Unit
+        )
+        builtCount += 1
+    end
+
+    return builtCount
+end
+
 local function buildCornice(parent, worldPts, topY)
     for i = 1, #worldPts do
         local p1 = worldPts[i]
@@ -2014,6 +2137,7 @@ function BuildingBuilder.FallbackBuild(parent, building, originStuds, chunk, win
     detailFolder.Name = "Detail"
     detailFolder.Parent = model
     detailFolder:SetAttribute("ArnisLodGroupKind", "detail")
+    detailFolder:SetAttribute("ArnisFacadeBeltlineCount", 0)
     CollectionService:AddTag(detailFolder, "LOD_DetailGroup")
 
     -- World coordinates of footprint vertices
@@ -2167,6 +2291,9 @@ function BuildingBuilder.FallbackBuild(parent, building, originStuds, chunk, win
 
     -- Keep sparse low-rise shells legible with a cheap perimeter cue at street level.
     buildFoundation(detailFolder, worldPts, baseY)
+    if preferSimpleShellDetail then
+        detailFolder:SetAttribute("ArnisFacadeBeltlineCount", buildFacadeBeltlines(detailFolder, worldPts, baseY, height))
+    end
     if not preferSimpleShellDetail then
         buildAwning(detailFolder, building, baseY, worldPts)
     end
@@ -2315,6 +2442,7 @@ function BuildingBuilder.MeshBuildAll(parent, buildings, originStuds, chunk, con
         detailFolder.Name = "Detail"
         detailFolder.Parent = model
         detailFolder:SetAttribute("ArnisLodGroupKind", "detail")
+        detailFolder:SetAttribute("ArnisFacadeBeltlineCount", 0)
         CollectionService:AddTag(detailFolder, "LOD_DetailGroup")
 
         local buildingAccumulators = {}
@@ -2583,6 +2711,12 @@ function BuildingBuilder.MeshBuildAll(parent, buildings, originStuds, chunk, con
                             )
                         end
                     end
+                end
+                if preferSimpleShellDetail then
+                    detailFolder:SetAttribute(
+                        "ArnisFacadeBeltlineCount",
+                        addFacadeBeltlinesToAccumulator(detailAcc, worldPts, baseY, height)
+                    )
                 end
 
                 if not preferSimpleShellDetail then

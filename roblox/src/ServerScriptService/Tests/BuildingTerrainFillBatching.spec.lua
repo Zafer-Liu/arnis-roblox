@@ -30,7 +30,7 @@ return function()
         }, { x = 0, y = 0, z = 0 }, {}, nil)
 
         Assert.truthy(model, "expected fallback build to return a model")
-        Assert.equal(fillCalls, 3, "expected rectangular building terrain fill to batch into one FillBlock per interior row")
+        Assert.equal(fillCalls, 1, "expected rectangular building terrain fill to batch identical interior rows into one FillBlock")
     end)
 
     BuildingBuilder._fillTerrainBlock = originalFillTerrainBlock

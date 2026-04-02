@@ -655,3 +655,32 @@ The compact historical archive index is:
   - remote `tertiary`: serialized edit proof for `SimpleResidentialShell.spec.lua`
   - remote `tertiary`: serialized edit proof for `BuildingTerrainFillBatching.spec.lua`
 - No Studio ran on this machine. `tertiary` was force-cleaned again after the proofs.
+
+### 2026-04-01: Simple-Shell Beltline Cues And Exact-Span Terrain Rectangles Pushed The Same Hotspot Lower
+
+- The next shared builder tranche stayed in the same `BuildingBuilder.lua` seam and tightened both sides of the same complaint:
+  - simple low-rise residential/apartment shells now publish a bounded `ArnisFacadeBeltlineCount` cue and render a cheap opaque `FacadeBeltline` instead of staying at foundation-only readability
+  - interior terrain fill no longer stops at row spans; it now merges identical accepted spans across adjacent rows into exact rectangles before calling `_fillTerrainBlock`
+- The focused proofs stayed green on `tertiary` after this follow-on change:
+  - `PASS SimpleResidentialShell.spec`
+  - `PASS BuildingTerrainFillBatching.spec`
+- The measured hotspot moved again on the same remote preview surface for `chunkId=-1_0`:
+  - `buildingTerrainFillMs=182` on the fresh `SimpleResidentialShell.spec` run
+  - `buildingTerrainFillMs=187` on the fresh `BuildingTerrainFillBatching.spec` run
+  - `buildingRoofBuildMs` remained about `19ms`
+  - `buildingFacadeDetailMs` remained `0`, so this extra readability cue did not spill into the expensive glass-band path
+- Current building diagnosis after this follow-on tranche:
+  - the shared simple-shell path is now less likely to read as “blank walls” from street level because it carries both a base cue and a bounded mid-wall beltline cue
+  - the dominant cost center is still `buildingTerrainFillMs`, but it is down materially from the earlier `220ms` read
+  - the next product-side work should keep targeting shared building visual richness and shell terrain-fill cost, not new harness features
+- GUI-session screenshot attempt status:
+  - a Terminal-launched GUI proof on `tertiary` was attempted to capture `/tmp/arnis-gui-play.png`
+  - that run failed before play proof completion because Studio reported the maximum allowed Studio windows were already open
+  - the failure mode was operational, not a new Roblox runtime regression, and `tertiary` had to be force-cleaned again by killing the orphaned Studio child windows directly
+  - the screenshot lane is therefore still not a green proof surface; the next screenshot attempt must start from a stricter preflight that proves zero existing Studio windows before launching the GUI-session play run
+- Verification for this slice:
+  - local-safe: `python3 -m unittest scripts.tests.test_play_render_truth scripts.tests.test_preview_telemetry_summary -v`
+  - local-safe: `git diff --check`
+  - remote `tertiary`: serialized edit proof for `SimpleResidentialShell.spec.lua`
+  - remote `tertiary`: serialized edit proof for `BuildingTerrainFillBatching.spec.lua`
+  - remote `tertiary`: GUI-session play screenshot attempt reproduced the max-Studio-window blocker and did not produce a trustworthy screenshot artifact
