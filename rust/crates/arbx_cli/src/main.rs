@@ -69,7 +69,7 @@ COMPILE OPTIONS:
 
 QUALITY PROFILES:
   --profile insane       cell=1 sat=on  (256x256 grid, ~2GB RAM, M5 Max / workstation)
-  --profile high         cell=2 sat=on  (128x128 grid, ~512MB RAM) [default]
+  --profile high         cell=2 sat=off (128x128 grid, ~512MB RAM) [default bounded detail]
   --profile balanced     cell=4 sat=off (64x64 grid, ~128MB RAM, 8GB machines)
   --profile fast         cell=8 sat=off (32x32 grid, ~32MB RAM, CI/testing)
   --yolo                 Alias for --profile insane
@@ -402,35 +402,7 @@ fn cmd_compile(args: &[String]) -> Result<(), String> {
             }
             "--profile" => {
                 let profile = args.get(i + 1).ok_or("--profile requires a preset name")?;
-                match profile.as_str() {
-                    "insane" => {
-                        terrain_cell_size = 1;
-                        if satellite_dir.is_none() {
-                            satellite_dir = Some("out/tiles/satellite".to_string());
-                        }
-                        eprintln!("Profile: insane — cell=1, satellite=on (36GB+ RAM)");
-                    }
-                    "high" => {
-                        terrain_cell_size = 2;
-                        if satellite_dir.is_none() {
-                            satellite_dir = Some("out/tiles/satellite".to_string());
-                        }
-                        eprintln!("Profile: high — cell=2, satellite=on (16GB+ RAM)");
-                    }
-                    "balanced" => {
-                        terrain_cell_size = 4;
-                        eprintln!("Profile: balanced — cell=4 (8GB+ RAM)");
-                    }
-                    "fast" => {
-                        terrain_cell_size = 8;
-                        eprintln!("Profile: fast — cell=8 (4GB+ RAM)");
-                    }
-                    other => {
-                        return Err(format!(
-                            "unknown profile: {other} (valid: insane, high, balanced, fast)"
-                        ));
-                    }
-                }
+                apply_compile_profile(profile, &mut terrain_cell_size, &mut satellite_dir)?;
                 i += 2;
             }
             "--yolo" => {
@@ -635,6 +607,41 @@ fn cmd_compile(args: &[String]) -> Result<(), String> {
             sqlite_out_path.as_ref(),
             &world_name,
         )?;
+    }
+
+    Ok(())
+}
+
+fn apply_compile_profile(
+    profile: &str,
+    terrain_cell_size: &mut i32,
+    satellite_dir: &mut Option<String>,
+) -> Result<(), String> {
+    match profile {
+        "insane" => {
+            *terrain_cell_size = 1;
+            if satellite_dir.is_none() {
+                *satellite_dir = Some("out/tiles/satellite".to_string());
+            }
+            eprintln!("Profile: insane — cell=1, satellite=on (36GB+ RAM)");
+        }
+        "high" => {
+            *terrain_cell_size = 2;
+            eprintln!("Profile: high — cell=2, satellite=off (16GB+ RAM)");
+        }
+        "balanced" => {
+            *terrain_cell_size = 4;
+            eprintln!("Profile: balanced — cell=4 (8GB+ RAM)");
+        }
+        "fast" => {
+            *terrain_cell_size = 8;
+            eprintln!("Profile: fast — cell=8 (4GB+ RAM)");
+        }
+        other => {
+            return Err(format!(
+                "unknown profile: {other} (valid: insane, high, balanced, fast)"
+            ));
+        }
     }
 
     Ok(())
@@ -1937,10 +1944,22 @@ mod tests {
     fn help_text_is_0_4_0_only() {
         let help = help_text();
         assert!(help.contains("Outputs Schema 0.4.0 JSON manifests."));
+        assert!(help.contains("--profile high         cell=2 sat=off"));
         assert!(!help.contains("Migrations"));
         assert!(!help.contains("0.1.0"));
         assert!(!help.contains("0.2.0"));
         assert!(!help.contains("0.3.0"));
+    }
+
+    #[test]
+    fn high_profile_keeps_cell_two_without_enabling_satellite() {
+        let mut terrain_cell_size = 8;
+        let mut satellite_dir = None;
+
+        apply_compile_profile("high", &mut terrain_cell_size, &mut satellite_dir).unwrap();
+
+        assert_eq!(terrain_cell_size, 2);
+        assert!(satellite_dir.is_none());
     }
 
     #[test]

@@ -794,3 +794,40 @@ The compact historical archive index is:
   - local-safe: `bash -n scripts/export_austin_to_lua.sh`
   - local-safe: `bash -n scripts/build_austin_max_fidelity_place.sh`
   - local-safe: `git diff --check`
+
+### 2026-04-02: CLI Profiles And Branch Hygiene Were Brought Back Into Line
+
+- The CLI profile surface now matches the shared bounded-default direction instead of fighting it:
+  - `arbx_cli --profile high` now means `cell=2, satellite=off`
+  - `--satellite` remains explicit opt-in
+  - `insane` / `--yolo` remain the imagery-heavy path
+- This is a real DX fix, not just a wrapper fix:
+  - the CLI help text, runtime profile behavior, and shared Austin wrapper semantics are now aligned
+  - the new unit seam is `apply_compile_profile(...)`, which keeps future profile drift easier to catch
+- Branch/worktree drift was also burned down:
+  - all known merged local worktrees under `.worktrees/` were removed except the current detached clean worktree
+  - merged local branches were deleted
+  - merged remote branches were deleted from `origin`
+  - remote branch state now shows only `main`
+- Verification for this correction:
+  - local-safe: `cargo test --manifest-path rust/Cargo.toml -p arbx_cli help_text_is_0_4_0_only -- --nocapture`
+  - local-safe: `cargo test --manifest-path rust/Cargo.toml -p arbx_cli high_profile_keeps_cell_two_without_enabling_satellite -- --nocapture`
+  - local-safe: `python3 -m unittest scripts.tests.test_austin_fidelity -v`
+
+### 2026-04-02: First Real Non-Satellite `tertiary` Austin Refresh Exposed The Next Bottlenecks
+
+- The direct git-backed proof clone on `tertiary` was updated to `origin/main` and the shared Austin export was rerun from the corrected bounded default:
+  - `bash scripts/export_austin_to_lua.sh`
+  - effective compile command: `target/debug/arbx_cli compile ... --terrain-cell-size 2 ...`
+  - no `--satellite`
+- The run produced the first honest end-to-end baseline for the non-satellite path:
+  - elapsed wall time: `249.65s`
+  - max resident set size from `/usr/bin/time -lp`: `4032086016`
+  - the run failed with `No space left on device (os error 28)` while writing output
+- `tertiary` capacity state at the time of failure:
+  - `/System/Volumes/Data` had only `2.1 GiB` free (`99%` used)
+  - repo-local footprint was not the primary bloater: `rust/out` was `21M`, `rust/target` was `603M`
+- Current interpretation after this proof:
+  - removing satellite from the shared path was the correct move and is now proven in the actual remote command line
+  - compile/runtime cost is still substantial even without imagery
+  - the next performance tranche should target compile-path cost directly, while the next remote proof tranche must first avoid disk-capacity failure on `tertiary`
