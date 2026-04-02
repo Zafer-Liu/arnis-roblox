@@ -659,6 +659,7 @@ resolve_vsync_repo_dir() {
 
 resolve_vsync_binary() {
   VSYNC_REPO_DIR="$(resolve_vsync_repo_dir)"
+  local repo_binary="$VSYNC_REPO_DIR/target/debug/vsync"
 
   if [[ -f "$VSYNC_REPO_DIR/Cargo.toml" ]] && command -v cargo >/dev/null 2>&1; then
     if [[ -n "$VSYNC_BINARY" && -x "$VSYNC_BINARY" ]]; then
@@ -667,6 +668,12 @@ resolve_vsync_binary() {
     fi
     VSYNC_BINARY="$VSYNC_REPO_DIR/target/debug/vsync"
     VSYNC_SOURCE_REPO=1
+    return 0
+  fi
+
+  if [[ -x "$repo_binary" ]]; then
+    VSYNC_BINARY="$repo_binary"
+    VSYNC_SOURCE_REPO=0
     return 0
   fi
 
@@ -1496,25 +1503,24 @@ import sys
 path = Path(sys.argv[1])
 edit_enabled = sys.argv[2].lower() == "true"
 play_enabled = sys.argv[3].lower() == "true"
-text = path.read_text(encoding="utf-8")
-edit_markers = ("runInEditMode = true", "runInEditMode = false")
-play_markers = ("runInPlayMode = true", "runInPlayMode = false")
+lines = path.read_text(encoding="utf-8").splitlines()
 
-for old in edit_markers:
-    if old in text:
-        text = text.replace(old, f"runInEditMode = {'true' if edit_enabled else 'false'}", 1)
-        break
-else:
-    raise SystemExit("RunAllConfig edit-mode toggle field not found")
+def write_atomic(target_path, text):
+    tmp_path = target_path.with_suffix(target_path.suffix + ".tmp")
+    tmp_path.write_text(text, encoding="utf-8")
+    tmp_path.replace(target_path)
 
-for old in play_markers:
-    if old in text:
-        text = text.replace(old, f"runInPlayMode = {'true' if play_enabled else 'false'}", 1)
-        break
-else:
-    raise SystemExit("RunAllConfig play-mode toggle field not found")
+def replace_toggle(lines, field_name, enabled):
+    replacement = f"    {field_name} = {'true' if enabled else 'false'},"
+    for index, line in enumerate(lines):
+        if line.strip().startswith(f"{field_name} = "):
+            lines[index] = replacement
+            return
+    raise SystemExit(f"RunAllConfig {field_name} toggle field not found")
 
-path.write_text(text, encoding="utf-8")
+replace_toggle(lines, "runInEditMode", edit_enabled)
+replace_toggle(lines, "runInPlayMode", play_enabled)
+write_atomic(path, "\n".join(lines) + "\n")
 PY
 }
 
@@ -1529,6 +1535,11 @@ spec_filter = sys.argv[2]
 text = path.read_text(encoding="utf-8")
 marker = 'specNameFilter = ""'
 
+def write_atomic(target_path, text):
+    tmp_path = target_path.with_suffix(target_path.suffix + ".tmp")
+    tmp_path.write_text(text, encoding="utf-8")
+    tmp_path.replace(target_path)
+
 if marker not in text:
     for line in text.splitlines():
         if line.strip().startswith("specNameFilter = "):
@@ -1539,7 +1550,7 @@ if marker not in text:
 
 replacement = f"specNameFilter = {spec_filter!r}"
 text = text.replace(marker, replacement, 1)
-path.write_text(text, encoding="utf-8")
+write_atomic(path, text)
 PY
 }
 
@@ -3654,6 +3665,10 @@ local function sample()
     payload.streamingProcessedWorkItems = Workspace:GetAttribute("ArnisStreamingProcessedWorkItems")
     payload.streamingLastFocalX = Workspace:GetAttribute("ArnisStreamingLastFocalX")
     payload.streamingLastFocalZ = Workspace:GetAttribute("ArnisStreamingLastFocalZ")
+    payload.streamingPredictedFocalX = Workspace:GetAttribute("ArnisStreamingPredictedFocalX")
+    payload.streamingPredictedFocalZ = Workspace:GetAttribute("ArnisStreamingPredictedFocalZ")
+    payload.streamingMovementDeltaStuds = Workspace:GetAttribute("ArnisStreamingMovementDeltaStuds")
+    payload.streamingMovementLookaheadStuds = Workspace:GetAttribute("ArnisStreamingMovementLookaheadStuds")
     payload.streamingRingNearResidentChunkCount = Workspace:GetAttribute("ArnisStreamingRingNearResidentChunkCount")
     payload.streamingRingMidResidentChunkCount = Workspace:GetAttribute("ArnisStreamingRingMidResidentChunkCount")
     payload.streamingRingFarResidentChunkCount = Workspace:GetAttribute("ArnisStreamingRingFarResidentChunkCount")

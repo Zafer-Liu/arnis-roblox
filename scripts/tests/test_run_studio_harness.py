@@ -519,12 +519,19 @@ class RunStudioHarnessTests(unittest.TestCase):
 
     def test_vsync_repo_ownership_survives_prebuilt_binary_override(self) -> None:
         self.assertIn('if [[ -f "$VSYNC_REPO_DIR/Cargo.toml" ]] && command -v cargo >/dev/null 2>&1; then', self.text)
+        self.assertIn('local repo_binary="$VSYNC_REPO_DIR/target/debug/vsync"', self.text)
+        self.assertIn('if [[ -x "$repo_binary" ]]; then', self.text)
+        self.assertIn('VSYNC_BINARY="$repo_binary"', self.text)
         self.assertIn('if [[ -n "$VSYNC_BINARY" && -x "$VSYNC_BINARY" ]]; then', self.text)
         repo_block_index = self.text.find('if [[ -f "$VSYNC_REPO_DIR/Cargo.toml" ]] && command -v cargo >/dev/null 2>&1; then')
+        repo_binary_index = self.text.find('if [[ -x "$repo_binary" ]]; then')
         binary_fallback_index = self.text.find('if [[ -n "$VSYNC_BINARY" && -x "$VSYNC_BINARY" ]]; then\n    VSYNC_SOURCE_REPO=0')
         self.assertGreaterEqual(repo_block_index, 0)
+        self.assertGreaterEqual(repo_binary_index, 0)
         self.assertGreaterEqual(binary_fallback_index, 0)
         self.assertLess(repo_block_index, binary_fallback_index)
+        self.assertLess(repo_block_index, repo_binary_index)
+        self.assertLess(repo_binary_index, binary_fallback_index)
         self.assertIn('VSYNC_SOURCE_REPO=1', self.text)
 
     def test_mcp_plugin_is_bootstrapped_from_binary_on_clean_machine(self) -> None:
@@ -565,6 +572,13 @@ class RunStudioHarnessTests(unittest.TestCase):
         self.assertIn("RUNALL_EDIT_ENABLED=0", self.text)
         self.assertIn("RUNALL_EDIT_ENABLED=1", self.text)
         self.assertIn("set_runall_config_modes \"$edit_enabled\" \"$play_enabled\"", self.text)
+        self.assertIn("splitlines()", self.text)
+        self.assertIn('if line.strip().startswith(f"{field_name} = "):', self.text)
+        self.assertIn('raise SystemExit(f"RunAllConfig {field_name} toggle field not found")', self.text)
+        self.assertIn("tmp_path = target_path.with_suffix(target_path.suffix + \".tmp\")", self.text)
+        self.assertIn("tmp_path.replace(target_path)", self.text)
+        self.assertNotIn('edit_markers = ("runInEditMode = true", "runInEditMode = false")', self.text)
+        self.assertNotIn('play_markers = ("runInPlayMode = true", "runInPlayMode = false")', self.text)
 
     def test_harness_supports_optional_luau_spec_filter(self) -> None:
         self.assertIn("--spec-filter NAME", self.text)
@@ -744,6 +758,10 @@ class RunStudioHarnessTests(unittest.TestCase):
         self.assertIn('payload.streamingProcessedWorkItems = Workspace:GetAttribute("ArnisStreamingProcessedWorkItems")', self.text)
         self.assertIn('payload.streamingLastFocalX = Workspace:GetAttribute("ArnisStreamingLastFocalX")', self.text)
         self.assertIn('payload.streamingLastFocalZ = Workspace:GetAttribute("ArnisStreamingLastFocalZ")', self.text)
+        self.assertIn('payload.streamingPredictedFocalX = Workspace:GetAttribute("ArnisStreamingPredictedFocalX")', self.text)
+        self.assertIn('payload.streamingPredictedFocalZ = Workspace:GetAttribute("ArnisStreamingPredictedFocalZ")', self.text)
+        self.assertIn('payload.streamingMovementDeltaStuds = Workspace:GetAttribute("ArnisStreamingMovementDeltaStuds")', self.text)
+        self.assertIn('payload.streamingMovementLookaheadStuds = Workspace:GetAttribute("ArnisStreamingMovementLookaheadStuds")', self.text)
         self.assertIn('payload.streamingRingNearResidentChunkCount = Workspace:GetAttribute("ArnisStreamingRingNearResidentChunkCount")', self.text)
         self.assertIn('payload.streamingRingMidResidentChunkCount = Workspace:GetAttribute("ArnisStreamingRingMidResidentChunkCount")', self.text)
         self.assertIn('payload.streamingRingFarResidentChunkCount = Workspace:GetAttribute("ArnisStreamingRingFarResidentChunkCount")', self.text)

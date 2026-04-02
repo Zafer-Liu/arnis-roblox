@@ -1172,3 +1172,32 @@ The compact historical archive index is:
   - the runtime engine now has both budgeted residency math and a bounded predictive prefetch contract
   - Austin clean-place preparation is no longer blocked on SSD clone layout drift
   - the next remote proof should be narrow: prove the scheduler telemetry and then move back to play-fidelity/streaming value work instead of widening the harness again
+
+### 2026-04-02: Focused Tertiary Proof Burned Down Harness Corruption And Binary-Root Drift
+
+- I kept this slice narrow and used it only to unblock the already-landed movement-lookahead runtime proof on `tertiary`.
+- Two real harness correctness bugs are now fixed on `main`:
+  - `set_runall_config_modes()` no longer depends on exact text matches and now rewrites `RunAllConfig.lua` by field name
+  - both `set_runall_config_modes()` and `set_runall_config_filter()` now write atomically, so an interrupted harness run cannot leave `RunAllConfig.lua` truncated to zero bytes
+- I also fixed the second `tertiary`-specific launcher bug:
+  - `resolve_vsync_binary()` now honors binary-only install roots at `VSYNC_REPO_DIR/target/debug/vsync`
+  - this matches the current `tertiary` layout, where `vertigo-sync` is available as a built binary under `~/Projects/vertigo-sync` without relying on a sibling source checkout
+- Remote `tertiary` proof consequences:
+  - green: the focused harness run now gets past the old `RunAllConfig edit-mode toggle field not found` startup failure
+  - green: the proof clone no longer leaves `RunAllConfig.lua` corrupted after failed runs
+  - green: the focused harness run now gets through clean-place build, Vertigo Sync server startup, Studio open, and `ARNIS_MCP_READY`
+  - remaining blocker: `edit_sync` readiness still times out on the isolated `StreamingPriority.spec.lua` proof path even after one built-in recovery pass
+  - after that timeout, the harness now correctly falls back to `RunAllEntry` for the isolated spec, but the current machine/log path still does not emit the expected `Filtering tests to spec:` / `Running tests:` / `TestEZ tests complete` markers before timeout
+- This means the active remote blocker has been narrowed substantially:
+  - it is no longer clean-place build drift
+  - it is no longer sibling-clone vsync resolution
+  - it is no longer binary-only vsync root resolution
+  - it is no longer `RunAllConfig` truncation/corruption
+  - it is now specifically the `edit_sync` readiness contract and/or the isolated-spec completion marker path on `tertiary`
+- Verification for this slice:
+  - local-safe red then green: `python3 -m unittest scripts.tests.test_run_studio_harness.RunStudioHarnessTests.test_harness_defaults_to_clean_preview_without_edit_mode_runall -v`
+  - local-safe red then green: `python3 -m unittest scripts.tests.test_run_studio_harness.RunStudioHarnessTests.test_vsync_repo_ownership_survives_prebuilt_binary_override -v`
+  - local-safe green: `python3 -m unittest scripts.tests.test_run_studio_harness scripts.tests.test_austin_runtime_contract scripts.tests.test_play_render_truth -v`
+  - local-safe green: `bash -n scripts/run_studio_harness.sh`
+  - local-safe green: `git diff --check`
+  - remote `tertiary`: focused `StreamingPriority.spec.lua` harness run reached clean-place build, live Vertigo Sync serve, Studio open, and `ARNIS_MCP_READY`, then exposed the remaining `edit_sync`/RunAll marker blocker above
