@@ -1049,3 +1049,37 @@ The compact historical archive index is:
   - local-safe green: `bash -n scripts/export_austin_to_lua.sh`
   - local-safe green: `git diff --check`
   - remote `tertiary`: SSD-backed runtime-only `bash scripts/export_austin_to_lua.sh --emit runtime` completed successfully from `/Volumes/APDataStore/arnis-roblox-proof`
+
+### 2026-04-02: Runtime Packaging Needs A Roblox Runtime Budget, Not The Preview VertigoSync Budget
+
+- I continued the product-path runtime packaging work on `main` in two bounded steps:
+  - first, I fixed a correctness bug in the Rust runtime emitter so shard modules now actually respect `--max-bytes` instead of only fragmenting chunk payloads under that cap
+  - then I measured that stricter runtime path on `tertiary` and confirmed it is the wrong default for real runtime packaging
+  - finally, I decoupled runtime shard sizing from the preview/VertigoSync byte budget in `scripts/export_austin_to_lua.sh`, leaving preview bounded but making runtime uncapped by default unless `AUSTIN_RUNTIME_SHARD_MAX_BYTES` is explicitly set
+- Fresh `tertiary` measurements on the SSD-backed proof clone now show the full progression:
+  - `main@5a66984a` with Python runtime emission: `698.15s`, `35881` runtime shard modules, RSS `2791407616`
+  - `main@b45da471` with byte-correct Rust runtime emission still inheriting the preview cap: `576.73s`, `9305` runtime shard modules, RSS `2465284096`
+  - `main@102f25e2` with Rust runtime emission and no default runtime byte cap: `481.05s`, `925` runtime shard modules, RSS `2399109120`
+- The current no-cap runtime packaging shape on `tertiary` is:
+  - runtime shard count: `925`
+  - smallest shard module: `845483` bytes
+  - `p95` shard module: `1713814` bytes
+  - largest shard module: `1987856` bytes
+- Interpretation:
+  - the preview/VertigoSync source ceiling is a bad runtime default
+  - moving runtime emission into Rust was necessary, but not sufficient by itself; the packaging contract matters just as much as the implementation language
+  - the new default is the first runtime packaging shape that materially moves the bounded Austin sample toward a planetary-streaming-friendly deployment path
+  - the remaining open question is not whether the capped preview budget should remain out of runtime; it should. The next question is what explicit Roblox runtime shard budget or bundle format should replace the current uncapped sample default before wider deployment
+- Repo-truth consequence:
+  - runtime and preview now have intentionally separate packaging concerns
+  - the next streaming tranche should optimize for Roblox runtime deployment directly: either a larger explicit runtime shard ceiling or a deeper runtime bundle format, rather than reusing preview/plugin assumptions
+- Verification for this slice:
+  - local-safe red: `python3 -m unittest scripts.tests.test_austin_fidelity.AustinFidelityScriptTests.test_export_to_lua_documents_bounded_dev_profile_default -v`
+  - local-safe green: same focused test after the shell-contract fix
+  - local-safe green: `python3 -m unittest scripts.tests.test_austin_fidelity -v`
+  - local-safe green: `cargo test --manifest-path rust/Cargo.toml -p arbx_cli emit_runtime_lua_keeps_each_shard_within_max_bytes -- --nocapture`
+  - local-safe green: `cargo test --manifest-path rust/Cargo.toml -p arbx_cli -- --nocapture`
+  - local-safe green: `cargo test --manifest-path rust/Cargo.toml -p arbx_roblox_export -- --nocapture`
+  - local-safe green: `bash -n scripts/export_austin_to_lua.sh`
+  - local-safe green: `git diff --check`
+  - remote `tertiary`: SSD-backed runtime-only `bash scripts/export_austin_to_lua.sh --emit runtime` completed successfully from `/Volumes/APDataStore/arnis-roblox-proof` at both the byte-correct capped and uncapped runtime defaults
