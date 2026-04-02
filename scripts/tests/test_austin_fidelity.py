@@ -46,7 +46,7 @@ class AustinFidelityScriptTests(unittest.TestCase):
         self.assertIn('DEFAULT_FIDELITY_ARGS=("--terrain-cell-size" "2")', text)
         self.assertIn('emit_targets="all"', text)
         self.assertIn('RUNTIME_SHARD_MAX_BYTES="${AUSTIN_RUNTIME_SHARD_MAX_BYTES:-0}"', text)
-        self.assertIn('RUNTIME_CHUNKS_PER_SHARD="${AUSTIN_RUNTIME_CHUNKS_PER_SHARD:-8}"', text)
+        self.assertIn('RUNTIME_CHUNKS_PER_SHARD="${AUSTIN_RUNTIME_CHUNKS_PER_SHARD:-16}"', text)
         self.assertIn('"--emit")', text)
         self.assertIn('echo "[export_austin_to_lua] Emit targets: runtime=$emit_runtime preview=$emit_preview harness=$emit_harness verify=$emit_verify"', text)
         self.assertIn('if [[ $emit_preview -eq 1 || $emit_harness -eq 1 || $emit_verify -eq 1 ]]; then', text)

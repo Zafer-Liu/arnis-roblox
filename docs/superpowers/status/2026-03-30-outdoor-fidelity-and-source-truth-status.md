@@ -1083,3 +1083,25 @@ The compact historical archive index is:
   - local-safe green: `bash -n scripts/export_austin_to_lua.sh`
   - local-safe green: `git diff --check`
   - remote `tertiary`: SSD-backed runtime-only `bash scripts/export_austin_to_lua.sh --emit runtime` completed successfully from `/Volumes/APDataStore/arnis-roblox-proof` at both the byte-correct capped and uncapped runtime defaults
+
+### 2026-04-02: Runtime Packaging Sweep Picks 16 Chunks Per Shard As The New Conservative Default
+
+- I kept the work on the real product path and measured the runtime packer directly against the already-built Austin SQLite on `tertiary`, avoiding another full compile for every trial.
+- Direct SSD-backed `emit-runtime-lua` sweep from `/Volumes/APDataStore/arnis-roblox-proof/rust/out/austin-manifest.sqlite`:
+  - `chunks_per_shard=8`: `925` shards, emitter-only `228.18s`, max shard `1987856` bytes
+  - `chunks_per_shard=16`: `463` shards, emitter-only `227.94s`, max shard `3685839` bytes
+  - `chunks_per_shard=32`: `232` shards, emitter-only `210.31s`, max shard `6634433` bytes
+- Decision:
+  - `32` is probably too aggressive as the default without a proven Roblox runtime module-size contract
+  - `16` is the right conservative next default: it cuts runtime shard fanout almost in half again with effectively unchanged emitter time, while keeping the largest observed shard well below the `32`-chunk extreme
+- Repo-truth consequence:
+  - `scripts/export_austin_to_lua.sh` now defaults runtime packaging to `AUSTIN_RUNTIME_CHUNKS_PER_SHARD=16`
+  - preview packaging remains bounded for Vertigo Sync concerns
+  - runtime packaging now follows a separate, deployment-oriented contract
+- Verification for this slice:
+  - local-safe red: `python3 -m unittest scripts.tests.test_austin_fidelity.AustinFidelityScriptTests.test_export_to_lua_documents_bounded_dev_profile_default -v`
+  - local-safe green: same focused test after the shell default change
+  - local-safe green: `python3 -m unittest scripts.tests.test_austin_fidelity -v`
+  - local-safe green: `bash -n scripts/export_austin_to_lua.sh`
+  - local-safe green: `git diff --check`
+  - remote `tertiary`: direct `emit-runtime-lua` sweep at `8`, `16`, and `32` chunks per shard from the same Austin SQLite manifest
