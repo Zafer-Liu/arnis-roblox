@@ -1020,3 +1020,32 @@ The compact historical archive index is:
   - local-safe red: `cargo test --manifest-path rust/Cargo.toml -p arbx_roblox_export export_preserves_richer_landuse_material_semantics -- --nocapture`
   - local-safe green: same two cargo tests after the fixes
   - local-safe green: `python3 -m unittest scripts.tests.test_landuse_material_contract -v`
+
+### 2026-04-02: Runtime-Only Austin Export Proves Python Lua Emission Is The Wrong Layer For Planetary Streaming
+
+- I took the next product-path streaming slice on `main` instead of another Studio loop:
+  - bounded derivative selection landed first (`--emit runtime`)
+  - bounded canonical runtime fragmentation landed next
+  - then I replaced the repeated whole-slice Lua reserialization inside `chunk_fragmentation.py` with a shared linear per-item packer and proved it locally with a dedicated regression test
+- The fresh SSD-backed `tertiary` runtime-only Austin measurement is now the decisive datapoint:
+  - repo tip: `main@5a66984a`
+  - command: `bash scripts/export_austin_to_lua.sh --emit runtime`
+  - Rust rebuild: `23.17s`
+  - SQLite manifest store write: `20.000396125s`
+  - runtime-only wall time: `698.15s`
+  - runtime shard modules written: `35881`
+  - `/usr/bin/time -lp` maximum resident set size: `2791407616`
+- Interpretation:
+  - canonical compile/truth-pack is not the long pole
+  - Python runtime Lua emission is the long pole
+  - runtime file fanout is now itself a first-class product problem, not just a byproduct of the packer
+  - this is the wrong layer for a real Roblox planetary-streaming path even after bounded fragmentation work
+- Repo-truth consequence:
+  - the next streaming tranche should lower runtime shard planning/emission into Rust, where we can use exact serializers, bounded-memory row iteration from SQLite, and real parallelism
+  - Python should remain orchestration glue for the bounded sample workflow, not the hot path for tens of thousands of runtime shard files
+- Verification for this slice:
+  - local-safe green: `python3 -m unittest scripts.tests.test_chunk_fragmentation scripts.tests.test_json_manifest_to_sharded_lua scripts.tests.test_refresh_preview_from_sample_data scripts.tests.test_refresh_runtime_harness_from_sample_data scripts.tests.test_austin_fidelity -v`
+  - local-safe green via pre-push gate: `389` tests passed, `1` skipped
+  - local-safe green: `bash -n scripts/export_austin_to_lua.sh`
+  - local-safe green: `git diff --check`
+  - remote `tertiary`: SSD-backed runtime-only `bash scripts/export_austin_to_lua.sh --emit runtime` completed successfully from `/Volumes/APDataStore/arnis-roblox-proof`
