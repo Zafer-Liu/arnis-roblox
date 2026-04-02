@@ -14,7 +14,8 @@ use arbx_pipeline::{
 };
 use arbx_roblox_export::{
     build_sample_multi_chunk, export_to_chunks, read_manifest_sqlite_all, write_manifest_sqlite,
-    ChunkManifest, ExportConfig, SatelliteTileProvider, StoredManifestSubset,
+    write_runtime_lua_shards_from_sqlite, ChunkManifest, ExportConfig, RuntimeLuaShardsOptions,
+    SatelliteTileProvider, StoredManifestSubset,
 };
 use rayon::prelude::*;
 use serde_json::{json, Value};
@@ -46,6 +47,7 @@ COMMANDS:
   diff       Compare two manifest files
   scene-index Build a compact per-chunk scene-audit summary
   scene-audit Compare Studio scene markers against manifest truth
+  emit-runtime-lua Emit bounded runtime Lua shards directly from a manifest SQLite store
   config     Emit a default world configuration JSON
   explain    Print the full pipeline architecture for agents
 
@@ -1747,6 +1749,93 @@ fn cmd_scene_audit(args: &[String]) -> Result<(), String> {
     Ok(())
 }
 
+fn cmd_emit_runtime_lua(args: &[String]) -> Result<(), String> {
+    let mut manifest_sqlite: Option<PathBuf> = None;
+    let mut output_dir: Option<PathBuf> = None;
+    let mut index_name = "AustinManifestIndex".to_string();
+    let mut shard_folder = "AustinManifestChunks".to_string();
+    let mut chunks_per_shard: usize = 32;
+    let mut max_bytes: Option<usize> = None;
+
+    let mut i = 0;
+    while i < args.len() {
+        match args[i].as_str() {
+            "--manifest-sqlite" => {
+                manifest_sqlite = Some(PathBuf::from(
+                    args.get(i + 1)
+                        .ok_or("--manifest-sqlite requires a path")?,
+                ));
+                i += 2;
+            }
+            "--output-dir" => {
+                output_dir = Some(PathBuf::from(
+                    args.get(i + 1).ok_or("--output-dir requires a path")?,
+                ));
+                i += 2;
+            }
+            "--index-name" => {
+                index_name = args
+                    .get(i + 1)
+                    .ok_or("--index-name requires a value")?
+                    .to_string();
+                i += 2;
+            }
+            "--shard-folder" => {
+                shard_folder = args
+                    .get(i + 1)
+                    .ok_or("--shard-folder requires a value")?
+                    .to_string();
+                i += 2;
+            }
+            "--chunks-per-shard" => {
+                chunks_per_shard = args
+                    .get(i + 1)
+                    .ok_or("--chunks-per-shard requires a value")?
+                    .parse::<usize>()
+                    .map_err(|err| format!("invalid --chunks-per-shard: {err}"))?;
+                i += 2;
+            }
+            "--max-bytes" => {
+                max_bytes = Some(
+                    args.get(i + 1)
+                        .ok_or("--max-bytes requires a value")?
+                        .parse::<usize>()
+                        .map_err(|err| format!("invalid --max-bytes: {err}"))?,
+                );
+                i += 2;
+            }
+            other => return Err(format!("unknown argument to emit-runtime-lua: {other}")),
+        }
+    }
+
+    let manifest_sqlite =
+        manifest_sqlite.ok_or("--manifest-sqlite is required".to_string())?;
+    let output_dir = output_dir.ok_or("--output-dir is required".to_string())?;
+    if chunks_per_shard == 0 {
+        return Err("--chunks-per-shard must be at least 1".to_string());
+    }
+
+    let stats = write_runtime_lua_shards_from_sqlite(
+        &manifest_sqlite,
+        &RuntimeLuaShardsOptions {
+            output_dir,
+            index_name,
+            shard_folder,
+            chunks_per_shard,
+            max_bytes,
+        },
+    )
+    .map_err(|err| format!("emit-runtime-lua failed: {err}"))?;
+
+    println!("Wrote index module to {}", stats.index_path.display());
+    println!(
+        "Wrote {} shard modules to {}",
+        stats.shard_count,
+        stats.shard_dir.display()
+    );
+    Ok(())
+}
+
 fn explain_text() -> String {
     r#"ARNIS HD PIPELINE — Architecture Overview
 
@@ -1834,6 +1923,7 @@ fn main() {
         "diff" => cmd_diff(&args[1..]),
         "scene-index" => cmd_scene_index(&args[1..]),
         "scene-audit" => cmd_scene_audit(&args[1..]),
+        "emit-runtime-lua" => cmd_emit_runtime_lua(&args[1..]),
         "explain" => {
             cmd_explain();
             Ok(())
@@ -2536,5 +2626,43 @@ mod tests {
 
         assert_eq!(index["chunks"][0]["roadsWithCrossings"], 2);
         assert_eq!(index["chunks"][0]["chunksWithCrossingRoads"], true);
+    }
+
+    #[test]
+    fn emit_runtime_lua_command_accepts_manifest_sqlite() {
+        let manifest = build_sample_multi_chunk(2, 1);
+        let db = NamedTempFile::new().unwrap();
+        let db_path = db.path().to_path_buf();
+        drop(db);
+        write_manifest_sqlite(&manifest, &db_path).unwrap();
+
+        let tempdir = tempfile::tempdir().unwrap();
+        let output_dir = tempdir.path().join("SampleData");
+
+        cmd_emit_runtime_lua(&[
+            "--manifest-sqlite".to_string(),
+            db_path.to_string_lossy().into_owned(),
+            "--output-dir".to_string(),
+            output_dir.to_string_lossy().into_owned(),
+            "--index-name".to_string(),
+            "TestManifestIndex".to_string(),
+            "--shard-folder".to_string(),
+            "TestManifestChunks".to_string(),
+            "--chunks-per-shard".to_string(),
+            "1".to_string(),
+            "--max-bytes".to_string(),
+            "1200".to_string(),
+        ])
+        .unwrap();
+
+        let index_text = std::fs::read_to_string(output_dir.join("TestManifestIndex.lua")).unwrap();
+        let shard_count = std::fs::read_dir(output_dir.join("TestManifestChunks"))
+            .unwrap()
+            .count();
+
+        assert!(index_text.contains("chunkCount=2"));
+        assert!(index_text.contains("fragmentCount="));
+        assert!(index_text.contains("chunkRefs="));
+        assert!(shard_count >= 2);
     }
 }

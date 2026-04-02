@@ -151,8 +151,8 @@ fi
 
 if [[ $emit_runtime -eq 1 ]]; then
   echo "[export_austin_to_lua] Converting SQLite manifest store to sharded Lua modules..."
-  python3 "$ROOT_DIR/scripts/json_manifest_to_sharded_lua.py" \
-    --sqlite "$OUT_DIR/austin-manifest.sqlite" \
+  "$RUST_DIR/target/debug/arbx_cli" emit-runtime-lua \
+    --manifest-sqlite "$OUT_DIR/austin-manifest.sqlite" \
     --output-dir "$SAMPLE_DATA_DIR" \
     --index-name "AustinManifestIndex" \
     --shard-folder "AustinManifestChunks" \

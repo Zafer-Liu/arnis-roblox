@@ -57,6 +57,8 @@ class AustinFidelityScriptTests(unittest.TestCase):
         self.assertIn('rm -f "$OUT_DIR/austin-manifest.json"', text)
         self.assertIn('bash "$ROOT_DIR/scripts/export_austin_from_osm.sh" "${export_from_osm_args[@]}"', text)
         self.assertIn('if [[ $emit_runtime -eq 1 ]]; then', text)
+        self.assertIn('"$RUST_DIR/target/debug/arbx_cli" emit-runtime-lua', text)
+        self.assertIn('--manifest-sqlite "$OUT_DIR/austin-manifest.sqlite"', text)
         self.assertIn('--max-bytes "$RUNTIME_SHARD_MAX_BYTES"', text)
         self.assertIn('if [[ $emit_preview -eq 1 ]]; then', text)
         self.assertIn('if [[ $emit_harness -eq 1 ]]; then', text)

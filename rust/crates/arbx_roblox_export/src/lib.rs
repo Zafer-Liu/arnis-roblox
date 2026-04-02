@@ -1,4 +1,5 @@
 pub mod chunker;
+pub mod lua_runtime_shards;
 pub mod manifest;
 pub mod manifest_store;
 pub mod materials;
@@ -17,8 +18,12 @@ pub use manifest::{
     ManifestMeta, PropInstance, RailSegment, RoadSegment, TerrainGrid, WaterFeature,
 };
 pub use manifest_store::{
-    read_manifest_sqlite_all, read_manifest_sqlite_subset, write_manifest_sqlite,
-    ManifestStoreResult, StoredChunkRecord, StoredManifestMeta, StoredManifestSubset,
+    read_manifest_sqlite_all, read_manifest_sqlite_subset, stream_manifest_sqlite_all,
+    write_manifest_sqlite, ManifestStoreResult, StoredChunkRecord, StoredManifestMeta,
+    StoredManifestSubset,
+};
+pub use lua_runtime_shards::{
+    write_runtime_lua_shards_from_sqlite, RuntimeLuaShardsOptions, RuntimeLuaShardsStats,
 };
 use subplans::derive_chunk_ref;
 pub use subplans::{ChunkRef, ChunkSubplan, SubplanBounds, PARTITION_VERSION};

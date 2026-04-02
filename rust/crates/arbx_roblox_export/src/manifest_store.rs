@@ -41,7 +41,7 @@ pub struct StoredManifestSubset {
     pub chunks: Vec<StoredChunkRecord>,
 }
 
-fn read_manifest_meta(
+pub(crate) fn read_manifest_meta(
     connection: &Connection,
     path: &Path,
 ) -> ManifestStoreResult<StoredManifestMeta> {
@@ -96,6 +96,52 @@ fn read_manifest_meta(
             )
             .into()
         })
+}
+
+pub fn stream_manifest_sqlite_all<F>(
+    path: &Path,
+    mut visitor: F,
+) -> ManifestStoreResult<StoredManifestMeta>
+where
+    F: FnMut(StoredChunkRecord) -> ManifestStoreResult<()>,
+{
+    let connection = Connection::open(path)?;
+    let meta = read_manifest_meta(&connection, path)?;
+    let mut statement = connection.prepare(
+        "
+        SELECT
+            chunk_id,
+            origin_x,
+            origin_y,
+            origin_z,
+            feature_count,
+            streaming_cost,
+            estimated_memory_cost,
+            partition_version,
+            subplans_json,
+            chunk_json
+        FROM manifest_chunks
+        ORDER BY chunk_id ASC
+        ",
+    )?;
+    let rows = statement.query_map([], |row| {
+        Ok(StoredChunkRecord {
+            chunk_id: row.get(0)?,
+            origin_studs: Vec3::new(row.get(1)?, row.get(2)?, row.get(3)?),
+            feature_count: row.get::<_, i64>(4)? as usize,
+            streaming_cost: row.get(5)?,
+            estimated_memory_cost: row.get(6)?,
+            partition_version: row.get(7)?,
+            subplans_json: row.get(8)?,
+            chunk_json: row.get(9)?,
+        })
+    })?;
+
+    for row in rows {
+        visitor(row?)?;
+    }
+
+    Ok(meta)
 }
 
 pub fn write_manifest_sqlite(manifest: &ChunkManifest, path: &Path) -> ManifestStoreResult<()> {
