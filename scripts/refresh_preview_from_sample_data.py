@@ -22,6 +22,7 @@ from chunk_fragmentation import fragment_chunk_for_lua_shards
 from json_manifest_to_sharded_lua import (
     _require_current_schema_version,
     lua_len,
+    lua_value_len,
     write_lua_module,
 )
 
@@ -932,7 +933,8 @@ def fragment_preview_chunk(chunk: dict, max_bytes: int) -> list[dict]:
     return fragment_chunk_for_lua_shards(
         chunk,
         max_bytes,
-        lua_len_fn=lambda payload: lua_len(payload),
+        lua_len_fn=lua_len,
+        lua_value_len_fn=lua_value_len,
         chunk_label="preview chunk",
     )
 

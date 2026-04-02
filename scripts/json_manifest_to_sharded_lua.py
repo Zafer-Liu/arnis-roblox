@@ -83,6 +83,12 @@ def lua_len(value: Any) -> int:
     return len(out.getvalue().encode("utf-8"))
 
 
+def lua_value_len(value: Any) -> int:
+    out = io.StringIO()
+    to_lua(value, out, indent=0)
+    return len(out.getvalue().encode("utf-8"))
+
+
 def clear_existing_shards(shard_dir: Path, index_name: str) -> None:
     if not shard_dir.exists():
         return
@@ -99,6 +105,7 @@ def fragment_chunk(chunk: dict[str, Any], max_bytes: int | None) -> list[dict[st
         strip_index_only_fields(chunk),
         max_bytes,
         lua_len_fn=lua_len,
+        lua_value_len_fn=lua_value_len,
         chunk_label="runtime chunk",
     )
 

@@ -54,9 +54,44 @@ def fragment_list_payloads(
     field_label: str,
     fragment_builder: Callable[[list[Any]], dict[str, Any]],
     lua_len_fn: Callable[[Any], int],
+    lua_value_len_fn: Callable[[Any], int] | None,
     chunk_label: str,
 ) -> list[dict[str, Any]]:
     fragments: list[dict[str, Any]] = []
+
+    if lua_value_len_fn is not None:
+        empty_fragment_len = chunk_fragment_len(fragment_builder([]), lua_len_fn)
+        item_lengths = [lua_value_len_fn(value) for value in values]
+
+        start = 0
+        current_len = empty_fragment_len
+        current_count = 0
+
+        for index, item_len in enumerate(item_lengths):
+            next_len = current_len + item_len + (1 if current_count else 0)
+            if current_count == 0:
+                if next_len > max_bytes:
+                    raise SystemExit(
+                        f"{chunk_label} {chunk_id} {field_label} contains an entry larger than max bytes {max_bytes}"
+                    )
+                current_len = next_len
+                current_count = 1
+                continue
+
+            if next_len > max_bytes:
+                fragments.append(fragment_builder(values[start:index]))
+                start = index
+                current_len = empty_fragment_len + item_len
+                current_count = 1
+                continue
+
+            current_len = next_len
+            current_count += 1
+
+        if current_count:
+            fragments.append(fragment_builder(values[start:]))
+
+        return fragments
 
     start = 0
     while start < len(values):
@@ -88,6 +123,7 @@ def fragment_chunk_for_lua_shards(
     max_bytes: int | None,
     *,
     lua_len_fn: Callable[[Any], int],
+    lua_value_len_fn: Callable[[Any], int] | None = None,
     chunk_label: str = "chunk",
 ) -> list[dict[str, Any]]:
     if max_bytes is None:
@@ -120,6 +156,7 @@ def fragment_chunk_for_lua_shards(
                             },
                         },
                         lua_len_fn=lua_len_fn,
+                        lua_value_len_fn=lua_value_len_fn,
                         chunk_label=chunk_label,
                     )
                 )
@@ -150,6 +187,7 @@ def fragment_chunk_for_lua_shards(
                 field_label=f"field {field}",
                 fragment_builder=lambda items, field=field: {"id": chunk["id"], field: list(items)},
                 lua_len_fn=lua_len_fn,
+                lua_value_len_fn=lua_value_len_fn,
                 chunk_label=chunk_label,
             )
         )
