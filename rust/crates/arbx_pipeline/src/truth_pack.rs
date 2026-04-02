@@ -137,6 +137,14 @@ pub struct SourceTruthPackSummary {
 }
 
 pub fn write_source_truth_pack_sqlite(pack: &SourceTruthPack, path: &Path) -> PipelineResult<()> {
+    if let Some(parent) = path.parent() {
+        fs::create_dir_all(parent).map_err(|err| {
+            PipelineError::IO(format!(
+                "failed to create truth-pack parent directory: {err}"
+            ))
+        })?;
+    }
+
     if path.exists() {
         fs::remove_file(path)
             .map_err(|err| PipelineError::IO(format!("failed to replace truth-pack db: {err}")))?;
@@ -147,6 +155,8 @@ pub fn write_source_truth_pack_sqlite(pack: &SourceTruthPack, path: &Path) -> Pi
     connection
         .execute_batch(
             "
+            PRAGMA journal_mode = MEMORY;
+            PRAGMA synchronous = NORMAL;
             CREATE TABLE features (
                 feature_id TEXT PRIMARY KEY,
                 feature_kind TEXT NOT NULL,

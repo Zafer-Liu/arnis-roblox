@@ -439,6 +439,27 @@ mod tests {
     }
 
     #[test]
+    fn manifest_store_write_does_not_leave_wal_sidecar() {
+        let manifest = build_sample_multi_chunk(2, 2);
+        let db_path = unique_temp_db_path("no_wal_sidecar");
+
+        crate::manifest_store::write_manifest_sqlite(&manifest, &db_path).unwrap();
+
+        let wal_path = db_path.with_extension("sqlite-wal");
+        let shm_path = db_path.with_extension("sqlite-shm");
+        assert!(
+            !wal_path.exists(),
+            "generated manifest store should not leave a WAL sidecar behind"
+        );
+        assert!(
+            !shm_path.exists(),
+            "generated manifest store should not leave a SHM sidecar behind"
+        );
+
+        let _ = std::fs::remove_file(db_path);
+    }
+
+    #[test]
     fn manifest_store_preserves_chunk_ref_streaming_metadata() {
         let manifest = build_sample_multi_chunk(2, 2);
         let db_path = unique_temp_db_path("streaming_metadata");

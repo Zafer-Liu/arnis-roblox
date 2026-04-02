@@ -13,7 +13,7 @@ use arbx_geo::{
     Vec3,
 };
 use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::fs;
 use std::path::PathBuf;
 
@@ -689,6 +689,75 @@ struct OvertureMergeDecision {
     dropped_semantics: Vec<TruthPackDroppedSemantic>,
 }
 
+struct OsmBuildingSpatialIndex {
+    cell_size: f64,
+    buckets: HashMap<(i32, i32), Vec<usize>>,
+}
+
+fn aabb_bucket_range(min: f64, max: f64, cell_size: f64) -> (i32, i32) {
+    let start = (min / cell_size).floor() as i32;
+    let end = (max / cell_size).floor() as i32;
+    (start, end)
+}
+
+fn build_osm_building_spatial_index(
+    features: &[Feature],
+    cell_size: f64,
+) -> OsmBuildingSpatialIndex {
+    let mut buckets: HashMap<(i32, i32), Vec<usize>> = HashMap::new();
+
+    for (index, feature) in features.iter().enumerate() {
+        let Feature::Building(building) = feature else {
+            continue;
+        };
+        if source_name_for_building_id(&building.id) != "osm" {
+            continue;
+        }
+        let Some((min, max)) = building.footprint.aabb() else {
+            continue;
+        };
+        let (min_x, max_x) = aabb_bucket_range(min.x, max.x, cell_size);
+        let (min_y, max_y) = aabb_bucket_range(min.y, max.y, cell_size);
+        for bucket_x in min_x..=max_x {
+            for bucket_y in min_y..=max_y {
+                buckets.entry((bucket_x, bucket_y)).or_default().push(index);
+            }
+        }
+    }
+
+    OsmBuildingSpatialIndex { cell_size, buckets }
+}
+
+fn collect_osm_building_candidate_indices(
+    index: &OsmBuildingSpatialIndex,
+    candidate: &BuildingFeature,
+) -> Vec<usize> {
+    let Some((min, max)) = candidate.footprint.aabb() else {
+        return Vec::new();
+    };
+
+    let (min_x, max_x) = aabb_bucket_range(min.x, max.x, index.cell_size);
+    let (min_y, max_y) = aabb_bucket_range(min.y, max.y, index.cell_size);
+    let mut seen = HashSet::new();
+    let mut indices = Vec::new();
+
+    for bucket_x in min_x..=max_x {
+        for bucket_y in min_y..=max_y {
+            let Some(bucket) = index.buckets.get(&(bucket_x, bucket_y)) else {
+                continue;
+            };
+            for feature_index in bucket {
+                if seen.insert(*feature_index) {
+                    indices.push(*feature_index);
+                }
+            }
+        }
+    }
+
+    indices.sort_unstable();
+    indices
+}
+
 fn truth_feature_kind(feature: &Feature) -> &'static str {
     match feature {
         Feature::Road(_) => "road",
@@ -917,7 +986,10 @@ fn collect_retained_semantics(feature: &Feature, rows: &mut Vec<TruthPackSemanti
     }
 }
 
-fn collect_retained_building_lineage(building: &BuildingFeature, rows: &mut Vec<TruthPackSemanticLineage>) {
+fn collect_retained_building_lineage(
+    building: &BuildingFeature,
+    rows: &mut Vec<TruthPackSemanticLineage>,
+) {
     let source_name = source_name_for_building_id(&building.id);
     push_semantic_lineage(
         rows,
@@ -1079,7 +1151,9 @@ fn merge_overture_semantics_into_retained_building(
     let candidate_feature_id = candidate.id.as_str();
 
     let mut merge_string_field =
-        |field_name: &str, retained_value: &mut Option<String>, candidate_value: &Option<String>| {
+        |field_name: &str,
+         retained_value: &mut Option<String>,
+         candidate_value: &Option<String>| {
             match (retained_value.clone(), candidate_value.clone()) {
                 (None, Some(candidate_field)) => {
                     let trimmed = candidate_field.trim().to_string();
@@ -1132,9 +1206,21 @@ fn merge_overture_semantics_into_retained_building(
 
     merge_string_field("name", &mut retained.name, &candidate.name);
     merge_string_field("colour", &mut retained.colour, &candidate.colour);
-    merge_string_field("material", &mut retained.material_tag, &candidate.material_tag);
-    merge_string_field("roof_colour", &mut retained.roof_colour, &candidate.roof_colour);
-    merge_string_field("roof_material", &mut retained.roof_material, &candidate.roof_material);
+    merge_string_field(
+        "material",
+        &mut retained.material_tag,
+        &candidate.material_tag,
+    );
+    merge_string_field(
+        "roof_colour",
+        &mut retained.roof_colour,
+        &candidate.roof_colour,
+    );
+    merge_string_field(
+        "roof_material",
+        &mut retained.roof_material,
+        &candidate.roof_material,
+    );
 
     match (retained.height_m, candidate.height_m) {
         (None, Some(candidate_height_m)) => {
@@ -1738,8 +1824,12 @@ impl OverpassAdapter {
                         .matched_source
                         .unwrap_or_else(|| "overture->unknown".to_string()),
                 });
-                truth_pack.semantic_lineage.extend(decision.semantic_lineage);
-                truth_pack.dropped_semantics.extend(decision.dropped_semantics);
+                truth_pack
+                    .semantic_lineage
+                    .extend(decision.semantic_lineage);
+                truth_pack
+                    .dropped_semantics
+                    .extend(decision.dropped_semantics);
             }
         }
 
@@ -2324,24 +2414,27 @@ fn merge_overture_gap_fill_with_decisions(
     overture_features: Vec<Feature>,
 ) -> Vec<OvertureMergeDecision> {
     let mut decisions = Vec::new();
+    let osm_index = build_osm_building_spatial_index(features, 256.0);
 
     for feature in overture_features {
         if let Feature::Building(candidate) = feature {
-            let overlapping_osm: Vec<(usize, BuildingFeature)> = features
+            let overlapping_osm: Vec<(usize, BuildingFeature)> =
+                collect_osm_building_candidate_indices(&osm_index, &candidate)
+                    .into_iter()
+                    .filter_map(|index| match features.get(index) {
+                        Some(Feature::Building(building))
+                            if source_name_for_building_id(&building.id) == "osm"
+                                && buildings_substantially_overlap(building, &candidate) =>
+                        {
+                            Some((index, building.clone()))
+                        }
+                        _ => None,
+                    })
+                    .collect();
+            let overlapping_refs: Vec<&BuildingFeature> = overlapping_osm
                 .iter()
-                .enumerate()
-                .filter_map(|(index, existing)| match existing {
-                    Feature::Building(building)
-                        if source_name_for_building_id(&building.id) == "osm"
-                            && buildings_substantially_overlap(building, &candidate) =>
-                    {
-                        Some((index, building.clone()))
-                    }
-                    _ => None,
-                })
+                .map(|(_, building)| building)
                 .collect();
-            let overlapping_refs: Vec<&BuildingFeature> =
-                overlapping_osm.iter().map(|(_, building)| building).collect();
 
             if !overlapping_refs.is_empty()
                 && !should_preserve_named_overture_parent(&overlapping_refs, &candidate)
@@ -4146,7 +4239,8 @@ mod tests {
         });
 
         let mut features = vec![first_overture];
-        let decisions = merge_overture_gap_fill_with_decisions(&mut features, vec![second_overture]);
+        let decisions =
+            merge_overture_gap_fill_with_decisions(&mut features, vec![second_overture]);
 
         let building_ids: Vec<&str> = features
             .iter()
@@ -4160,7 +4254,122 @@ mod tests {
         assert_eq!(decisions.len(), 1);
         assert!(decisions[0].retained);
         assert_eq!(decisions[0].matched_source, None);
-        assert_eq!(decisions[0].retained_feature_id.as_deref(), Some("ov_second"));
+        assert_eq!(
+            decisions[0].retained_feature_id.as_deref(),
+            Some("ov_second")
+        );
+    }
+
+    #[test]
+    fn overture_spatial_index_limits_candidates_to_nearby_osm_buildings() {
+        let features = vec![
+            Feature::Building(BuildingFeature {
+                id: "osm_near".to_string(),
+                footprint: Footprint::new(vec![
+                    Vec2::new(0.0, 0.0),
+                    Vec2::new(60.0, 0.0),
+                    Vec2::new(60.0, 40.0),
+                    Vec2::new(0.0, 40.0),
+                ]),
+                holes: vec![],
+                indices: None,
+                base_y: 0.0,
+                height: 20.0,
+                height_m: Some(6.0),
+                levels: Some(1),
+                roof_levels: None,
+                min_height: None,
+                usage: Some("commercial".to_string()),
+                roof: "flat".to_string(),
+                colour: None,
+                material_tag: None,
+                roof_colour: None,
+                roof_material: None,
+                roof_height: None,
+                name: Some("Near".to_string()),
+            }),
+            Feature::Building(BuildingFeature {
+                id: "osm_far".to_string(),
+                footprint: Footprint::new(vec![
+                    Vec2::new(5000.0, 5000.0),
+                    Vec2::new(5060.0, 5000.0),
+                    Vec2::new(5060.0, 5040.0),
+                    Vec2::new(5000.0, 5040.0),
+                ]),
+                holes: vec![],
+                indices: None,
+                base_y: 0.0,
+                height: 20.0,
+                height_m: Some(6.0),
+                levels: Some(1),
+                roof_levels: None,
+                min_height: None,
+                usage: Some("commercial".to_string()),
+                roof: "flat".to_string(),
+                colour: None,
+                material_tag: None,
+                roof_colour: None,
+                roof_material: None,
+                roof_height: None,
+                name: Some("Far".to_string()),
+            }),
+        ];
+        let candidate = BuildingFeature {
+            id: "ov_candidate".to_string(),
+            footprint: Footprint::new(vec![
+                Vec2::new(1.0, 1.0),
+                Vec2::new(61.0, 1.0),
+                Vec2::new(61.0, 41.0),
+                Vec2::new(1.0, 41.0),
+            ]),
+            holes: vec![],
+            indices: None,
+            base_y: 0.0,
+            height: 18.0,
+            height_m: Some(5.5),
+            levels: Some(1),
+            roof_levels: None,
+            min_height: None,
+            usage: Some("commercial".to_string()),
+            roof: "flat".to_string(),
+            colour: None,
+            material_tag: None,
+            roof_colour: None,
+            roof_material: None,
+            roof_height: None,
+            name: Some("Candidate".to_string()),
+        };
+
+        let index = build_osm_building_spatial_index(&features, 256.0);
+        let candidate_indices = collect_osm_building_candidate_indices(&index, &candidate);
+
+        assert_eq!(candidate_indices, vec![0]);
+    }
+
+    #[test]
+    fn truth_pack_sqlite_writer_creates_missing_parent_directory() {
+        let unique = format!(
+            "arbx_truth_pack_parent_{}_{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        );
+        let root = std::env::temp_dir().join(unique);
+        let db_path = root.join("nested").join("fixture.truth-pack.sqlite");
+
+        write_source_truth_pack_sqlite(&SourceTruthPack::default(), &db_path)
+            .expect("truth-pack writer should create parent directories");
+
+        assert!(
+            db_path.is_file(),
+            "expected truth-pack sqlite at {}",
+            db_path.display()
+        );
+
+        let _ = std::fs::remove_file(&db_path);
+        let _ = std::fs::remove_dir_all(&root);
     }
 
     #[test]

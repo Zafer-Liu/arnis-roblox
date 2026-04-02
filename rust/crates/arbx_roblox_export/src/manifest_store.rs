@@ -106,7 +106,7 @@ pub fn write_manifest_sqlite(manifest: &ChunkManifest, path: &Path) -> ManifestS
     let mut connection = Connection::open(path)?;
     connection.execute_batch(
         "
-        PRAGMA journal_mode = WAL;
+        PRAGMA journal_mode = MEMORY;
         PRAGMA synchronous = NORMAL;
         CREATE TABLE IF NOT EXISTS manifest_meta (
             singleton_id INTEGER PRIMARY KEY CHECK (singleton_id = 1),

@@ -845,3 +845,34 @@ The compact historical archive index is:
 - Verification for this slice:
   - local-safe: `cargo test --manifest-path rust/Cargo.toml -p arbx_roblox_export export_omits_per_cell_terrain_materials_when_no_overrides_are_needed -- --nocapture`
   - local-safe: `cargo test --manifest-path rust/Cargo.toml -p arbx_roblox_export export_paints_terrain_materials_from_landuse_semantics -- --nocapture`
+
+### 2026-04-02: Non-Satellite Export Cut Peak RSS, Then Hit Output-Path Waste
+
+- I reran the direct git-backed proof clone on `tertiary` after the lazy terrain-material change:
+  - command: `ssh tertiary 'cd ~/Projects/arnis-roblox-proof && git fetch origin main && git reset --hard origin/main && /usr/bin/time -lp bash scripts/export_austin_to_lua.sh'`
+  - the compile path stayed non-satellite: `target/debug/arbx_cli compile ... --terrain-cell-size 2 ...`
+- The rerun materially improved memory behavior:
+  - manifest JSON written in `175.19s`
+  - manifest SQLite written in the same run
+  - elapsed wall time before failure: `348.74s`
+  - max resident set size from `/usr/bin/time -lp`: `2120515584`
+- The failure shifted from compile OOM pressure to output-path waste:
+  - `write_source_truth_pack_sqlite()` failed late with `unable to open database file`
+  - `tertiary` had only about `116 MiB` free at that point
+  - the generated manifest artifacts had already consumed roughly:
+    - `austin-manifest.json`: `1.3G`
+    - `austin-manifest.sqlite`: `1.1G`
+    - `austin-manifest.sqlite-wal`: `1.3G`
+- I tightened the export path accordingly:
+  - `arbx_pipeline` now uses a small OSM-building spatial index when checking Overture gap-fill overlap, instead of scanning every OSM building candidate
+  - generated manifest SQLite now writes with `journal_mode = MEMORY` so the default export path no longer leaves giant `-wal` / `-shm` sidecars behind
+  - truth-pack SQLite now creates its parent directory itself instead of assuming the caller already prepared it
+- Current interpretation after this slice:
+  - the bounded non-satellite path is materially healthier than the earlier baseline
+  - the next remote export should no longer burn an extra manifest-sized WAL file just to produce a generated SQLite store
+  - the next likely compile bottleneck after disk waste is still Overture/OSM merge cost, which is why the spatial-index tranche landed in the same pass
+- Verification for this slice:
+  - local-safe: `cargo test --manifest-path rust/Cargo.toml -p arbx_pipeline overture_spatial_index_limits_candidates_to_nearby_osm_buildings -- --nocapture`
+  - local-safe: `cargo test --manifest-path rust/Cargo.toml -p arbx_pipeline overture_gap_fill_ -- --nocapture`
+  - local-safe: `cargo test --manifest-path rust/Cargo.toml -p arbx_pipeline truth_pack_sqlite_writer_creates_missing_parent_directory -- --nocapture`
+  - local-safe: `cargo test --manifest-path rust/Cargo.toml -p arbx_roblox_export manifest_store_ -- --nocapture`
