@@ -876,3 +876,31 @@ The compact historical archive index is:
   - local-safe: `cargo test --manifest-path rust/Cargo.toml -p arbx_pipeline overture_gap_fill_ -- --nocapture`
   - local-safe: `cargo test --manifest-path rust/Cargo.toml -p arbx_pipeline truth_pack_sqlite_writer_creates_missing_parent_directory -- --nocapture`
   - local-safe: `cargo test --manifest-path rust/Cargo.toml -p arbx_roblox_export manifest_store_ -- --nocapture`
+
+### 2026-04-02: The Default Austin Loop No Longer Requires A Giant JSON Sidecar
+
+- After the `a00480c` rerun, the bounded non-satellite export finally made it past both SQLite outputs on `tertiary`, then failed later while `json_manifest_to_sharded_lua.py` was writing Lua shards:
+  - the post-compile artifact footprint was roughly:
+    - `rust/out/austin-manifest.json`: `1.3G`
+    - `rust/out/austin-manifest.sqlite`: `1.3G`
+    - `rust/out/austin.truth-pack.sqlite`: `22M`
+    - `roblox/src/ServerStorage/SampleData`: `1.2G`
+  - free disk at failure time was only about `116 MiB`
+- The important design discovery is that the shared Austin-to-Lua path already shreds from SQLite:
+  - `json_manifest_to_sharded_lua.py` is invoked with `--sqlite`
+  - `refresh_preview_from_sample_data.py` already prefers `rust/out/austin-manifest.sqlite`
+  - `refresh_runtime_harness_from_sample_data.py` already prefers the same SQLite source
+  - `run_studio_harness.sh` already prefers `--manifest-sqlite` when it exists
+- I changed the default wrapper path accordingly:
+  - `export_austin_from_osm.sh` no longer passes `--out out/austin-manifest.json` by default
+  - explicit JSON output still works when the caller passes `--out`
+  - `export_austin_to_lua.sh` now removes stale `rust/out/austin-manifest.json` before and after the export stage unless the caller explicitly asked for JSON
+- Current interpretation after this slice:
+  - the default bounded Austin loop is now aligned with the repo's actual downstream consumers instead of dragging along a manifest-sized dead-weight sidecar
+  - this should remove another ~`1.3G` from the normal `tertiary` proof path on the next rerun
+  - the next likely storage pressure point after this change is the generated Lua shard footprint itself, not the compile artifacts
+- Verification for this slice:
+  - local-safe: `python3 -m unittest scripts.tests.test_austin_fidelity -v`
+  - local-safe: `bash -n scripts/export_austin_from_osm.sh`
+  - local-safe: `bash -n scripts/export_austin_to_lua.sh`
+  - local-safe: `git diff --check`

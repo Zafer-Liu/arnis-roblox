@@ -24,12 +24,16 @@ class AustinFidelityScriptTests(unittest.TestCase):
         self.assertIn('compile_args+=("$@")', text)
         self.assertIn('using default higher-fidelity profile: $DEFAULT_PROFILE', text)
         self.assertIn('using explicit compile fidelity arguments', text)
+        self.assertIn("explicit_json_out=0", text)
+        self.assertIn('"--out")', text)
+        self.assertNotIn('--out "out/austin-manifest.json"', text)
         self.assertIn('--truth-pack-out "out/austin.truth-pack.sqlite"', text)
         self.assertIn('--truth-pack-summary-out "out/austin.truth-pack.summary.json"', text)
         self.assertIn(
             'rust/out/austin.truth-pack.sqlite and rust/out/austin.truth-pack.summary.json',
             text,
         )
+        self.assertIn("JSON manifest omitted by default", text)
 
     def test_export_to_lua_documents_bounded_dev_profile_default(self) -> None:
         text = EXPORT_TO_LUA_SCRIPT.read_text(encoding="utf-8")
@@ -38,6 +42,8 @@ class AustinFidelityScriptTests(unittest.TestCase):
         self.assertIn('bash scripts/export_austin_to_lua.sh --terrain-cell-size 2', text)
         self.assertIn("satellite opt-in only", text)
         self.assertIn('DEFAULT_FIDELITY_ARGS=("--terrain-cell-size" "2")', text)
+        self.assertIn("explicit_json_out=0", text)
+        self.assertIn('rm -f "$OUT_DIR/austin-manifest.json"', text)
         self.assertIn(
             'bash "$ROOT_DIR/scripts/export_austin_from_osm.sh" "${DEFAULT_FIDELITY_ARGS[@]}" "$@"',
             text,

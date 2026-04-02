@@ -16,7 +16,6 @@ set -euo pipefail
 #
 # Outputs:
 #   rust/data/austin_overpass.json
-#   rust/out/austin-manifest.json
 #   rust/out/austin-manifest.sqlite
 #   rust/out/austin.truth-pack.sqlite
 #   rust/out/austin.truth-pack.summary.json
@@ -31,10 +30,14 @@ mkdir -p "$DATA_DIR" "$OUT_DIR"
 
 compile_args=()
 explicit_profile=0
+explicit_json_out=0
 for arg in "$@"; do
   case "$arg" in
     "--profile"|"--yolo"|"--terrain-cell-size")
       explicit_profile=1
+      ;;
+    "--out")
+      explicit_json_out=1
       ;;
   esac
 done
@@ -59,10 +62,13 @@ cargo run -p arbx_cli -- compile \
   --source "data/austin_overpass.json" \
   --bbox "30.245,-97.765,30.305,-97.715" \
   "${compile_args[@]}" \
-  --out "out/austin-manifest.json" \
   --sqlite-out "out/austin-manifest.sqlite" \
   --truth-pack-out "out/austin.truth-pack.sqlite" \
   --truth-pack-summary-out "out/austin.truth-pack.summary.json"
 
-echo "[export_austin_from_osm] Done. Manifest written to rust/out/austin-manifest.json and rust/out/austin-manifest.sqlite"
+if [[ $explicit_json_out -eq 1 ]]; then
+  echo "[export_austin_from_osm] Done. Manifest written to rust/out/austin-manifest.sqlite plus the explicit JSON output path."
+else
+  echo "[export_austin_from_osm] Done. Manifest written to rust/out/austin-manifest.sqlite (JSON manifest omitted by default)."
+fi
 echo "[export_austin_from_osm] Truth-pack written to rust/out/austin.truth-pack.sqlite and rust/out/austin.truth-pack.summary.json"

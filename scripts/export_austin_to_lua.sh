@@ -18,7 +18,6 @@ set -euo pipefail
 #
 # Outputs:
 #   rust/data/austin_overpass.json
-#   rust/out/austin-manifest.json
 #   rust/out/austin-manifest.sqlite
 #   roblox/src/ServerStorage/SampleData/AustinManifestIndex.lua
 #   roblox/src/ServerStorage/SampleData/AustinManifestChunks/
@@ -36,10 +35,14 @@ mkdir -p "$DATA_DIR" "$OUT_DIR" "$SAMPLE_DATA_DIR" "$PREVIEW_DIR"
 
 DEFAULT_FIDELITY_ARGS=()
 explicit_fidelity=0
+explicit_json_out=0
 for arg in "$@"; do
   case "$arg" in
     "--profile"|"--yolo"|"--terrain-cell-size"|"--satellite")
       explicit_fidelity=1
+      ;;
+    "--out")
+      explicit_json_out=1
       ;;
   esac
 done
@@ -54,7 +57,15 @@ fi
 echo "=== Fetching Overture building footprints ==="
 python3 "$ROOT_DIR/scripts/fetch_overture_buildings.py" || echo "Warning: Overture fetch failed, continuing with OSM only"
 
+if [[ $explicit_json_out -eq 0 ]]; then
+  rm -f "$OUT_DIR/austin-manifest.json"
+fi
+
 bash "$ROOT_DIR/scripts/export_austin_from_osm.sh" "${DEFAULT_FIDELITY_ARGS[@]}" "$@"
+
+if [[ $explicit_json_out -eq 0 ]]; then
+  rm -f "$OUT_DIR/austin-manifest.json"
+fi
 
 echo "[export_austin_to_lua] Converting SQLite manifest store to sharded Lua modules..."
 python3 "$ROOT_DIR/scripts/json_manifest_to_sharded_lua.py" \
