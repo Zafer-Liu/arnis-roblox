@@ -52,6 +52,7 @@ The project should have:
 3. stronger canonical outdoor manifest semantics and/or metadata where required to improve terrain, landuse, water, roads, vegetation, and outdoor structure-shell fidelity
 4. compact, flaggable outdoor telemetry that makes edit/play proof and iteration faster instead of noisier
 5. `tertiary`-verified outdoor proof slices that measure real player-visible improvement and hotspot behavior without local Studio runs on this machine
+6. a runtime streaming engine contract that treats the offline compiler as canonical truth and the runtime as a budget-enforcing JIT residency scheduler
 
 ## Scope
 
@@ -62,17 +63,18 @@ The project should have:
 - downstream audit improvements that join outdoor truth-pack, scene fidelity, and scene parity evidence instead of leaving them as isolated reports
 - outdoor-local telemetry and harness/report controls so specific signal families can be enabled selectively
 - measured outdoor fidelity work driven by the new audit evidence, especially terrain/material/detail complaints and outdoor-heavy hotspot costs
+- a first alpha runtime streaming-engine tranche for the Austin sample with explicit residency budgets, prefetch/eviction behavior, and ring telemetry
 - `tertiary` edit/play proof slices for the outdoor tranche
 - docs rollover and continuous status maintenance for the active tranche
 
 ### Out Of Scope
 
 - a full interior traversal/generation redesign
-- a planet-scale streaming redesign
+- replacing the offline compiler with a runtime-only world-definition path
 - a new parallel preview/play/full-bake world-definition path
 - broad aesthetic stylization that is not justified by retained source semantics or measured player-visible fidelity gains
 
-Those remain separate or later workstreams after the outdoor baseline is stronger.
+Planet-scale streaming remains the long-term goal, but the first alpha tranche should prove its architecture on one bounded Austin sample before widening scope.
 
 ## Architecture
 
@@ -86,6 +88,15 @@ The tranche keeps one canonical pipeline and makes its truth surfaces explicit:
    - truth-pack audit answers “what did the sources say and what changed?”
    - scene fidelity audit answers “what did edit or play actually produce?”
    - scene parity audit answers “do edit and play agree about the same canonical truth?”
+
+For streaming, the pipeline becomes:
+
+6. `source union -> truth-pack audit -> canonical tile database -> runtime streaming scheduler -> resident scene`
+7. the offline compiler remains authoritative for canonical world truth, tile semantics, and auditability
+8. the runtime streaming engine is a JIT residency layer, not a second compiler:
+   - it decides what to prefetch, keep resident, downgrade, or evict
+   - it must not invent a parallel world-definition path
+9. dev tooling such as Vertigo Sync may accelerate iteration and observability, but it must not own runtime semantics or budget policy
 
 ## Execution Rules
 
@@ -111,6 +122,22 @@ Default runs should stay compact. Deep runs should opt into richer outdoor marke
 
 Outdoor fidelity improvements must land in shared builders/import paths or shared manifest semantics. Do not add play-only or edit-only visual patches that bypass the canonical manifest truth.
 
+Fidelity, runtime streaming, and engine behavior must converge on the same production path: as visual quality improves, it should continue to work through the same runtime residency, streaming, and loader contracts rather than relying on a special high-fidelity path.
+
+### Runtime Budget Rule
+
+The runtime streaming engine must treat `estimatedMemoryCost` as the authoritative residency budget and `chunk count` as a secondary guardrail.
+
+The first alpha contract must expose and enforce:
+
+- estimated resident memory by ring
+- resident chunk counts by ring
+- inflight chunk counts/costs
+- queued prefetch work
+- explicit eviction reasons
+
+If `estimatedMemoryCost` and `chunk count` disagree, the memory budget wins.
+
 ### Proof Rule
 
 - local machine: static/schema/Python/Rust verification only
@@ -127,6 +154,14 @@ Success for this tranche means:
 ### Clean-Break Rule
 
 Do not add new backward-compatibility shims. If an older outdoor/audit path is redundant, delete it instead of layering new behavior on top.
+
+### Alpha-First Rule
+
+Prefer production-hardened hyperscale architecture from the beginning over temporary compatibility layers:
+
+- no legacy streaming mode preserved for safety
+- no compatibility wrappers for old runtime packaging assumptions
+- Austin is the first alpha sample, but the runtime contract should be written as if it must scale to real-time planetary streaming
 
 ## Delivery Tracks
 
@@ -162,6 +197,32 @@ This track should improve what the player sees on `tertiary` without inventing a
 
 Keep `tertiary` as the only Studio proof surface for this tranche. Each meaningful proof run must update the active plan/status/doc stack immediately if it changes what the repo should believe.
 
+### Track D: Runtime Streaming Engine
+
+Add the first alpha runtime streaming-engine tranche on top of the canonical tile database:
+
+1. explicit near/mid/far residency rings
+2. hard per-ring budgets:
+   - estimated memory cost
+   - chunk count
+3. movement-aware prefetch:
+   - bias toward forward motion and heading
+   - favor likely next-needed chunks over symmetric radius loading
+4. explicit eviction policy:
+   - lowest-priority ring first
+   - farthest distance
+   - lowest recency/value
+   - highest cost for lowest value
+5. runtime telemetry proving:
+   - resident memory by ring
+   - resident chunk counts by ring
+   - queue depth
+   - prefetch hit/miss rates
+   - eviction reasons
+   - import time by ring/class
+
+The first alpha does not need a brand-new runtime container format yet; it may continue to use the current Rust-generated Lua shards while the scheduler and residency contract are hardened. The next packaging redesign should follow the scheduler, not precede it.
+
 ## Testing And Verification
 
 ### Local Static
@@ -175,6 +236,7 @@ Keep `tertiary` as the only Studio proof surface for this tranche. Each meaningf
 - focused edit-mode proof slices for outdoor reducers/specs
 - focused play-mode proof slices for player-visible outdoor experience and telemetry capture
 - audit artifact generation/rebuild from remote raw logs or committed seed manifests where ignored outputs are absent
+- direct runtime-emitter and residency-budget measurements against the bounded Austin sample
 
 No Studio execution should run on this machine for this tranche.
 
@@ -191,6 +253,7 @@ Start with an audit-first outdoor tranche:
 
 1. build the bounded outdoor truth-pack and audit layer
 2. use it to drive the highest-signal outdoor fidelity and hotspot fixes
-3. prove the result on `tertiary`
+3. add the first alpha runtime streaming engine with explicit residency budgets and scheduler telemetry
+4. prove the result on `tertiary`
 
 This is the cleanest way to improve player-visible outdoors while also raising confidence that the pipeline is not silently losing or trampling source truth.
