@@ -38,6 +38,7 @@ from refresh_preview_from_sample_data import (  # noqa: E402
     load_source_manifest_subset,
     parse_source_chunk_size_studs,
     parse_source_index,
+    resolve_source_manifest_label,
     resolve_source_sqlite_path,
     write_lua_module,
 )
@@ -278,6 +279,7 @@ def write_runtime_harness_index(
     chunk_size_studs: float,
     identity_summary: dict[str, Any] | None = None,
     minimap_basis: dict[str, Any] | None = None,
+    source_label: str = "rust/out/austin-manifest.json",
 ) -> None:
     anchor_x, anchor_y, anchor_z = canonical_anchor_position
     lines = [
@@ -300,7 +302,7 @@ def write_runtime_harness_index(
         "            lookDirectionStuds = { x = 0, y = 0, z = 1 },",
         "        },",
         "        notes = {",
-        '            "runtime harness subset derived from rust/out/austin-manifest.json",',
+        f'            "runtime harness subset derived from {source_label}",',
         '            "used only for bounded Studio play harness runs; full Austin manifests remain runtime fallbacks",',
         "        },",
     ]
@@ -360,6 +362,7 @@ def main() -> int:
     _, source_chunk_refs = parse_source_index(source_text)
     chunk_size_studs = parse_source_chunk_size_studs(source_text)
     source_sqlite = resolve_source_sqlite_path(SOURCE_JSON)
+    source_label = resolve_source_manifest_label(SOURCE_JSON, source_sqlite)
     seed_chunk_ids = TARGET_CHUNK_IDS
     canonical_anchor_position = (
         RUNTIME_HARNESS_FALLBACK_CANONICAL_POSITION_STUDS["x"],
@@ -431,9 +434,10 @@ def main() -> int:
         chunk_size_studs=chunk_size_studs,
         identity_summary=identity_summary,
         minimap_basis=minimap_basis,
+        source_label=source_label,
     )
 
-    print(f"Refreshed runtime harness sample-data from {SOURCE_JSON}")
+    print(f"Refreshed runtime harness sample-data from {source_label}")
     print(f"Selected {len(harness_chunk_ids)} runtime harness chunks from AustinManifestIndex.lua")
     print(f"Wrote {len(shard_names)} runtime harness shards to {RUNTIME_HARNESS_SHARDS}")
     return 0

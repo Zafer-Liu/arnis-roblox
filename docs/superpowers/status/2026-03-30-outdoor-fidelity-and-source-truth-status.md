@@ -904,3 +904,33 @@ The compact historical archive index is:
   - local-safe: `bash -n scripts/export_austin_from_osm.sh`
   - local-safe: `bash -n scripts/export_austin_to_lua.sh`
   - local-safe: `git diff --check`
+
+### 2026-04-02: Bounded Non-Satellite Austin Export Is End-To-End Green On `tertiary`
+
+- I pushed the JSON-free default wrapper change, cleaned only regenerable proof-clone outputs on `tertiary`, and reran the full shared Austin loop from the git-backed proof clone:
+  - proof clone commit: `d5a581f`
+  - command: `ssh tertiary 'cd ~/Projects/arnis-roblox-proof && git fetch origin main && git reset --hard origin/main && /usr/bin/time -lp bash scripts/export_austin_to_lua.sh'`
+- This run completed successfully end to end on the internal disk:
+  - `arbx_cli compile ... --terrain-cell-size 2 --sqlite-out ... --truth-pack-out ... --truth-pack-summary-out ...`
+  - compile/store stage timing: `19.86s`
+  - Lua sharding: `7400` runtime shard modules written
+  - preview refresh: `906` preview shards plus `906` canonical bounded sample-data shards written
+  - runtime harness refresh: `143` harness shards written
+  - generated-asset verification passed
+  - total wall time: `335.72s`
+  - max resident set size from `/usr/bin/time -lp`: `2198536192`
+- What changed relative to the earlier failing runs:
+  - no giant manifest JSON sidecar is written by default
+  - manifest SQLite no longer leaves a manifest-sized WAL sidecar behind
+  - truth-pack SQLite still lands successfully
+  - the full Austin-to-Lua loop now fits within the bounded non-satellite `tertiary` proof lane when regenerable artifacts are cleaned first
+- Remaining DX cleanup from this proof:
+  - the refresh scripts were still labeling the source as `austin-manifest.json` even when they loaded from SQLite
+  - that wording is now fixed in the repo so future runs will report the real source path
+- Operator note:
+  - `tertiary` also now has an attached external SSD available
+  - future proof clones or heavy output roots should move onto operator-local SSD-backed paths instead of relying on the internal disk, but those paths must remain uncommitted local configuration rather than repo truth
+- Verification for this slice:
+  - remote `tertiary`: full `bash scripts/export_austin_to_lua.sh` completed successfully from the proof clone
+  - local-safe: `python3 -m unittest scripts.tests.test_refresh_preview_from_sample_data scripts.tests.test_refresh_runtime_harness_from_sample_data -v`
+  - local-safe: `git diff --check`

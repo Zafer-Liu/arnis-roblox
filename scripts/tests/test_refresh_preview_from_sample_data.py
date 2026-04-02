@@ -870,6 +870,20 @@ class RefreshPreviewFromSampleDataTests(unittest.TestCase):
             self.assertIn("unsupported schemaVersion", str(cm.exception))
             self.assertIn("0.5.0", str(cm.exception))
 
+    def test_resolve_source_manifest_label_prefers_sqlite_when_present(self) -> None:
+        module = load_module()
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            temp_root = Path(temp_dir)
+            source_json = temp_root / "austin-manifest.json"
+            source_sqlite = temp_root / "austin-manifest.sqlite"
+            source_json.write_text("{}", encoding="utf-8")
+            source_sqlite.write_text("", encoding="utf-8")
+
+            label = module.resolve_source_manifest_label(source_json, source_sqlite)
+
+            self.assertEqual(label, str(source_sqlite))
+
 
 if __name__ == "__main__":
     unittest.main()

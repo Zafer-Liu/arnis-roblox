@@ -577,6 +577,12 @@ def resolve_source_sqlite_path(source_json: Path) -> Path:
     return expected_sqlite
 
 
+def resolve_source_manifest_label(source_json: Path, source_sqlite: Path | None = None) -> str:
+    if source_sqlite is not None and source_sqlite.exists():
+        return str(source_sqlite)
+    return str(source_json)
+
+
 def compute_preview_canonical_anchor_position(
     source_chunks: dict[str, dict[str, Any]],
     *,
@@ -1048,6 +1054,7 @@ def main() -> int:
     chunk_size_studs = parse_source_chunk_size_studs(source_text)
     preview_chunk_ids = derive_preview_chunk_ids(source_chunk_refs, chunk_size_studs=chunk_size_studs)
     source_sqlite = resolve_source_sqlite_path(SOURCE_JSON)
+    source_label = resolve_source_manifest_label(SOURCE_JSON, source_sqlite)
     schema_version, source_chunks = load_source_manifest_subset(
         SOURCE_JSON, preview_chunk_ids, source_sqlite=source_sqlite
     )
@@ -1121,6 +1128,10 @@ def main() -> int:
         output_path=PREVIEW_INDEX,
         identity_summary=identity_summary,
         minimap_basis=minimap_basis,
+        notes=(
+            f"studio preview subset derived from {source_label}",
+            "kept in sync with runtime sample-data generation to avoid stale preview drift",
+        ),
     )
     write_preview_index(
         schema_version,
@@ -1135,12 +1146,12 @@ def main() -> int:
         identity_summary=identity_summary,
         minimap_basis=minimap_basis,
         notes=(
-            "bounded canonical full-bake subset derived from rust/out/austin-manifest.json",
+            f"bounded canonical full-bake subset derived from {source_label}",
             "kept in sync with Studio preview generation to prevent edit/play/export drift",
         ),
     )
 
-    print(f"Refreshed StudioPreview from {SOURCE_JSON}")
+    print(f"Refreshed StudioPreview from {source_label}")
     print(f"Selected {len(preview_chunk_ids)} preview chunks from AustinManifestIndex.lua")
     print(f"Wrote {len(shard_names)} preview shards to {PREVIEW_SHARDS}")
     print(f"Wrote {len(canonical_shard_names)} canonical sample-data shards to {CANONICAL_SHARDS}")
