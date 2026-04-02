@@ -684,3 +684,25 @@ The compact historical archive index is:
   - remote `tertiary`: serialized edit proof for `SimpleResidentialShell.spec.lua`
   - remote `tertiary`: serialized edit proof for `BuildingTerrainFillBatching.spec.lua`
   - remote `tertiary`: GUI-session play screenshot attempt reproduced the max-Studio-window blocker and did not produce a trustworthy screenshot artifact
+
+### 2026-04-01: `open_studio()` Now Recognizes Blank-Title Ready Sessions And Clears Recovery Dialogs During Launch
+
+- The next harness change stayed narrowly bounded to startup hygiene and did not add a new proof lane:
+  - `open_studio()` now force-cleans pre-existing Studio windows before launch, as already planned
+  - for custom place launches, `studio_opened_target_place()` now accepts the live `tertiary` condition where Studio is already `ready_for_harness` but reports `front_window=""` and `window_count=0`
+  - the post-launch wait loops now clear `dismiss-dont-save` recovery prompts during launch, not only before launch, so stacked `Lighting Technology Migration` plus `Auto-Recovery` dialogs no longer require a second manual path in the common case
+- This was driven directly from the live `tertiary` GUI repro:
+  - the GUI-launched run still logged only through `[harness] opening place: ...`
+  - direct `studio_ui_control.py get-session-status` from the same run showed Studio had already reached `ready_for_harness` with `front_window=""`, so the old basename-only success predicate was wrong for this lane
+  - manually dismissing `Lighting Technology Migration` immediately exposed `Auto-Recovery`, proving the launch loop also needed to clear recovery dialogs after launch, not just at the top of `open_studio()`
+- Current truth after the fix:
+  - the startup predicates are now more correct and the recovery-dialog handling is stronger
+  - the GUI-session screenshot path is still not fully green, because a live GUI-launched harness shell can remain stuck after Studio reaches `ready_for_harness`
+  - that remaining blocker is now narrower: it is no longer stale windows, missing ready-session recognition, or missing recovery-dialog clears
+  - further harness work should stay in wrap-up mode; the next high-value code change is still product-side shared building detail
+- Verification for this slice:
+  - local-safe: `python3 -m unittest scripts.tests.test_run_studio_harness scripts.tests.test_convergence_guardrails -v`
+  - local-safe: `python3 -m unittest scripts.tests.test_run_studio_harness.RunStudioHarnessTests.test_open_studio_accepts_ready_editor_when_custom_place_window_title_is_blank scripts.tests.test_run_studio_harness.RunStudioHarnessTests.test_open_studio_preflights_existing_studio_instances_before_launch scripts.tests.test_run_studio_harness.RunStudioHarnessTests.test_open_studio_clears_multi_window_launch_failures_before_retry scripts.tests.test_run_studio_harness.RunStudioHarnessTests.test_open_studio_post_launch_waits_also_clear_auto_recovery_dialogs -v`
+  - local-safe: `bash -n scripts/run_studio_harness.sh`
+  - local-safe: `git diff --check`
+  - remote `tertiary`: manual live repro confirmed the fix targets the real blank-title and stacked-dialog startup conditions

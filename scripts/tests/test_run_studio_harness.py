@@ -115,6 +115,60 @@ class RunStudioHarnessTests(unittest.TestCase):
         self.assertIn('front_window="$(studio_session_status_value front_window)"', self.text)
         self.assertIn('place_basename="$(basename "$PLACE_PATH")"', self.text)
 
+    def test_open_studio_accepts_ready_editor_when_custom_place_window_title_is_blank(self) -> None:
+        target_block = re.search(
+            r"studio_opened_target_place\(\) \{\n(?P<body>.*?)\n\}\n\nopen_studio",
+            self.text,
+            re.DOTALL,
+        )
+        self.assertIsNotNone(target_block, "studio_opened_target_place function not found")
+        body = target_block.group("body")
+        self.assertIn('front_window="$(studio_session_status_value front_window)"', body)
+        self.assertIn('ready_for_harness="$(studio_session_status_value ready_for_harness)"', body)
+        self.assertIn('if [[ -z "$front_window" && "$ready_for_harness" == "true" ]]; then', body)
+        self.assertIn("return 0", body)
+
+    def test_open_studio_preflights_existing_studio_instances_before_launch(self) -> None:
+        open_block = re.search(
+            r"open_studio\(\) \{\n(?P<body>.*?)\n\}\n\nwait_for_new_log",
+            self.text,
+            re.DOTALL,
+        )
+        self.assertIsNotNone(open_block, "open_studio function not found")
+        body = open_block.group("body")
+        self.assertIn('existing_window_count="$(studio_window_count_value)"', body)
+        self.assertIn('if [[ -n "$(studio_pids)" && "$existing_window_count" != "0" ]]; then', body)
+        self.assertIn('log "open_studio preflight found existing Studio state (status=$session_status window_count=$existing_window_count); forcing a clean launch"', body)
+        self.assertIn("force_quit_studio || true", body)
+
+    def test_open_studio_clears_multi_window_launch_failures_before_retry(self) -> None:
+        open_block = re.search(
+            r"open_studio\(\) \{\n(?P<body>.*?)\n\}\n\nwait_for_new_log",
+            self.text,
+            re.DOTALL,
+        )
+        self.assertIsNotNone(open_block, "open_studio function not found")
+        body = open_block.group("body")
+        self.assertIn('post_open_window_count="$(studio_window_count_value)"', body)
+        self.assertIn('if [[ "$post_open_window_count" != "0" && "$post_open_window_count" != "1" ]]; then', body)
+        self.assertIn('log "open_studio observed multiple Studio windows after launch (window_count=$post_open_window_count); clearing them before retry"', body)
+        self.assertIn('log "open_studio failed to open the requested place after clean-launch retries"', body)
+
+    def test_open_studio_post_launch_waits_also_clear_auto_recovery_dialogs(self) -> None:
+        open_block = re.search(
+            r"open_studio\(\) \{\n(?P<body>.*?)\n\}\n\nwait_for_new_log",
+            self.text,
+            re.DOTALL,
+        )
+        self.assertIsNotNone(open_block, "open_studio function not found")
+        body = open_block.group("body")
+        self.assertIn('dismiss_startup_dialogs', body)
+        self.assertGreaterEqual(
+            body.count('run_studio_ui_action dismiss-dont-save || true'),
+            2,
+            "open_studio should clear recovery dialogs during post-launch waits, not only before launch",
+        )
+
     def test_edit_mcp_run_code_timeout_matches_real_preview_budget(self) -> None:
         self.assertIn("timeout_seconds=max(edit_wait_seconds + 90, 120)", self.text)
 

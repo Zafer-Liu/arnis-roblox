@@ -1328,6 +1328,10 @@ studio_session_status_value() {
   run_studio_ui_control_with_timeout "$STUDIO_UI_TIMEOUT_SECONDS" get-session-status-value "$field" 2>/dev/null || true
 }
 
+studio_window_count_value() {
+  studio_session_status_value window_count 2>/dev/null || true
+}
+
 run_studio_ui_action() {
   run_studio_ui_control_with_timeout "$STUDIO_UI_TIMEOUT_SECONDS" "$@" >/dev/null 2>&1
 }
@@ -1803,7 +1807,17 @@ studio_opened_target_place() {
   front_window="$(studio_session_status_value front_window)"
   local place_basename
   place_basename="$(basename "$PLACE_PATH")"
-  [[ -n "$front_window" && "$front_window" == *"$place_basename"* ]]
+  if [[ -n "$front_window" && "$front_window" == *"$place_basename"* ]]; then
+    return 0
+  fi
+
+  local ready_for_harness=""
+  ready_for_harness="$(studio_session_status_value ready_for_harness)"
+  if [[ -z "$front_window" && "$ready_for_harness" == "true" ]]; then
+    return 0
+  fi
+
+  return 1
 }
 
 open_studio() {
@@ -1812,6 +1826,11 @@ open_studio() {
   while [[ $attempts -lt 5 ]]; do
     local session_status
     session_status="$(studio_session_status_value status)"
+    local existing_window_count="0"
+    existing_window_count="$(studio_window_count_value)"
+    if [[ -z "$existing_window_count" ]]; then
+      existing_window_count="0"
+    fi
     if [[ "$session_status" == "blocked_dialog" ]]; then
       dismiss_startup_dialogs
       run_studio_ui_action dismiss-dont-save || true
@@ -1823,6 +1842,11 @@ open_studio() {
       attempts=$((attempts + 1))
       continue
     fi
+    if [[ -n "$(studio_pids)" && "$existing_window_count" != "0" ]]; then
+      log "open_studio preflight found existing Studio state (status=$session_status window_count=$existing_window_count); forcing a clean launch"
+      force_quit_studio || true
+      sleep "$STUDIO_RELAUNCH_COOLDOWN_SECONDS"
+    fi
 
     if [[ $PLACE_PATH_CUSTOM -eq 1 ]]; then
       if [[ -d "$APP_PATH" ]]; then
@@ -1833,6 +1857,7 @@ open_studio() {
               return 0
             fi
             dismiss_startup_dialogs
+            run_studio_ui_action dismiss-dont-save || true
             sleep 1
             waited_for_target=$((waited_for_target + 1))
           done
@@ -1844,6 +1869,7 @@ open_studio() {
             return 0
           fi
           dismiss_startup_dialogs
+          run_studio_ui_action dismiss-dont-save || true
           sleep 1
           waited_for_target=$((waited_for_target + 1))
         done
@@ -1857,6 +1883,7 @@ open_studio() {
               return 0
             fi
             dismiss_startup_dialogs
+            run_studio_ui_action dismiss-dont-save || true
             sleep 1
             waited_for_target=$((waited_for_target + 1))
           done
@@ -1868,16 +1895,27 @@ open_studio() {
             return 0
           fi
           dismiss_startup_dialogs
+          run_studio_ui_action dismiss-dont-save || true
           sleep 1
           waited_for_target=$((waited_for_target + 1))
         done
       fi
     fi
 
+    local post_open_window_count="0"
+    post_open_window_count="$(studio_window_count_value)"
+    if [[ -z "$post_open_window_count" ]]; then
+      post_open_window_count="0"
+    fi
+    if [[ "$post_open_window_count" != "0" && "$post_open_window_count" != "1" ]]; then
+      log "open_studio observed multiple Studio windows after launch (window_count=$post_open_window_count); clearing them before retry"
+      force_quit_studio || true
+    fi
     attempts=$((attempts + 1))
     sleep "$STUDIO_RELAUNCH_COOLDOWN_SECONDS"
   done
 
+  log "open_studio failed to open the requested place after clean-launch retries"
   return 1
 }
 
