@@ -9,7 +9,7 @@ use arbx_geo::{
 };
 use arbx_pipeline::Feature;
 
-use crate::chunker::{build_empty_chunk, Chunker};
+use crate::chunker::{build_empty_chunk, ensure_terrain_materials, Chunker};
 use crate::materials::StyleMapper;
 pub use arbx_geo::satellite::SatelliteTileProvider;
 pub use manifest::{
@@ -243,30 +243,31 @@ pub fn export_to_chunks(
 
             // Enrich terrain per-cell materials from satellite ground classification
             if let Some(terrain) = &mut chunk.terrain {
-                if let Some(materials) = &mut terrain.materials {
-                    let cell_size = terrain.cell_size_studs as f64;
-                    let default_mat = terrain.material.clone();
-                    for cz in 0..terrain.depth {
-                        for cx in 0..terrain.width {
-                            let idx = cz * terrain.width + cx;
-                            // Only override cells that still carry the chunk default material
-                            if materials[idx] != default_mat {
-                                continue;
-                            }
+                let cell_size = terrain.cell_size_studs as f64;
+                let width = terrain.width;
+                let depth = terrain.depth;
+                let default_mat = terrain.material.clone();
+                let materials = ensure_terrain_materials(terrain);
+                for cz in 0..depth {
+                    for cx in 0..width {
+                        let idx = cz * width + cx;
+                        // Only override cells that still carry the chunk default material
+                        if materials[idx] != default_mat {
+                            continue;
+                        }
 
-                            let world_x = (cx as f64 * cell_size) + origin.x;
-                            let world_z = (cz as f64 * cell_size) + origin.z;
+                        let world_x = (cx as f64 * cell_size) + origin.x;
+                        let world_z = (cz as f64 * cell_size) + origin.z;
 
-                            let latlon = Mercator::unproject(
-                                Vec3::new(world_x, 0.0, world_z),
-                                center,
-                                config.meters_per_stud,
-                            );
+                        let latlon = Mercator::unproject(
+                            Vec3::new(world_x, 0.0, world_z),
+                            center,
+                            config.meters_per_stud,
+                        );
 
-                            if let Some(rgb) = sat.sample_pixel(latlon) {
-                                materials[idx] =
-                                    arbx_geo::satellite::classify_ground_material(rgb).to_string();
-                            }
+                        if let Some(rgb) = sat.sample_pixel(latlon) {
+                            materials[idx] =
+                                arbx_geo::satellite::classify_ground_material(rgb).to_string();
                         }
                     }
                 }
@@ -299,7 +300,7 @@ pub fn export_features(
 mod tests {
     use super::*;
     use arbx_geo::{FlatElevationProvider, Footprint, Vec2};
-    use arbx_pipeline::{BuildingFeature, LanduseFeature};
+    use arbx_pipeline::{BuildingFeature, LanduseFeature, RoadFeature};
     use std::path::PathBuf;
     use std::time::{SystemTime, UNIX_EPOCH};
 
@@ -944,6 +945,39 @@ mod tests {
         assert!(
             materials.iter().any(|material| material == "LeafyGrass"),
             "landuse semantics should paint the terrain grid, not leave every cell at the default material"
+        );
+    }
+
+    #[test]
+    fn export_omits_per_cell_terrain_materials_when_no_overrides_are_needed() {
+        let features = vec![Feature::Road(RoadFeature {
+            id: "road_only".to_string(),
+            kind: "residential".to_string(),
+            subkind: None,
+            points: vec![Vec3::new(0.0, 0.0, 0.0), Vec3::new(40.0, 0.0, 0.0)],
+            lanes: Some(2),
+            width_studs: 10.0,
+            has_sidewalk: false,
+            surface: Some("asphalt".to_string()),
+            sidewalk: None,
+            maxspeed: None,
+            lit: None,
+            oneway: None,
+            layer: None,
+            elevated: None,
+            tunnel: Some(false),
+        })];
+
+        let elevation = FlatElevationProvider { height: 0.0 };
+        let manifest = export_features(&features, &ExportConfig::default(), &elevation);
+        let terrain = manifest.chunks[0]
+            .terrain
+            .as_ref()
+            .expect("expected terrain grid");
+
+        assert!(
+            terrain.materials.is_none(),
+            "terrain materials should stay omitted when no landuse, water, or satellite overrides are applied"
         );
     }
 }

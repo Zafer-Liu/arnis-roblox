@@ -185,10 +185,6 @@ fn paint_terrain_polygon(
         return;
     }
 
-    let Some(materials) = terrain.materials.as_mut() else {
-        return;
-    };
-
     let mut min_x = f64::INFINITY;
     let mut max_x = f64::NEG_INFINITY;
     let mut min_z = f64::INFINITY;
@@ -202,15 +198,14 @@ fn paint_terrain_polygon(
     }
 
     let cell_size = terrain.cell_size_studs as f64;
-    let min_cx =
-        ((min_x / cell_size).floor() as isize).clamp(0, terrain.width as isize - 1) as usize;
-    let max_cx =
-        ((max_x / cell_size).ceil() as isize).clamp(0, terrain.width as isize - 1) as usize;
-    let min_cz =
-        ((min_z / cell_size).floor() as isize).clamp(0, terrain.depth as isize - 1) as usize;
-    let max_cz =
-        ((max_z / cell_size).ceil() as isize).clamp(0, terrain.depth as isize - 1) as usize;
+    let width = terrain.width;
+    let depth = terrain.depth;
+    let min_cx = ((min_x / cell_size).floor() as isize).clamp(0, width as isize - 1) as usize;
+    let max_cx = ((max_x / cell_size).ceil() as isize).clamp(0, width as isize - 1) as usize;
+    let min_cz = ((min_z / cell_size).floor() as isize).clamp(0, depth as isize - 1) as usize;
+    let max_cz = ((max_z / cell_size).ceil() as isize).clamp(0, depth as isize - 1) as usize;
     let new_priority = terrain_material_priority(material);
+    let materials = ensure_terrain_materials(terrain);
 
     for cz in min_cz..=max_cz {
         for cx in min_cx..=max_cx {
@@ -226,7 +221,7 @@ fn paint_terrain_polygon(
                 continue;
             }
 
-            let idx = cz * terrain.width + cx;
+            let idx = cz * width + cx;
             if idx >= materials.len() {
                 continue;
             }
@@ -335,8 +330,6 @@ pub(crate) fn build_empty_chunk(
         origin_y,
         elevation,
     );
-    let cell_materials = vec![default_material.clone(); total_cells];
-
     Chunk {
         id,
         origin_studs: origin,
@@ -345,7 +338,7 @@ pub(crate) fn build_empty_chunk(
             width: grid_dim,
             depth: grid_dim,
             heights,
-            materials: Some(cell_materials),
+            materials: None,
             material: default_material,
         }),
         roads: Vec::new(),
@@ -356,6 +349,13 @@ pub(crate) fn build_empty_chunk(
         landuse: Vec::new(),
         barriers: Vec::new(),
     }
+}
+
+pub(crate) fn ensure_terrain_materials(terrain: &mut TerrainGrid) -> &mut Vec<String> {
+    terrain.materials.get_or_insert_with(|| {
+        let total_cells = terrain.width * terrain.depth;
+        vec![terrain.material.clone(); total_cells]
+    })
 }
 
 #[cfg(not(miri))]

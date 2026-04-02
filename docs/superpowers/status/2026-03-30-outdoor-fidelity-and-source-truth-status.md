@@ -831,3 +831,17 @@ The compact historical archive index is:
   - removing satellite from the shared path was the correct move and is now proven in the actual remote command line
   - compile/runtime cost is still substantial even without imagery
   - the next performance tranche should target compile-path cost directly, while the next remote proof tranche must first avoid disk-capacity failure on `tertiary`
+
+### 2026-04-02: Exporter Terrain Materials Are Now Lazily Allocated
+
+- The first exporter-side memory optimization for the non-satellite path is now in place:
+  - `build_empty_chunk()` no longer eagerly allocates a full per-cell `terrain.materials` vector
+  - `paint_terrain_polygon()` now materializes per-cell terrain materials only on first real override
+  - the satellite enrichment path now uses the same lazy allocator, so imagery-backed runs still keep their previous behavior when explicitly enabled
+- Why this matters:
+  - the old path allocated `width * depth` material strings for every touched chunk even when a chunk stayed at the default terrain material
+  - on the bounded `cell=2` path that is `16,384` default-material strings per touched chunk
+  - this does not solve the whole compile bottleneck, but it removes a large class of unnecessary churn from the normal non-satellite export path
+- Verification for this slice:
+  - local-safe: `cargo test --manifest-path rust/Cargo.toml -p arbx_roblox_export export_omits_per_cell_terrain_materials_when_no_overrides_are_needed -- --nocapture`
+  - local-safe: `cargo test --manifest-path rust/Cargo.toml -p arbx_roblox_export export_paints_terrain_materials_from_landuse_semantics -- --nocapture`
