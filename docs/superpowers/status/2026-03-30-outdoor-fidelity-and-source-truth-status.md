@@ -103,6 +103,31 @@ The compact historical archive index is:
 
 ## Status Notes
 
+### 2026-04-02: SSD-Backed Austin Proof Finished And Austin Wrapper Now Supports Bounded Derivative Emission
+
+- Completed the SSD-backed non-satellite Austin proof run on `tertiary` from `/Volumes/APDataStore/arnis-roblox-proof` after updating the proof clone to `origin/main`.
+- Measured current bounded Austin export cost on `tertiary`:
+  - Rust compile step finished in about `33.39s`
+  - SQLite manifest/truth-pack compile/store finished in about `20.67s`
+  - full end-to-end `bash scripts/export_austin_to_lua.sh` finished in `563.71s`
+  - peak resident set was about `2.32 GB`
+- The full run completed cleanly with:
+  - `7400` runtime shard modules
+  - `906` preview shards
+  - `906` canonical bounded shards
+  - `143` runtime harness shards
+  - generated-asset verification passed
+- The measured bottleneck is no longer the Rust compile itself; it is the eager downstream derivative fanout after the canonical SQLite compile.
+- Added bounded derivative-emission controls to `scripts/export_austin_to_lua.sh`:
+  - `--emit runtime`
+  - `--emit runtime,preview`
+  - default remains `all`
+- This keeps the canonical compile path and scene truth unchanged while letting proof/deploy loops skip unneeded derivative refreshes, which is a direct step toward chunked, demand-driven planetary workflows instead of always materializing every downstream family.
+- Local-safe verification for the wrapper slice passed:
+  - `python3 -m unittest scripts.tests.test_austin_fidelity -v`
+  - `bash -n scripts/export_austin_to_lua.sh`
+  - `git diff --check`
+
 ### 2026-04-01: Play-Mode Building Wall Gap Is Now Measured Explicitly
 
 - Added visible shell-wall evidence to the shared scene-audit path:

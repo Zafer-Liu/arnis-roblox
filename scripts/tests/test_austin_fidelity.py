@@ -39,15 +39,26 @@ class AustinFidelityScriptTests(unittest.TestCase):
         text = EXPORT_TO_LUA_SCRIPT.read_text(encoding="utf-8")
 
         self.assertIn("default shared Austin cell=2 path", text)
+        self.assertIn('bash scripts/export_austin_to_lua.sh --emit runtime', text)
+        self.assertIn('bash scripts/export_austin_to_lua.sh --emit runtime,preview', text)
         self.assertIn('bash scripts/export_austin_to_lua.sh --terrain-cell-size 2', text)
         self.assertIn("satellite opt-in only", text)
         self.assertIn('DEFAULT_FIDELITY_ARGS=("--terrain-cell-size" "2")', text)
+        self.assertIn('emit_targets="all"', text)
+        self.assertIn('"--emit")', text)
+        self.assertIn('echo "[export_austin_to_lua] Emit targets: runtime=$emit_runtime preview=$emit_preview harness=$emit_harness verify=$emit_verify"', text)
+        self.assertIn('if [[ $emit_preview -eq 1 || $emit_harness -eq 1 || $emit_verify -eq 1 ]]; then', text)
+        self.assertIn('emit_runtime=1', text)
         self.assertIn("explicit_json_out=0", text)
         self.assertIn('rm -f "$OUT_DIR/austin-manifest.json"', text)
         self.assertIn(
-            'bash "$ROOT_DIR/scripts/export_austin_from_osm.sh" "${DEFAULT_FIDELITY_ARGS[@]}" "$@"',
+            'bash "$ROOT_DIR/scripts/export_austin_from_osm.sh" "${DEFAULT_FIDELITY_ARGS[@]}" "${compile_args[@]}"',
             text,
         )
+        self.assertIn('if [[ $emit_runtime -eq 1 ]]; then', text)
+        self.assertIn('if [[ $emit_preview -eq 1 ]]; then', text)
+        self.assertIn('if [[ $emit_harness -eq 1 ]]; then', text)
+        self.assertIn('if [[ $emit_verify -eq 1 ]]; then', text)
         self.assertIn('python3 "$ROOT_DIR/scripts/verify_generated_austin_assets.py"', text)
 
     def test_build_script_refreshes_stable_latest_export_copy(self) -> None:
