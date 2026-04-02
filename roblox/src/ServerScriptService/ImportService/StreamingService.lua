@@ -36,6 +36,7 @@ local loadedChunkLods = {}
 local lodConfigCache = setmetatable({}, { __mode = "k" })
 local streamingChunkOptionsByLod = nil
 local streamingLastFocalPoint = nil
+local streamingLastFocalAt = nil
 local streamingPreferredForward = nil
 local observedChunkImportMsById = {}
 local streamingSubplanRollout = nil
@@ -177,6 +178,10 @@ local function resetStreamingResidencyTelemetry()
     Workspace:SetAttribute("ArnisStreamingProcessedWorkItems", 0)
     Workspace:SetAttribute("ArnisStreamingLastFocalX", 0)
     Workspace:SetAttribute("ArnisStreamingLastFocalZ", 0)
+    Workspace:SetAttribute("ArnisStreamingPredictedFocalX", 0)
+    Workspace:SetAttribute("ArnisStreamingPredictedFocalZ", 0)
+    Workspace:SetAttribute("ArnisStreamingMovementDeltaStuds", 0)
+    Workspace:SetAttribute("ArnisStreamingMovementLookaheadStuds", 0)
     Workspace:SetAttribute("ArnisStreamingRingNearResidentChunkCount", 0)
     Workspace:SetAttribute("ArnisStreamingRingMidResidentChunkCount", 0)
     Workspace:SetAttribute("ArnisStreamingRingFarResidentChunkCount", 0)
@@ -241,6 +246,9 @@ end
 
 local function updateStreamingResidencyTelemetry(
     playerPos,
+    predictedFocalPoint,
+    movementDeltaStuds,
+    movementLookaheadStuds,
     candidateChunkEntries,
     desiredChunkCount,
     processedWorkItems,
@@ -255,6 +263,12 @@ local function updateStreamingResidencyTelemetry(
         focalX = playerPos.X
         focalZ = playerPos.Z
     end
+    local predictedFocalX = focalX
+    local predictedFocalZ = focalZ
+    if typeof(predictedFocalPoint) == "Vector3" then
+        predictedFocalX = predictedFocalPoint.X
+        predictedFocalZ = predictedFocalPoint.Z
+    end
 
     Workspace:SetAttribute(
         "ArnisStreamingLoadedChunkCount",
@@ -265,6 +279,10 @@ local function updateStreamingResidencyTelemetry(
     Workspace:SetAttribute("ArnisStreamingProcessedWorkItems", processedWorkItems)
     Workspace:SetAttribute("ArnisStreamingLastFocalX", focalX)
     Workspace:SetAttribute("ArnisStreamingLastFocalZ", focalZ)
+    Workspace:SetAttribute("ArnisStreamingPredictedFocalX", predictedFocalX)
+    Workspace:SetAttribute("ArnisStreamingPredictedFocalZ", predictedFocalZ)
+    Workspace:SetAttribute("ArnisStreamingMovementDeltaStuds", normalizeNonNegativeNumber(movementDeltaStuds))
+    Workspace:SetAttribute("ArnisStreamingMovementLookaheadStuds", normalizeNonNegativeNumber(movementLookaheadStuds))
     local ringTelemetry = buildStreamingRingTelemetry(playerPos, streamingResolvedRings)
     Workspace:SetAttribute("ArnisStreamingRingNearResidentChunkCount", ringTelemetry.near.residentChunkCount)
     Workspace:SetAttribute("ArnisStreamingRingMidResidentChunkCount", ringTelemetry.mid.residentChunkCount)
@@ -294,6 +312,54 @@ local function observeHostProbeSample()
         availableBytes = Workspace:GetAttribute(HOST_PROBE_AVAILABLE_ATTR),
         pressureLevel = Workspace:GetAttribute(HOST_PROBE_PRESSURE_ATTR),
     })
+end
+
+local function resolveStreamingLookahead(config)
+    local chunkSizeStuds = normalizePositiveNumber(config.ChunkSizeStuds) or DefaultWorldConfig.ChunkSizeStuds or 256
+    local lookaheadSeconds = normalizePositiveNumber(config.StreamingLookaheadSeconds) or 0
+    local maxLookaheadStuds = normalizePositiveNumber(config.StreamingMaxLookaheadStuds) or (chunkSizeStuds * 2)
+    return lookaheadSeconds, maxLookaheadStuds
+end
+
+local function resolveSchedulerFocusPoint(playerPos, config)
+    local movementForward = nil
+    local movementDeltaStuds = 0
+    local movementLookaheadStuds = 0
+    local predictedFocalPoint = playerPos
+
+    if typeof(streamingLastFocalPoint) ~= "Vector3" then
+        return movementForward, predictedFocalPoint, movementDeltaStuds, movementLookaheadStuds
+    end
+
+    local horizontalDelta = Vector3.new(
+        playerPos.X - streamingLastFocalPoint.X,
+        0,
+        playerPos.Z - streamingLastFocalPoint.Z
+    )
+    movementDeltaStuds = horizontalDelta.Magnitude
+    if movementDeltaStuds < 1 then
+        return movementForward, predictedFocalPoint, movementDeltaStuds, movementLookaheadStuds
+    end
+
+    movementForward = horizontalDelta
+    local lookaheadSeconds, maxLookaheadStuds = resolveStreamingLookahead(config)
+    if lookaheadSeconds <= 0 or maxLookaheadStuds <= 0 then
+        return movementForward, predictedFocalPoint, movementDeltaStuds, movementLookaheadStuds
+    end
+
+    local elapsedSeconds = DEFAULT_UPDATE_INTERVAL
+    if type(streamingLastFocalAt) == "number" and streamingLastFocalAt < os.clock() then
+        elapsedSeconds = math.max(1 / 60, os.clock() - streamingLastFocalAt)
+    end
+    local movementSpeedStudsPerSecond = movementDeltaStuds / elapsedSeconds
+    movementLookaheadStuds = math.min(maxLookaheadStuds, movementSpeedStudsPerSecond * lookaheadSeconds)
+
+    if movementLookaheadStuds <= 0 then
+        return movementForward, predictedFocalPoint, movementDeltaStuds, movementLookaheadStuds
+    end
+
+    predictedFocalPoint = playerPos + horizontalDelta.Unit * movementLookaheadStuds
+    return movementForward, predictedFocalPoint, movementDeltaStuds, movementLookaheadStuds
 end
 
 local function sumEstimatedCosts(costById)
@@ -977,6 +1043,7 @@ function StreamingService.Start(manifest, options)
         then streamingOptions.preferredLookVector
         else nil
     streamingLastFocalPoint = nil
+    streamingLastFocalAt = nil
     -- Fresh starts should not inherit stale heartbeat cadence from prior runs.
     -- Tests and harnesses explicitly drive the first Update() when they need it.
     lastUpdate = os.clock()
@@ -1037,6 +1104,7 @@ function StreamingService.Stop()
     streamingOptions = nil
     streamingChunkOptionsByLod = nil
     streamingLastFocalPoint = nil
+    streamingLastFocalAt = nil
     streamingPreferredForward = nil
     streamingSubplanRollout = nil
     streamingMemoryGuardrail = nil
@@ -1091,13 +1159,8 @@ function StreamingService.Update(focalPoint)
         local highExitRadiusSq = highExitRadius * highExitRadius
         local targetExitRadiusSq = targetExitRadius * targetExitRadius
         local interiorRadius = highRadius * 0.25
-        local movementForward = nil
-        if typeof(streamingLastFocalPoint) == "Vector3" then
-            local delta = playerPos - streamingLastFocalPoint
-            if Vector3.new(delta.X, 0, delta.Z).Magnitude >= 1 then
-                movementForward = delta
-            end
-        end
+        local movementForward, schedulerFocusPoint, movementDeltaStuds, movementLookaheadStuds =
+            resolveSchedulerFocusPoint(playerPos, config)
         local forwardVector = movementForward or streamingPreferredForward
 
         local desiredChunkIds = {}
@@ -1114,7 +1177,7 @@ function StreamingService.Update(focalPoint)
         local importWorkItems = {}
         ChunkPriority.SortChunkEntriesByPriority(
             candidateChunkEntries,
-            playerPos,
+            schedulerFocusPoint,
             chunkSizeStuds,
             forwardVector,
             observedChunkImportMsById
@@ -1198,7 +1261,13 @@ function StreamingService.Update(focalPoint)
 
                 appendStreamingWorkItems(importWorkItems, chunkEntry, chunkOptions, chunkOptions.config, targetLod)
                 desiredChunkIds[chunkRef.id] = true
-                lastPrefetchReason = if movementForward ~= nil then "movement_heading" else "ring_backfill"
+                if movementLookaheadStuds > 0 then
+                    lastPrefetchReason = "movement_lookahead"
+                elseif movementForward ~= nil then
+                    lastPrefetchReason = "movement_heading"
+                else
+                    lastPrefetchReason = "ring_backfill"
+                end
             else
                 local currentEntry = ChunkLoader.GetChunkEntry(chunkRef.id, streamingOptions.worldRootName)
                 if currentLod == nil and currentEntry == nil then
@@ -1220,7 +1289,7 @@ function StreamingService.Update(focalPoint)
 
         ChunkPriority.SortWorkItems(
             importWorkItems,
-            playerPos,
+            schedulerFocusPoint,
             chunkSizeStuds,
             forwardVector,
             observedChunkImportMsById
@@ -1241,6 +1310,9 @@ function StreamingService.Update(focalPoint)
             else MemoryGuardrail.ResolveConfig(nil)
         updateStreamingResidencyTelemetry(
             playerPos,
+            schedulerFocusPoint,
+            movementDeltaStuds,
+            movementLookaheadStuds,
             candidateChunkEntries,
             desiredChunkCount,
             processedWorkItems,
@@ -1350,6 +1422,9 @@ function StreamingService.Update(focalPoint)
         refreshMemoryGuardrailTelemetry(memoryGuardrailConfig, deferredAdmissions, deferredProjectedUsage)
         updateStreamingResidencyTelemetry(
             playerPos,
+            schedulerFocusPoint,
+            movementDeltaStuds,
+            movementLookaheadStuds,
             candidateChunkEntries,
             desiredChunkCount,
             processedWorkItems,
@@ -1365,6 +1440,7 @@ function StreamingService.Update(focalPoint)
         end
 
         streamingLastFocalPoint = playerPos
+        streamingLastFocalAt = os.clock()
     end, debug.traceback)
     streamingUpdateInProgress = false
     if not ok then

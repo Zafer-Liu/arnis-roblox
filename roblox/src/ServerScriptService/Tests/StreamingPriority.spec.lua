@@ -165,6 +165,89 @@ return function()
         Assert.equal(importOrder[4], "far_light", "expected farther chunk band to load after nearer band")
         Assert.equal(subplanImportCount, 0, "expected rollout-off streaming to preserve whole-chunk fallback")
 
+        importOrder = {}
+        ChunkLoader.Clear()
+        StreamingService.Stop()
+
+        local movementManifest = {
+            schemaVersion = "0.4.0",
+            meta = manifest.meta,
+            chunkRefs = {
+                {
+                    id = "anchor_chunk",
+                    originStuds = { x = 0, y = 0, z = 0 },
+                    shards = { "fake" },
+                    featureCount = 1,
+                    streamingCost = 1,
+                    estimatedMemoryCost = 16,
+                },
+                {
+                    id = "a_behind",
+                    originStuds = { x = -150, y = 0, z = 0 },
+                    shards = { "fake" },
+                    featureCount = 1,
+                    streamingCost = 1,
+                    estimatedMemoryCost = 16,
+                },
+                {
+                    id = "z_ahead",
+                    originStuds = { x = 150, y = 0, z = 0 },
+                    shards = { "fake" },
+                    featureCount = 1,
+                    streamingCost = 1,
+                    estimatedMemoryCost = 16,
+                },
+            },
+            GetChunk = function(_, chunkId)
+                if chunkId == "a_behind" then
+                    return makeChunk(chunkId, -150)
+                elseif chunkId == "z_ahead" then
+                    return makeChunk(chunkId, 150)
+                end
+                return makeChunk(chunkId, 0)
+            end,
+        }
+        local movementOptions = {
+            worldRootName = "StreamingPriorityMovementLookaheadWorld",
+            config = {
+                StreamingEnabled = true,
+                StreamingTargetRadius = 400,
+                HighDetailRadius = 400,
+                ChunkSizeStuds = 100,
+                StreamingMaxWorkItemsPerUpdate = 1,
+                StreamingLookaheadSeconds = 1,
+                StreamingMaxLookaheadStuds = 200,
+                TerrainMode = "none",
+                RoadMode = "mesh",
+                BuildingMode = "shellMesh",
+                WaterMode = "mesh",
+                LanduseMode = "fill",
+            },
+        }
+
+        StreamingService.Start(movementManifest, movementOptions)
+        StreamingService.Update(Vector3.new(0, 0, 0))
+        Assert.equal(importOrder[1], "anchor_chunk", "expected the anchor chunk to import first")
+        StreamingService.Update(Vector3.new(50, 0, 0))
+        Assert.equal(
+            importOrder[2],
+            "z_ahead",
+            "expected movement lookahead to prioritize the ahead chunk over an otherwise symmetric behind chunk"
+        )
+        Assert.equal(
+            Workspace:GetAttribute("ArnisStreamingLastPrefetchReason"),
+            "movement_lookahead",
+            "expected runtime telemetry to expose movement-lookahead scheduling explicitly"
+        )
+        Assert.truthy(
+            (Workspace:GetAttribute("ArnisStreamingPredictedFocalX") or 0) > 50,
+            "expected predicted focal telemetry to move ahead of the current focal point during positive movement"
+        )
+
+        importOrder = {}
+        ChunkLoader.Clear()
+        StreamingService.Stop()
+
         local subplanKey = ChunkPriority.BuildPriorityKey(
             {
                 chunkId = "near_heavy",

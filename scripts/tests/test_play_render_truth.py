@@ -218,6 +218,11 @@ class PlayRenderTruthTests(unittest.TestCase):
         self.assertIn("ArnisStreamingQueuedEstimatedCost", streaming_source)
         self.assertIn("ArnisStreamingLastPrefetchReason", streaming_source)
         self.assertIn("ArnisStreamingLastEvictionReason", streaming_source)
+        self.assertIn("ArnisStreamingPredictedFocalX", streaming_source)
+        self.assertIn("ArnisStreamingPredictedFocalZ", streaming_source)
+        self.assertIn("ArnisStreamingMovementDeltaStuds", streaming_source)
+        self.assertIn("ArnisStreamingMovementLookaheadStuds", streaming_source)
+        self.assertIn("movement_lookahead", streaming_source)
 
 
 if __name__ == "__main__":

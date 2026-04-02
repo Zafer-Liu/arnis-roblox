@@ -120,6 +120,10 @@ class AustinRuntimeContractTests(unittest.TestCase):
         self.assertIn('Workspace:SetAttribute("ArnisStreamingProcessedWorkItems", 0)', self.streaming_text)
         self.assertIn('Workspace:SetAttribute("ArnisStreamingLastFocalX", 0)', self.streaming_text)
         self.assertIn('Workspace:SetAttribute("ArnisStreamingLastFocalZ", 0)', self.streaming_text)
+        self.assertIn('Workspace:SetAttribute("ArnisStreamingPredictedFocalX", 0)', self.streaming_text)
+        self.assertIn('Workspace:SetAttribute("ArnisStreamingPredictedFocalZ", 0)', self.streaming_text)
+        self.assertIn('Workspace:SetAttribute("ArnisStreamingMovementDeltaStuds", 0)', self.streaming_text)
+        self.assertIn('Workspace:SetAttribute("ArnisStreamingMovementLookaheadStuds", 0)', self.streaming_text)
         self.assertIn('Workspace:SetAttribute("ArnisStreamingLoadedChunkCount"', self.streaming_text)
         self.assertIn('#ChunkLoader.ListLoadedChunks(streamingOptions.worldRootName)', self.streaming_text)
         self.assertIn('Workspace:SetAttribute("ArnisStreamingCandidateChunkCount", #candidateChunkEntries)', self.streaming_text)
@@ -141,6 +145,8 @@ class AustinRuntimeContractTests(unittest.TestCase):
         self.assertIn("near = {", self.world_config_text)
         self.assertIn("mid = {", self.world_config_text)
         self.assertIn("far = {", self.world_config_text)
+        self.assertIn("StreamingLookaheadSeconds", self.world_config_text)
+        self.assertIn("StreamingMaxLookaheadStuds", self.world_config_text)
         self.assertIn("EstimatedBudgetBytes", self.world_config_text)
         self.assertIn("MaxChunkCount", self.world_config_text)
 
@@ -151,6 +157,9 @@ class AustinRuntimeContractTests(unittest.TestCase):
         self.assertIn("ArnisStreamingQueuedEstimatedCost", self.streaming_text)
         self.assertIn("ArnisStreamingLastPrefetchReason", self.streaming_text)
         self.assertIn("ArnisStreamingLastEvictionReason", self.streaming_text)
+        self.assertIn("ArnisStreamingPredictedFocalX", self.streaming_text)
+        self.assertIn("ArnisStreamingMovementLookaheadStuds", self.streaming_text)
+        self.assertIn('lastPrefetchReason = "movement_lookahead"', self.streaming_text)
 
     def test_startup_import_and_streaming_share_chunk_signature_contract(self) -> None:
         self.assertIn("local ImportSignatures = require(script.Parent.ImportSignatures)", self.streaming_text)

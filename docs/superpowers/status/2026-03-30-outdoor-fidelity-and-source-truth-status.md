@@ -1140,3 +1140,35 @@ The compact historical archive index is:
   - local-safe green: same focused suite after the runtime-engine implementation
   - local-safe green: `git diff --check`
   - remote `tertiary`: still pending for this specific runtime-engine telemetry slice
+
+### 2026-04-02: Movement-Lookahead Scheduler Slice Landed On Top Of The Ring Budget Contract
+
+- I kept the next runtime-engine slice on the single shared streaming path instead of adding a second scheduler.
+- `StreamingService.lua` now computes a predicted focal point from observed movement, a bounded lookahead contract, and the existing ring-budget loader cadence.
+- `WorldConfig.lua` now exposes the movement-lookahead knobs directly:
+  - `StreamingLookaheadSeconds`
+  - `StreamingMaxLookaheadStuds`
+- The scheduler now:
+  - sorts candidate chunks and work items against the predicted focal point instead of only the instantaneous player position
+  - emits `movement_lookahead` as a first-class prefetch reason when the prediction path is active
+  - publishes the extra runtime telemetry needed to inspect the scheduler instead of guessing:
+    - `ArnisStreamingPredictedFocalX`
+    - `ArnisStreamingPredictedFocalZ`
+    - `ArnisStreamingMovementDeltaStuds`
+    - `ArnisStreamingMovementLookaheadStuds`
+- I also fixed the two real `tertiary` blockers that were preventing Austin-specific proof from starting cleanly:
+  - the harness now resolves `vertigo-sync` outside sibling clones
+  - the resolver accepts both source repos and binary-only install roots, which matches the current `tertiary` layout
+- `tertiary` proof status for this slice:
+  - green: direct SSD-backed clean-place build from `/Volumes/APDataStore/arnis-roblox-proof-clean`
+  - measured artifact: `roblox/out/arnis-test-clean-play.rbxlx` built successfully at about `15 MB`
+  - still pending: the focused Studio proof that exercises the new `movement_lookahead` runtime behavior end-to-end
+- Verification for the landed local slice:
+  - local-safe red: `python3 -m unittest scripts.tests.test_austin_runtime_contract scripts.tests.test_play_render_truth -v`
+  - local-safe green: `python3 -m unittest scripts.tests.test_run_studio_harness scripts.tests.test_austin_runtime_contract scripts.tests.test_play_render_truth -v`
+  - local-safe green: `bash -n scripts/run_studio_harness.sh`
+  - local-safe green: `git diff --check`
+- Interpretation:
+  - the runtime engine now has both budgeted residency math and a bounded predictive prefetch contract
+  - Austin clean-place preparation is no longer blocked on SSD clone layout drift
+  - the next remote proof should be narrow: prove the scheduler telemetry and then move back to play-fidelity/streaming value work instead of widening the harness again
