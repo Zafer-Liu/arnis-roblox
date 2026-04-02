@@ -8,6 +8,10 @@ local GeoUtils = require(script.Parent.Parent.GeoUtils)
 local BuildingBuilder = {}
 local editableMeshSetVertexNormalSupported = nil
 
+BuildingBuilder._fillTerrainBlock = function(cf, size, material)
+    Workspace.Terrain:FillBlock(cf, size, material)
+end
+
 local function trySetVertexNormal(mesh, vertexId, normal)
     if editableMeshSetVertexNormalSupported == false then
         return
@@ -638,23 +642,44 @@ local function fillInterior(footprintXZ, holeXZ, bounds, baseY, material)
     local GRID_SIZE = 4 -- 4-stud grid matching voxel resolution
     local WALL_THICKNESS = 0.6
     local INTERIOR_FILL_EDGE_CLEARANCE = GRID_SIZE * 0.5 + WALL_THICKNESS
-    local x = minX + GRID_SIZE * 0.5
-    while x < maxX do
-        local z = minZ + GRID_SIZE * 0.5
-        while z < maxZ do
-            if
-                GeoUtils.pointInPolygonWithHoles(x, z, footprintXZ, holeXZ)
-                and distanceToPolygonWithHoleEdges2D(x, z, footprintXZ, holeXZ) >= INTERIOR_FILL_EDGE_CLEARANCE
-            then
-                Workspace.Terrain:FillBlock(
-                    CFrame.new(x, baseY, z),
-                    Vector3.new(GRID_SIZE, GRID_SIZE, GRID_SIZE),
-                    material
-                )
-            end
-            z = z + GRID_SIZE
+    local function flushRowSpan(startX, endX, z)
+        if startX == nil or endX == nil then
+            return
         end
-        x = x + GRID_SIZE
+
+        local spanCount = math.floor(((endX - startX) / GRID_SIZE) + 0.5) + 1
+        local spanCenterX = (startX + endX) * 0.5
+        BuildingBuilder._fillTerrainBlock(
+            CFrame.new(spanCenterX, baseY, z),
+            Vector3.new(spanCount * GRID_SIZE, GRID_SIZE, GRID_SIZE),
+            material
+        )
+    end
+
+    local z = minZ + GRID_SIZE * 0.5
+    while z < maxZ do
+        local rowSpanStartX = nil
+        local rowSpanEndX = nil
+        local x = minX + GRID_SIZE * 0.5
+        while x < maxX do
+            local isInteriorCell = GeoUtils.pointInPolygonWithHoles(x, z, footprintXZ, holeXZ)
+                and distanceToPolygonWithHoleEdges2D(x, z, footprintXZ, holeXZ) >= INTERIOR_FILL_EDGE_CLEARANCE
+            if isInteriorCell then
+                if rowSpanStartX == nil then
+                    rowSpanStartX = x
+                end
+                rowSpanEndX = x
+            elseif rowSpanStartX ~= nil then
+                flushRowSpan(rowSpanStartX, rowSpanEndX, z)
+                rowSpanStartX = nil
+                rowSpanEndX = nil
+            end
+            x = x + GRID_SIZE
+        end
+        if rowSpanStartX ~= nil then
+            flushRowSpan(rowSpanStartX, rowSpanEndX, z)
+        end
+        z = z + GRID_SIZE
     end
 end
 
@@ -2140,9 +2165,9 @@ function BuildingBuilder.FallbackBuild(parent, building, originStuds, chunk, win
         end
     end
 
-    -- Foundation strip along the base of every wall edge
+    -- Keep sparse low-rise shells legible with a cheap perimeter cue at street level.
+    buildFoundation(detailFolder, worldPts, baseY)
     if not preferSimpleShellDetail then
-        buildFoundation(detailFolder, worldPts, baseY)
         buildAwning(detailFolder, building, baseY, worldPts)
     end
 
@@ -2521,9 +2546,9 @@ function BuildingBuilder.MeshBuildAll(parent, buildings, originStuds, chunk, con
                 recordBuildingDetailPhase(buildStats, "facadeDetailMs", (os.clock() - facadeDetailStartedAt) * 1000)
             end
 
-            if not preferSimpleShellDetail then
+            do
                 local perimeterDetailStartedAt = os.clock()
-                -- Foundation and cornice quads merged into the shared detailAcc mesh
+                -- Foundation is always retained; cornice stays gated for non-simple shells.
                 do
                     local nPts = #worldPts
                     for i = 1, nPts do
@@ -2548,18 +2573,21 @@ function BuildingBuilder.MeshBuildAll(parent, buildings, originStuds, chunk, con
                             outward.Unit
                         )
 
-                        -- Cornice: thin strip at roofline (0.4 studs tall)
-                        detailAcc:addQuad(
-                            p1 + outward + Vector3.new(0, baseY + height - 0.2, 0),
-                            p2 + outward + Vector3.new(0, baseY + height - 0.2, 0),
-                            p2 + outward + Vector3.new(0, baseY + height + 0.2, 0),
-                            p1 + outward + Vector3.new(0, baseY + height + 0.2, 0),
-                            outward.Unit
-                        )
+                        if not preferSimpleShellDetail then
+                            detailAcc:addQuad(
+                                p1 + outward + Vector3.new(0, baseY + height - 0.2, 0),
+                                p2 + outward + Vector3.new(0, baseY + height - 0.2, 0),
+                                p2 + outward + Vector3.new(0, baseY + height + 0.2, 0),
+                                p1 + outward + Vector3.new(0, baseY + height + 0.2, 0),
+                                outward.Unit
+                            )
+                        end
                     end
                 end
 
-                buildAwning(detailFolder, building, baseY, worldPts)
+                if not preferSimpleShellDetail then
+                    buildAwning(detailFolder, building, baseY, worldPts)
+                end
                 recordBuildingDetailPhase(
                     buildStats,
                     "perimeterDetailMs",

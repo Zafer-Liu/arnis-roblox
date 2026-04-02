@@ -629,3 +629,29 @@ The compact historical archive index is:
   - the current audit stack is still too aggregate to prove “walls are visually not there” per nearby building even when global shell/roof counts remain green
 - The failed remote screenshot attempt (`screencapture ... could not create image from display`) means this slice still lacks a committed visual artifact; the next tranche should add explicit near-player building façade visibility diagnostics before changing builder behavior.
 - `tertiary` was force-cleaned after the run; lingering `RobloxStudio` and crash-handler processes were killed and the harness lock directory was removed manually.
+
+### 2026-04-01: Simple Residential Readability And Terrain-Fill Batching Went Green On `tertiary`
+
+- The next shared builder tranche was driven red-first on `tertiary`, then proven green on the same git-backed proof clone at `~/Projects/arnis-roblox-main`.
+- Two focused Luau specs now pass remotely after the shared `BuildingBuilder.lua` changes:
+  - `PASS SimpleResidentialShell.spec`
+  - `PASS BuildingTerrainFillBatching.spec`
+- What changed in shared runtime/edit code:
+  - simple low-rise residential/apartment shells now retain a cheap street-level perimeter cue instead of dropping all readability detail
+  - shell terrain fill now batches contiguous interior row spans through a hookable `_fillTerrainBlock` seam instead of issuing one `FillBlock` per surviving cell
+- The new terrain-fill batching proof is explicit:
+  - the rectangular apartment fixture now collapses to one fill call per interior row
+  - the batching logic still honors the existing edge-clearance and point-in-polygon gates before any merged write is emitted
+- The same remote proof runs also refreshed the preview hotspot summary for the real outdoor-heavy offender `chunkId=-1_0`:
+  - before this tranche, the remote proof surface was reading `buildingTerrainFillMs=220`
+  - after the shared batching change, the same slice read `buildingTerrainFillMs=193` on the `SimpleResidentialShell.spec` pass and `buildingTerrainFillMs=191` on the `BuildingTerrainFillBatching.spec` pass
+  - `buildingRoofBuildMs` stayed flat at about `20ms`, and no new façade-band cost was introduced (`buildingFacadeDetailMs=0`)
+- This corrects the next-step diagnosis again:
+  - the builder no longer needs a speculative “missing walls” fix
+  - the highest-value remaining building work is richer façade/readability detail for the shared simple-shell path and further reduction of the still-dominant `buildingTerrainFillMs` cost on `-1_0`
+- Verification for this slice:
+  - local-safe: `python3 -m unittest scripts.tests.test_play_render_truth scripts.tests.test_preview_telemetry_summary -v`
+  - local-safe: `git diff --check`
+  - remote `tertiary`: serialized edit proof for `SimpleResidentialShell.spec.lua`
+  - remote `tertiary`: serialized edit proof for `BuildingTerrainFillBatching.spec.lua`
+- No Studio ran on this machine. `tertiary` was force-cleaned again after the proofs.

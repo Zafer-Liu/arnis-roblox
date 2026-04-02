@@ -86,17 +86,25 @@ return function()
     end
 
     local detailPartCount = 0
+    local facadeBandCount = 0
     for _, descendant in ipairs(detailFolder:GetDescendants()) do
         if descendant:IsA("BasePart") then
             detailPartCount += 1
+            if string.find(descendant.Name, "_facade_", 1, true) then
+                facadeBandCount += 1
+            end
         end
     end
 
     Assert.truthy(shellPartCount >= 1, "expected shell geometry for sparse residential building")
     Assert.equal(
-        detailPartCount,
+        facadeBandCount,
         0,
-        "expected sparse residential building to avoid fabricated facade/detail geometry"
+        "expected sparse residential building to avoid fabricated facade bands"
+    )
+    Assert.truthy(
+        detailPartCount >= 1,
+        "expected sparse residential building to retain minimal perimeter/readability detail"
     )
 
     worldRoot:Destroy()

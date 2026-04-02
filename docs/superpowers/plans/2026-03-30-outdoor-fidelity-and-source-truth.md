@@ -806,14 +806,13 @@ Current remote-lane note as of 2026-04-01:
 Run the smallest set that proves the tranche end state:
 
 ```bash
-bash scripts/run_studio_harness_remote.sh --remote-profile tertiary -- --help >/tmp/arnis-tertiary-stage-sync.txt
-ssh tertiary 'cd ~/.codex-remote-studio/arnis-roblox && python3 -m unittest scripts.tests.test_source_truth_pack_audit scripts.tests.test_scene_fidelity_audit scripts.tests.test_scene_parity_audit scripts.tests.test_austin_runtime_contract -v'
-ssh tertiary 'cd ~/.codex-remote-studio/arnis-roblox && ARNIS_TELEMETRY_FAMILIES=terrain,roads,water,vegetation,structures,hotspots,player_local ARNIS_SCENE_AUDIT_DIR=/tmp/arnis-outdoor-audit-edit bash scripts/run_studio_harness.sh --takeover --hard-restart --no-play --edit-tests --spec-filter TerrainOutdoorFidelity.spec.lua --edit-wait 30 --pattern-wait 120'
-ssh tertiary 'cd ~/.codex-remote-studio/arnis-roblox && ARNIS_TELEMETRY_FAMILIES=terrain,roads,water,vegetation,structures,hotspots,player_local ARNIS_PREVIEW_TELEMETRY_DIR=/tmp ARNIS_SCENE_AUDIT_DIR=/tmp/arnis-outdoor-audit-play bash scripts/run_studio_harness.sh --takeover --hard-restart --skip-edit-tests --play-wait 30 --pattern-wait 120'
+ssh tertiary 'cd ~/Projects/arnis-roblox-main && python3 -m unittest scripts.tests.test_source_truth_pack_audit scripts.tests.test_scene_fidelity_audit scripts.tests.test_scene_parity_audit scripts.tests.test_austin_runtime_contract -v'
+ssh tertiary 'cd ~/Projects/arnis-roblox-main && ARNIS_TELEMETRY_FAMILIES=terrain,roads,water,vegetation,structures,hotspots,player_local ARNIS_SCENE_AUDIT_DIR=/tmp/arnis-outdoor-audit-edit VSYNC_REPO_DIR=$HOME/.codex-remote-studio/vertigo-sync bash scripts/run_studio_harness.sh --takeover --hard-restart --no-play --edit-tests --spec-filter TerrainOutdoorFidelity.spec.lua --edit-wait 30 --pattern-wait 120'
+ssh tertiary 'cd ~/Projects/arnis-roblox-main && ARNIS_TELEMETRY_FAMILIES=terrain,roads,water,vegetation,structures,hotspots,player_local ARNIS_PREVIEW_TELEMETRY_DIR=/tmp ARNIS_SCENE_AUDIT_DIR=/tmp/arnis-outdoor-audit-play VSYNC_REPO_DIR=$HOME/.codex-remote-studio/vertigo-sync bash scripts/run_studio_harness.sh --takeover --hard-restart --skip-edit-tests --play-wait 30 --pattern-wait 120'
 ```
 
 Expected:
-- the current worktree snapshot is synced to `~/.codex-remote-studio/arnis-roblox`
+- the current verified repo truth is present in `~/Projects/arnis-roblox-main`
 - remote static tests pass
 - focused edit proof passes
 - play proof reaches `gameplay_ready`
@@ -824,11 +823,11 @@ Expected:
 Run on `tertiary` after the proof slice completes:
 
 ```bash
-ssh tertiary 'cd ~/.codex-remote-studio/arnis-roblox && bash scripts/export_austin_from_osm.sh --profile high'
-ssh tertiary 'cd ~/.codex-remote-studio/arnis-roblox && python3 scripts/source_truth_pack_audit.py --truth-pack rust/out/austin.truth-pack.sqlite --summary-json rust/out/austin.truth-pack.summary.json --report-json /tmp/arnis-outdoor-truth-pack-report.json'
-ssh tertiary 'cd ~/.codex-remote-studio/arnis-roblox && test -f /tmp/arnis-outdoor-audit-edit/arnis-scene-fidelity-edit.json'
-ssh tertiary 'cd ~/.codex-remote-studio/arnis-roblox && test -f /tmp/arnis-outdoor-audit-play/arnis-scene-fidelity-play.json'
-ssh tertiary 'cd ~/.codex-remote-studio/arnis-roblox && python3 scripts/scene_parity_audit.py --edit-report /tmp/arnis-outdoor-audit-edit/arnis-scene-fidelity-edit.json --play-report /tmp/arnis-outdoor-audit-play/arnis-scene-fidelity-play.json --json-out /tmp/arnis-outdoor-audit-play/arnis-scene-parity.json --html-out /tmp/arnis-outdoor-audit-play/arnis-scene-parity.html'
+ssh tertiary 'cd ~/Projects/arnis-roblox-main && bash scripts/export_austin_from_osm.sh --profile high'
+ssh tertiary 'cd ~/Projects/arnis-roblox-main && python3 scripts/source_truth_pack_audit.py --truth-pack rust/out/austin.truth-pack.sqlite --summary-json rust/out/austin.truth-pack.summary.json --report-json /tmp/arnis-outdoor-truth-pack-report.json'
+ssh tertiary 'cd ~/Projects/arnis-roblox-main && test -f /tmp/arnis-outdoor-audit-edit/arnis-scene-fidelity-edit.json'
+ssh tertiary 'cd ~/Projects/arnis-roblox-main && test -f /tmp/arnis-outdoor-audit-play/arnis-scene-fidelity-play.json'
+ssh tertiary 'cd ~/Projects/arnis-roblox-main && python3 scripts/scene_parity_audit.py --edit-report /tmp/arnis-outdoor-audit-edit/arnis-scene-fidelity-edit.json --play-report /tmp/arnis-outdoor-audit-play/arnis-scene-fidelity-play.json --json-out /tmp/arnis-outdoor-audit-play/arnis-scene-parity.json --html-out /tmp/arnis-outdoor-audit-play/arnis-scene-parity.html'
 ```
 
 If the staged clone lacks ignored compiled outputs, use the committed seed-manifest regeneration path already supported by the harness/report tooling instead of inventing a second artifact flow. If either edit or play artifact is missing, rerun only that proof slice with its dedicated `ARNIS_SCENE_AUDIT_DIR` instead of trying to rediscover the correct Roblox log later.
