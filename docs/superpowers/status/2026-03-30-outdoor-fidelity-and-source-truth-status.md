@@ -706,3 +706,31 @@ The compact historical archive index is:
   - local-safe: `bash -n scripts/run_studio_harness.sh`
   - local-safe: `git diff --check`
   - remote `tertiary`: manual live repro confirmed the fix targets the real blank-title and stacked-dialog startup conditions
+
+### 2026-04-02: Simple Shells Now Keep A Bounded Roofline Cornice Cue
+
+- The next shared building-readability tranche landed in the same low-cost seam as the earlier foundation and beltline work:
+  - simple low-rise shells now publish `ArnisCorniceCount`
+  - both fallback and mesh-backed simple-shell paths retain a bounded roofline cornice cue instead of reserving that read only for the richer non-simple shell path
+- This stayed deliberately bounded:
+  - no glass bands were re-enabled
+  - no full pilaster path was re-enabled
+  - no rooftop-detail path was widened
+  - the change stayed in the perimeter/readability layer only
+- The focused `tertiary` proof is green:
+  - `Running tests: SimpleResidentialShell.spec`
+  - `PASS SimpleResidentialShell.spec`
+  - `TestEZ tests complete. total=1 passed=1 failed=0`
+- The same proof slice kept the current outdoor hotspot diagnosis stable rather than regressing it:
+  - `chunkId=-1_0`
+  - `buildingTerrainFillMs=185`
+  - `buildingRoofBuildMs=19`
+  - `buildingShellDetailMs=217`
+- Current product interpretation:
+  - simple shells now have a three-band readability stack at low cost: foundation, beltline, and cornice
+  - the next bounded building cue should be vertical, not another horizontal layer; corner accents are the strongest current candidate
+  - the next no-trampling outdoor audit extension after structure lineage should target roads
+- Verification for this slice:
+  - local-safe: `python3 -m unittest scripts.tests.test_play_render_truth scripts.tests.test_preview_telemetry_summary scripts.tests.test_convergence_guardrails -v`
+  - local-safe: `git diff --check`
+  - remote `tertiary`: focused edit proof for `SimpleResidentialShell.spec.lua`

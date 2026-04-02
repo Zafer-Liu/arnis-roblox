@@ -1926,6 +1926,7 @@ local function addFacadeBeltlinesToAccumulator(acc, worldPts, baseY, height)
 end
 
 local function buildCornice(parent, worldPts, topY)
+    local builtCount = 0
     for i = 1, #worldPts do
         local p1 = worldPts[i]
         local p2 = worldPts[(i % #worldPts) + 1]
@@ -1948,7 +1949,37 @@ local function buildCornice(parent, worldPts, topY)
         cornice.CFrame = CFrame.lookAt(mid + Vector3.new(0, topY, 0), mid + Vector3.new(0, topY, 0) + dir)
             * CFrame.new(0, 0, -0.15)
         cornice.Parent = parent
+        builtCount += 1
     end
+
+    return builtCount
+end
+
+local function addCorniceToAccumulator(acc, worldPts, topY)
+    local builtCount = 0
+    local nPts = #worldPts
+    for i = 1, nPts do
+        local p1 = worldPts[i]
+        local p2 = worldPts[(i % nPts) + 1]
+        local edgeVec = p2 - p1
+        local edgeLen = edgeVec.Magnitude
+        if edgeLen < 1 then
+            continue
+        end
+
+        local dir = edgeVec.Unit
+        local outward = Vector3.new(-dir.Z, 0, dir.X) * 0.1
+        acc:addQuad(
+            p1 + outward + Vector3.new(0, topY - 0.2, 0),
+            p2 + outward + Vector3.new(0, topY - 0.2, 0),
+            p2 + outward + Vector3.new(0, topY + 0.2, 0),
+            p1 + outward + Vector3.new(0, topY + 0.2, 0),
+            outward.Unit
+        )
+        builtCount += 1
+    end
+
+    return builtCount
 end
 
 local function buildPilasters(parent, worldPts, baseY, height, material, color)
@@ -2138,6 +2169,7 @@ function BuildingBuilder.FallbackBuild(parent, building, originStuds, chunk, win
     detailFolder.Parent = model
     detailFolder:SetAttribute("ArnisLodGroupKind", "detail")
     detailFolder:SetAttribute("ArnisFacadeBeltlineCount", 0)
+    detailFolder:SetAttribute("ArnisCorniceCount", 0)
     CollectionService:AddTag(detailFolder, "LOD_DetailGroup")
 
     -- World coordinates of footprint vertices
@@ -2294,6 +2326,7 @@ function BuildingBuilder.FallbackBuild(parent, building, originStuds, chunk, win
     if preferSimpleShellDetail then
         detailFolder:SetAttribute("ArnisFacadeBeltlineCount", buildFacadeBeltlines(detailFolder, worldPts, baseY, height))
     end
+    detailFolder:SetAttribute("ArnisCorniceCount", buildCornice(detailFolder, worldPts, baseY + height))
     if not preferSimpleShellDetail then
         buildAwning(detailFolder, building, baseY, worldPts)
     end
@@ -2304,7 +2337,6 @@ function BuildingBuilder.FallbackBuild(parent, building, originStuds, chunk, win
     buildRoof(building, worldPts, footprintData, baseY, height, color, mat, shellFolder)
 
     if not preferSimpleShellDetail then
-        buildCornice(detailFolder, worldPts, baseY + height)
         buildRooftopEquipment(detailFolder, building, baseY, height, worldPts)
     end
 
@@ -2443,6 +2475,7 @@ function BuildingBuilder.MeshBuildAll(parent, buildings, originStuds, chunk, con
         detailFolder.Parent = model
         detailFolder:SetAttribute("ArnisLodGroupKind", "detail")
         detailFolder:SetAttribute("ArnisFacadeBeltlineCount", 0)
+        detailFolder:SetAttribute("ArnisCorniceCount", 0)
         CollectionService:AddTag(detailFolder, "LOD_DetailGroup")
 
         local buildingAccumulators = {}
@@ -2676,7 +2709,7 @@ function BuildingBuilder.MeshBuildAll(parent, buildings, originStuds, chunk, con
 
             do
                 local perimeterDetailStartedAt = os.clock()
-                -- Foundation is always retained; cornice stays gated for non-simple shells.
+                -- Foundation and cornice stay cheap enough to keep across both shell-detail paths.
                 do
                     local nPts = #worldPts
                     for i = 1, nPts do
@@ -2700,16 +2733,6 @@ function BuildingBuilder.MeshBuildAll(parent, buildings, originStuds, chunk, con
                             p1 + outward + Vector3.new(0, baseY + 1.5, 0),
                             outward.Unit
                         )
-
-                        if not preferSimpleShellDetail then
-                            detailAcc:addQuad(
-                                p1 + outward + Vector3.new(0, baseY + height - 0.2, 0),
-                                p2 + outward + Vector3.new(0, baseY + height - 0.2, 0),
-                                p2 + outward + Vector3.new(0, baseY + height + 0.2, 0),
-                                p1 + outward + Vector3.new(0, baseY + height + 0.2, 0),
-                                outward.Unit
-                            )
-                        end
                     end
                 end
                 if preferSimpleShellDetail then
@@ -2718,6 +2741,7 @@ function BuildingBuilder.MeshBuildAll(parent, buildings, originStuds, chunk, con
                         addFacadeBeltlinesToAccumulator(detailAcc, worldPts, baseY, height)
                     )
                 end
+                detailFolder:SetAttribute("ArnisCorniceCount", addCorniceToAccumulator(detailAcc, worldPts, baseY + height))
 
                 if not preferSimpleShellDetail then
                     buildAwning(detailFolder, building, baseY, worldPts)
