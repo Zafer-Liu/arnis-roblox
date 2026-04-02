@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::fs;
 use std::path::{Path, PathBuf};
 
@@ -48,6 +48,8 @@ pub fn write_runtime_lua_shards_from_sqlite(
     let mut chunk_ref_index_by_id: HashMap<String, usize> = HashMap::new();
     let mut shard_names: Vec<String> = Vec::new();
     let mut shard_buffer: Vec<Value> = Vec::new();
+    let mut shard_chunk_ids: HashSet<String> = HashSet::new();
+    let mut shard_bytes = lua_empty_shard_len();
     let mut next_shard_index: usize = 1;
     let mut fragment_count: usize = 0;
 
@@ -61,8 +63,21 @@ pub fn write_runtime_lua_shards_from_sqlite(
         let fragments = fragment_chunk_for_lua_shards(&chunk, options.max_bytes)?;
         fragment_count += fragments.len();
         for fragment in fragments {
-            shard_buffer.push(Value::Object(fragment));
-            if shard_buffer.len() == options.chunks_per_shard {
+            let fragment_chunk_id = fragment
+                .get("id")
+                .and_then(Value::as_str)
+                .ok_or_else(|| "runtime fragment is missing string id".to_string())?
+                .to_string();
+            let fragment_bytes = lua_value_len(&Value::Object(fragment.clone()));
+            let next_shard_bytes =
+                shard_bytes + fragment_bytes + usize::from(!shard_buffer.is_empty());
+            let would_add_new_chunk = !shard_chunk_ids.contains(&fragment_chunk_id);
+            let would_exceed_chunk_limit =
+                would_add_new_chunk && shard_chunk_ids.len() == options.chunks_per_shard;
+            let would_exceed_byte_limit =
+                options.max_bytes.is_some() && !shard_buffer.is_empty() && next_shard_bytes > options.max_bytes.unwrap();
+
+            if would_exceed_chunk_limit || would_exceed_byte_limit {
                 flush_shard_buffer(
                     &shard_dir,
                     &options.index_name,
@@ -72,7 +87,15 @@ pub fn write_runtime_lua_shards_from_sqlite(
                     &mut shard_names,
                     &mut next_shard_index,
                 )?;
+                shard_chunk_ids.clear();
+                shard_bytes = lua_empty_shard_len();
             }
+
+            let next_shard_bytes =
+                shard_bytes + fragment_bytes + usize::from(!shard_buffer.is_empty());
+            shard_buffer.push(Value::Object(fragment));
+            shard_chunk_ids.insert(fragment_chunk_id);
+            shard_bytes = next_shard_bytes;
         }
 
         Ok(())
@@ -487,6 +510,13 @@ fn lua_payload_len(value: &Value) -> usize {
     write_lua_value(value, &mut output);
     output.push('\n');
     output.len()
+}
+
+fn lua_empty_shard_len() -> usize {
+    lua_payload_len(&Value::Object(Map::from_iter([(
+        "chunks".to_string(),
+        Value::Array(Vec::new()),
+    )])))
 }
 
 fn lua_value_len(value: &Value) -> usize {

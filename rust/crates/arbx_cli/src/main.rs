@@ -2665,4 +2665,50 @@ mod tests {
         assert!(index_text.contains("chunkRefs="));
         assert!(shard_count >= 2);
     }
+
+    #[test]
+    fn emit_runtime_lua_keeps_each_shard_within_max_bytes() {
+        let manifest = build_sample_multi_chunk(2, 2);
+        let db = NamedTempFile::new().unwrap();
+        let db_path = db.path().to_path_buf();
+        drop(db);
+        write_manifest_sqlite(&manifest, &db_path).unwrap();
+
+        let tempdir = tempfile::tempdir().unwrap();
+        let output_dir = tempdir.path().join("SampleData");
+
+        cmd_emit_runtime_lua(&[
+            "--manifest-sqlite".to_string(),
+            db_path.to_string_lossy().into_owned(),
+            "--output-dir".to_string(),
+            output_dir.to_string_lossy().into_owned(),
+            "--index-name".to_string(),
+            "TestManifestIndex".to_string(),
+            "--shard-folder".to_string(),
+            "TestManifestChunks".to_string(),
+            "--chunks-per-shard".to_string(),
+            "32".to_string(),
+            "--max-bytes".to_string(),
+            "1200".to_string(),
+        ])
+        .unwrap();
+
+        let shard_dir = output_dir.join("TestManifestChunks");
+        let shard_sizes = std::fs::read_dir(&shard_dir)
+            .unwrap()
+            .map(|entry| {
+                let path = entry.unwrap().path();
+                std::fs::metadata(path).unwrap().len() as usize
+            })
+            .collect::<Vec<_>>();
+
+        assert!(
+            !shard_sizes.is_empty(),
+            "expected runtime emitter to write at least one shard"
+        );
+        assert!(
+            shard_sizes.iter().all(|size| *size <= 1200),
+            "expected every runtime shard module to respect --max-bytes; saw sizes {shard_sizes:?}"
+        );
+    }
 }
