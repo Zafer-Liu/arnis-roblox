@@ -35,8 +35,9 @@ class AustinFidelityScriptTests(unittest.TestCase):
         text = EXPORT_TO_LUA_SCRIPT.read_text(encoding="utf-8")
 
         self.assertIn("default shared Austin high-fidelity profile", text)
-        self.assertIn('bash scripts/export_austin_to_lua.sh --profile high --satellite', text)
-        self.assertIn('DEFAULT_FIDELITY_ARGS=("--profile" "high" "--satellite")', text)
+        self.assertIn('bash scripts/export_austin_to_lua.sh --profile high', text)
+        self.assertIn("satellite opt-in only", text)
+        self.assertIn('DEFAULT_FIDELITY_ARGS=("--profile" "high")', text)
         self.assertIn(
             'bash "$ROOT_DIR/scripts/export_austin_from_osm.sh" "${DEFAULT_FIDELITY_ARGS[@]}" "$@"',
             text,
@@ -51,11 +52,12 @@ class AustinFidelityScriptTests(unittest.TestCase):
         self.assertIn('cleanup() {', text)
         self.assertIn('rsync -a --exclude "target" --exclude "out" "$ROOT_DIR/rust/" "$TEMP_WORKSPACE/rust/"', text)
         self.assertIn('rsync -a --exclude "out" "$ROOT_DIR/roblox/" "$TEMP_WORKSPACE/roblox/"', text)
-        self.assertIn('bash "$TEMP_WORKSPACE/scripts/export_austin_to_lua.sh" --profile high --satellite', text)
+        self.assertIn('bash "$TEMP_WORKSPACE/scripts/export_austin_to_lua.sh" --profile high', text)
         self.assertIn('python3 "$ROOT_DIR/scripts/bootstrap_arnis_studio.py" --roblox-root "$TEMP_WORKSPACE/roblox" --output "$OUTPUT_PLACE"', text)
         self.assertIn('cp "$OUTPUT_PLACE" "$LATEST_PLACE"', text)
         self.assertIn('echo "[build_austin_max_fidelity_place] Refreshed stable latest copy at $LATEST_PLACE"', text)
-        self.assertIn("standard fidelity", text)
+        self.assertIn("bounded high fidelity", text)
+        self.assertNotIn("--satellite", text)
         self.assertNotIn("--yolo", text)
 
     def test_e2e_script_accepts_report_dir_and_defaults_to_stable_latest_place(self) -> None:

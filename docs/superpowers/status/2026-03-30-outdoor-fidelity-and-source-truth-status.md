@@ -757,7 +757,8 @@ The compact historical archive index is:
 
 - I kept this tranche product-side and explicitly avoided more harness engineering except where it directly affected fidelity work.
 - Shared Austin export defaults are now stronger:
-  - `export_austin_to_lua.sh` injects `--profile high --satellite` when the caller does not already pass explicit fidelity arguments
+  - `export_austin_to_lua.sh` injects `--profile high` when the caller does not already pass explicit fidelity arguments
+  - satellite is still supported explicitly, but it is no longer part of the shared default because it is too heavy for the current iteration loop and not aligned with the planetary-streaming direction
   - `export_austin_from_osm.sh` now describes that default honestly as a higher-fidelity default rather than a generic dev fixture profile
   - I did **not** keep the new generated-asset verifier guardrail that rejected universally coarse terrain, because the currently committed Austin sample-data and preview shards are still universally `cellSizeStuds=4`, and flipping that guardrail on before regenerating the shared assets would have created immediate doc/test drift instead of improving truth
 - Shared simple-shell readability also moved one bounded step forward:
@@ -770,10 +771,25 @@ The compact historical archive index is:
   - I stopped that work, killed/confirmed cleanup of the related local harness/MCP/vsync processes, restored the only repo residue (`RunAllConfig.lua` spec filter), and closed the offending worker
   - local Studio remains forbidden; all future Studio proof stays on `tertiary`
 - Current interpretation after the change:
-  - the shared export defaults are now pointed at the fidelity target, but the committed generated Austin assets have not yet been regenerated from that stronger default
+  - the shared export defaults are now pointed at a bounded high-fidelity target, but the committed generated Austin assets have not yet been regenerated from that stronger default
   - the next true proof for this slice is on `tertiary`: regenerate shared Austin assets there, then re-measure terrain/material richness and visually confirm the new simple-shell corner accents
 - Verification for this slice:
   - local-safe: `python3 -m unittest scripts.tests.test_austin_fidelity.AustinFidelityScriptTests scripts.tests.test_generated_austin_assets.GeneratedAustinAssetsVerifierTests.test_collect_errors_accepts_split_preview_terrain_fragments scripts.tests.test_play_render_truth.PlayRenderTruthTests.test_simple_shells_keep_bounded_corner_accents_for_vertical_readability -v`
+
+### 2026-04-02: Shared Austin Defaults Are Now Bounded For Planetary Streaming
+
+- I corrected the shared export defaults after the repo briefly drifted toward satellite-backed Austin as the normal path.
+- The committed default behavior is now:
+  - `export_austin_to_lua.sh` injects `--profile high` only
+  - satellite imagery remains explicit opt-in, not part of the shared default
+  - `build_austin_max_fidelity_place.sh` now builds from bounded high fidelity instead of forcing `--satellite`
+- This keeps the default iteration path aligned with the current priorities:
+  - faster compile/export loops
+  - lower data weight
+  - better alignment with planetary streaming instead of city-specific heavy imagery
+- Verification for this correction:
+  - local-safe: `python3 -m unittest scripts.tests.test_austin_fidelity scripts.tests.test_play_render_truth.PlayRenderTruthTests.test_simple_shells_keep_bounded_corner_accents_for_vertical_readability scripts.tests.test_generated_austin_assets.GeneratedAustinAssetsVerifierTests.test_collect_errors_accepts_split_preview_terrain_fragments -v`
   - local-safe: `bash -n scripts/export_austin_from_osm.sh`
   - local-safe: `bash -n scripts/export_austin_to_lua.sh`
+  - local-safe: `bash -n scripts/build_austin_max_fidelity_place.sh`
   - local-safe: `git diff --check`
