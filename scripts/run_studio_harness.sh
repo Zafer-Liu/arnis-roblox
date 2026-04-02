@@ -1699,6 +1699,11 @@ quit_studio() {
     session_status="$(studio_session_status_value status 2>/dev/null || printf 'not_running')"
   fi
 
+  if [[ -n "$MCP_SIDECAR_PID" || -n "$MCP_SIDECAR_FD" || -n "$MCP_SIDECAR_DIR" ]]; then
+    log "quit_studio stopping Studio MCP sidecar before session boundary"
+    stop_mcp_sidecar
+  fi
+
   local graceful_quit_decision=""
   graceful_quit_decision="$(python3 "$STUDIO_HARNESS_POLICY" should-graceful-quit \
     --session-status "$session_status" 2>/dev/null || true)"
@@ -2366,6 +2371,7 @@ relaunch_studio_for_phase() {
 
   prepare_log_cursor
   log "relaunching Studio for $phase_label phase"
+  stop_mcp_sidecar
   quit_studio
   open_studio || {
     echo "[harness] failed to relaunch Roblox Studio for $phase_label phase" >&2

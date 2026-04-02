@@ -583,17 +583,69 @@ local function buildFootprintData(footprint, holes, originStuds)
 end
 
 local function fillInterior(footprintXZ, holeXZ, bounds, baseY, material)
+    local function distanceToSegment2D(px, pz, ax, az, bx, bz)
+        local dx = bx - ax
+        local dz = bz - az
+        local lengthSq = dx * dx + dz * dz
+        if lengthSq <= 1e-6 then
+            local ox = px - ax
+            local oz = pz - az
+            return math.sqrt(ox * ox + oz * oz)
+        end
+        local t = ((px - ax) * dx + (pz - az) * dz) / lengthSq
+        t = math.clamp(t, 0, 1)
+        local cx = ax + dx * t
+        local cz = az + dz * t
+        local ox = px - cx
+        local oz = pz - cz
+        return math.sqrt(ox * ox + oz * oz)
+    end
+
+    local function distanceToPolygonEdges2D(px, pz, polygon)
+        local bestDistance = math.huge
+        local vertexCount = #polygon
+        for index = 1, vertexCount do
+            local a = polygon[index]
+            local b = polygon[(index % vertexCount) + 1]
+            local distance = distanceToSegment2D(px, pz, a.x, a.z, b.x, b.z)
+            if distance < bestDistance then
+                bestDistance = distance
+            end
+        end
+        return bestDistance
+    end
+
+    local function distanceToPolygonWithHoleEdges2D(px, pz, outerPoly, holes)
+        local bestDistance = distanceToPolygonEdges2D(px, pz, outerPoly)
+        if holes then
+            for _, hole in ipairs(holes) do
+                if hole and #hole >= 2 then
+                    local holeDistance = distanceToPolygonEdges2D(px, pz, hole)
+                    if holeDistance < bestDistance then
+                        bestDistance = holeDistance
+                    end
+                end
+            end
+        end
+        return bestDistance
+    end
+
     local minX = bounds.minX
     local minZ = bounds.minZ
     local maxX = bounds.maxX
     local maxZ = bounds.maxZ
 
     local GRID_SIZE = 4 -- 4-stud grid matching voxel resolution
+    local WALL_THICKNESS = 0.6
+    local INTERIOR_FILL_EDGE_CLEARANCE = GRID_SIZE * 0.5 + WALL_THICKNESS
     local x = minX + GRID_SIZE * 0.5
     while x < maxX do
         local z = minZ + GRID_SIZE * 0.5
         while z < maxZ do
-            if GeoUtils.pointInPolygonWithHoles(x, z, footprintXZ, holeXZ) then
+            if
+                GeoUtils.pointInPolygonWithHoles(x, z, footprintXZ, holeXZ)
+                and distanceToPolygonWithHoleEdges2D(x, z, footprintXZ, holeXZ) >= INTERIOR_FILL_EDGE_CLEARANCE
+            then
                 Workspace.Terrain:FillBlock(
                     CFrame.new(x, baseY, z),
                     Vector3.new(GRID_SIZE, GRID_SIZE, GRID_SIZE),

@@ -24,6 +24,13 @@ def _normalize_chunk_ids(scene: dict[str, Any]) -> list[str]:
     return [value for value in values if isinstance(value, str)]
 
 
+def _normalize_string_list(container: dict[str, Any], key: str) -> list[str]:
+    values = container.get(key)
+    if not isinstance(values, list):
+        return []
+    return sorted({value for value in values if isinstance(value, str) and value})
+
+
 def _normalize_scalar(scene: dict[str, Any], key: str) -> int:
     try:
         return int(scene.get(key) or 0)
@@ -279,6 +286,14 @@ def _bucket_source_ids_match_as_subset(edit_bucket: Any, play_bucket: Any) -> bo
     return True
 
 
+def _string_list_matches_as_subset(edit_values: Any, play_values: Any) -> bool:
+    if not isinstance(edit_values, list) or not isinstance(play_values, list):
+        return False
+    if not edit_values:
+        return False
+    return set(edit_values).issubset(play_values)
+
+
 def _scalar_matches_as_monotonic_subset(edit_value: Any, play_value: Any) -> bool:
     try:
         return int(edit_value) <= int(play_value)
@@ -331,6 +346,20 @@ def build_report(edit_report: dict[str, Any], play_report: dict[str, Any]) -> di
         "buildingModelsWithDirectShell": {
             "edit": _normalize_scalar(edit_scene, "buildingModelsWithDirectShell"),
             "play": _normalize_scalar(play_scene, "buildingModelsWithDirectShell"),
+        },
+        "buildingModelsWithoutVisibleShellWalls": {
+            "edit": _normalize_scalar(edit_scene, "buildingModelsWithoutVisibleShellWalls"),
+            "play": _normalize_scalar(play_scene, "buildingModelsWithoutVisibleShellWalls"),
+        },
+        "buildingVisibleWallGapSourceIds": {
+            "edit": _normalize_string_list(
+                edit_report.get("summary") if isinstance(edit_report.get("summary"), dict) else {},
+                "buildingVisibleWallGapSourceIds",
+            ),
+            "play": _normalize_string_list(
+                play_report.get("summary") if isinstance(play_report.get("summary"), dict) else {},
+                "buildingVisibleWallGapSourceIds",
+            ),
         },
         "buildingModelsWithRoofClosureDeck": {
             "edit": _normalize_scalar(edit_scene, "buildingModelsWithRoofClosureDeck"),
@@ -471,6 +500,8 @@ def build_report(edit_report: dict[str, Any], play_report: dict[str, Any]) -> di
         "chunkIds": "chunk_ids_mismatch",
         "buildingModelCount": "building_model_count_mismatch",
         "buildingModelsWithDirectShell": "building_direct_shell_count_mismatch",
+        "buildingModelsWithoutVisibleShellWalls": "building_visible_wall_gap_mismatch",
+        "buildingVisibleWallGapSourceIds": "building_visible_wall_source_ids_mismatch",
         "buildingModelsWithRoofClosureDeck": "building_roof_closure_deck_count_mismatch",
         "roadSurfacePartCount": "road_surface_part_count_mismatch",
         "waterSurfacePartCount": "water_surface_part_count_mismatch",
@@ -496,6 +527,8 @@ def build_report(edit_report: dict[str, Any], play_report: dict[str, Any]) -> di
         "chunkIds": "high",
         "buildingModelCount": "high",
         "buildingModelsWithDirectShell": "medium",
+        "buildingModelsWithoutVisibleShellWalls": "high",
+        "buildingVisibleWallGapSourceIds": "high",
         "buildingModelsWithRoofClosureDeck": "medium",
         "roadSurfacePartCount": "high",
         "waterSurfacePartCount": "medium",
@@ -535,9 +568,11 @@ def build_report(edit_report: dict[str, Any], play_report: dict[str, Any]) -> di
         "buildingModelCountByRoofMaterial",
         "roadSurfacePartCountByKind",
     }
+    source_id_subset_list_metrics = {"buildingVisibleWallGapSourceIds"}
     monotonic_subset_scalar_metrics = {
         "buildingModelCount",
         "buildingModelsWithDirectShell",
+        "buildingModelsWithoutVisibleShellWalls",
         "buildingModelsWithRoofClosureDeck",
         "roadSurfacePartCount",
         "waterSurfacePartCount",
@@ -553,6 +588,8 @@ def build_report(edit_report: dict[str, Any], play_report: dict[str, Any]) -> di
             matched = _chunk_ids_match(payload["edit"], payload["play"], edit_report=edit_report, play_report=play_report)
         elif not matched and subset_envelope_mode and metric in source_id_subset_metrics:
             matched = _bucket_source_ids_match_as_subset(payload["edit"], payload["play"])
+        elif not matched and subset_envelope_mode and metric in source_id_subset_list_metrics:
+            matched = _string_list_matches_as_subset(payload["edit"], payload["play"])
         elif not matched and subset_envelope_mode and metric in monotonic_subset_scalar_metrics:
             matched = _scalar_matches_as_monotonic_subset(payload["edit"], payload["play"])
         elif not matched and subset_envelope_mode and metric in monotonic_subset_bucket_metrics:

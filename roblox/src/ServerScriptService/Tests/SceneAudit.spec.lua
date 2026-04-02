@@ -99,7 +99,47 @@ return function()
 
     local mergedFlatShellMesh = Instance.new("MeshPart")
     mergedFlatShellMesh.Name = "merged_flat_shell_mesh"
+    mergedFlatShellMesh.Size = Vector3.new(12, 12, 1)
     mergedFlatShellMesh.Parent = mergedFlatShellFolder
+
+    local invisibleShellBuilding = Instance.new("Model")
+    invisibleShellBuilding.Name = "invisible_shell"
+    invisibleShellBuilding:SetAttribute("ArnisImportBuildingHeight", 16)
+    invisibleShellBuilding:SetAttribute("ArnisImportSourceId", "invisible_shell")
+    invisibleShellBuilding:SetAttribute("ArnisImportBuildingUsage", "residential")
+    invisibleShellBuilding:SetAttribute("ArnisImportRoofShape", "flat")
+    invisibleShellBuilding:SetAttribute("ArnisImportWallMaterial", "Stucco")
+    invisibleShellBuilding:SetAttribute("ArnisImportRoofMaterial", "Asphalt")
+    invisibleShellBuilding.Parent = buildingsFolder
+
+    local invisibleShellFolder = Instance.new("Folder")
+    invisibleShellFolder.Name = "Shell"
+    invisibleShellFolder.Parent = invisibleShellBuilding
+
+    local invisibleWall = Instance.new("Part")
+    invisibleWall.Name = "InvisibleWallSegment"
+    invisibleWall.Size = Vector3.new(12, 10, 0.6)
+    invisibleWall.Transparency = 1
+    invisibleWall.Parent = invisibleShellFolder
+
+    local roofOnlyBuilding = Instance.new("Model")
+    roofOnlyBuilding.Name = "roof_only_canopy"
+    roofOnlyBuilding:SetAttribute("ArnisImportBuildingHeight", 6)
+    roofOnlyBuilding:SetAttribute("ArnisImportSourceId", "roof_only_canopy")
+    roofOnlyBuilding:SetAttribute("ArnisImportBuildingUsage", "roof")
+    roofOnlyBuilding:SetAttribute("ArnisImportRoofShape", "flat")
+    roofOnlyBuilding:SetAttribute("ArnisImportWallMaterial", "Glass")
+    roofOnlyBuilding:SetAttribute("ArnisImportRoofMaterial", "Glass")
+    roofOnlyBuilding.Parent = buildingsFolder
+
+    local roofOnlyShellFolder = Instance.new("Folder")
+    roofOnlyShellFolder.Name = "Shell"
+    roofOnlyShellFolder.Parent = roofOnlyBuilding
+
+    local roofOnlyPart = Instance.new("Part")
+    roofOnlyPart.Name = "roof_panel"
+    roofOnlyPart.Size = Vector3.new(12, 1, 12)
+    roofOnlyPart.Parent = roofOnlyShellFolder
 
     local mergedMeshes = Instance.new("Folder")
     mergedMeshes.Name = "MergedMeshes"
@@ -275,19 +315,19 @@ return function()
     local summary = SceneAudit.summarizeWorld(worldRoot)
 
     Assert.equal(summary.chunkCount, 1, "expected one chunk in scene summary")
-    Assert.equal(summary.buildingModelCount, 4, "expected four building models")
-    Assert.equal(summary.buildingShellPartCount, 5, "expected direct shell parts plus one shell mesh part")
+    Assert.equal(summary.buildingModelCount, 6, "expected six building models")
+    Assert.equal(summary.buildingShellPartCount, 7, "expected direct shell parts plus one shell mesh part")
     Assert.equal(summary.buildingRoofPartCount, 1, "expected one direct roof part")
     Assert.equal(summary.buildingModelsWithRoofClosureDeck, 2, "expected two buildings with roof closure decks")
     Assert.equal(summary.buildingModelsWithRoof, 2, "expected two buildings with roof geometry")
-    Assert.equal(summary.buildingModelsWithoutRoof, 2, "expected two buildings without roof geometry")
+    Assert.equal(summary.buildingModelsWithoutRoof, 4, "expected four buildings without roof geometry")
     Assert.equal(summary.buildingModelsWithDirectRoof, 1, "expected one building with direct roof parts")
     Assert.equal(
         summary.buildingModelsWithMergedRoofOnly,
         1,
         "expected one building that relies on merged roof geometry only"
     )
-    Assert.equal(summary.buildingModelsWithNoRoofEvidence, 2, "expected two buildings with no direct roof evidence")
+    Assert.equal(summary.buildingModelsWithNoRoofEvidence, 4, "expected four buildings with no direct roof evidence")
     Assert.equal(
         summary.buildingRoofCoverageByUsage.office.withRoofCount,
         1,
@@ -374,8 +414,30 @@ return function()
         "expected hipped closure-only coverage to preserve closure-deck evidence"
     )
     Assert.equal(summary.buildingFacadePartCount, 1, "expected one facade part")
-    Assert.equal(summary.buildingModelsWithDirectShell, 3, "expected three buildings with direct shell geometry")
+    Assert.equal(summary.buildingModelsWithDirectShell, 5, "expected five buildings with direct shell geometry")
     Assert.equal(summary.buildingModelsMissingDirectShell, 1, "expected one building relying on merged geometry")
+    Assert.equal(summary.buildingModelsWithVisibleShellWalls, 2, "expected two buildings with visible shell wall evidence")
+    Assert.equal(
+        summary.buildingModelsWithoutVisibleShellWalls,
+        3,
+        "expected only wall-bearing buildings without visible shell wall evidence to count"
+    )
+    Assert.equal(#summary.buildingVisibleWallGapDetails, 3, "expected gap detail rows for all missing-wall buildings")
+    Assert.equal(
+        summary.buildingVisibleWallGapDetails[1].sourceId,
+        "merged_shell",
+        "expected first gap detail to preserve the roofless shell source id"
+    )
+    Assert.equal(
+        summary.buildingVisibleWallGapDetails[2].sourceId,
+        "closure_only_hipped",
+        "expected second gap detail to preserve closure-only building source id"
+    )
+    Assert.equal(
+        summary.buildingVisibleWallGapDetails[3].sourceId,
+        "invisible_shell",
+        "expected third gap detail to preserve invisible wall source id"
+    )
     Assert.equal(summary.buildingShellMeshPartCount, 1, "expected one shell mesh part supporting merged shell geometry")
     Assert.equal(summary.mergedBuildingMeshPartCount, 1, "expected one merged building mesh part")
     Assert.equal(
@@ -390,8 +452,8 @@ return function()
     )
     Assert.equal(
         summary.buildingModelCountByWallMaterial.glass.buildingModelCount,
-        1,
-        "expected one glass wall material building"
+        2,
+        "expected two glass wall material buildings"
     )
     Assert.equal(
         summary.buildingModelCountByRoofMaterial.slate.buildingModelCount,

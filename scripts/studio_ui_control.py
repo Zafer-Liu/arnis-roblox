@@ -420,6 +420,7 @@ def dismiss_startup_dialogs() -> int:
         end try
 '''
         for label in [
+            "Continue",
             "Not Now",
             "Later",
             "Skip",

@@ -594,6 +594,7 @@ CLIENT_SUMMARY_KEYS = {
     "clientLocalRoofCoverNearbyRoofParts",
     "clientLocalRoofCoverOverheadRoofParts",
     "clientLocalRoofCoverMinClearanceStuds",
+    "buildingVisibleWallGapSourceIds",
 }
 
 
@@ -633,6 +634,18 @@ def _apply_client_world_observability(report: dict[str, Any], client_world: dict
         summary["clientLocalRoofCoverNearbyRoofParts"] = local_roof_cover.get("nearbyRoofParts")
         summary["clientLocalRoofCoverOverheadRoofParts"] = local_roof_cover.get("overheadRoofParts")
         summary["clientLocalRoofCoverMinClearanceStuds"] = local_roof_cover.get("overheadRoofMinClearanceStuds")
+    scene = report.get("scene") if isinstance(report.get("scene"), dict) else {}
+    building_visible_wall_gap_count = int(scene.get("buildingModelsWithoutVisibleShellWalls") or 0)
+    building_visible_wall_gap_details = (
+        scene.get("buildingVisibleWallGapDetails") if isinstance(scene.get("buildingVisibleWallGapDetails"), list) else []
+    )
+    building_visible_wall_gap_source_ids = [
+        row.get("sourceId")
+        for row in building_visible_wall_gap_details
+        if isinstance(row, dict) and isinstance(row.get("sourceId"), str) and row.get("sourceId")
+    ]
+    summary["buildingVisibleWallGapCount"] = building_visible_wall_gap_count
+    summary["buildingVisibleWallGapSourceIds"] = building_visible_wall_gap_source_ids
 
     findings = [item for item in findings if item.get("code") not in CLIENT_LOCAL_FINDING_CODES]
     if str(local_support.get("surfaceRole") or "") == "unknown":
@@ -669,6 +682,24 @@ def _apply_client_world_observability(report: dict[str, Any], client_world: dict
                 "severity": "medium",
                 "code": "client_local_roof_cover_gap",
                 "message": "client-world telemetry reports nearby roof geometry but no local overhead roof cover",
+            }
+        )
+    if int(scene.get("buildingModelCount") or 0) > 0 and building_visible_wall_gap_count > 0:
+        source_suffix = ""
+        if building_visible_wall_gap_source_ids:
+            source_suffix = f" (sourceIds: {', '.join(building_visible_wall_gap_source_ids[:8])})"
+        findings.append(
+            {
+                "severity": "high",
+                "code": "building_visible_wall_gap",
+                "message": (
+                    f"scene audit reports {building_visible_wall_gap_count} building models without visible shell wall evidence"
+                    f"{source_suffix}"
+                ),
+                "details": {
+                    "sourceIds": building_visible_wall_gap_source_ids,
+                    "buildings": building_visible_wall_gap_details,
+                },
             }
         )
 
@@ -1724,6 +1755,8 @@ def write_html_report(report: dict[str, Any], html_path: Path) -> None:
     scene_metric_keys = [
         "buildingModelsWithDirectShell",
         "buildingModelsMissingDirectShell",
+        "buildingModelsWithVisibleShellWalls",
+        "buildingModelsWithoutVisibleShellWalls",
         "buildingModelsWithRoof",
         "buildingModelsWithoutRoof",
         "buildingModelsWithDirectRoof",

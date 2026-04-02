@@ -483,8 +483,61 @@ return function()
         "expected canonical anchor metadata to bias road selection without moving the final spawn off-road"
     )
 
-    local lookTarget = AustinSpawn.getPreferredLookTarget(canonicalAustinManifest, canonicalSpawn, Vector3.new(0, 0, 0))
-    Assert.truthy(lookTarget.Z > canonicalSpawn.Z, "expected canonical Austin facing direction to point south")
+    local fallbackFocusPoint = Vector3.new(20, 0, -120)
+    local lookTarget = AustinSpawn.getPreferredLookTarget(canonicalAustinManifest, canonicalSpawn, fallbackFocusPoint)
+    Assert.equal(lookTarget.X, fallbackFocusPoint.X, "expected canonical Austin runtime look target to reuse heuristic focus X")
+    Assert.equal(lookTarget.Z, fallbackFocusPoint.Z, "expected canonical Austin runtime look target to reuse heuristic focus Z")
+
+    local defaultLookTarget = AustinSpawn.getPreferredLookTarget(canonicalAustinManifest, canonicalSpawn, canonicalSpawn)
+    Assert.truthy(defaultLookTarget.Z > canonicalSpawn.Z, "expected canonical Austin default facing direction to point south")
+
+    local canonicalAustinWithNearbyBuildings = {
+        meta = canonicalAustinManifest.meta,
+        chunks = {
+            {
+                id = "0_0",
+                originStuds = { x = 0, y = 0, z = 0 },
+                roads = canonicalAustinManifest.chunks[1].roads,
+                buildings = {
+                    {
+                        usage = "roof",
+                        footprint = {
+                            { x = -10, y = 0, z = -12 },
+                            { x = 10, y = 0, z = -12 },
+                            { x = 10, y = 0, z = 8 },
+                            { x = -10, y = 0, z = 8 },
+                        },
+                    },
+                    {
+                        usage = "apartments",
+                        footprint = {
+                            { x = 40, y = 0, z = -40 },
+                            { x = 60, y = 0, z = -40 },
+                            { x = 60, y = 0, z = -20 },
+                            { x = 40, y = 0, z = -20 },
+                        },
+                    },
+                },
+            },
+        },
+    }
+    local buildingLookTarget = AustinSpawn.getPreferredLookTarget(
+        canonicalAustinWithNearbyBuildings,
+        canonicalSpawn,
+        canonicalSpawn
+    )
+    Assert.near(
+        buildingLookTarget.X,
+        50,
+        0.001,
+        "expected canonical Austin default look target to favor the nearest non-roof building centroid"
+    )
+    Assert.near(
+        buildingLookTarget.Z,
+        -30,
+        0.001,
+        "expected canonical Austin default look target to ignore nearby roof-only canopies"
+    )
 
     local canonicalPreviewFocus = AustinSpawn.findPreviewFocusPoint(canonicalAustinManifest, 500)
     Assert.near(

@@ -76,6 +76,18 @@ class PlayRenderTruthTests(unittest.TestCase):
             "expected shell-mesh roomed buildings to skip shell terrain fill when interiors are enabled",
         )
 
+    def test_shell_mesh_terrain_fill_keeps_edge_clearance_from_shell_walls(self) -> None:
+        source = BUILDING_BUILDER.read_text(encoding="utf-8")
+
+        self.assertIn("INTERIOR_FILL_EDGE_CLEARANCE", source)
+        self.assertIn("distanceToPolygonEdges2D", source)
+        self.assertIn("distanceToPolygonWithHoleEdges2D", source)
+        self.assertRegex(
+            source,
+            r"distanceToPolygonWithHoleEdges2D\(x,\s*z,\s*footprintXZ,\s*holeXZ\)\s*>=\s*INTERIOR_FILL_EDGE_CLEARANCE",
+            "expected shell terrain fill to keep a bounded edge clearance from shell walls",
+        )
+
     def test_top_floor_room_ceilings_clamp_to_imported_building_top(self) -> None:
         source = ROOM_BUILDER.read_text(encoding="utf-8")
 

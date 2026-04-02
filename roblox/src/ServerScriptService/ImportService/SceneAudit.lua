@@ -1,12 +1,23 @@
 local CollectionService = game:GetService("CollectionService")
 
 local SceneAudit = {}
+local MAX_BUILDING_VISIBLE_WALL_GAP_DETAILS = 16
 
 local function normalizeBucketValue(value, fallback)
     if type(value) == "string" and value ~= "" then
         return string.lower(value)
     end
     return fallback
+end
+
+local function appendBoundedDetail(list, row, limit)
+    if type(list) ~= "table" or type(row) ~= "table" then
+        return
+    end
+    if #list >= limit then
+        return
+    end
+    list[#list + 1] = row
 end
 
 local function appendSourceIds(row, sourceIds)
@@ -181,6 +192,9 @@ local function newSummary()
         buildingModelCountByRoofMaterial = {},
         buildingModelsWithDirectShell = 0,
         buildingModelsMissingDirectShell = 0,
+        buildingModelsWithVisibleShellWalls = 0,
+        buildingModelsWithoutVisibleShellWalls = 0,
+        buildingVisibleWallGapDetails = {},
         mergedBuildingMeshPartCount = 0,
         roadTaggedPartCount = 0,
         roadMeshPartCount = 0,
@@ -245,6 +259,7 @@ local function summarizeBuildingStructure(building)
     local summary = {
         shellParts = 0,
         shellMeshParts = 0,
+        visibleShellWallParts = 0,
         roofParts = 0,
         roofClosureParts = 0,
         detailParts = 0,
@@ -263,6 +278,15 @@ local function summarizeBuildingStructure(building)
                     summary.roofClosureParts += 1
                 elseif string.find(descendant.Name, "_roof", 1, true) ~= nil then
                     summary.roofParts += 1
+                else
+                    local isVisible = descendant.Transparency < 0.99
+                    local lowerName = string.lower(descendant.Name)
+                    local looksLikeWall = descendant:IsA("MeshPart") or string.find(lowerName, "wall", 1, true) ~= nil
+                    local size = descendant.Size
+                    local significantExtent = math.max(size.X, size.Y, size.Z) >= 2 and math.min(size.X, size.Y, size.Z) > 0
+                    if isVisible and looksLikeWall and significantExtent then
+                        summary.visibleShellWallParts += 1
+                    end
                 end
             end
         end
@@ -677,6 +701,26 @@ function SceneAudit.summarizeWorld(worldRoot)
                         scene.buildingModelsWithDirectShell += 1
                     else
                         scene.buildingModelsMissingDirectShell += 1
+                    end
+                    local expectsVisibleShellWalls = usageBucket ~= "roof"
+                    if structureSummary.visibleShellWallParts > 0 then
+                        scene.buildingModelsWithVisibleShellWalls += 1
+                    elseif expectsVisibleShellWalls then
+                        scene.buildingModelsWithoutVisibleShellWalls += 1
+                        local pivot = building:GetPivot()
+                        appendBoundedDetail(scene.buildingVisibleWallGapDetails, {
+                            sourceId = buildingSourceId,
+                            name = building.Name,
+                            usage = usageBucket,
+                            roofShape = roofShapeBucket,
+                            shellParts = shellParts,
+                            shellMeshParts = shellMeshParts,
+                            roofParts = roofParts,
+                            roofClosureParts = roofClosureParts,
+                            visibleShellWallParts = structureSummary.visibleShellWallParts,
+                            x = math.round(pivot.Position.X * 10) / 10,
+                            z = math.round(pivot.Position.Z * 10) / 10,
+                        }, MAX_BUILDING_VISIBLE_WALL_GAP_DETAILS)
                     end
                 end
             end

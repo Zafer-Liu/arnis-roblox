@@ -353,6 +353,8 @@ class RunStudioHarnessTests(unittest.TestCase):
     def test_quit_loop_dismisses_dialogs_without_polling_session_status_each_iteration(self) -> None:
         quit_block = self.text[self.text.index("quit_studio() {"):self.text.index("force_quit_studio() {")]
         self.assertIn('log "quit_studio starting"', quit_block)
+        self.assertIn('log "quit_studio stopping Studio MCP sidecar before session boundary"', quit_block)
+        self.assertIn("stop_mcp_sidecar", quit_block)
         self.assertIn('log "quit_studio requesting graceful quit"', quit_block)
         self.assertIn('log "quit_studio escalating to TERM for remaining Studio processes"', quit_block)
         self.assertIn('log "quit_studio escalating to KILL for remaining Studio processes"', quit_block)
@@ -360,6 +362,14 @@ class RunStudioHarnessTests(unittest.TestCase):
         self.assertNotIn('current_status="$(studio_session_status_value status', quit_block)
         self.assertIn("dismiss_startup_dialogs || true", quit_block)
         self.assertIn("run_studio_ui_action dismiss-dont-save || true", quit_block)
+
+    def test_relaunch_stops_mcp_sidecar_before_quit_studio(self) -> None:
+        relaunch_block = self.text[self.text.index("relaunch_studio_for_phase() {"):self.text.index("wait_for_log_pattern() {")]
+        stop_index = relaunch_block.find("stop_mcp_sidecar")
+        quit_index = relaunch_block.find("quit_studio")
+        self.assertGreaterEqual(stop_index, 0, "expected relaunch path to stop the MCP sidecar")
+        self.assertGreaterEqual(quit_index, 0, "expected relaunch path to quit Studio")
+        self.assertLess(stop_index, quit_index, "expected relaunch path to stop the MCP sidecar before quit_studio")
 
     def test_harness_uses_proxy_only_when_explicitly_requested(self) -> None:
         self.assertIn('use_proxy = os.environ.get("HARNESS_USE_MCP_PROXY", "").strip().lower() in {', self.proxy_lib_text)

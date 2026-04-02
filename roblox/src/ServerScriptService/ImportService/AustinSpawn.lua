@@ -319,15 +319,73 @@ local function getDesiredSpawnPoint(manifest, point)
     return Vector3.new(point.X, point.Y, point.Z + AUSTIN_SOUTH_OF_CAPITOL_OFFSET_STUDS)
 end
 
+local function getNearestNonRoofBuildingLookTarget(manifest, spawnPoint)
+    if not manifest or not spawnPoint then
+        return nil
+    end
+
+    local bestTarget = nil
+    local bestDistanceSq = math.huge
+
+    for _, chunk in ipairs(iterChunkRefs(manifest)) do
+        local origin = chunk.originStuds or { x = 0, y = 0, z = 0 }
+        for _, building in ipairs(chunk.buildings or {}) do
+            local usage = string.lower(tostring(building.usage or building.kind or "unknown"))
+            local footprint = building.footprint
+            if usage ~= "roof" and type(footprint) == "table" and #footprint >= 3 then
+                local sumX = 0
+                local sumZ = 0
+                for _, point in ipairs(footprint) do
+                    sumX += origin.x + (point.x or 0)
+                    sumZ += origin.z + (point.z or 0)
+                end
+                local centroidX = sumX / #footprint
+                local centroidZ = sumZ / #footprint
+                local dx = centroidX - spawnPoint.X
+                local dz = centroidZ - spawnPoint.Z
+                local distanceSq = dx * dx + dz * dz
+                if distanceSq >= 1 and distanceSq < bestDistanceSq then
+                    bestDistanceSq = distanceSq
+                    bestTarget = Vector3.new(centroidX, spawnPoint.Y, centroidZ)
+                end
+            end
+        end
+    end
+
+    return bestTarget
+end
+
 function AustinSpawn.getPreferredLookTarget(manifest, spawnPoint, fallbackFocusPoint)
     local canonicalAnchor = getCanonicalAnchor(manifest)
     local lookDirectionStuds = canonicalAnchor and canonicalAnchor.lookDirectionStuds
+    local fallbackIsMeaningful = spawnPoint and fallbackFocusPoint and (fallbackFocusPoint - spawnPoint).Magnitude >= 1
+    local canonicalLookIsDefaultAustinHint = type(lookDirectionStuds) == "table"
+        and (lookDirectionStuds.x or 0) == 0
+        and (lookDirectionStuds.y or 0) == 0
+        and (lookDirectionStuds.z or 0) == 1
+        and isAustinCanonicalWorld(manifest)
+
+    if fallbackIsMeaningful and canonicalLookIsDefaultAustinHint then
+        return fallbackFocusPoint
+    end
+
+    if canonicalLookIsDefaultAustinHint and spawnPoint then
+        local buildingLookTarget = getNearestNonRoofBuildingLookTarget(manifest, spawnPoint)
+        if buildingLookTarget then
+            return buildingLookTarget
+        end
+    end
+
     if spawnPoint and type(lookDirectionStuds) == "table" then
         return Vector3.new(
             spawnPoint.X + (lookDirectionStuds.x or 0),
             spawnPoint.Y + (lookDirectionStuds.y or 0),
             spawnPoint.Z + (lookDirectionStuds.z or 0)
         )
+    end
+
+    if fallbackIsMeaningful then
+        return fallbackFocusPoint
     end
 
     if isAustinCanonicalWorld(manifest) and spawnPoint then

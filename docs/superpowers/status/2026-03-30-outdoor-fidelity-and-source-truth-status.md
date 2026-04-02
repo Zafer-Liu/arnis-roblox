@@ -103,6 +103,55 @@ The compact historical archive index is:
 
 ## Status Notes
 
+### 2026-04-01: Play-Mode Building Wall Gap Is Now Measured Explicitly
+
+- Added visible shell-wall evidence to the shared scene-audit path:
+  - `SceneAudit.lua` now distinguishes direct shell existence from visible shell-wall evidence.
+  - `scene_fidelity_audit.py` now emits a high-severity `building_visible_wall_gap` finding when play/edit scene summaries report building models without visible shell walls.
+  - `scene_parity_audit.py` now compares `buildingModelsWithoutVisibleShellWalls` directly instead of letting that regression hide behind aggregate shell counts.
+- Local-safe verification passed:
+  - `python3 -m unittest scripts.tests.test_scene_fidelity_audit scripts.tests.test_scene_parity_audit -v`
+- Remote `tertiary` verification passed:
+  - `python3 -m unittest scripts.tests.test_scene_fidelity_audit scripts.tests.test_scene_parity_audit -v`
+  - `SceneAudit.spec.lua` passed through the direct git-backed `~/Projects/arnis-roblox-main` proof lane.
+- A fresh serialized `tertiary` play run reached `PlaySoloSuccess`, `ARNIS_MCP_READY`, `ARNIS_SCENE_PLAY`, and `ARNIS_MCP_PLAY` with the usual bootstrap trace through `world_ready,streaming_ready,minimap_ready,gameplay_ready`.
+- Rebuilding the play fidelity report offline from the raw `tertiary` Studio log against `rust/out/austin-manifest.json` now shows the user-visible building complaint is real and bounded:
+  - `buildingModelCount=92`
+  - `buildingModelsWithDirectShell=92`
+  - `buildingModelsWithVisibleShellWalls=87`
+  - `buildingModelsWithoutVisibleShellWalls=5`
+  - `buildingVisibleWallGapCount=5`
+  - fidelity findings now include `building_visible_wall_gap`
+- The follow-up attribution changed the diagnosis materially:
+  - the fresh `ARNIS_SCENE_PLAY` payload exposed `buildingVisibleWallGapDetails` for the five flagged structures
+  - all five source ids were `usage="roof"` structures rather than wall-bearing building shells
+  - the wall-gap severity was therefore over-reporting roof-only canopies as missing-wall building regressions
+  - `SceneAudit.lua` now excludes `usage="roof"` structures from visible-wall gap counts while still tracking their roof evidence normally
+  - the next shared follow-up is no longer "restore five missing walls"; it is proving the corrected wall-gap count stays clean on `tertiary` and then tightening per-building facade visibility for real wall-bearing shells if needed
+- That corrected proof is now in hand from the direct git-backed `tertiary` lane:
+  - `SceneAudit.spec.lua` passed after aligning its roof-only canopy expectations with the modeled scene
+  - `AustinSpawn.spec.lua` passed with the tightened runtime look-target logic
+  - a fresh serialized play run still reached `PlaySoloSuccess`, `gameplay_ready`, `ARNIS_SCENE_PLAY`, `ARNIS_MCP_PLAY`, and `ARNIS_MCP_PLAY_LATE`
+  - rebuilding the play fidelity report locally from the synced `/tmp/playproof-harness.log` against local `rust/out/austin-manifest.json` and `rust/out/austin.truth-pack.sqlite` now reports:
+    - `buildingVisibleWallGapCount=0`
+    - `buildingModelsWithoutVisibleShellWalls=0`
+    - `buildingModelsWithVisibleShellWalls=87`
+  - this means the current "buildings look terrible in play" complaint is no longer explained by missing wall-bearing shell geometry in the measured play scene
+  - the remaining likely causes are now player-facing quality issues around facade/detail richness, camera framing, or other visual simplification in the shared building path
+- Runtime framing around spawn was also tightened in the shared path:
+  - `AustinSpawn.getPreferredLookTarget(...)` now treats the trivial canonical Austin `{0,0,1}` look-direction hint as a fallback, not a hard override
+  - when the heuristic focus point is meaningful, runtime reuses it
+  - otherwise Austin runtime can now bias toward the nearest non-roof building centroid instead of pointing through a roof-only canopy or the trivial forward vector
+- Remote proof caveat remains narrower and explicit:
+  - the same successful play run still ended with a post-proof `json.decoder.JSONDecodeError` while post-processing a truncated long log line
+  - that failure happened after `gameplay_ready`, `ARNIS_SCENE_PLAY`, `ARNIS_MCP_PLAY`, and `ARNIS_CLIENT_LOCAL_EXPERIENCE` were already emitted, so it is a harness log-compaction issue rather than a world-truth failure
+- Screenshot/capture status remains blocked but better understood:
+  - direct SSH `screencapture` still fails with `could not create image from display`
+  - GUI-session `.command` execution on `tertiary` now does create screenshots when launched through the logged-in desktop session
+  - blind-timed captures are still noisy: early images caught only blue pre-world frames, and one later image captured Terminal instead of Studio because the one-shot script left Terminal frontmost
+  - one frontmost-Studio capture succeeded late enough to prove the lane works, but it landed during teardown with a save-changes modal over a blurred scene
+  - the screenshot lane is therefore viable, but it still needs a gameplay-ready trigger rather than fixed sleeps if it is going to become a trustworthy proof artifact
+
 ### 2026-04-01: Single Active Truth Stack Is Now Repo-Enforced
 
 - Added guardrail coverage in `scripts/tests/test_convergence_guardrails.py` to enforce:

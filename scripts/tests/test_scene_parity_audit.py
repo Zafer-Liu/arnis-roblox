@@ -110,6 +110,7 @@ class SceneParityAuditTests(unittest.TestCase):
                 "chunkIds": ["0_0"],
                 "buildingModelCount": 1,
                 "buildingModelsWithDirectShell": 1,
+                "buildingModelsWithoutVisibleShellWalls": 0,
                 "buildingModelsWithRoofClosureDeck": 1,
                 "roadSurfacePartCount": 2,
                 "waterSurfacePartCount": 0,
@@ -138,6 +139,7 @@ class SceneParityAuditTests(unittest.TestCase):
                 "chunkIds": ["0_0", "1_0"],
                 "buildingModelCount": 1,
                 "buildingModelsWithDirectShell": 1,
+                "buildingModelsWithoutVisibleShellWalls": 0,
                 "buildingModelsWithRoofClosureDeck": 1,
                 "roadSurfacePartCount": 2,
                 "waterSurfacePartCount": 0,
@@ -161,10 +163,142 @@ class SceneParityAuditTests(unittest.TestCase):
 
         self.assertNotIn("world_identity_mismatch", codes)
         self.assertNotIn("chunk_ids_mismatch", codes)
-        self.assertEqual(report["summary"]["matching"], 21)
+        self.assertEqual(report["summary"]["matching"], 23)
         self.assertEqual(report["summary"]["mismatched"], 0)
         self.assertEqual(report["comparisons"]["worldIdentity"]["edit"], "AustinManifestIndex")
         self.assertEqual(report["comparisons"]["worldIdentity"]["play"], "AustinManifestIndex")
+
+    def test_build_report_flags_visible_shell_wall_gap_mismatch(self) -> None:
+        audit = load_module()
+        edit_report = {
+            "rootName": "GeneratedWorld_Austin",
+            "worldIdentity": "AustinManifestIndex",
+            "chunkEnvelopeKind": "runtime_resident",
+            "focus": {"x": 0, "z": 0},
+            "radius": 256,
+            "summary": {"marker": "ARNIS_SCENE_EDIT", "buildingVisibleWallGapSourceIds": []},
+            "scene": {
+                "chunkIds": ["0_0"],
+                "buildingModelCount": 3,
+                "buildingModelsWithDirectShell": 3,
+                "buildingModelsWithoutVisibleShellWalls": 0,
+                "buildingModelsWithRoofClosureDeck": 1,
+                "roadSurfacePartCount": 0,
+                "waterSurfacePartCount": 0,
+                "propInstanceCount": 0,
+                "roadSurfacePartCountBySubkind": {},
+                "waterSurfacePartCountByType": {},
+                "waterSurfacePartCountByKind": {},
+                "railReceiptCountByKind": {},
+                "vegetationInstanceCountByKind": {},
+                "treeInstanceCountBySpecies": {},
+                "buildingRoofCoverageByUsage": {},
+                "buildingRoofCoverageByShape": {},
+                "buildingModelCountByWallMaterial": {},
+                "buildingModelCountByRoofMaterial": {},
+                "roadSurfacePartCountByKind": {},
+            },
+        }
+        play_report = {
+            "rootName": "GeneratedWorld_Austin",
+            "worldIdentity": "AustinManifestIndex",
+            "chunkEnvelopeKind": "runtime_resident",
+            "focus": {"x": 0, "z": 0},
+            "radius": 256,
+            "summary": {"marker": "ARNIS_SCENE_PLAY", "buildingVisibleWallGapSourceIds": ["bldg_gap_a", "bldg_gap_b"]},
+            "scene": {
+                "chunkIds": ["0_0"],
+                "buildingModelCount": 3,
+                "buildingModelsWithDirectShell": 3,
+                "buildingModelsWithoutVisibleShellWalls": 2,
+                "buildingModelsWithRoofClosureDeck": 1,
+                "roadSurfacePartCount": 0,
+                "waterSurfacePartCount": 0,
+                "propInstanceCount": 0,
+                "roadSurfacePartCountBySubkind": {},
+                "waterSurfacePartCountByType": {},
+                "waterSurfacePartCountByKind": {},
+                "railReceiptCountByKind": {},
+                "vegetationInstanceCountByKind": {},
+                "treeInstanceCountBySpecies": {},
+                "buildingRoofCoverageByUsage": {},
+                "buildingRoofCoverageByShape": {},
+                "buildingModelCountByWallMaterial": {},
+                "buildingModelCountByRoofMaterial": {},
+                "roadSurfacePartCountByKind": {},
+            },
+        }
+
+        report = audit.build_report(edit_report, play_report)
+        codes = {finding["code"] for finding in report["findings"]}
+
+        self.assertIn("building_visible_wall_gap_mismatch", codes)
+
+    def test_build_report_flags_visible_wall_gap_source_id_mismatch(self) -> None:
+        audit = load_module()
+        edit_report = {
+            "rootName": "GeneratedWorld_Austin",
+            "worldIdentity": "AustinManifestIndex",
+            "chunkEnvelopeKind": "runtime_resident",
+            "focus": {"x": 0, "z": 0},
+            "radius": 256,
+            "summary": {"marker": "ARNIS_SCENE_EDIT", "buildingVisibleWallGapSourceIds": ["bldg_gap_a"]},
+            "scene": {
+                "chunkIds": ["0_0"],
+                "buildingModelCount": 3,
+                "buildingModelsWithDirectShell": 3,
+                "buildingModelsWithoutVisibleShellWalls": 1,
+                "buildingModelsWithRoofClosureDeck": 1,
+                "roadSurfacePartCount": 0,
+                "waterSurfacePartCount": 0,
+                "propInstanceCount": 0,
+                "roadSurfacePartCountBySubkind": {},
+                "waterSurfacePartCountByType": {},
+                "waterSurfacePartCountByKind": {},
+                "railReceiptCountByKind": {},
+                "vegetationInstanceCountByKind": {},
+                "treeInstanceCountBySpecies": {},
+                "buildingRoofCoverageByUsage": {},
+                "buildingRoofCoverageByShape": {},
+                "buildingModelCountByWallMaterial": {},
+                "buildingModelCountByRoofMaterial": {},
+                "roadSurfacePartCountByKind": {},
+            },
+        }
+        play_report = {
+            "rootName": "GeneratedWorld_Austin",
+            "worldIdentity": "AustinManifestIndex",
+            "chunkEnvelopeKind": "runtime_resident",
+            "focus": {"x": 0, "z": 0},
+            "radius": 256,
+            "summary": {"marker": "ARNIS_SCENE_PLAY", "buildingVisibleWallGapSourceIds": ["bldg_gap_b"]},
+            "scene": {
+                "chunkIds": ["0_0"],
+                "buildingModelCount": 3,
+                "buildingModelsWithDirectShell": 3,
+                "buildingModelsWithoutVisibleShellWalls": 1,
+                "buildingModelsWithRoofClosureDeck": 1,
+                "roadSurfacePartCount": 0,
+                "waterSurfacePartCount": 0,
+                "propInstanceCount": 0,
+                "roadSurfacePartCountBySubkind": {},
+                "waterSurfacePartCountByType": {},
+                "waterSurfacePartCountByKind": {},
+                "railReceiptCountByKind": {},
+                "vegetationInstanceCountByKind": {},
+                "treeInstanceCountBySpecies": {},
+                "buildingRoofCoverageByUsage": {},
+                "buildingRoofCoverageByShape": {},
+                "buildingModelCountByWallMaterial": {},
+                "buildingModelCountByRoofMaterial": {},
+                "roadSurfacePartCountByKind": {},
+            },
+        }
+
+        report = audit.build_report(edit_report, play_report)
+        codes = {finding["code"] for finding in report["findings"]}
+
+        self.assertIn("building_visible_wall_source_ids_mismatch", codes)
 
     def test_build_report_quantizes_local_terrain_metrics_in_client_world_comparison(self) -> None:
         audit = load_module()
@@ -378,9 +512,9 @@ class SceneParityAuditTests(unittest.TestCase):
         self.assertIn("wall_material_count_mismatch", codes)
         self.assertIn("roof_material_count_mismatch", codes)
         self.assertIn("road_kind_surface_mismatch", codes)
-        self.assertEqual(report["summary"]["matching"], 1)
+        self.assertEqual(report["summary"]["matching"], 3)
         self.assertEqual(report["summary"]["mismatched"], 20)
-        self.assertEqual(report["summary"]["totalChecks"], 21)
+        self.assertEqual(report["summary"]["totalChecks"], 23)
         self.assertEqual(report["comparisons"]["chunkIds"]["edit"], ["0_0", "1_0"])
         self.assertEqual(report["comparisons"]["chunkIds"]["play"], ["0_0", "2_0"])
         self.assertEqual(report["comparisons"]["worldIdentity"]["edit"], "AustinManifestIndex")
@@ -746,7 +880,7 @@ class SceneParityAuditTests(unittest.TestCase):
             self.assertEqual(exit_code, 0)
             written = json.loads(parity_path.read_text(encoding="utf-8"))
             html = html_path.read_text(encoding="utf-8")
-            self.assertEqual(written["summary"]["matching"], 21)
+            self.assertEqual(written["summary"]["matching"], 23)
             self.assertEqual(written["summary"]["mismatched"], 0)
             self.assertIn("Scene Parity Audit", html)
             self.assertIn("chunkIds", html)

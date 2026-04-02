@@ -186,6 +186,15 @@ class StudioUiControlTests(unittest.TestCase):
         self.assertEqual(output, "")
         self.assertEqual(run_mock.call_args.kwargs["timeout"], mod.OSASCRIPT_TIMEOUT_SECONDS)
 
+    def test_dismiss_startup_dialogs_checks_continue_for_lighting_migration(self) -> None:
+        mod = load_module()
+        with mock.patch.object(mod, "run_osascript", return_value=0) as run_mock:
+            exit_code = mod.dismiss_startup_dialogs()
+        self.assertEqual(exit_code, 0)
+        script = run_mock.call_args.args[0]
+        self.assertIn('click button "Continue" of w', script)
+        self.assertIn('click button "Continue" of sheet 1 of w', script)
+
 
 if __name__ == "__main__":
     unittest.main()

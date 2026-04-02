@@ -1003,6 +1003,59 @@ class SceneFidelityAuditTests(unittest.TestCase):
             self.assertIn("client_local_enclosure_nearby_wall_parts", html)
             self.assertIn("client_local_roof_cover_overhead_roof_parts", html)
 
+    def test_report_flags_buildings_without_visible_shell_walls(self) -> None:
+        audit = load_module()
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            manifest_path = root / "manifest.json"
+            log_path = root / "studio.log"
+
+            manifest = {
+                "schemaVersion": "0.4.0",
+                "meta": {
+                    "worldName": "WallGapTown",
+                    "metersPerStud": 1.0,
+                    "chunkSizeStuds": 256,
+                },
+                "chunks": [],
+            }
+            manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
+
+            scene_payload = {
+                "phase": "play",
+                "focus": {"x": 0.0, "z": 0.0},
+                "radius": 64.0,
+                "rootName": "GeneratedWorld_Austin",
+                "worldIdentity": "AustinManifestIndex",
+                "chunkEnvelopeKind": "runtime_resident",
+                "scene": {
+                    "chunkCount": 1,
+                    "buildingModelCount": 4,
+                    "buildingModelsWithDirectShell": 4,
+                    "buildingModelsMissingDirectShell": 0,
+                    "buildingModelsWithVisibleShellWalls": 2,
+                    "buildingModelsWithoutVisibleShellWalls": 2,
+                    "buildingVisibleWallGapDetails": [
+                        {"sourceId": "bldg_gap_1", "name": "Gap One"},
+                        {"sourceId": "bldg_gap_2", "name": "Gap Two"},
+                    ],
+                },
+            }
+            log_path.write_text(
+                "ARNIS_SCENE_PLAY " + json.dumps(scene_payload, separators=(",", ":")),
+                encoding="utf-8",
+            )
+
+            report = audit.build_report(manifest_path, log_path, marker="ARNIS_SCENE_PLAY")
+            codes = {finding["code"] for finding in report["findings"]}
+            gap_finding = next(finding for finding in report["findings"] if finding["code"] == "building_visible_wall_gap")
+
+            self.assertIn("building_visible_wall_gap", codes)
+            self.assertEqual(report["summary"]["buildingVisibleWallGapCount"], 2)
+            self.assertEqual(report["summary"]["buildingVisibleWallGapSourceIds"], ["bldg_gap_1", "bldg_gap_2"])
+            self.assertEqual(gap_finding["details"]["sourceIds"], ["bldg_gap_1", "bldg_gap_2"])
+
     def test_report_carries_manifest_terrain_granularity_context(self) -> None:
         audit = load_module()
 
