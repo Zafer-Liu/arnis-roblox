@@ -926,6 +926,15 @@ class RunStudioHarnessTests(unittest.TestCase):
         self.assertNotIn("--project out/default.build.project.json --output out/arnis-test-clean.rbxlx", self.text)
         self.assertNotIn('harness_project_args+=(--include-canonical-sample-data)', self.text)
 
+    def test_vsync_repo_resolution_falls_back_to_common_non_sibling_clone_locations(self) -> None:
+        self.assertIn('resolve_vsync_repo_dir()', self.text)
+        self.assertIn('local sibling_repo="$(cd "$ROOT_DIR/.." && pwd)/vertigo-sync"', self.text)
+        self.assertIn('local fallback_repos=(', self.text)
+        self.assertIn('"$HOME/Projects/vertigo-sync"', self.text)
+        self.assertIn('"$HOME/Projects/vertigo"', self.text)
+        self.assertIn('if [[ -n "$VSYNC_REPO_DIR" && -f "$VSYNC_REPO_DIR/Cargo.toml" ]]; then', self.text)
+        self.assertIn('VSYNC_REPO_DIR="$(resolve_vsync_repo_dir)"', self.text)
+
     def test_edit_only_auto_build_omits_runtime_sample_data_from_clean_place(self) -> None:
         self.assertIn('local include_runtime_sample_data="${1:-true}"', self.text)
         self.assertIn('python3 "$ROOT_DIR/scripts/generate_harness_projects.py" "${harness_project_args[@]}"', self.text)

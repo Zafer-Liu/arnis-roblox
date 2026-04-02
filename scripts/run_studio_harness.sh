@@ -14,7 +14,7 @@ ROBLOX_PLUGIN_DIR="${ROBLOX_PLUGIN_DIR:-$HOME/Documents/Roblox/Plugins}"
 ROBLOX_STUDIO_STATE_DIR="$HOME/Library/Application Support/Roblox/RobloxStudio"
 ROBLOX_AUTOSAVE_DIR="$ROBLOX_STUDIO_STATE_DIR/AutoSaves"
 RUNALL_CONFIG="$ROOT_DIR/roblox/src/ServerScriptService/Tests/RunAllConfig.lua"
-VSYNC_REPO_DIR="${VSYNC_REPO_DIR:-$(cd "$ROOT_DIR/.." && pwd)/vertigo-sync}"
+VSYNC_REPO_DIR="${VSYNC_REPO_DIR:-}"
 PLACE_PATH=""
 PLACE_PATH_CUSTOM=0
 AUTO_BUILT_PLACE=0
@@ -622,7 +622,39 @@ build_clean_place() {
   printf '%s\n' "$output_place"
 }
 
+resolve_vsync_repo_dir() {
+  local sibling_repo="$(cd "$ROOT_DIR/.." && pwd)/vertigo-sync"
+  local fallback_repos=(
+    "$HOME/Projects/vertigo-sync"
+    "$HOME/Projects/vertigo"
+  )
+
+  if [[ -n "$VSYNC_REPO_DIR" && -f "$VSYNC_REPO_DIR/Cargo.toml" ]]; then
+    printf '%s\n' "$VSYNC_REPO_DIR"
+    return 0
+  fi
+
+  if [[ -f "$sibling_repo/Cargo.toml" ]]; then
+    printf '%s\n' "$sibling_repo"
+    return 0
+  fi
+
+  local candidate=""
+  for candidate in "${fallback_repos[@]}"; do
+    if [[ -f "$candidate/Cargo.toml" ]]; then
+      printf '%s\n' "$candidate"
+      return 0
+    fi
+  done
+
+  if [[ -n "$VSYNC_REPO_DIR" ]]; then
+    printf '%s\n' "$VSYNC_REPO_DIR"
+  fi
+}
+
 resolve_vsync_binary() {
+  VSYNC_REPO_DIR="$(resolve_vsync_repo_dir)"
+
   if [[ -f "$VSYNC_REPO_DIR/Cargo.toml" ]] && command -v cargo >/dev/null 2>&1; then
     if [[ -n "$VSYNC_BINARY" && -x "$VSYNC_BINARY" ]]; then
       VSYNC_SOURCE_REPO=1
