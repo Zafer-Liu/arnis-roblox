@@ -65,6 +65,19 @@ Repo governance note: this plan is part of the only active superpowers truth sta
 - Modify: `scripts/tests/test_play_render_truth.py`
 - Create: `roblox/src/ServerScriptService/Tests/TerrainOutdoorFidelity.spec.lua`
 
+### Runtime Streaming Engine
+
+- Modify: `roblox/src/ReplicatedStorage/Shared/WorldConfig.lua`
+- Modify: `roblox/src/ServerScriptService/ImportService/StreamingService.lua`
+- Modify: `roblox/src/ServerScriptService/ImportService/ChunkPriority.lua`
+- Modify: `roblox/src/ServerScriptService/ImportService/ManifestLoader.lua`
+- Modify: `roblox/src/ServerScriptService/ImportService/RunAustin.lua`
+- Modify: `roblox/src/StarterPlayer/StarterPlayerScripts/WorldProbe.client.lua`
+- Modify: `scripts/tests/test_austin_runtime_contract.py`
+- Modify: `scripts/tests/test_play_render_truth.py`
+- Modify: `scripts/tests/test_run_studio_harness.py`
+- Modify: `docs/superpowers/status/2026-03-30-outdoor-fidelity-and-source-truth-status.md`
+
 ## Success Thresholds
 
 - Truth-pack output is bounded and query-oriented: a compile run writes `rust/out/<scene>.truth-pack.sqlite` plus a compact audit summary JSON, not a monolithic full-scene JSON blob.
@@ -72,6 +85,9 @@ Repo governance note: this plan is part of the only active superpowers truth sta
 - Scene-fidelity reports can show both truth-pack-backed outdoor provenance findings and runtime player-local outdoor experience metrics without requiring raw JSON inspection.
 - Remote `tertiary` proof produces at least one focused edit slice and one focused play slice for the tranche and records the result in the active status doc the same day.
 - Preview/edit hotspot reporting exposes the worst outdoor-heavy chunk cost with structured phase timings and artifact counts in the main audit surfaces.
+- The runtime streaming engine exposes explicit near/mid/far residency rings with authoritative `estimatedMemoryCost` budgets and secondary chunk-count caps.
+- Runtime telemetry reports resident chunk counts, resident estimated memory, inflight estimated memory, queued work, and eviction/prefetch reasons by ring.
+- The Austin sample remains correct on the same shared runtime path while the scheduler becomes budget-enforcing instead of distance-only.
 
 ## Task 1: Roll The Active Docs Stack Forward
 
@@ -855,4 +871,115 @@ Update `docs/remote-studio-development.md` only if the tranche changed how `tert
 git add docs/superpowers/status/2026-03-30-outdoor-fidelity-and-source-truth-status.md \
   docs/remote-studio-development.md
 git commit -m "docs: close outdoor fidelity tranche status"
+```
+
+## Task 9: Add The First Alpha Runtime Streaming Engine Contract
+
+**Files:**
+- Modify: `roblox/src/ReplicatedStorage/Shared/WorldConfig.lua`
+- Modify: `roblox/src/ServerScriptService/ImportService/StreamingService.lua`
+- Modify: `roblox/src/ServerScriptService/ImportService/ChunkPriority.lua`
+- Modify: `roblox/src/ServerScriptService/ImportService/RunAustin.lua`
+- Modify: `roblox/src/StarterPlayer/StarterPlayerScripts/WorldProbe.client.lua`
+- Modify: `scripts/tests/test_austin_runtime_contract.py`
+- Modify: `scripts/tests/test_play_render_truth.py`
+- Modify: `scripts/tests/test_run_studio_harness.py`
+- Modify: `docs/superpowers/status/2026-03-30-outdoor-fidelity-and-source-truth-status.md`
+
+- [ ] **Step 1: Write the failing runtime-engine contract tests**
+
+Extend:
+- `scripts/tests/test_austin_runtime_contract.py`
+- `scripts/tests/test_play_render_truth.py`
+- `scripts/tests/test_run_studio_harness.py`
+
+Require the first alpha contract to expose:
+- explicit `near`, `mid`, and `far` runtime rings in `WorldConfig`
+- per-ring `estimatedMemoryCost` budgets
+- per-ring chunk-count caps
+- workspace telemetry for resident estimated memory by ring
+- workspace telemetry for resident chunk count by ring
+- workspace telemetry for queued and inflight estimated memory
+- explicit prefetch/eviction reason surfaces instead of implicit distance-only behavior
+
+- [ ] **Step 2: Run the focused local tests to verify they fail**
+
+Run:
+
+```bash
+python3 -m unittest \
+  scripts.tests.test_austin_runtime_contract \
+  scripts.tests.test_play_render_truth \
+  scripts.tests.test_run_studio_harness -v
+```
+
+Expected:
+- FAIL on the new runtime-engine assertions
+
+- [ ] **Step 3: Implement the first shared runtime-engine slice**
+
+Update:
+- `WorldConfig.lua`
+- `StreamingService.lua`
+- `ChunkPriority.lua` only if needed for prefetch ordering signals
+- `RunAustin.lua` only if startup telemetry publication needs a narrow seam
+- `WorldProbe.client.lua` only if the runtime telemetry surface needs client-visible carry-through
+
+The first slice should:
+- replace implicit two-radius behavior with explicit `near`/`mid`/`far` ring classification
+- treat `estimatedMemoryCost` as the authoritative residency budget
+- treat chunk-count caps as secondary guardrails
+- publish ring-level workspace telemetry every update
+- keep the current canonical manifest + loader path intact
+
+Do not add a legacy fallback mode.
+
+- [ ] **Step 4: Re-run the focused local tests**
+
+Run:
+
+```bash
+python3 -m unittest \
+  scripts.tests.test_austin_runtime_contract \
+  scripts.tests.test_play_render_truth \
+  scripts.tests.test_run_studio_harness -v
+```
+
+Expected:
+- PASS
+
+- [ ] **Step 5: Prove the runtime-engine contract on `tertiary`**
+
+Run the narrowest remote slice that proves the new runtime telemetry:
+
+```bash
+ssh tertiary 'cd /Volumes/APDataStore/arnis-roblox-proof && ARNIS_TELEMETRY_FAMILIES=terrain,roads,water,vegetation,structures,hotspots,player_local ARNIS_SCENE_AUDIT_DIR=/tmp/arnis-runtime-engine-play bash scripts/run_studio_harness.sh --takeover --hard-restart --skip-edit-tests --play-wait 30 --pattern-wait 120'
+```
+
+Expected:
+- play reaches `gameplay_ready`
+- workspace/runtime markers now include ring-budget telemetry and queue/inflight surfaces
+- no change to canonical world truth or parity semantics
+
+- [ ] **Step 6: Append the measured result to the active status doc**
+
+Record:
+- the chosen ring contract
+- the measured Austin runtime packaging baseline it sits on
+- what telemetry now exists
+- what the next runtime-engine slice should do (likely movement-aware prefetch/eviction policy)
+
+- [ ] **Step 7: Commit**
+
+```bash
+git add roblox/src/ReplicatedStorage/Shared/WorldConfig.lua \
+  roblox/src/ServerScriptService/ImportService/StreamingService.lua \
+  roblox/src/ServerScriptService/ImportService/ChunkPriority.lua \
+  roblox/src/ServerScriptService/ImportService/RunAustin.lua \
+  roblox/src/StarterPlayer/StarterPlayerScripts/WorldProbe.client.lua \
+  scripts/tests/test_austin_runtime_contract.py \
+  scripts/tests/test_play_render_truth.py \
+  scripts/tests/test_run_studio_harness.py \
+  docs/superpowers/status/2026-03-30-outdoor-fidelity-and-source-truth-status.md
+git commit -m "feat: add runtime streaming engine budgets"
 ```
