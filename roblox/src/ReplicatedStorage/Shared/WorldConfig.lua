@@ -78,6 +78,23 @@ local WorldConfig = {
     StreamingUpdateIntervalSeconds = 0.25,
     StreamingMaxWorkItemsPerUpdate = 4,
     StreamingImportFrameBudgetSeconds = 1 / 240,
+    StreamingRings = {
+        near = {
+            MaxRadiusStuds = 1024,
+            EstimatedBudgetBytes = 1536 * 1024 * 1024,
+            MaxChunkCount = 64,
+        },
+        mid = {
+            MaxRadiusStuds = 1536,
+            EstimatedBudgetBytes = 1536 * 1024 * 1024,
+            MaxChunkCount = 96,
+        },
+        far = {
+            MaxRadiusStuds = 2048,
+            EstimatedBudgetBytes = 1024 * 1024 * 1024,
+            MaxChunkCount = 128,
+        },
+    },
     MemoryGuardrails = {
         Enabled = true,
         EstimatedBudgetBytes = 4 * 1024 * 1024 * 1024,
@@ -101,6 +118,23 @@ local WorldConfig = {
             StreamingTargetRadius = 2048,
             HighDetailRadius = 1024,
             StreamingMaxWorkItemsPerUpdate = 2,
+            StreamingRings = {
+                near = {
+                    MaxRadiusStuds = 1024,
+                    EstimatedBudgetBytes = 1536 * 1024 * 1024,
+                    MaxChunkCount = 64,
+                },
+                mid = {
+                    MaxRadiusStuds = 1536,
+                    EstimatedBudgetBytes = 1536 * 1024 * 1024,
+                    MaxChunkCount = 96,
+                },
+                far = {
+                    MaxRadiusStuds = 2048,
+                    EstimatedBudgetBytes = 1024 * 1024 * 1024,
+                    MaxChunkCount = 128,
+                },
+            },
             MemoryGuardrails = {
                 Enabled = true,
                 EstimatedBudgetBytes = 4 * 1024 * 1024 * 1024,
@@ -123,6 +157,23 @@ local WorldConfig = {
             HighDetailRadius = 3072,
             StreamingMaxWorkItemsPerUpdate = 8,
             StreamingImportFrameBudgetSeconds = 1 / 120,
+            StreamingRings = {
+                near = {
+                    MaxRadiusStuds = 3072,
+                    EstimatedBudgetBytes = 3 * 1024 * 1024 * 1024,
+                    MaxChunkCount = 128,
+                },
+                mid = {
+                    MaxRadiusStuds = 4608,
+                    EstimatedBudgetBytes = 3 * 1024 * 1024 * 1024,
+                    MaxChunkCount = 192,
+                },
+                far = {
+                    MaxRadiusStuds = 6144,
+                    EstimatedBudgetBytes = 2 * 1024 * 1024 * 1024,
+                    MaxChunkCount = 256,
+                },
+            },
             MemoryGuardrails = {
                 Enabled = true,
                 EstimatedBudgetBytes = 8 * 1024 * 1024 * 1024,

@@ -886,7 +886,7 @@ git commit -m "docs: close outdoor fidelity tranche status"
 - Modify: `scripts/tests/test_run_studio_harness.py`
 - Modify: `docs/superpowers/status/2026-03-30-outdoor-fidelity-and-source-truth-status.md`
 
-- [ ] **Step 1: Write the failing runtime-engine contract tests**
+- [x] **Step 1: Write the failing runtime-engine contract tests**
 
 Extend:
 - `scripts/tests/test_austin_runtime_contract.py`
@@ -902,7 +902,7 @@ Require the first alpha contract to expose:
 - workspace telemetry for queued and inflight estimated memory
 - explicit prefetch/eviction reason surfaces instead of implicit distance-only behavior
 
-- [ ] **Step 2: Run the focused local tests to verify they fail**
+- [x] **Step 2: Run the focused local tests to verify they fail**
 
 Run:
 
@@ -916,7 +916,7 @@ python3 -m unittest \
 Expected:
 - FAIL on the new runtime-engine assertions
 
-- [ ] **Step 3: Implement the first shared runtime-engine slice**
+- [x] **Step 3: Implement the first shared runtime-engine slice**
 
 Update:
 - `WorldConfig.lua`
@@ -934,7 +934,7 @@ The first slice should:
 
 Do not add a legacy fallback mode.
 
-- [ ] **Step 4: Re-run the focused local tests**
+- [x] **Step 4: Re-run the focused local tests**
 
 Run:
 
@@ -961,7 +961,7 @@ Expected:
 - workspace/runtime markers now include ring-budget telemetry and queue/inflight surfaces
 - no change to canonical world truth or parity semantics
 
-- [ ] **Step 6: Append the measured result to the active status doc**
+- [x] **Step 6: Append the measured result to the active status doc**
 
 Record:
 - the chosen ring contract

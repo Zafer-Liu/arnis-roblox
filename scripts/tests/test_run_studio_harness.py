@@ -727,6 +727,16 @@ class RunStudioHarnessTests(unittest.TestCase):
         self.assertIn('payload.streamingProcessedWorkItems = Workspace:GetAttribute("ArnisStreamingProcessedWorkItems")', self.text)
         self.assertIn('payload.streamingLastFocalX = Workspace:GetAttribute("ArnisStreamingLastFocalX")', self.text)
         self.assertIn('payload.streamingLastFocalZ = Workspace:GetAttribute("ArnisStreamingLastFocalZ")', self.text)
+        self.assertIn('payload.streamingRingNearResidentChunkCount = Workspace:GetAttribute("ArnisStreamingRingNearResidentChunkCount")', self.text)
+        self.assertIn('payload.streamingRingMidResidentChunkCount = Workspace:GetAttribute("ArnisStreamingRingMidResidentChunkCount")', self.text)
+        self.assertIn('payload.streamingRingFarResidentChunkCount = Workspace:GetAttribute("ArnisStreamingRingFarResidentChunkCount")', self.text)
+        self.assertIn('payload.streamingRingNearResidentEstimatedCost = Workspace:GetAttribute("ArnisStreamingRingNearResidentEstimatedCost")', self.text)
+        self.assertIn('payload.streamingRingMidResidentEstimatedCost = Workspace:GetAttribute("ArnisStreamingRingMidResidentEstimatedCost")', self.text)
+        self.assertIn('payload.streamingRingFarResidentEstimatedCost = Workspace:GetAttribute("ArnisStreamingRingFarResidentEstimatedCost")', self.text)
+        self.assertIn('payload.streamingQueuedEstimatedCost = Workspace:GetAttribute("ArnisStreamingQueuedEstimatedCost")', self.text)
+        self.assertIn('payload.streamingQueuedWorkItemCount = Workspace:GetAttribute("ArnisStreamingQueuedWorkItemCount")', self.text)
+        self.assertIn('payload.streamingLastPrefetchReason = Workspace:GetAttribute("ArnisStreamingLastPrefetchReason")', self.text)
+        self.assertIn('payload.streamingLastEvictionReason = Workspace:GetAttribute("ArnisStreamingLastEvictionReason")', self.text)
 
     def test_play_probe_reports_camera_and_humanoid_state(self) -> None:
         self.assertIn("local camera = Workspace.CurrentCamera", self.text)

@@ -22,6 +22,7 @@ PREVIEW_BUILDER_PATH = ROOT / "roblox" / "src" / "ServerScriptService" / "Studio
 BUILDING_BUILDER_PATH = (
     ROOT / "roblox" / "src" / "ServerScriptService" / "ImportService" / "Builders" / "BuildingBuilder.lua"
 )
+WORLD_CONFIG_PATH = ROOT / "roblox" / "src" / "ReplicatedStorage" / "Shared" / "WorldConfig.lua"
 
 
 class AustinRuntimeContractTests(unittest.TestCase):
@@ -47,6 +48,7 @@ class AustinRuntimeContractTests(unittest.TestCase):
         cls.minimap_service_text = MINIMAP_SERVICE_PATH.read_text(encoding="utf-8")
         cls.preview_builder_text = PREVIEW_BUILDER_PATH.read_text(encoding="utf-8")
         cls.building_builder_text = BUILDING_BUILDER_PATH.read_text(encoding="utf-8")
+        cls.world_config_text = WORLD_CONFIG_PATH.read_text(encoding="utf-8")
 
     def test_bootstrap_guards_against_duplicate_runtime_execution(self) -> None:
         self.assertIn(
@@ -123,6 +125,32 @@ class AustinRuntimeContractTests(unittest.TestCase):
         self.assertIn('Workspace:SetAttribute("ArnisStreamingCandidateChunkCount", #candidateChunkEntries)', self.streaming_text)
         self.assertIn('Workspace:SetAttribute("ArnisStreamingDesiredChunkCount", desiredChunkCount)', self.streaming_text)
         self.assertIn('Workspace:SetAttribute("ArnisStreamingProcessedWorkItems", processedWorkItems)', self.streaming_text)
+        self.assertIn('Workspace:SetAttribute("ArnisStreamingRingNearResidentChunkCount", 0)', self.streaming_text)
+        self.assertIn('Workspace:SetAttribute("ArnisStreamingRingMidResidentChunkCount", 0)', self.streaming_text)
+        self.assertIn('Workspace:SetAttribute("ArnisStreamingRingFarResidentChunkCount", 0)', self.streaming_text)
+        self.assertIn('Workspace:SetAttribute("ArnisStreamingRingNearResidentEstimatedCost", 0)', self.streaming_text)
+        self.assertIn('Workspace:SetAttribute("ArnisStreamingRingMidResidentEstimatedCost", 0)', self.streaming_text)
+        self.assertIn('Workspace:SetAttribute("ArnisStreamingRingFarResidentEstimatedCost", 0)', self.streaming_text)
+        self.assertIn('Workspace:SetAttribute("ArnisStreamingQueuedEstimatedCost", 0)', self.streaming_text)
+        self.assertIn('Workspace:SetAttribute("ArnisStreamingQueuedWorkItemCount", 0)', self.streaming_text)
+        self.assertIn('Workspace:SetAttribute("ArnisStreamingLastPrefetchReason", "")', self.streaming_text)
+        self.assertIn('Workspace:SetAttribute("ArnisStreamingLastEvictionReason", "")', self.streaming_text)
+
+    def test_world_config_declares_explicit_runtime_streaming_rings(self) -> None:
+        self.assertIn("StreamingRings = {", self.world_config_text)
+        self.assertIn("near = {", self.world_config_text)
+        self.assertIn("mid = {", self.world_config_text)
+        self.assertIn("far = {", self.world_config_text)
+        self.assertIn("EstimatedBudgetBytes", self.world_config_text)
+        self.assertIn("MaxChunkCount", self.world_config_text)
+
+    def test_streaming_service_treats_estimated_memory_cost_as_authoritative_ring_budget(self) -> None:
+        self.assertIn("local function resolveStreamingRings(config)", self.streaming_text)
+        self.assertIn("EstimatedBudgetBytes", self.streaming_text)
+        self.assertIn("MaxChunkCount", self.streaming_text)
+        self.assertIn("ArnisStreamingQueuedEstimatedCost", self.streaming_text)
+        self.assertIn("ArnisStreamingLastPrefetchReason", self.streaming_text)
+        self.assertIn("ArnisStreamingLastEvictionReason", self.streaming_text)
 
     def test_startup_import_and_streaming_share_chunk_signature_contract(self) -> None:
         self.assertIn("local ImportSignatures = require(script.Parent.ImportSignatures)", self.streaming_text)

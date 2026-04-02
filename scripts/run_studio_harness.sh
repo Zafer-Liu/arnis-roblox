@@ -3586,6 +3586,16 @@ local function sample()
     payload.streamingProcessedWorkItems = Workspace:GetAttribute("ArnisStreamingProcessedWorkItems")
     payload.streamingLastFocalX = Workspace:GetAttribute("ArnisStreamingLastFocalX")
     payload.streamingLastFocalZ = Workspace:GetAttribute("ArnisStreamingLastFocalZ")
+    payload.streamingRingNearResidentChunkCount = Workspace:GetAttribute("ArnisStreamingRingNearResidentChunkCount")
+    payload.streamingRingMidResidentChunkCount = Workspace:GetAttribute("ArnisStreamingRingMidResidentChunkCount")
+    payload.streamingRingFarResidentChunkCount = Workspace:GetAttribute("ArnisStreamingRingFarResidentChunkCount")
+    payload.streamingRingNearResidentEstimatedCost = Workspace:GetAttribute("ArnisStreamingRingNearResidentEstimatedCost")
+    payload.streamingRingMidResidentEstimatedCost = Workspace:GetAttribute("ArnisStreamingRingMidResidentEstimatedCost")
+    payload.streamingRingFarResidentEstimatedCost = Workspace:GetAttribute("ArnisStreamingRingFarResidentEstimatedCost")
+    payload.streamingQueuedEstimatedCost = Workspace:GetAttribute("ArnisStreamingQueuedEstimatedCost")
+    payload.streamingQueuedWorkItemCount = Workspace:GetAttribute("ArnisStreamingQueuedWorkItemCount")
+    payload.streamingLastPrefetchReason = Workspace:GetAttribute("ArnisStreamingLastPrefetchReason")
+    payload.streamingLastEvictionReason = Workspace:GetAttribute("ArnisStreamingLastEvictionReason")
     return payload
 end
 

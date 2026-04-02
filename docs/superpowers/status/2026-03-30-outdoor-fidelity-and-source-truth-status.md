@@ -1105,3 +1105,38 @@ The compact historical archive index is:
   - local-safe green: `bash -n scripts/export_austin_to_lua.sh`
   - local-safe green: `git diff --check`
   - remote `tertiary`: direct `emit-runtime-lua` sweep at `8`, `16`, and `32` chunks per shard from the same Austin SQLite manifest
+
+### 2026-04-02: First Runtime Streaming Engine Budget Contract Landed Locally
+
+- I moved the first runtime-engine slice out of design-only territory and into the shared runtime path on `main`.
+- `WorldConfig.lua` now declares explicit `StreamingRings` for `near`, `mid`, and `far`, each with:
+  - `MaxRadiusStuds`
+  - `EstimatedBudgetBytes`
+  - `MaxChunkCount`
+- `StreamingService.lua` now resolves those rings through one `resolveStreamingRings(config)` helper and uses them to:
+  - classify desired residency by `near`/`mid`/`far`
+  - treat `EstimatedBudgetBytes` as the authoritative per-ring residency budget
+  - treat `MaxChunkCount` as a secondary ring guardrail
+  - surface ring-level resident chunk counts and resident estimated costs
+  - surface queued estimated cost and queued work-item count
+  - surface explicit prefetch and eviction reasons on the existing loader path
+- `scripts/run_studio_harness.sh` now threads those new streaming telemetry fields into the existing play probe payload so the remote proof lane can capture them without inventing a parallel observability path.
+- This slice intentionally does **not** add a second scheduler or a legacy toggle. It hardens the current runtime loader into a budget-aware contract that later movement-aware prefetch can build on.
+- Current local runtime-engine contract:
+  - `near`: up to `1024` studs, `1536 MiB`, `64` chunks
+  - `mid`: up to `1536` studs, `1536 MiB`, `96` chunks
+  - `far`: up to `2048` studs, `1024 MiB`, `128` chunks
+  - `production_server` widens those ring radii and budgets without changing the contract shape
+- The measured Austin runtime packaging baseline this sits on is still the current `16`-chunks-per-runtime-shard path:
+  - `463` runtime shards
+  - emitter-only `227.94s`
+  - largest shard `3685839` bytes
+- Interpretation:
+  - the runtime engine now has explicit residency math instead of only implicit radius behavior
+  - packaging and scheduling are starting to separate cleanly
+  - the next runtime-engine slice should stay on the product path: movement-aware prefetch, eviction ordering, and ring-value heuristics on top of this contract
+- Verification for this slice:
+  - local-safe red: `python3 -m unittest scripts.tests.test_austin_runtime_contract scripts.tests.test_play_render_truth scripts.tests.test_run_studio_harness -v`
+  - local-safe green: same focused suite after the runtime-engine implementation
+  - local-safe green: `git diff --check`
+  - remote `tertiary`: still pending for this specific runtime-engine telemetry slice

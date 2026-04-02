@@ -16,8 +16,10 @@ local StreamingService = {}
 
 local streamingManifest = nil
 local streamingChunkRefs = nil
+local streamingChunkRefsById = nil
 local streamingOptions = nil
 local streamingChunkIndex = nil
+local streamingResolvedRings = nil
 local heartbeatConn = nil
 local lastUpdate = 0
 local DEFAULT_UPDATE_INTERVAL = 0.25 -- seconds between distance checks
@@ -40,11 +42,15 @@ local streamingSubplanRollout = nil
 local streamingMemoryGuardrail = nil
 local streamingResidentEstimatedCostById = {}
 local streamingUpdateInProgress = false
+local streamingLastPrefetchReason = ""
+local streamingLastEvictionReason = ""
+local getChunkCenter
 
 local MEMORY_GUARDRAIL_ATTR_PREFIX = "ArnisStreamingMemoryGuardrail"
 local HOST_PROBE_AVAILABLE_ATTR = "ArnisStreamingHostProbeAvailableBytes"
 local HOST_PROBE_PRESSURE_ATTR = "ArnisStreamingHostProbePressureLevel"
 local DEFAULT_WORLD_ROOT_NAME = "GeneratedWorld"
+local STREAMING_RING_ORDER = { "near", "mid", "far" }
 
 local function normalizePositiveNumber(value)
     if type(value) ~= "number" then
@@ -61,6 +67,72 @@ local function normalizeNonNegativeNumber(value)
         return 0
     end
     return value
+end
+
+local function normalizePositiveInteger(value, fallback)
+    if type(value) ~= "number" or value < 1 then
+        return fallback
+    end
+    return math.max(1, math.floor(value))
+end
+
+local function buildChunkRefById(chunkRefs)
+    local byId = {}
+    for _, chunkRef in ipairs(chunkRefs or {}) do
+        if type(chunkRef) == "table" and type(chunkRef.id) == "string" and chunkRef.id ~= "" then
+            byId[chunkRef.id] = chunkRef
+        end
+    end
+    return byId
+end
+
+local function resolveStreamingRings(config)
+    local highRadius = normalizePositiveNumber(config.HighDetailRadius) or 1024
+    local targetRadius = normalizePositiveNumber(config.StreamingTargetRadius) or math.max(highRadius, 2048)
+    local guardrailBudget = normalizeNonNegativeNumber(
+        type(config.MemoryGuardrails) == "table" and config.MemoryGuardrails.EstimatedBudgetBytes or 0
+    )
+    local configuredRings = if type(config.StreamingRings) == "table" then config.StreamingRings else {}
+    local fallbackMidRadius = math.max(highRadius, (highRadius + targetRadius) * 0.5)
+    local fallbackBudgets = {
+        near = if guardrailBudget > 0 then math.floor(guardrailBudget * 0.4) else 0,
+        mid = if guardrailBudget > 0 then math.floor(guardrailBudget * 0.35) else 0,
+        far = if guardrailBudget > 0 then math.floor(guardrailBudget * 0.25) else 0,
+    }
+    local fallbackChunkCounts = {
+        near = 64,
+        mid = 96,
+        far = 128,
+    }
+    local fallbackRadii = {
+        near = highRadius,
+        mid = fallbackMidRadius,
+        far = targetRadius,
+    }
+    local resolved = {}
+    local previousRadius = 0
+
+    for _, ringName in ipairs(STREAMING_RING_ORDER) do
+        local ringConfig = if type(configuredRings[ringName]) == "table" then configuredRings[ringName] else {}
+        local resolvedRadius = normalizePositiveNumber(ringConfig.MaxRadiusStuds) or fallbackRadii[ringName]
+        resolvedRadius = math.max(previousRadius, resolvedRadius)
+        previousRadius = resolvedRadius
+
+        local configuredBudget = ringConfig.EstimatedBudgetBytes
+        local resolvedBudget = if type(configuredBudget) == "number" and configuredBudget >= 0
+            then configuredBudget
+            else fallbackBudgets[ringName]
+
+        resolved[ringName] = {
+            Name = ringName,
+            MaxRadiusStuds = resolvedRadius,
+            MaxRadiusSq = resolvedRadius * resolvedRadius,
+            EstimatedBudgetBytes = normalizeNonNegativeNumber(resolvedBudget),
+            MaxChunkCount = normalizePositiveInteger(ringConfig.MaxChunkCount, fallbackChunkCounts[ringName]),
+        }
+    end
+
+    return resolved
 end
 
 local function setMemoryGuardrailTelemetry(snapshot, deferredAdmissions, residentCost, inFlightCost)
@@ -105,13 +177,77 @@ local function resetStreamingResidencyTelemetry()
     Workspace:SetAttribute("ArnisStreamingProcessedWorkItems", 0)
     Workspace:SetAttribute("ArnisStreamingLastFocalX", 0)
     Workspace:SetAttribute("ArnisStreamingLastFocalZ", 0)
+    Workspace:SetAttribute("ArnisStreamingRingNearResidentChunkCount", 0)
+    Workspace:SetAttribute("ArnisStreamingRingMidResidentChunkCount", 0)
+    Workspace:SetAttribute("ArnisStreamingRingFarResidentChunkCount", 0)
+    Workspace:SetAttribute("ArnisStreamingRingNearResidentEstimatedCost", 0)
+    Workspace:SetAttribute("ArnisStreamingRingMidResidentEstimatedCost", 0)
+    Workspace:SetAttribute("ArnisStreamingRingFarResidentEstimatedCost", 0)
+    Workspace:SetAttribute("ArnisStreamingQueuedEstimatedCost", 0)
+    Workspace:SetAttribute("ArnisStreamingQueuedWorkItemCount", 0)
+    Workspace:SetAttribute("ArnisStreamingLastPrefetchReason", "")
+    Workspace:SetAttribute("ArnisStreamingLastEvictionReason", "")
+end
+
+local function getResidentEstimatedCostForChunkId(chunkId)
+    local prefix = chunkId .. "::"
+    local total = 0
+    for residentKey, cost in pairs(streamingResidentEstimatedCostById) do
+        if residentKey == chunkId or string.sub(residentKey, 1, #prefix) == prefix then
+            total += cost
+        end
+    end
+    return total
+end
+
+local function getChunkRingName(distSq, resolvedRings)
+    for _, ringName in ipairs(STREAMING_RING_ORDER) do
+        local ring = resolvedRings and resolvedRings[ringName] or nil
+        if ring and distSq <= ring.MaxRadiusSq then
+            return ringName
+        end
+    end
+    return nil
+end
+
+local function buildStreamingRingTelemetry(playerPos, resolvedRings)
+    local telemetry = {
+        near = { residentChunkCount = 0, residentEstimatedCost = 0 },
+        mid = { residentChunkCount = 0, residentEstimatedCost = 0 },
+        far = { residentChunkCount = 0, residentEstimatedCost = 0 },
+    }
+
+    if typeof(playerPos) ~= "Vector3" or type(streamingChunkRefsById) ~= "table" then
+        return telemetry
+    end
+
+    for _, chunkId in ipairs(ChunkLoader.ListLoadedChunks(streamingOptions.worldRootName)) do
+        local chunkRef = streamingChunkRefsById[chunkId]
+        if chunkRef then
+            local centerX, centerZ = getChunkCenter(chunkRef, streamingOptions.config.ChunkSizeStuds)
+            local dx = playerPos.X - centerX
+            local dz = playerPos.Z - centerZ
+            local ringName = getChunkRingName(dx * dx + dz * dz, resolvedRings)
+            if ringName then
+                local ringTelemetry = telemetry[ringName]
+                ringTelemetry.residentChunkCount += 1
+                ringTelemetry.residentEstimatedCost += getResidentEstimatedCostForChunkId(chunkId)
+            end
+        end
+    end
+
+    return telemetry
 end
 
 local function updateStreamingResidencyTelemetry(
     playerPos,
     candidateChunkEntries,
     desiredChunkCount,
-    processedWorkItems
+    processedWorkItems,
+    queuedEstimatedCost,
+    queuedWorkItemCount,
+    lastPrefetchReason,
+    lastEvictionReason
 )
     local focalX = 0
     local focalZ = 0
@@ -129,6 +265,17 @@ local function updateStreamingResidencyTelemetry(
     Workspace:SetAttribute("ArnisStreamingProcessedWorkItems", processedWorkItems)
     Workspace:SetAttribute("ArnisStreamingLastFocalX", focalX)
     Workspace:SetAttribute("ArnisStreamingLastFocalZ", focalZ)
+    local ringTelemetry = buildStreamingRingTelemetry(playerPos, streamingResolvedRings)
+    Workspace:SetAttribute("ArnisStreamingRingNearResidentChunkCount", ringTelemetry.near.residentChunkCount)
+    Workspace:SetAttribute("ArnisStreamingRingMidResidentChunkCount", ringTelemetry.mid.residentChunkCount)
+    Workspace:SetAttribute("ArnisStreamingRingFarResidentChunkCount", ringTelemetry.far.residentChunkCount)
+    Workspace:SetAttribute("ArnisStreamingRingNearResidentEstimatedCost", ringTelemetry.near.residentEstimatedCost)
+    Workspace:SetAttribute("ArnisStreamingRingMidResidentEstimatedCost", ringTelemetry.mid.residentEstimatedCost)
+    Workspace:SetAttribute("ArnisStreamingRingFarResidentEstimatedCost", ringTelemetry.far.residentEstimatedCost)
+    Workspace:SetAttribute("ArnisStreamingQueuedEstimatedCost", normalizeNonNegativeNumber(queuedEstimatedCost))
+    Workspace:SetAttribute("ArnisStreamingQueuedWorkItemCount", normalizeNonNegativeNumber(queuedWorkItemCount))
+    Workspace:SetAttribute("ArnisStreamingLastPrefetchReason", lastPrefetchReason or "")
+    Workspace:SetAttribute("ArnisStreamingLastEvictionReason", lastEvictionReason or "")
 end
 
 local function observeHostProbeSample()
@@ -476,7 +623,7 @@ local function refreshMemoryGuardrailTelemetry(config, deferredAdmissions, proje
     setMemoryGuardrailTelemetry(snapshot, normalizeNonNegativeNumber(deferredAdmissions), residentCost, inFlightCost)
 end
 
-local function getChunkCenter(chunkRef, chunkSizeStuds)
+getChunkCenter = function(chunkRef, chunkSizeStuds)
     local originData = chunkRef.originStuds or { x = 0, y = 0, z = 0 }
     local halfSize = chunkSizeStuds * 0.5
     return originData.x + halfSize, originData.z + halfSize
@@ -819,9 +966,11 @@ function StreamingService.Start(manifest, options)
 
     streamingManifest = manifest
     streamingChunkRefs = manifest and (manifest.chunkRefs or manifest.chunks) or nil
+    streamingChunkRefsById = buildChunkRefById(streamingChunkRefs)
     streamingOptions = table.clone(options or {})
     streamingOptions.worldRootName = worldRootName
     local config = streamingOptions.config or DefaultWorldConfig
+    streamingResolvedRings = resolveStreamingRings(config)
     reconcileLoadedChunksForStart(streamingChunkRefs, streamingOptions.worldRootName)
     streamingSubplanRollout = SubplanRollout.Describe(config)
     streamingPreferredForward = if typeof(streamingOptions.preferredLookVector) == "Vector3"
@@ -891,10 +1040,14 @@ function StreamingService.Stop()
     streamingPreferredForward = nil
     streamingSubplanRollout = nil
     streamingMemoryGuardrail = nil
+    streamingChunkRefsById = nil
+    streamingResolvedRings = nil
     table.clear(observedChunkImportMsById)
     table.clear(streamingResidentEstimatedCostById)
     loadedChunkLods = {}
     streamingUpdateInProgress = false
+    streamingLastPrefetchReason = ""
+    streamingLastEvictionReason = ""
     lastUpdate = 0
     lastLODUpdate = 0
     clearMemoryGuardrailTelemetry()
@@ -926,8 +1079,9 @@ function StreamingService.Update(focalPoint)
         local config = streamingOptions.config or DefaultWorldConfig
         pruneStaleResidentEstimatedCosts(streamingOptions.worldRootName)
         observeHostProbeSample()
-        local targetRadius = config.StreamingTargetRadius or 2048
-        local highRadius = config.HighDetailRadius or 1024
+        local resolvedRings = streamingResolvedRings or resolveStreamingRings(config)
+        local targetRadius = resolvedRings.far.MaxRadiusStuds
+        local highRadius = resolvedRings.near.MaxRadiusStuds
         local chunkSizeStuds = config.ChunkSizeStuds or DefaultWorldConfig.ChunkSizeStuds or 256
 
         local targetRadiusSq = targetRadius * targetRadius
@@ -947,6 +1101,15 @@ function StreamingService.Update(focalPoint)
         local forwardVector = movementForward or streamingPreferredForward
 
         local desiredChunkIds = {}
+        local desiredRingStats = {
+            near = { chunkCount = 0, estimatedCost = 0 },
+            mid = { chunkCount = 0, estimatedCost = 0 },
+            far = { chunkCount = 0, estimatedCost = 0 },
+        }
+        local queuedEstimatedCost = 0
+        local queuedWorkItemCount = 0
+        local lastPrefetchReason = ""
+        local lastEvictionReason = ""
         local candidateChunkEntries = getCandidateChunkRefs(streamingChunkIndex, playerPos, targetExitRadius)
         local importWorkItems = {}
         ChunkPriority.SortChunkEntriesByPriority(
@@ -966,8 +1129,39 @@ function StreamingService.Update(focalPoint)
             local currentLod = loadedChunkLods[chunkRef.id]
             local targetLod =
                 chooseTargetLod(distSq, currentLod, highRadiusSq, highExitRadiusSq, targetRadiusSq, targetExitRadiusSq)
+            local ringName = getChunkRingName(distSq, resolvedRings)
 
             if targetLod then
+                local ring = if ringName then resolvedRings[ringName] else nil
+                local estimatedChunkCost = getEstimatedChunkOrSubplanCost(chunkRef, nil)
+                local ringStats = if ringName then desiredRingStats[ringName] else nil
+                local exceedsRingBudget = ring ~= nil
+                    and ring.EstimatedBudgetBytes > 0
+                    and ringStats.estimatedCost + estimatedChunkCost > ring.EstimatedBudgetBytes
+                local exceedsRingChunkLimit = ring ~= nil
+                    and ring.MaxChunkCount > 0
+                    and ringStats.chunkCount >= ring.MaxChunkCount
+                if ring == nil or exceedsRingBudget or exceedsRingChunkLimit then
+                    if currentLod ~= nil or ChunkLoader.GetChunkEntry(chunkRef.id, streamingOptions.worldRootName) ~= nil then
+                        ChunkLoader.UnloadChunk(chunkRef.id, nil, streamingOptions.worldRootName)
+                        ImportService.ResetSubplanState(chunkRef.id, streamingOptions.worldRootName)
+                        clearResidentEstimatedCostForChunk(chunkRef.id)
+                        loadedChunkLods[chunkRef.id] = nil
+                        lastEvictionReason = if ring == nil
+                            then "outside_target_radius"
+                            elseif exceedsRingBudget
+                            then ringName .. "_budget_exceeded"
+                            else ringName .. "_chunk_limit_exceeded"
+                    end
+                    if ring ~= nil then
+                        queuedEstimatedCost += estimatedChunkCost
+                        queuedWorkItemCount += 1
+                    end
+                    continue
+                end
+
+                ringStats.chunkCount += 1
+                ringStats.estimatedCost += estimatedChunkCost
                 local chunkOptions = streamingChunkOptionsByLod[targetLod]
                 local currentEntry = ChunkLoader.GetChunkEntry(chunkRef.id, streamingOptions.worldRootName)
                 if currentEntry then
@@ -976,12 +1170,16 @@ function StreamingService.Update(focalPoint)
                     if not changedLayers and currentEntry.configSignature == chunkOptions.configSignature then
                         loadedChunkLods[chunkRef.id] = targetLod
                         desiredChunkIds[chunkRef.id] = true
-                        queuePendingSubplans(importWorkItems, chunkEntry, chunkOptions, targetLod)
+                        if queuePendingSubplans(importWorkItems, chunkEntry, chunkOptions, targetLod) then
+                            lastPrefetchReason = "subplan_backfill"
+                        end
                         continue
                     end
                     if not changedLayers then
                         if not queuePendingSubplans(importWorkItems, chunkEntry, chunkOptions, targetLod) then
                             loadedChunkLods[chunkRef.id] = targetLod
+                        else
+                            lastPrefetchReason = "subplan_backfill"
                         end
                         desiredChunkIds[chunkRef.id] = true
                         continue
@@ -1000,6 +1198,7 @@ function StreamingService.Update(focalPoint)
 
                 appendStreamingWorkItems(importWorkItems, chunkEntry, chunkOptions, chunkOptions.config, targetLod)
                 desiredChunkIds[chunkRef.id] = true
+                lastPrefetchReason = if movementForward ~= nil then "movement_heading" else "ring_backfill"
             else
                 local currentEntry = ChunkLoader.GetChunkEntry(chunkRef.id, streamingOptions.worldRootName)
                 if currentLod == nil and currentEntry == nil then
@@ -1010,6 +1209,7 @@ function StreamingService.Update(focalPoint)
                 ImportService.ResetSubplanState(chunkRef.id, streamingOptions.worldRootName)
                 clearResidentEstimatedCostForChunk(chunkRef.id)
                 loadedChunkLods[chunkRef.id] = nil
+                lastEvictionReason = "outside_target_radius"
             end
         end
 
@@ -1039,7 +1239,16 @@ function StreamingService.Update(focalPoint)
         local memoryGuardrailConfig = if streamingMemoryGuardrail
             then streamingMemoryGuardrail:GetConfig()
             else MemoryGuardrail.ResolveConfig(nil)
-        updateStreamingResidencyTelemetry(playerPos, candidateChunkEntries, desiredChunkCount, processedWorkItems)
+        updateStreamingResidencyTelemetry(
+            playerPos,
+            candidateChunkEntries,
+            desiredChunkCount,
+            processedWorkItems,
+            queuedEstimatedCost,
+            queuedWorkItemCount,
+            lastPrefetchReason,
+            lastEvictionReason
+        )
         refreshMemoryGuardrailTelemetry(memoryGuardrailConfig, deferredAdmissions)
         for workItemIndex, workItem in ipairs(importWorkItems) do
             if processedWorkItems >= maxWorkItemsPerUpdate then
@@ -1060,6 +1269,11 @@ function StreamingService.Update(focalPoint)
                 if #importWorkItems >= workItemIndex then
                     deferredAdmissions = math.min(deferredAdmissions, #importWorkItems - workItemIndex + 1)
                 end
+                for queuedWorkItemIndex = workItemIndex, #importWorkItems do
+                    queuedEstimatedCost += getEstimatedWorkItemCost(importWorkItems[queuedWorkItemIndex])
+                end
+                queuedWorkItemCount += #importWorkItems - workItemIndex + 1
+                lastPrefetchReason = "memory_guardrail_paused"
                 deferredProjectedUsage = projectedUsage
                 refreshMemoryGuardrailTelemetry(memoryGuardrailConfig, deferredAdmissions, projectedUsage)
                 break
@@ -1129,11 +1343,21 @@ function StreamingService.Update(focalPoint)
                 ImportService.ResetSubplanState(chunkId, streamingOptions.worldRootName)
                 clearResidentEstimatedCostForChunk(chunkId)
                 loadedChunkLods[chunkId] = nil
+                lastEvictionReason = "not_desired_for_ring_budget"
             end
         end
 
         refreshMemoryGuardrailTelemetry(memoryGuardrailConfig, deferredAdmissions, deferredProjectedUsage)
-        updateStreamingResidencyTelemetry(playerPos, candidateChunkEntries, desiredChunkCount, processedWorkItems)
+        updateStreamingResidencyTelemetry(
+            playerPos,
+            candidateChunkEntries,
+            desiredChunkCount,
+            processedWorkItems,
+            queuedEstimatedCost,
+            queuedWorkItemCount,
+            lastPrefetchReason,
+            lastEvictionReason
+        )
 
         for _, chunkId in ipairs(ChunkLoader.ListLoadedChunks(streamingOptions.worldRootName)) do
             local chunkEntry = ChunkLoader.GetChunkEntry(chunkId, streamingOptions.worldRootName)

@@ -208,6 +208,17 @@ class PlayRenderTruthTests(unittest.TestCase):
         self.assertIn("dominantMaterialSampleCount", terrain_probe_source)
         self.assertIn("nonGrassSampleCount", terrain_probe_source)
 
+    def test_streaming_engine_uses_explicit_ring_budgets_not_only_distance_radii(self) -> None:
+        streaming_source = STREAMING_SERVICE.read_text(encoding="utf-8")
+
+        self.assertIn("resolveStreamingRings(config)", streaming_source)
+        self.assertIn("ArnisStreamingRingNearResidentEstimatedCost", streaming_source)
+        self.assertIn("ArnisStreamingRingMidResidentEstimatedCost", streaming_source)
+        self.assertIn("ArnisStreamingRingFarResidentEstimatedCost", streaming_source)
+        self.assertIn("ArnisStreamingQueuedEstimatedCost", streaming_source)
+        self.assertIn("ArnisStreamingLastPrefetchReason", streaming_source)
+        self.assertIn("ArnisStreamingLastEvictionReason", streaming_source)
+
 
 if __name__ == "__main__":
     unittest.main()
