@@ -872,7 +872,7 @@ should_start_mcp_sidecar() {
   if [[ -z "$MCP_BINARY" || ! -x "$MCP_BINARY" ]]; then
     return 1
   fi
-  if is_isolated_non_preview_edit_proof || should_run_filtered_play_tests_without_edit_phase; then
+  if is_isolated_non_preview_edit_proof || should_run_filtered_play_tests_without_edit_phase || should_skip_edit_mode_actions_for_play; then
     return 1
   fi
   return 0
@@ -4414,6 +4414,8 @@ ensure_mcp_plugin_installed || {
 cleanup_orphan_mcp_helpers
 if should_start_mcp_sidecar; then
   start_mcp_sidecar || true
+elif should_skip_edit_mode_actions_for_play; then
+  log "skipping Studio MCP sidecar for play-focused harness run"
 else
   log "skipping Studio MCP sidecar for isolated edit-only non-preview proof"
 fi

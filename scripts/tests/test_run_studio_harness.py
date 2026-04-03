@@ -536,6 +536,7 @@ class RunStudioHarnessTests(unittest.TestCase):
 
     def test_harness_runs_persistent_mcp_sidecar_for_plugin_relay(self) -> None:
         self.assertIn("is_isolated_non_preview_edit_proof()", self.text)
+        self.assertIn("should_skip_edit_mode_actions_for_play()", self.text)
         self.assertIn("mcp_sidecar_port_open()", self.text)
         self.assertIn("mcp_sidecar_listener_owned_by_binary()", self.text)
         self.assertIn("terminate_stale_mcp_sidecar_listener()", self.text)
@@ -557,6 +558,7 @@ class RunStudioHarnessTests(unittest.TestCase):
         self.assertIn('log "started Studio MCP sidecar on localhost:44755"', self.text)
         self.assertIn('log "Studio MCP sidecar failed to expose localhost:44755; continuing without persistent relay"', self.text)
         self.assertIn('log "skipping Studio MCP sidecar for isolated edit-only non-preview proof"', self.text)
+        self.assertIn('log "skipping Studio MCP sidecar for play-focused harness run"', self.text)
         self.assertIn('MCP_SIDECAR_FD="9"', self.text)
         self.assertIn('eval "exec ${MCP_SIDECAR_FD}<>\\\"$MCP_SIDECAR_FIFO\\\""', self.text)
         self.assertIn('"$MCP_BINARY" --stdio <"$MCP_SIDECAR_FIFO" >"$MCP_SIDECAR_LOG" 2>&1', self.text)
