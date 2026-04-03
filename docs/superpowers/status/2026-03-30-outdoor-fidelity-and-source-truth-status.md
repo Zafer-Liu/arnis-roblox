@@ -103,6 +103,33 @@ The compact historical archive index is:
 
 ## Status Notes
 
+### 2026-04-02: Runtime Streaming Contract Now Publishes Scheduler State And Ring Budgets
+
+- Strengthened the shared runtime streaming contract in `StreamingService.lua` so the scheduler publishes its own plan, not just its outcome.
+- Added runtime telemetry for:
+  - `ArnisStreamingSchedulerState`
+  - per-ring configured budgets:
+    - `ArnisStreamingRingNearBudgetBytes`
+    - `ArnisStreamingRingMidBudgetBytes`
+    - `ArnisStreamingRingFarBudgetBytes`
+  - per-ring configured chunk caps:
+    - `ArnisStreamingRingNearMaxChunkCount`
+    - `ArnisStreamingRingMidMaxChunkCount`
+    - `ArnisStreamingRingFarMaxChunkCount`
+  - per-ring desired residency plan:
+    - `ArnisStreamingRingNearDesiredChunkCount`
+    - `ArnisStreamingRingMidDesiredChunkCount`
+    - `ArnisStreamingRingFarDesiredChunkCount`
+    - `ArnisStreamingRingNearDesiredEstimatedCost`
+    - `ArnisStreamingRingMidDesiredEstimatedCost`
+    - `ArnisStreamingRingFarDesiredEstimatedCost`
+- The scheduler now reports `planning`, `guardrail_paused`, or `steady_state` explicitly instead of leaving operators to infer state from chunk counters alone.
+- Updated the runtime contract test surface and the focused Luau streaming-priority proof so the movement-lookahead sample also proves that the authoritative ring budget/guardrail contract is exposed to runtime telemetry.
+- Local-safe verification passed:
+  - `python3 -m unittest scripts.tests.test_austin_runtime_contract -v`
+  - `git diff --check`
+- This is product-side progress toward planetary streaming because runtime residency policy is now directly inspectable in the live world contract without adding a second streaming path.
+
 ### 2026-04-02: SSD-Backed Austin Proof Finished And Austin Wrapper Now Supports Bounded Derivative Emission
 
 - Completed the SSD-backed non-satellite Austin proof run on `tertiary` from `/Volumes/APDataStore/arnis-roblox-proof` after updating the proof clone to `origin/main`.

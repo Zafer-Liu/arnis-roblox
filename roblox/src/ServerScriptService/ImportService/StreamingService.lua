@@ -172,6 +172,7 @@ local function clearMemoryGuardrailTelemetry()
 end
 
 local function resetStreamingResidencyTelemetry()
+    Workspace:SetAttribute("ArnisStreamingSchedulerState", "idle")
     Workspace:SetAttribute("ArnisStreamingLoadedChunkCount", 0)
     Workspace:SetAttribute("ArnisStreamingDesiredChunkCount", 0)
     Workspace:SetAttribute("ArnisStreamingCandidateChunkCount", 0)
@@ -185,9 +186,21 @@ local function resetStreamingResidencyTelemetry()
     Workspace:SetAttribute("ArnisStreamingRingNearResidentChunkCount", 0)
     Workspace:SetAttribute("ArnisStreamingRingMidResidentChunkCount", 0)
     Workspace:SetAttribute("ArnisStreamingRingFarResidentChunkCount", 0)
+    Workspace:SetAttribute("ArnisStreamingRingNearDesiredChunkCount", 0)
+    Workspace:SetAttribute("ArnisStreamingRingMidDesiredChunkCount", 0)
+    Workspace:SetAttribute("ArnisStreamingRingFarDesiredChunkCount", 0)
     Workspace:SetAttribute("ArnisStreamingRingNearResidentEstimatedCost", 0)
     Workspace:SetAttribute("ArnisStreamingRingMidResidentEstimatedCost", 0)
     Workspace:SetAttribute("ArnisStreamingRingFarResidentEstimatedCost", 0)
+    Workspace:SetAttribute("ArnisStreamingRingNearDesiredEstimatedCost", 0)
+    Workspace:SetAttribute("ArnisStreamingRingMidDesiredEstimatedCost", 0)
+    Workspace:SetAttribute("ArnisStreamingRingFarDesiredEstimatedCost", 0)
+    Workspace:SetAttribute("ArnisStreamingRingNearBudgetBytes", 0)
+    Workspace:SetAttribute("ArnisStreamingRingMidBudgetBytes", 0)
+    Workspace:SetAttribute("ArnisStreamingRingFarBudgetBytes", 0)
+    Workspace:SetAttribute("ArnisStreamingRingNearMaxChunkCount", 0)
+    Workspace:SetAttribute("ArnisStreamingRingMidMaxChunkCount", 0)
+    Workspace:SetAttribute("ArnisStreamingRingFarMaxChunkCount", 0)
     Workspace:SetAttribute("ArnisStreamingQueuedEstimatedCost", 0)
     Workspace:SetAttribute("ArnisStreamingQueuedWorkItemCount", 0)
     Workspace:SetAttribute("ArnisStreamingLastPrefetchReason", "")
@@ -249,13 +262,16 @@ local function updateStreamingResidencyTelemetry(
     predictedFocalPoint,
     movementDeltaStuds,
     movementLookaheadStuds,
+    resolvedRings,
+    desiredRingStats,
     candidateChunkEntries,
     desiredChunkCount,
     processedWorkItems,
     queuedEstimatedCost,
     queuedWorkItemCount,
     lastPrefetchReason,
-    lastEvictionReason
+    lastEvictionReason,
+    schedulerState
 )
     local focalX = 0
     local focalZ = 0
@@ -270,10 +286,13 @@ local function updateStreamingResidencyTelemetry(
         predictedFocalZ = predictedFocalPoint.Z
     end
 
+    local ringBudgets = resolvedRings or {}
+    local ringDesiredStats = desiredRingStats or {}
     Workspace:SetAttribute(
         "ArnisStreamingLoadedChunkCount",
         #ChunkLoader.ListLoadedChunks(streamingOptions.worldRootName)
     )
+    Workspace:SetAttribute("ArnisStreamingSchedulerState", schedulerState or "active")
     Workspace:SetAttribute("ArnisStreamingCandidateChunkCount", #candidateChunkEntries)
     Workspace:SetAttribute("ArnisStreamingDesiredChunkCount", desiredChunkCount)
     Workspace:SetAttribute("ArnisStreamingProcessedWorkItems", processedWorkItems)
@@ -287,9 +306,57 @@ local function updateStreamingResidencyTelemetry(
     Workspace:SetAttribute("ArnisStreamingRingNearResidentChunkCount", ringTelemetry.near.residentChunkCount)
     Workspace:SetAttribute("ArnisStreamingRingMidResidentChunkCount", ringTelemetry.mid.residentChunkCount)
     Workspace:SetAttribute("ArnisStreamingRingFarResidentChunkCount", ringTelemetry.far.residentChunkCount)
+    Workspace:SetAttribute(
+        "ArnisStreamingRingNearDesiredChunkCount",
+        normalizeNonNegativeNumber(ringDesiredStats.near and ringDesiredStats.near.chunkCount or 0)
+    )
+    Workspace:SetAttribute(
+        "ArnisStreamingRingMidDesiredChunkCount",
+        normalizeNonNegativeNumber(ringDesiredStats.mid and ringDesiredStats.mid.chunkCount or 0)
+    )
+    Workspace:SetAttribute(
+        "ArnisStreamingRingFarDesiredChunkCount",
+        normalizeNonNegativeNumber(ringDesiredStats.far and ringDesiredStats.far.chunkCount or 0)
+    )
     Workspace:SetAttribute("ArnisStreamingRingNearResidentEstimatedCost", ringTelemetry.near.residentEstimatedCost)
     Workspace:SetAttribute("ArnisStreamingRingMidResidentEstimatedCost", ringTelemetry.mid.residentEstimatedCost)
     Workspace:SetAttribute("ArnisStreamingRingFarResidentEstimatedCost", ringTelemetry.far.residentEstimatedCost)
+    Workspace:SetAttribute(
+        "ArnisStreamingRingNearDesiredEstimatedCost",
+        normalizeNonNegativeNumber(ringDesiredStats.near and ringDesiredStats.near.estimatedCost or 0)
+    )
+    Workspace:SetAttribute(
+        "ArnisStreamingRingMidDesiredEstimatedCost",
+        normalizeNonNegativeNumber(ringDesiredStats.mid and ringDesiredStats.mid.estimatedCost or 0)
+    )
+    Workspace:SetAttribute(
+        "ArnisStreamingRingFarDesiredEstimatedCost",
+        normalizeNonNegativeNumber(ringDesiredStats.far and ringDesiredStats.far.estimatedCost or 0)
+    )
+    Workspace:SetAttribute(
+        "ArnisStreamingRingNearBudgetBytes",
+        normalizeNonNegativeNumber(ringBudgets.near and ringBudgets.near.EstimatedBudgetBytes or 0)
+    )
+    Workspace:SetAttribute(
+        "ArnisStreamingRingMidBudgetBytes",
+        normalizeNonNegativeNumber(ringBudgets.mid and ringBudgets.mid.EstimatedBudgetBytes or 0)
+    )
+    Workspace:SetAttribute(
+        "ArnisStreamingRingFarBudgetBytes",
+        normalizeNonNegativeNumber(ringBudgets.far and ringBudgets.far.EstimatedBudgetBytes or 0)
+    )
+    Workspace:SetAttribute(
+        "ArnisStreamingRingNearMaxChunkCount",
+        normalizeNonNegativeNumber(ringBudgets.near and ringBudgets.near.MaxChunkCount or 0)
+    )
+    Workspace:SetAttribute(
+        "ArnisStreamingRingMidMaxChunkCount",
+        normalizeNonNegativeNumber(ringBudgets.mid and ringBudgets.mid.MaxChunkCount or 0)
+    )
+    Workspace:SetAttribute(
+        "ArnisStreamingRingFarMaxChunkCount",
+        normalizeNonNegativeNumber(ringBudgets.far and ringBudgets.far.MaxChunkCount or 0)
+    )
     Workspace:SetAttribute("ArnisStreamingQueuedEstimatedCost", normalizeNonNegativeNumber(queuedEstimatedCost))
     Workspace:SetAttribute("ArnisStreamingQueuedWorkItemCount", normalizeNonNegativeNumber(queuedWorkItemCount))
     Workspace:SetAttribute("ArnisStreamingLastPrefetchReason", lastPrefetchReason or "")
@@ -1313,13 +1380,16 @@ function StreamingService.Update(focalPoint)
             schedulerFocusPoint,
             movementDeltaStuds,
             movementLookaheadStuds,
+            resolvedRings,
+            desiredRingStats,
             candidateChunkEntries,
             desiredChunkCount,
             processedWorkItems,
             queuedEstimatedCost,
             queuedWorkItemCount,
             lastPrefetchReason,
-            lastEvictionReason
+            lastEvictionReason,
+            "planning"
         )
         refreshMemoryGuardrailTelemetry(memoryGuardrailConfig, deferredAdmissions)
         for workItemIndex, workItem in ipairs(importWorkItems) do
@@ -1348,6 +1418,22 @@ function StreamingService.Update(focalPoint)
                 lastPrefetchReason = "memory_guardrail_paused"
                 deferredProjectedUsage = projectedUsage
                 refreshMemoryGuardrailTelemetry(memoryGuardrailConfig, deferredAdmissions, projectedUsage)
+                updateStreamingResidencyTelemetry(
+                    playerPos,
+                    schedulerFocusPoint,
+                    movementDeltaStuds,
+                    movementLookaheadStuds,
+                    resolvedRings,
+                    desiredRingStats,
+                    candidateChunkEntries,
+                    desiredChunkCount,
+                    processedWorkItems,
+                    queuedEstimatedCost,
+                    queuedWorkItemCount,
+                    lastPrefetchReason,
+                    lastEvictionReason,
+                    "guardrail_paused"
+                )
                 break
             end
 
@@ -1425,13 +1511,16 @@ function StreamingService.Update(focalPoint)
             schedulerFocusPoint,
             movementDeltaStuds,
             movementLookaheadStuds,
+            resolvedRings,
+            desiredRingStats,
             candidateChunkEntries,
             desiredChunkCount,
             processedWorkItems,
             queuedEstimatedCost,
             queuedWorkItemCount,
             lastPrefetchReason,
-            lastEvictionReason
+            lastEvictionReason,
+            if deferredAdmissions > 0 then "guardrail_paused" else "steady_state"
         )
 
         for _, chunkId in ipairs(ChunkLoader.ListLoadedChunks(streamingOptions.worldRootName)) do

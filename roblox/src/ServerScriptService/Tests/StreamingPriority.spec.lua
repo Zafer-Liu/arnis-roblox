@@ -217,6 +217,23 @@ return function()
                 StreamingMaxWorkItemsPerUpdate = 1,
                 StreamingLookaheadSeconds = 1,
                 StreamingMaxLookaheadStuds = 200,
+                StreamingRings = {
+                    near = {
+                        MaxRadiusStuds = 200,
+                        EstimatedBudgetBytes = 32,
+                        MaxChunkCount = 2,
+                    },
+                    mid = {
+                        MaxRadiusStuds = 300,
+                        EstimatedBudgetBytes = 32,
+                        MaxChunkCount = 2,
+                    },
+                    far = {
+                        MaxRadiusStuds = 400,
+                        EstimatedBudgetBytes = 32,
+                        MaxChunkCount = 2,
+                    },
+                },
                 TerrainMode = "none",
                 RoadMode = "mesh",
                 BuildingMode = "shellMesh",
@@ -242,6 +259,29 @@ return function()
         Assert.truthy(
             (Workspace:GetAttribute("ArnisStreamingPredictedFocalX") or 0) > 50,
             "expected predicted focal telemetry to move ahead of the current focal point during positive movement"
+        )
+        Assert.equal(
+            Workspace:GetAttribute("ArnisStreamingSchedulerState"),
+            "steady_state",
+            "expected streaming telemetry to expose the steady-state scheduler phase after the update completes"
+        )
+        Assert.equal(
+            Workspace:GetAttribute("ArnisStreamingRingNearBudgetBytes"),
+            32,
+            "expected runtime telemetry to expose the authoritative near-ring memory budget"
+        )
+        Assert.equal(
+            Workspace:GetAttribute("ArnisStreamingRingNearMaxChunkCount"),
+            2,
+            "expected runtime telemetry to expose the near-ring chunk-count guardrail"
+        )
+        Assert.truthy(
+            (Workspace:GetAttribute("ArnisStreamingRingNearDesiredChunkCount") or 0) >= 1,
+            "expected runtime telemetry to expose desired chunk counts for the active ring plan"
+        )
+        Assert.truthy(
+            (Workspace:GetAttribute("ArnisStreamingRingNearDesiredEstimatedCost") or 0) >= 16,
+            "expected runtime telemetry to expose desired estimated residency cost for the active ring plan"
         )
 
         importOrder = {}
