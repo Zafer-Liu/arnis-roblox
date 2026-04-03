@@ -1276,3 +1276,32 @@ The compact historical archive index is:
 - Interpretation:
   - the relay/proxy blocker is no longer the reason the isolated proof is failing
   - the next targeted fix should focus on how isolated edit proofs are triggered and observed in Studio, not on reviving the old localhost relay
+
+### 2026-04-02: Clean Tertiary Proof Turned StreamingPriority Green Again
+
+- I finished the isolated `StreamingPriority.spec.lua` burndown from a clean remote proof clone instead of chasing stale remote dirt.
+- The actual fixes that mattered were:
+  - `StreamingService.lua`
+    - ring byte budgets are now planner targets, not a hard admission gate ahead of the authoritative memory guardrail
+    - streaming telemetry no longer assumes `streamingOptions.worldRootName` is always present when publishing loaded chunk counts
+  - `RunAll.lua`
+    - duplicate concurrent suite entry now skips cleanly when `ArnisRunAllSuiteActive` is already true
+  - `RunAll.spec.lua`
+    - regression coverage now proves duplicate `RunAll.run()` calls skip instead of re-entering the suite
+  - `run_studio_harness.sh`, `studio_ui_control.py`, and their Python tests
+    - the isolated `tertiary` play proof lane is now deterministic enough to expose real product failures instead of launcher noise
+- The clean remote proof run on `tertiary` is now green:
+  - one real `Running tests: StreamingPriority.spec`
+  - one explicit `Skipping duplicate RunAll invocation while suite is already active`
+  - `PASS StreamingPriority.spec`
+  - `TestEZ tests complete. total=1 passed=1 failed=0`
+  - harness flow completed cleanly from the isolated play-only proof lane
+- Verification for this slice:
+  - local-safe green: `python3 -m unittest scripts.tests.test_run_studio_harness scripts.tests.test_studio_ui_control scripts.tests.test_runall_filter -v`
+  - local-safe green: `bash -n scripts/run_studio_harness.sh`
+  - local-safe green: `git diff --check`
+  - remote `tertiary` green: isolated `StreamingPriority.spec.lua` proof from a hard-reset clean clone on pushed `main`
+- Interpretation:
+  - the focused proof lane is trustworthy again for streaming scheduler work
+  - the memory guardrail remains the authoritative admission stop line
+  - ring byte budgets now behave like scheduler targets instead of silently starving in-ring work ahead of the real guardrail
