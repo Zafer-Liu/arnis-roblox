@@ -33,6 +33,14 @@ class StreamingDualFocusPriorityContractTests(unittest.TestCase):
             self.streaming_text,
         )
 
+    def test_streaming_priority_uses_live_avatar_motion_when_no_previous_focal_point_exists(self) -> None:
+        self.assertIn("local LIVE_PLAYER_ROOT_MOTION_THRESHOLD = 4", self.streaming_text)
+        self.assertIn("resolveLivePlayerRootMotion = function()", self.streaming_text)
+        self.assertIn("rootPart.AssemblyLinearVelocity", self.streaming_text)
+        self.assertIn("movementDeltaStuds < 1", self.streaming_text)
+        self.assertIn("movementLookaheadStuds = math.min(maxLookaheadStuds, liveMotionSpeed * lookaheadSeconds)", self.streaming_text)
+        self.assertIn("movementForward = liveMotionForward", self.streaming_text)
+
 
 if __name__ == "__main__":
     unittest.main()

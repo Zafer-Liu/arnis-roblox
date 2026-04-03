@@ -512,6 +512,18 @@ class AustinRuntimeContractTests(unittest.TestCase):
         self.assertIn("localExperiencePayload.localRoofCover = payload.localRoofCover", self.world_probe_text)
         self.assertIn("bootstrapAttemptId = bootstrapPayload.bootstrapAttemptId,", self.world_probe_text)
 
+    def test_client_world_probe_resamples_moving_players_more_aggressively(self) -> None:
+        self.assertIn("local IDLE_SAMPLE_INTERVAL = 1.5", self.world_probe_text)
+        self.assertIn("local MOVING_SAMPLE_INTERVAL = 0.5", self.world_probe_text)
+        self.assertIn("local MOVING_RESAMPLE_DISTANCE = 8", self.world_probe_text)
+        self.assertIn("local MOVING_SPEED_THRESHOLD = 4", self.world_probe_text)
+        self.assertIn("local lastSampleWasMoving = false", self.world_probe_text)
+        self.assertIn("local function resolveMovementAwareSampleCadence(rootPart)", self.world_probe_text)
+        self.assertIn("rootPart.AssemblyLinearVelocity.Magnitude", self.world_probe_text)
+        self.assertIn("if isMoving and not lastSampleWasMoving then", self.world_probe_text)
+        self.assertIn("local sampleInterval, resampleDistance, isMoving =", self.world_probe_text)
+        self.assertIn("if displacement < resampleDistance then", self.world_probe_text)
+
     def test_world_probe_telemetry_flags_contract_is_explicit_and_stable(self) -> None:
         self.assertIn('WorldProbeTelemetryFlags.WORKSPACE_ATTR = "ArnisTelemetryFamilies"', self.world_probe_flags_text)
         self.assertIn("function WorldProbeTelemetryFlags.parseTelemetryFamilies(value)", self.world_probe_flags_text)

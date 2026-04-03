@@ -1,4 +1,5 @@
 return function()
+    local Players = game:GetService("Players")
     local Workspace = game:GetService("Workspace")
 
     local Assert = require(script.Parent.Assert)
@@ -456,6 +457,116 @@ return function()
         importOrder = {}
         ChunkLoader.Clear()
         StreamingService.Stop()
+
+        local liveMotionPlayer = Players:GetPlayers()[1]
+        Assert.truthy(liveMotionPlayer, "expected a player in play mode")
+        local liveMotionCharacter = liveMotionPlayer.Character or liveMotionPlayer.CharacterAdded:Wait()
+        local liveMotionRootPart = liveMotionCharacter:WaitForChild("HumanoidRootPart")
+        local originalLiveMotionCFrame = liveMotionRootPart.CFrame
+        local originalLiveMotionVelocity = liveMotionRootPart.AssemblyLinearVelocity
+
+        local function restoreLiveMotionState()
+            liveMotionRootPart.AssemblyLinearVelocity = originalLiveMotionVelocity
+            liveMotionRootPart.CFrame = originalLiveMotionCFrame
+        end
+
+        local liveMotionOk, liveMotionErr = xpcall(function()
+            local liveMotionManifest = {
+                schemaVersion = "0.4.0",
+                meta = manifest.meta,
+                chunkRefs = {
+                    {
+                        id = "a_behind",
+                        originStuds = { x = -150, y = 0, z = 0 },
+                        shards = { "fake" },
+                        featureCount = 1,
+                        streamingCost = 1,
+                        estimatedMemoryCost = 16,
+                    },
+                    {
+                        id = "z_ahead",
+                        originStuds = { x = 150, y = 0, z = 0 },
+                        shards = { "fake" },
+                        featureCount = 1,
+                        streamingCost = 1,
+                        estimatedMemoryCost = 16,
+                    },
+                },
+                GetChunk = function(_, chunkId)
+                    if chunkId == "a_behind" then
+                        return makeChunk(chunkId, -150)
+                    end
+                    return makeChunk(chunkId, 150)
+                end,
+            }
+            local liveMotionOptions = {
+                worldRootName = "StreamingPriorityLiveMotionFallbackWorld",
+                config = {
+                    StreamingEnabled = true,
+                    StreamingTargetRadius = 400,
+                    HighDetailRadius = 400,
+                    ChunkSizeStuds = 100,
+                    StreamingMaxWorkItemsPerUpdate = 2,
+                    StreamingLookaheadSeconds = 1,
+                    StreamingMaxLookaheadStuds = 200,
+                    StreamingRings = {
+                        near = {
+                            MaxRadiusStuds = 200,
+                            EstimatedBudgetBytes = 32,
+                            MaxChunkCount = 2,
+                        },
+                        mid = {
+                            MaxRadiusStuds = 300,
+                            EstimatedBudgetBytes = 32,
+                            MaxChunkCount = 2,
+                        },
+                        far = {
+                            MaxRadiusStuds = 400,
+                            EstimatedBudgetBytes = 32,
+                            MaxChunkCount = 2,
+                        },
+                    },
+                    TerrainMode = "none",
+                    RoadMode = "mesh",
+                    BuildingMode = "shellMesh",
+                    WaterMode = "mesh",
+                    LanduseMode = "fill",
+                },
+            }
+
+            liveMotionRootPart.CFrame = CFrame.new(0, originalLiveMotionCFrame.Position.Y, 0)
+            liveMotionRootPart.AssemblyLinearVelocity = Vector3.new(48, 0, 0)
+
+            StreamingService.Start(liveMotionManifest, liveMotionOptions)
+            Assert.equal(
+                importOrder[1],
+                "z_ahead",
+                "expected live motion to prioritize the forward chunk on the first update before the backward chunk"
+            )
+            Assert.equal(
+                importOrder[2],
+                "a_behind",
+                "expected live motion fallback to preserve equal-distance tie-breaking after forward bias is applied"
+            )
+            Assert.equal(
+                Workspace:GetAttribute("ArnisStreamingLastPrefetchReason"),
+                "movement_lookahead",
+                "expected live motion fallback to publish movement-lookahead prefetch telemetry on startup"
+            )
+            Assert.truthy(
+                (Workspace:GetAttribute("ArnisStreamingMovementLookaheadStuds") or 0) > 0,
+                "expected live motion fallback to emit a positive lookahead distance"
+            )
+            StreamingService.Stop()
+        end, debug.traceback)
+        restoreLiveMotionState()
+        local liveMotionWorldRoot = Workspace:FindFirstChild("StreamingPriorityLiveMotionFallbackWorld")
+        if liveMotionWorldRoot then
+            liveMotionWorldRoot:Destroy()
+        end
+        if not liveMotionOk then
+            error(liveMotionErr, 0)
+        end
 
         local ringPressureManifest = {
             schemaVersion = "0.4.0",
@@ -2894,6 +3005,10 @@ return function()
     local disabledResidentWorldRoot = Workspace:FindFirstChild("StreamingPriorityResidentDisabledWorld")
     if disabledResidentWorldRoot then
         disabledResidentWorldRoot:Destroy()
+    end
+    local liveMotionFallbackWorldRoot = Workspace:FindFirstChild("StreamingPriorityLiveMotionFallbackWorld")
+    if liveMotionFallbackWorldRoot then
+        liveMotionFallbackWorldRoot:Destroy()
     end
     local generatedWorldRoot = Workspace:FindFirstChild("GeneratedWorld")
     if generatedWorldRoot then

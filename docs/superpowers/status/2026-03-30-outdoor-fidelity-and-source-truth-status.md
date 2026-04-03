@@ -2189,3 +2189,21 @@ The compact historical archive index is:
   - `python3 -m unittest scripts.tests.test_streaming_movement_lod_refresh_contract scripts.tests.test_austin_runtime_contract -v`
   - `stylua --check roblox/src/ServerScriptService/ImportService/StreamingService.lua`
   - `git diff --check`
+
+## 2026-04-03 18:01 CDT
+
+- Landed another local-safe play-fidelity tranche on `main`:
+  - `StreamingService.lua`
+    - the scheduler now falls back to live avatar/root motion when there is not enough prior focal history yet, so the very first meaningful player movement can still get a forward-biased lookahead instead of waiting for a second movement sample
+    - the existing movement-triggered LOD refresh path now pairs with that earlier motion fallback, reducing startup-to-first-motion visible lag for already-loaded chunks
+  - `WorldProbe.client.lua`
+    - player-local world-probe sampling now switches to a faster cadence and tighter resample distance while the avatar is actually moving, so live telemetry stays closer to what the player sees in motion instead of lagging behind the traversal state
+- Added focused local-safe coverage in:
+  - updated `test_streaming_dual_focus_priority_contract.py`
+  - updated `test_austin_runtime_contract.py`
+  - updated `test_play_render_truth.py`
+  - reused the runtime `StreamingPriority.spec.lua` lane as the play-focused motion/startup tie-break proof
+- Verification:
+  - `python3 -m unittest scripts.tests.test_streaming_movement_lod_refresh_contract scripts.tests.test_streaming_dual_focus_priority_contract scripts.tests.test_austin_runtime_contract scripts.tests.test_play_render_truth -v`
+  - `stylua --check roblox/src/ServerScriptService/ImportService/StreamingService.lua roblox/src/StarterPlayer/StarterPlayerScripts/WorldProbe.client.lua roblox/src/ServerScriptService/Tests/StreamingPriority.spec.lua`
+  - `git diff --check`

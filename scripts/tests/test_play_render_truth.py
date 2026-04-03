@@ -473,6 +473,29 @@ class PlayRenderTruthTests(unittest.TestCase):
         self.assertIn("edgeIndices = LOCAL_TERRAIN_EDGE_INDICES", world_probe_source)
         self.assertIn("LOCAL_TERRAIN_EDGE_INDICES = {", world_probe_source)
 
+    def test_world_probe_refreshes_faster_while_the_avatar_is_moving(self) -> None:
+        world_probe_source = WORLD_PROBE.read_text(encoding="utf-8")
+
+        self.assertIn("local IDLE_SAMPLE_INTERVAL = 1.5", world_probe_source)
+        self.assertIn("local MOVING_SAMPLE_INTERVAL = 0.5", world_probe_source)
+        self.assertIn("local MOVING_RESAMPLE_DISTANCE = 8", world_probe_source)
+        self.assertIn("local MOVING_SPEED_THRESHOLD = 4", world_probe_source)
+        self.assertIn("local function resolveMovementAwareSampleCadence(rootPart)", world_probe_source)
+        self.assertIn("local sampleInterval, resampleDistance, isMoving =", world_probe_source)
+        self.assertIn("if isMoving and not lastSampleWasMoving then", world_probe_source)
+        self.assertIn("lastSampleWasMoving = isMoving", world_probe_source)
+        self.assertIn("rootPart.AssemblyLinearVelocity.Magnitude", world_probe_source)
+
+    def test_streaming_service_uses_live_avatar_motion_before_the_first_focal_delta(self) -> None:
+        streaming_source = STREAMING_SERVICE.read_text(encoding="utf-8")
+
+        self.assertIn("local LIVE_PLAYER_ROOT_MOTION_THRESHOLD = 4", streaming_source)
+        self.assertIn("resolveLivePlayerRootMotion = function()", streaming_source)
+        self.assertIn("rootPart.AssemblyLinearVelocity", streaming_source)
+        self.assertIn("movementDeltaStuds < 1", streaming_source)
+        self.assertIn("movementLookaheadStuds = math.min(maxLookaheadStuds, liveMotionSpeed * lookaheadSeconds)", streaming_source)
+        self.assertIn("predictedFocalPoint = playerPos + liveMotionForward.Unit * movementLookaheadStuds", streaming_source)
+
     def test_streaming_engine_uses_explicit_ring_budgets_not_only_distance_radii(self) -> None:
         streaming_source = STREAMING_SERVICE.read_text(encoding="utf-8")
 

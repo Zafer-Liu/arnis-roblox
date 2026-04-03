@@ -409,6 +409,8 @@ local function observeHostProbeSample()
     })
 end
 
+local resolveLivePlayerRootMotion
+
 local function resolveStreamingLookahead(config)
     local chunkSizeStuds = normalizePositiveNumber(config.ChunkSizeStuds) or DefaultWorldConfig.ChunkSizeStuds or 256
     local lookaheadSeconds = normalizePositiveNumber(config.StreamingLookaheadSeconds) or 0
@@ -423,6 +425,15 @@ local function resolveSchedulerFocusPoint(playerPos, config)
     local predictedFocalPoint = playerPos
 
     if typeof(streamingLastFocalPoint) ~= "Vector3" then
+        local liveMotionForward, liveMotionSpeed = resolveLivePlayerRootMotion()
+        local lookaheadSeconds, maxLookaheadStuds = resolveStreamingLookahead(config)
+        if typeof(liveMotionForward) == "Vector3" and lookaheadSeconds > 0 and maxLookaheadStuds > 0 then
+            movementForward = liveMotionForward
+            movementLookaheadStuds = math.min(maxLookaheadStuds, liveMotionSpeed * lookaheadSeconds)
+            if movementLookaheadStuds > 0 then
+                predictedFocalPoint = playerPos + liveMotionForward.Unit * movementLookaheadStuds
+            end
+        end
         return movementForward, predictedFocalPoint, movementDeltaStuds, movementLookaheadStuds
     end
 
@@ -430,6 +441,15 @@ local function resolveSchedulerFocusPoint(playerPos, config)
         Vector3.new(playerPos.X - streamingLastFocalPoint.X, 0, playerPos.Z - streamingLastFocalPoint.Z)
     movementDeltaStuds = horizontalDelta.Magnitude
     if movementDeltaStuds < 1 then
+        local liveMotionForward, liveMotionSpeed = resolveLivePlayerRootMotion()
+        local lookaheadSeconds, maxLookaheadStuds = resolveStreamingLookahead(config)
+        if typeof(liveMotionForward) == "Vector3" and lookaheadSeconds > 0 and maxLookaheadStuds > 0 then
+            movementForward = liveMotionForward
+            movementLookaheadStuds = math.min(maxLookaheadStuds, liveMotionSpeed * lookaheadSeconds)
+            if movementLookaheadStuds > 0 then
+                predictedFocalPoint = playerPos + liveMotionForward.Unit * movementLookaheadStuds
+            end
+        end
         return movementForward, predictedFocalPoint, movementDeltaStuds, movementLookaheadStuds
     end
 
@@ -1877,6 +1897,27 @@ local function resolveLivePlayerRootFocusPosition()
     end
 
     return nil
+end
+
+local LIVE_PLAYER_ROOT_MOTION_THRESHOLD = 4
+
+resolveLivePlayerRootMotion = function()
+    for _, player in ipairs(Players:GetPlayers()) do
+        local character = player.Character
+        if character then
+            local rootPart = character:FindFirstChild("HumanoidRootPart") or character.PrimaryPart
+            if rootPart and rootPart:IsA("BasePart") then
+                local velocity = rootPart.AssemblyLinearVelocity
+                local horizontalVelocity = Vector3.new(velocity.X, 0, velocity.Z)
+                local speed = horizontalVelocity.Magnitude
+                if speed >= LIVE_PLAYER_ROOT_MOTION_THRESHOLD then
+                    return horizontalVelocity.Unit, speed
+                end
+            end
+        end
+    end
+
+    return nil, 0
 end
 
 local function resolveCurrentCameraFocusPosition()

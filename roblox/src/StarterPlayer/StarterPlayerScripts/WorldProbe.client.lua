@@ -11,12 +11,15 @@ local WorldProbeTerrain = require(ReplicatedStorage.Shared.WorldProbeTerrain)
 local player = Players.LocalPlayer
 
 local WORLD_ROOT_ATTR = "ArnisWorldRootName"
-local SAMPLE_INTERVAL = 1.5
+local IDLE_SAMPLE_INTERVAL = 1.5
+local MOVING_SAMPLE_INTERVAL = 0.5
 local NEARBY_BUILDING_RADIUS = 260
 local OVERHEAD_ROOF_RADIUS = 220
 local OVERHEAD_MIN_DELTA_Y = 12
 local NEARBY_WALL_RADIUS = 180
-local RESAMPLE_DISTANCE = 24
+local IDLE_RESAMPLE_DISTANCE = 24
+local MOVING_RESAMPLE_DISTANCE = 8
+local MOVING_SPEED_THRESHOLD = 4
 local MAX_BUILDING_IDS = 6
 local MAX_OVERHEAD_IDS = 6
 local GROUND_SAMPLE_HEIGHT = 24
@@ -45,6 +48,7 @@ local lastLocalExperiencePayloadJson = nil
 local lastSampleAt = 0
 local lastSamplePosition = nil
 local lastSampleWorldRootName = nil
+local lastSampleWasMoving = false
 local telemetryFamilies = Workspace:GetAttribute(WorldProbeTelemetryFlags.WORKSPACE_ATTR)
 local telemetryFlags = WorldProbeTelemetryFlags.parseTelemetryFamilies(telemetryFamilies)
 
@@ -84,6 +88,17 @@ local function getWorldRoot()
     end
     local worldRoot = Workspace:FindFirstChild(worldRootName)
     return worldRoot, worldRootName
+end
+
+local function resolveMovementAwareSampleCadence(rootPart)
+    if rootPart and rootPart:IsA("BasePart") then
+        local speed = rootPart.AssemblyLinearVelocity.Magnitude
+        if speed >= MOVING_SPEED_THRESHOLD then
+            return MOVING_SAMPLE_INTERVAL, MOVING_RESAMPLE_DISTANCE, true
+        end
+    end
+
+    return IDLE_SAMPLE_INTERVAL, IDLE_RESAMPLE_DISTANCE, false
 end
 
 local function appendLimited(list, value, limit)
@@ -646,12 +661,16 @@ local function maybeSampleWorldTelemetry()
     local rootPart = getCharacterRootPart()
     local _, worldRootName = getWorldRoot()
     local now = os.clock()
-    if now - lastSampleAt < SAMPLE_INTERVAL then
+    local sampleInterval, resampleDistance, isMoving = resolveMovementAwareSampleCadence(rootPart)
+    if isMoving and not lastSampleWasMoving then
+        lastSampleAt = 0
+    end
+    if now - lastSampleAt < sampleInterval then
         return
     end
     if rootPart and lastSamplePosition and lastSampleWorldRootName == worldRootName then
         local displacement = (rootPart.Position - lastSamplePosition).Magnitude
-        if displacement < RESAMPLE_DISTANCE then
+        if displacement < resampleDistance then
             return
         end
     end
@@ -660,6 +679,7 @@ local function maybeSampleWorldTelemetry()
         lastSamplePosition = rootPart.Position
     end
     lastSampleWorldRootName = worldRootName
+    lastSampleWasMoving = isMoving
     publishWorldTelemetry()
 end
 
@@ -671,6 +691,7 @@ end)
 player.CharacterAdded:Connect(function()
     lastPayloadJson = nil
     lastSamplePosition = nil
+    lastSampleWasMoving = false
     task.defer(publishWorldTelemetry)
 end)
 
@@ -678,6 +699,7 @@ Workspace:GetAttributeChangedSignal(WORLD_ROOT_ATTR):Connect(function()
     lastPayloadJson = nil
     lastSamplePosition = nil
     lastSampleWorldRootName = nil
+    lastSampleWasMoving = false
     publishWorldTelemetry()
 end)
 
