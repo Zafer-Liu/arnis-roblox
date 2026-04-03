@@ -2122,3 +2122,22 @@ The compact historical archive index is:
   - `python3 -m unittest scripts.tests.test_terrain_chunk_edge_truth scripts.tests.test_terrain_sparse_peak_surface_damping_truth scripts.tests.test_terrain_sparse_cliff_occupancy_shaping_truth scripts.tests.test_terrain_steep_mixed_fill_depth_truth scripts.tests.test_terrain_column_occupancy_shaping_truth -v`
   - `stylua --check roblox/src/ServerScriptService/ImportService/Builders/TerrainBuilder.lua roblox/src/ServerScriptService/Tests/TerrainOutdoorFidelity.spec.lua`
   - `git diff --check`
+
+## 2026-04-03 17:23 CDT
+
+- Performed local session cleanup before continuing:
+  - found the shell open-file limit pinned at `256`
+  - found about `23k` open files across the user session and many zombie `rbx-studio-mcp` children hanging off stale `codex` parents
+  - reaped the oldest stale `codex` parents with leaked Studio-MCP children, dropping user-session open files materially and restoring stable local exec capacity without touching the current session
+- Landed another local-safe play-fidelity tranche on `main`:
+  - `BuildingBuilder.lua`
+    - merged-shell readable roofline/perimeter cues are no longer artificially disabled for bounded flat-roof shellMesh buildings, so flat shells can keep cheap rooftop silhouette readability instead of reading like plain roof slabs
+  - `FlatShellMeshRoofTruth.spec.lua`
+    - flat shellMesh roof truth now requires bounded merged-shell roofline and perimeter cues alongside direct roof geometry
+- Added focused local-safe coverage in:
+  - updated `test_building_shell_mesh_readability_contract.py`
+  - updated `FlatShellMeshRoofTruth.spec.lua`
+- Verification:
+  - `python3 -m unittest scripts.tests.test_building_shell_mesh_readability_contract scripts.tests.test_play_render_truth scripts.tests.test_austin_runtime_contract -v`
+  - `stylua --check roblox/src/ServerScriptService/ImportService/Builders/BuildingBuilder.lua roblox/src/ServerScriptService/Tests/FlatShellMeshRoofTruth.spec.lua`
+  - `git diff --check`

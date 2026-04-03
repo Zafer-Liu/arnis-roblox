@@ -67,14 +67,14 @@ return function()
     local worldRoot = Workspace:FindFirstChild(worldRootName)
     Assert.truthy(worldRoot, "expected flat shell mesh roof truth world root")
 
-    local building = worldRoot
-        :FindFirstChild("0_0")
-        :FindFirstChild("Buildings")
-        :FindFirstChild("flat_shell_mesh_office")
+    local building =
+        worldRoot:FindFirstChild("0_0"):FindFirstChild("Buildings"):FindFirstChild("flat_shell_mesh_office")
     Assert.truthy(building, "expected flat shell mesh building")
 
     local shellFolder = building:FindFirstChild("Shell")
+    local detailFolder = building:FindFirstChild("Detail")
     Assert.truthy(shellFolder, "expected shell folder")
+    Assert.truthy(detailFolder, "expected detail folder")
 
     local roofParts = {}
     for _, descendant in ipairs(shellFolder:GetDescendants()) do
@@ -87,6 +87,14 @@ return function()
     Assert.falsy(
         building:GetAttribute("ArnisImportHasMergedRoofGeometry") == true,
         "expected direct flat roof geometry to replace merged-roof-only evidence"
+    )
+    Assert.truthy(
+        detailFolder:GetAttribute("ArnisMergedShellRooflineCueCount") >= 4,
+        "expected flat shellMesh roofs to emit bounded roofline readability cues"
+    )
+    Assert.truthy(
+        detailFolder:GetAttribute("ArnisMergedShellPerimeterCueCount") >= 4,
+        "expected flat shellMesh roofs to emit bounded perimeter readability cues"
     )
 
     worldRoot:Destroy()

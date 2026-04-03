@@ -1825,7 +1825,7 @@ local function shouldEmitMergedShellReadableCues(building, footprintPointCount, 
     end
 
     local roofShape = string.lower(tostring(building.roof or "flat"))
-    if roofShape == "flat" or not PLAY_VISIBLE_SHELL_ROOF_SHAPES[roofShape] then
+    if not PLAY_VISIBLE_SHELL_ROOF_SHAPES[roofShape] then
         return false
     end
 

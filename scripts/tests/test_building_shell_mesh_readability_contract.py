@@ -23,6 +23,8 @@ class BuildingShellMeshReadabilityContractTests(unittest.TestCase):
         self.assertIn("buildMergedShellRooflineCues", self.text)
         self.assertIn("buildMergedShellPerimeterCues", self.text)
         self.assertIn("ArnisMergedShellRooflineCueCount", self.text)
+        self.assertNotIn('if roofShape == "flat" or not PLAY_VISIBLE_SHELL_ROOF_SHAPES[roofShape] then', self.text)
+        self.assertIn("if not PLAY_VISIBLE_SHELL_ROOF_SHAPES[roofShape] then", self.text)
 
     def test_merged_shells_add_bounded_street_facade_cues(self) -> None:
         self.assertIn("local function getMergedShellStreetFacadeY", self.text)
