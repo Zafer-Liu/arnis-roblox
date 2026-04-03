@@ -89,20 +89,39 @@ return function()
 
     local cornerAccents = 0
     local beltlines = 0
+    local rooflineCues = 0
+    local perimeterCues = 0
     for _, child in ipairs(detailFolder:GetDescendants()) do
         if child:IsA("Part") and child.Name == "CornerAccent" then
             cornerAccents += 1
         elseif child:IsA("Part") and child.Name == "FacadeBeltline" then
             beltlines += 1
+        elseif child:IsA("Part") and child.Name == "MergedShellRooflineCue" then
+            rooflineCues += 1
+        elseif child:IsA("Part") and child.Name == "MergedShellPerimeterCue" then
+            perimeterCues += 1
         end
     end
 
     Assert.equal(cornerAccents, 4, "expected one corner accent per footprint corner")
     Assert.equal(beltlines, 4, "expected one facade beltline per footprint edge")
+    Assert.equal(rooflineCues, 4, "expected one roofline cue per footprint edge")
+    Assert.equal(perimeterCues, 4, "expected one perimeter cue per footprint corner")
+
+    Assert.equal(
+        detailFolder:GetAttribute("ArnisMergedShellRooflineCueCount"),
+        4,
+        "expected roofline cue attribute to reflect emitted roofline geometry"
+    )
+    Assert.equal(
+        detailFolder:GetAttribute("ArnisMergedShellPerimeterCueCount"),
+        4,
+        "expected perimeter cue attribute to reflect emitted corner geometry"
+    )
 
     local sceneSummary = SceneAudit.summarizeWorld(worldRoot)
     Assert.truthy(
-        sceneSummary.buildingVisibleDetailPartCount >= 8,
+        sceneSummary.buildingVisibleDetailPartCount >= 16,
         "expected merged shell cues to add visible detail parts"
     )
 

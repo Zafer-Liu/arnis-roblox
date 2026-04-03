@@ -375,6 +375,9 @@ local function sampleVoxelColumnProfile(plan, ix, globalIz)
     local surfaceFillDepth = if heightRange > 0
         then math.max(1, TERRAIN_THICKNESS * math.clamp(normalizedPeakCoverage + peakCoverageBias * 0.25, 0, 1))
         else TERRAIN_THICKNESS
+    local edgeOccupancyScale = if heightRange > 0
+        then math.clamp(1 - heightRangeFactor * (1 - peakCoverageBias) * 0.5, 0.35, 1)
+        else 1
     if heightRange > 0 then
         local ridgeCoverageBias = peakCoverageBias * peakCoverageBias
         local ridgeFillDepth =
@@ -388,6 +391,7 @@ local function sampleVoxelColumnProfile(plan, ix, globalIz)
         peakSampleCoverage = peakSampleCoverage,
         surfaceHeight = surfaceHeight,
         surfaceFillDepth = surfaceFillDepth,
+        edgeOccupancyScale = edgeOccupancyScale,
         dominantMaterialName = dominantMaterialName,
         material = materialByName[dominantMaterialName],
         materialSampleCount = dominantMaterialSampleCount,
@@ -662,13 +666,13 @@ function TerrainBuilder.Build(_parent, chunk, preparedPlan)
                     if iy == vy0 then
                         local bottomOccupancy =
                             math.clamp(0.5 + (voxelCenterY - worldBotY) / TERRAIN_WRITE_RESOLUTION, 0, 1)
-                        occupancy = math.min(occupancy, bottomOccupancy)
+                        occupancy = math.min(occupancy, bottomOccupancy * columnProfile.edgeOccupancyScale)
                     end
 
                     if iy == vy1 then
                         local topOccupancy =
                             math.clamp(0.5 + (worldSurfY - voxelCenterY) / TERRAIN_WRITE_RESOLUTION, 0, 1)
-                        occupancy = math.min(occupancy, topOccupancy)
+                        occupancy = math.min(occupancy, topOccupancy * columnProfile.edgeOccupancyScale)
                     end
 
                     if occupancy > 0 then

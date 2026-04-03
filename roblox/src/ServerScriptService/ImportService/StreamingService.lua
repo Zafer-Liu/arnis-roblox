@@ -36,6 +36,7 @@ local LOD_LOW = "Low"
 -- Registry of chunkId -> current LOD level
 local loadedChunkLods = {}
 local lodConfigCache = setmetatable({}, { __mode = "k" })
+local lodGroupFootprintBoundsCache = setmetatable({}, { __mode = "k" })
 local streamingChunkOptionsByLod = nil
 local streamingLastFocalPoint = nil
 local streamingLastFocalAt = nil
@@ -1497,54 +1498,87 @@ local function setGroupVisible(group, visible)
     group:SetAttribute("ArnisLodVisible", visible)
 end
 
-local function computeLodGroupAnchor(group)
-    local minX, minY, minZ = nil, nil, nil
-    local maxX, maxY, maxZ = nil, nil, nil
+local function getLodGroupFootprintBounds(group, fallbackPosition)
+    if group == nil then
+        return nil
+    end
+
+    local cachedBounds = lodGroupFootprintBoundsCache[group]
+    if cachedBounds ~= nil then
+        return cachedBounds
+    end
+
+    local minX, maxX, minZ, maxZ = nil, nil, nil, nil
 
     for _, descendant in ipairs(group:GetDescendants()) do
         if descendant:IsA("BasePart") then
-            local position = descendant.Position
-            if minX == nil or position.X < minX then
-                minX = position.X
+            local partCFrame = descendant.CFrame
+            local halfSize = descendant.Size * 0.5
+            local rightVector = partCFrame.RightVector
+            local upVector = partCFrame.UpVector
+            local lookVector = partCFrame.LookVector
+            local center = partCFrame.Position
+            local extentX = math.abs(rightVector.X) * halfSize.X
+                + math.abs(upVector.X) * halfSize.Y
+                + math.abs(lookVector.X) * halfSize.Z
+            local extentZ = math.abs(rightVector.Z) * halfSize.X
+                + math.abs(upVector.Z) * halfSize.Y
+                + math.abs(lookVector.Z) * halfSize.Z
+            local partMinX = center.X - extentX
+            local partMaxX = center.X + extentX
+            local partMinZ = center.Z - extentZ
+            local partMaxZ = center.Z + extentZ
+
+            if minX == nil or partMinX < minX then
+                minX = partMinX
             end
-            if minY == nil or position.Y < minY then
-                minY = position.Y
+            if maxX == nil or partMaxX > maxX then
+                maxX = partMaxX
             end
-            if minZ == nil or position.Z < minZ then
-                minZ = position.Z
+            if minZ == nil or partMinZ < minZ then
+                minZ = partMinZ
             end
-            if maxX == nil or position.X > maxX then
-                maxX = position.X
-            end
-            if maxY == nil or position.Y > maxY then
-                maxY = position.Y
-            end
-            if maxZ == nil or position.Z > maxZ then
-                maxZ = position.Z
+            if maxZ == nil or partMaxZ > maxZ then
+                maxZ = partMaxZ
             end
         end
     end
 
     if minX == nil then
+        if typeof(fallbackPosition) == "Vector3" then
+            cachedBounds = {
+                minX = fallbackPosition.X,
+                maxX = fallbackPosition.X,
+                minZ = fallbackPosition.Z,
+                maxZ = fallbackPosition.Z,
+            }
+            lodGroupFootprintBoundsCache[group] = cachedBounds
+            return cachedBounds
+        end
         return nil
     end
 
-    return Vector3.new((minX + maxX) * 0.5, (minY + maxY) * 0.5, (minZ + maxZ) * 0.5)
+    cachedBounds = {
+        minX = minX,
+        maxX = maxX,
+        minZ = minZ,
+        maxZ = maxZ,
+    }
+    lodGroupFootprintBoundsCache[group] = cachedBounds
+    return cachedBounds
 end
 
-local function getLodGroupAnchor(group, fallbackPosition)
-    local cachedAnchor = group:GetAttribute("ArnisLodGroupAnchor")
-    if typeof(cachedAnchor) == "Vector3" then
-        return cachedAnchor
+local function getLodGroupFootprintDistanceSq(group, fallbackPosition, point)
+    local bounds = getLodGroupFootprintBounds(group, fallbackPosition)
+    if type(bounds) ~= "table" or typeof(point) ~= "Vector3" then
+        return math.huge
     end
 
-    local computedAnchor = computeLodGroupAnchor(group)
-    if typeof(computedAnchor) == "Vector3" then
-        group:SetAttribute("ArnisLodGroupAnchor", computedAnchor)
-        return computedAnchor
-    end
-
-    return fallbackPosition
+    local closestX = math.clamp(point.X, bounds.minX, bounds.maxX)
+    local closestZ = math.clamp(point.Z, bounds.minZ, bounds.maxZ)
+    local dx = point.X - closestX
+    local dz = point.Z - closestZ
+    return dx * dx + dz * dz
 end
 
 local function updateChunkEntryLodGroups(
@@ -1578,22 +1612,25 @@ local function updateChunkEntryLodGroups(
         return
     end
 
+    local highDetailRadiusSq = highDetailRadius * highDetailRadius
+    local interiorRadiusSq = interiorRadius * interiorRadius
+
     for _, group in ipairs(chunkEntry.lodGroups.detail or {}) do
         if group:IsDescendantOf(Workspace) then
-            local detailVisible = (getLodGroupAnchor(group, chunkCenter) - camPos).Magnitude <= highDetailRadius
+            local detailVisible = getLodGroupFootprintDistanceSq(group, chunkCenter, camPos) <= highDetailRadiusSq
             if not detailVisible and typeof(secondaryFocusPos) == "Vector3" then
-                detailVisible = (getLodGroupAnchor(group, chunkCenter) - secondaryFocusPos).Magnitude
-                    <= highDetailRadius
+                detailVisible = getLodGroupFootprintDistanceSq(group, chunkCenter, secondaryFocusPos)
+                    <= highDetailRadiusSq
             end
             setGroupVisible(group, detailVisible)
         end
     end
     for _, group in ipairs(chunkEntry.lodGroups.interior or {}) do
         if group:IsDescendantOf(Workspace) then
-            local interiorVisible = (getLodGroupAnchor(group, chunkCenter) - camPos).Magnitude <= interiorRadius
+            local interiorVisible = getLodGroupFootprintDistanceSq(group, chunkCenter, camPos) <= interiorRadiusSq
             if not interiorVisible and typeof(secondaryFocusPos) == "Vector3" then
-                interiorVisible = (getLodGroupAnchor(group, chunkCenter) - secondaryFocusPos).Magnitude
-                    <= interiorRadius
+                interiorVisible = getLodGroupFootprintDistanceSq(group, chunkCenter, secondaryFocusPos)
+                    <= interiorRadiusSq
             end
             setGroupVisible(group, interiorVisible)
         end
@@ -1656,6 +1693,7 @@ function StreamingService.Start(manifest, options)
     streamingChunkIndex = buildChunkSpatialIndex(streamingChunkRefs, config)
     seedLoadedChunkLods(streamingChunkOptionsByLod, streamingOptions.worldRootName)
     streamingMemoryGuardrail = MemoryGuardrail.New(MemoryGuardrail.ResolveConfig(config.MemoryGuardrails))
+    table.clear(lodGroupFootprintBoundsCache)
     table.clear(streamingResidentEstimatedCostById)
     seedResidentEstimatedCosts(streamingChunkRefs, config, streamingOptions.worldRootName)
 
@@ -1716,6 +1754,7 @@ function StreamingService.Stop()
     streamingChunkRefsById = nil
     streamingChunkRefsByOrigin = nil
     streamingResolvedRings = nil
+    table.clear(lodGroupFootprintBoundsCache)
     table.clear(observedChunkImportMsById)
     table.clear(streamingResidentEstimatedCostById)
     loadedChunkLods = {}
@@ -1787,6 +1826,7 @@ function StreamingService.Update(focalPoint)
         ChunkPriority.SortChunkEntriesByPriority(
             candidateChunkEntries,
             schedulerFocusPoint,
+            playerPos,
             chunkSizeStuds,
             forwardVector,
             observedChunkImportMsById
@@ -1914,6 +1954,7 @@ function StreamingService.Update(focalPoint)
         ChunkPriority.SortWorkItems(
             importWorkItems,
             schedulerFocusPoint,
+            playerPos,
             chunkSizeStuds,
             forwardVector,
             observedChunkImportMsById

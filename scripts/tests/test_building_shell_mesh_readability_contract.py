@@ -16,10 +16,13 @@ class BuildingShellMeshReadabilityContractTests(unittest.TestCase):
     def setUpClass(cls) -> None:
         cls.text = BUILDING_BUILDER_PATH.read_text(encoding="utf-8")
 
-    def test_merged_shells_keep_low_cost_cues_for_bounded_shaped_roofs(self) -> None:
+    def test_merged_shells_add_bounded_roofline_and_perimeter_cues(self) -> None:
         self.assertIn("shouldEmitMergedShellReadableCues", self.text)
         self.assertIn("buildMergedShellReadableCues", self.text)
         self.assertIn("mergedShellCueMs", self.text)
+        self.assertIn("buildMergedShellRooflineCues", self.text)
+        self.assertIn("buildMergedShellPerimeterCues", self.text)
+        self.assertIn("ArnisMergedShellRooflineCueCount", self.text)
 
 
 if __name__ == "__main__":

@@ -192,6 +192,10 @@ return function()
         1,
         "expected steep mixed voxels to shrink their rendered fill depth to a single terrain voxel instead of becoming full-height terrain boxes"
     )
+    Assert.truthy(
+        peakProfile.edgeOccupancyScale < 1,
+        "expected steep mixed voxels to taper their top and bottom occupancy instead of writing a fully dense cap"
+    )
 
     local moderateProfilePlan = {
         origin = { x = 0, y = 0, z = 0 },
@@ -246,5 +250,9 @@ return function()
     Assert.truthy(
         moderateProfile.surfaceFillDepth < 8,
         "expected moderate mixed voxels to reduce fill depth instead of keeping a full terrain slab"
+    )
+    Assert.truthy(
+        peakProfile.edgeOccupancyScale < moderateProfile.edgeOccupancyScale,
+        "expected steeper mixed voxels to taper more aggressively than milder mixed voxels"
     )
 end

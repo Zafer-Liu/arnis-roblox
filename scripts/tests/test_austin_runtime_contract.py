@@ -208,13 +208,14 @@ class AustinRuntimeContractTests(unittest.TestCase):
         self.assertIn("local coherentEnvelopeReady = isStartupEnvelopeReady({", self.streaming_text)
         self.assertIn("and coherentEnvelopeReady", self.streaming_text)
 
-    def test_streaming_lod_visibility_uses_group_anchor_not_only_chunk_center(self) -> None:
-        self.assertIn("local function computeLodGroupAnchor(group)", self.streaming_text)
-        self.assertIn('group:GetAttribute("ArnisLodGroupAnchor")', self.streaming_text)
-        self.assertIn('group:SetAttribute("ArnisLodGroupAnchor", computedAnchor)', self.streaming_text)
-        self.assertIn("getLodGroupAnchor(group, chunkCenter)", self.streaming_text)
-        self.assertIn("local detailVisible = (getLodGroupAnchor(group, chunkCenter) - camPos).Magnitude <= highDetailRadius", self.streaming_text)
-        self.assertIn("local interiorVisible = (getLodGroupAnchor(group, chunkCenter) - camPos).Magnitude <= interiorRadius", self.streaming_text)
+    def test_streaming_lod_visibility_uses_group_footprint_not_only_chunk_center(self) -> None:
+        self.assertIn("local lodGroupFootprintBoundsCache = setmetatable({}, { __mode = \"k\" })", self.streaming_text)
+        self.assertIn("local function getLodGroupFootprintBounds(group, fallbackPosition)", self.streaming_text)
+        self.assertIn("local function getLodGroupFootprintDistanceSq(group, fallbackPosition, point)", self.streaming_text)
+        self.assertIn("local highDetailRadiusSq = highDetailRadius * highDetailRadius", self.streaming_text)
+        self.assertIn("local interiorRadiusSq = interiorRadius * interiorRadius", self.streaming_text)
+        self.assertIn("local detailVisible = getLodGroupFootprintDistanceSq(group, chunkCenter, camPos) <= highDetailRadiusSq", self.streaming_text)
+        self.assertIn("local interiorVisible = getLodGroupFootprintDistanceSq(group, chunkCenter, camPos) <= interiorRadiusSq", self.streaming_text)
 
     def test_streaming_service_requires_registered_chunks_for_startup_structure_telemetry(self) -> None:
         self.assertIn("for _, chunkId in ipairs(ChunkLoader.ListLoadedChunks(resolvedWorldRootName)) do", self.streaming_text)

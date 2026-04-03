@@ -1862,3 +1862,24 @@ The compact historical archive index is:
   - `python3 -m unittest scripts.tests.test_terrain_chunk_edge_truth scripts.tests.test_terrain_steep_mixed_fill_depth_truth scripts.tests.test_building_shell_mesh_readability_contract scripts.tests.test_streaming_lod_avatar_offset_contract scripts.tests.test_bootstrap_streaming_stability_truth scripts.tests.test_play_render_truth scripts.tests.test_austin_runtime_contract -v`
   - `stylua --check roblox/src/ServerScriptService/BootstrapAustin.server.lua roblox/src/ServerScriptService/ImportService/StreamingService.lua roblox/src/ServerScriptService/ImportService/Builders/BuildingBuilder.lua roblox/src/ServerScriptService/ImportService/Builders/TerrainBuilder.lua roblox/src/ServerScriptService/Tests/BuildingShellMeshReadableCues.spec.lua roblox/src/ServerScriptService/Tests/LODCameraAvatarOffset.spec.lua roblox/src/ServerScriptService/Tests/ShellMeshCourtyardTruth.spec.lua roblox/src/ServerScriptService/Tests/TerrainOutdoorFidelity.spec.lua`
   - `git diff --check`
+
+## 2026-04-03 15:01 CDT
+
+- Landed another product-facing play-convergence tranche on `main`:
+  - `ChunkPriority.lua` / `StreamingService.lua`
+    - movement-lookahead scheduling now keeps a secondary actual-player distance in chunk/work-item priority, so forward prediction no longer starves nearer real-player chunks quite as easily
+    - LOD visibility now uses cached group footprint bounds instead of center-anchor distance, so large edge-spanning detail/interior groups stay visible when the player is near their actual footprint
+  - `BuildingBuilder.lua`
+    - merged shellMesh readability cues now include bounded roofline and perimeter silhouette parts in addition to facade beltlines/corner accents, improving roof and wall legibility without switching those buildings to explicit wall loops
+  - `TerrainBuilder.lua`
+    - steep mixed-height terrain columns now taper top/bottom occupancy with an edge occupancy scale, reducing slabby vertical cliff planes on top of the earlier shallow ridge fill cap
+- Added focused local-safe coverage in:
+  - `LODGroupFootprintVisibility.spec.lua`
+  - `test_streaming_dual_focus_priority_contract.py`
+  - `test_streaming_lod_footprint_contract.py`
+  - `test_terrain_column_occupancy_shaping_truth.py`
+  - updated `BuildingShellMeshReadableCues.spec.lua`, `StreamingPriority.spec.lua`, `TerrainOutdoorFidelity.spec.lua`, `test_building_shell_mesh_readability_contract.py`, and `test_austin_runtime_contract.py`
+- Verification:
+  - `python3 -m unittest scripts.tests.test_streaming_dual_focus_priority_contract scripts.tests.test_streaming_lod_footprint_contract scripts.tests.test_terrain_column_occupancy_shaping_truth scripts.tests.test_terrain_steep_mixed_fill_depth_truth scripts.tests.test_building_shell_mesh_readability_contract scripts.tests.test_play_render_truth scripts.tests.test_austin_runtime_contract -v`
+  - `stylua --check roblox/src/ServerScriptService/ImportService/ChunkPriority.lua roblox/src/ServerScriptService/ImportService/StreamingService.lua roblox/src/ServerScriptService/ImportService/Builders/BuildingBuilder.lua roblox/src/ServerScriptService/ImportService/Builders/TerrainBuilder.lua roblox/src/ServerScriptService/Tests/BuildingShellMeshReadableCues.spec.lua roblox/src/ServerScriptService/Tests/LODGroupFootprintVisibility.spec.lua roblox/src/ServerScriptService/Tests/StreamingPriority.spec.lua roblox/src/ServerScriptService/Tests/TerrainOutdoorFidelity.spec.lua`
+  - `git diff --check`

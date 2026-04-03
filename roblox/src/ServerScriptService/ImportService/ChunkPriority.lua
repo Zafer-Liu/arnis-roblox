@@ -165,6 +165,7 @@ end
 local function makeMetrics(
     chunkLike,
     focusPoint,
+    secondaryFocusPoint,
     chunkSizeStuds,
     distanceCenterX,
     distanceCenterZ,
@@ -189,6 +190,13 @@ local function makeMetrics(
     local distanceDx = resolvedDistanceCenterX - focusPoint.X
     local distanceDz = resolvedDistanceCenterZ - focusPoint.Z
     local distSq = distanceDx * distanceDx + distanceDz * distanceDz
+    local secondaryDistSq = nil
+    if typeof(secondaryFocusPoint) == "Vector3" then
+        local secondaryDistanceDx = resolvedDistanceCenterX - secondaryFocusPoint.X
+        local secondaryDistanceDz = resolvedDistanceCenterZ - secondaryFocusPoint.Z
+        secondaryDistSq = secondaryDistanceDx * secondaryDistanceDx + secondaryDistanceDz * secondaryDistanceDz
+        distSq = math.min(distSq, secondaryDistSq)
+    end
     local distanceBand = math.floor(math.sqrt(distSq) / math.max(chunkSizeStuds, 1))
 
     return {
@@ -308,6 +316,7 @@ end
 function ChunkPriority.BuildChunkPriorityKey(
     chunkLikeOrEntry,
     focusPoint,
+    secondaryFocusPoint,
     chunkSizeStuds,
     forwardVector,
     observedCostById
@@ -315,8 +324,16 @@ function ChunkPriority.BuildChunkPriorityKey(
     local chunkId = getChunkId(chunkLikeOrEntry)
     local anchorX, anchorZ = getChunkPriorityAnchorXZ(chunkLikeOrEntry)
     local centerX, centerZ = getChunkCenterXZ(chunkLikeOrEntry, chunkSizeStuds)
-    local metrics =
-        makeMetrics(getChunkLike(chunkLikeOrEntry), focusPoint, chunkSizeStuds, centerX, centerZ, anchorX, anchorZ)
+    local metrics = makeMetrics(
+        getChunkLike(chunkLikeOrEntry),
+        focusPoint,
+        secondaryFocusPoint,
+        chunkSizeStuds,
+        centerX,
+        centerZ,
+        anchorX,
+        anchorZ
+    )
 
     return {
         chunkId = chunkId,
@@ -332,12 +349,32 @@ function ChunkPriority.BuildChunkPriorityKey(
     }
 end
 
-function ChunkPriority.CompareChunkEntries(left, right, focusPoint, chunkSizeStuds, forwardVector, observedCostById)
+function ChunkPriority.CompareChunkEntries(
+    left,
+    right,
+    focusPoint,
+    secondaryFocusPoint,
+    chunkSizeStuds,
+    forwardVector,
+    observedCostById
+)
     return compareMetrics(
         getChunkId(left),
-        makeMetrics(getChunkLike(left), focusPoint, chunkSizeStuds, getChunkEntryCenterXZ(left, chunkSizeStuds)),
+        makeMetrics(
+            getChunkLike(left),
+            focusPoint,
+            secondaryFocusPoint,
+            chunkSizeStuds,
+            getChunkEntryCenterXZ(left, chunkSizeStuds)
+        ),
         getChunkId(right),
-        makeMetrics(getChunkLike(right), focusPoint, chunkSizeStuds, getChunkEntryCenterXZ(right, chunkSizeStuds)),
+        makeMetrics(
+            getChunkLike(right),
+            focusPoint,
+            secondaryFocusPoint,
+            chunkSizeStuds,
+            getChunkEntryCenterXZ(right, chunkSizeStuds)
+        ),
         forwardVector,
         observedCostById
     )
@@ -347,6 +384,7 @@ function ChunkPriority.SortChunkIdsByPriority(
     chunkIds,
     chunkRefById,
     focusPoint,
+    secondaryFocusPoint,
     chunkSizeStuds,
     forwardVector,
     observedCostById
@@ -357,8 +395,16 @@ function ChunkPriority.SortChunkIdsByPriority(
         if chunkLike then
             local anchorX, anchorZ = getChunkPriorityAnchorXZ(chunkLike)
             local centerX, centerZ = getChunkCenterXZ(chunkLike, chunkSizeStuds)
-            metricsById[chunkId] =
-                makeMetrics(chunkLike, focusPoint, chunkSizeStuds, centerX, centerZ, anchorX, anchorZ)
+            metricsById[chunkId] = makeMetrics(
+                chunkLike,
+                focusPoint,
+                secondaryFocusPoint,
+                chunkSizeStuds,
+                centerX,
+                centerZ,
+                anchorX,
+                anchorZ
+            )
         end
     end
 
@@ -375,6 +421,7 @@ end
 function ChunkPriority.SortChunkEntriesByPriority(
     chunkEntries,
     focusPoint,
+    secondaryFocusPoint,
     chunkSizeStuds,
     forwardVector,
     observedCostById
@@ -384,8 +431,13 @@ function ChunkPriority.SortChunkEntriesByPriority(
         local chunkLike = chunkEntry and chunkEntry.ref
         local chunkId = chunkLike and chunkLike.id
         if type(chunkId) == "string" then
-            metricsById[chunkId] =
-                makeMetrics(chunkLike, focusPoint, chunkSizeStuds, getChunkEntryCenterXZ(chunkEntry, chunkSizeStuds))
+            metricsById[chunkId] = makeMetrics(
+                chunkLike,
+                focusPoint,
+                secondaryFocusPoint,
+                chunkSizeStuds,
+                getChunkEntryCenterXZ(chunkEntry, chunkSizeStuds)
+            )
         end
     end
 
@@ -411,7 +463,7 @@ function ChunkPriority.GetCanonicalLayerRank(layerOrWorkItem)
     return CANONICAL_LAYER_ORDER[layer] or math.huge
 end
 
-local function getSubplanMetrics(workItem, focusPoint, chunkSizeStuds)
+local function getSubplanMetrics(workItem, focusPoint, secondaryFocusPoint, chunkSizeStuds)
     local chunkLike = getChunkLike(workItem)
     local chunkId = getChunkId(workItem)
     local subplan = type(workItem) == "table" and workItem.subplan or nil
@@ -439,6 +491,7 @@ local function getSubplanMetrics(workItem, focusPoint, chunkSizeStuds)
         makeMetrics(
             chunkLike,
             focusPoint,
+            secondaryFocusPoint,
             chunkSizeStuds,
             centerX,
             centerZ,
@@ -457,12 +510,13 @@ end
 function ChunkPriority.BuildPriorityKey(
     workItem,
     focusPoint,
+    secondaryFocusPoint,
     chunkSizeStuds,
     forwardVector,
     observedCostById,
     sourceOrder
 )
-    local chunkId, subplan, metrics = getSubplanMetrics(workItem, focusPoint, chunkSizeStuds)
+    local chunkId, subplan, metrics = getSubplanMetrics(workItem, focusPoint, secondaryFocusPoint, chunkSizeStuds)
 
     return {
         chunkId = chunkId,
@@ -561,14 +615,45 @@ local function compareWorkItemKeys(leftKey, rightKey)
     return leftKey.subplanId < rightKey.subplanId
 end
 
-function ChunkPriority.CompareWorkItems(left, right, focusPoint, chunkSizeStuds, forwardVector, observedCostById)
+function ChunkPriority.CompareWorkItems(
+    left,
+    right,
+    focusPoint,
+    secondaryFocusPoint,
+    chunkSizeStuds,
+    forwardVector,
+    observedCostById
+)
     return compareWorkItemKeys(
-        ChunkPriority.BuildPriorityKey(left, focusPoint, chunkSizeStuds, forwardVector, observedCostById, 0),
-        ChunkPriority.BuildPriorityKey(right, focusPoint, chunkSizeStuds, forwardVector, observedCostById, 0)
+        ChunkPriority.BuildPriorityKey(
+            left,
+            focusPoint,
+            secondaryFocusPoint,
+            chunkSizeStuds,
+            forwardVector,
+            observedCostById,
+            0
+        ),
+        ChunkPriority.BuildPriorityKey(
+            right,
+            focusPoint,
+            secondaryFocusPoint,
+            chunkSizeStuds,
+            forwardVector,
+            observedCostById,
+            0
+        )
     )
 end
 
-function ChunkPriority.SortWorkItems(workItems, focusPoint, chunkSizeStuds, forwardVector, observedCostById)
+function ChunkPriority.SortWorkItems(
+    workItems,
+    focusPoint,
+    secondaryFocusPoint,
+    chunkSizeStuds,
+    forwardVector,
+    observedCostById
+)
     local decorated = table.create(#(workItems or {}))
     for index, workItem in ipairs(workItems or {}) do
         decorated[index] = {
@@ -582,6 +667,7 @@ function ChunkPriority.SortWorkItems(workItems, focusPoint, chunkSizeStuds, forw
             ChunkPriority.BuildPriorityKey(
                 left.item,
                 focusPoint,
+                secondaryFocusPoint,
                 chunkSizeStuds,
                 forwardVector,
                 observedCostById,
@@ -590,6 +676,7 @@ function ChunkPriority.SortWorkItems(workItems, focusPoint, chunkSizeStuds, forw
             ChunkPriority.BuildPriorityKey(
                 right.item,
                 focusPoint,
+                secondaryFocusPoint,
                 chunkSizeStuds,
                 forwardVector,
                 observedCostById,

@@ -35,10 +35,10 @@ return function()
         "ArnisStreamingHostProbePressureLevel",
     }
 
-    local function makeChunk(chunkId, originX)
+    local function makeChunk(chunkId, originX, originZ)
         return {
             id = chunkId,
-            originStuds = { x = originX, y = 0, z = 0 },
+            originStuds = { x = originX, y = 0, z = originZ or 0 },
             roads = {},
             rails = {},
             buildings = {},
@@ -282,6 +282,93 @@ return function()
         Assert.truthy(
             (Workspace:GetAttribute("ArnisStreamingRingNearDesiredEstimatedCost") or 0) >= 16,
             "expected runtime telemetry to expose desired estimated residency cost for the active ring plan"
+        )
+
+        importOrder = {}
+        ChunkLoader.Clear()
+        StreamingService.Stop()
+
+        local dualFocusManifest = {
+            schemaVersion = "0.4.0",
+            meta = manifest.meta,
+            chunkRefs = {
+                {
+                    id = "anchor_dual_focus",
+                    originStuds = { x = 0, y = 0, z = 0 },
+                    shards = { "fake" },
+                    featureCount = 1,
+                    streamingCost = 1,
+                    estimatedMemoryCost = 16,
+                },
+                {
+                    id = "near_lateral_actual",
+                    originStuds = { x = 0, y = 0, z = -100 },
+                    shards = { "fake" },
+                    featureCount = 1,
+                    streamingCost = 1,
+                    estimatedMemoryCost = 16,
+                },
+                {
+                    id = "ahead_predicted_only",
+                    originStuds = { x = 300, y = 0, z = 0 },
+                    shards = { "fake" },
+                    featureCount = 1,
+                    streamingCost = 1,
+                    estimatedMemoryCost = 16,
+                },
+            },
+            GetChunk = function(_, chunkId)
+                if chunkId == "near_lateral_actual" then
+                    return makeChunk(chunkId, 0, -100)
+                elseif chunkId == "ahead_predicted_only" then
+                    return makeChunk(chunkId, 300, 0)
+                end
+                return makeChunk(chunkId, 0, 0)
+            end,
+        }
+        local dualFocusOptions = {
+            worldRootName = "StreamingPriorityDualFocusWorld",
+            config = {
+                StreamingEnabled = true,
+                StreamingTargetRadius = 500,
+                HighDetailRadius = 200,
+                ChunkSizeStuds = 100,
+                StreamingMaxWorkItemsPerUpdate = 1,
+                StreamingLookaheadSeconds = 1,
+                StreamingMaxLookaheadStuds = 200,
+                StreamingRings = {
+                    near = {
+                        MaxRadiusStuds = 200,
+                        EstimatedBudgetBytes = 64,
+                        MaxChunkCount = 4,
+                    },
+                    mid = {
+                        MaxRadiusStuds = 350,
+                        EstimatedBudgetBytes = 64,
+                        MaxChunkCount = 4,
+                    },
+                    far = {
+                        MaxRadiusStuds = 500,
+                        EstimatedBudgetBytes = 64,
+                        MaxChunkCount = 4,
+                    },
+                },
+                TerrainMode = "none",
+                RoadMode = "mesh",
+                BuildingMode = "shellMesh",
+                WaterMode = "mesh",
+                LanduseMode = "fill",
+            },
+        }
+
+        StreamingService.Start(dualFocusManifest, dualFocusOptions)
+        StreamingService.Update(Vector3.new(0, 0, 0))
+        Assert.equal(importOrder[1], "anchor_dual_focus", "expected dual-focus anchor chunk to import first")
+        StreamingService.Update(Vector3.new(50, 0, 0))
+        Assert.equal(
+            importOrder[2],
+            "near_lateral_actual",
+            "expected movement lookahead to preserve a nearer actual-player chunk ahead of a predicted-only forward chunk"
         )
 
         importOrder = {}
