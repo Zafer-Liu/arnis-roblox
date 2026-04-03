@@ -47,6 +47,7 @@ class BuildingShellMeshReadabilityContractTests(unittest.TestCase):
         self.assertIn("local function buildPlayVisibleShellReadableCues", self.text)
         self.assertIn("playVisibleFacadeBeltlineCount", self.text)
         self.assertIn("playVisibleRooflineCueCount", self.text)
+        self.assertIn("playVisibleCornerAccentCount", self.text)
 
 
 if __name__ == "__main__":

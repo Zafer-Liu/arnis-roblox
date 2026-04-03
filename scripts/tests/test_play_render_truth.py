@@ -355,6 +355,7 @@ class PlayRenderTruthTests(unittest.TestCase):
             r"if\s+preferPlayVisibleShellWalls\s+then[\s\S]*buildPlayVisibleShellReadableCues\(detailFolder,\s*worldPts,\s*baseY,\s*height\)",
             "expected bounded shellMesh fallback to add cheap roofline and beltline readability cues",
         )
+        self.assertIn('detailFolder:SetAttribute("ArnisCornerAccentCount", playVisibleCornerAccentCount)', source)
         self.assertIn("if boundedHoleLoopCount == 1 then", source)
         self.assertIn("return levels <= 5 and height <= 28 and footprintPointCount <= 12", source)
 

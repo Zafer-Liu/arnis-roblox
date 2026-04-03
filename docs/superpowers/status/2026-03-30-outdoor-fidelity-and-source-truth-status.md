@@ -2207,3 +2207,19 @@ The compact historical archive index is:
   - `python3 -m unittest scripts.tests.test_streaming_movement_lod_refresh_contract scripts.tests.test_streaming_dual_focus_priority_contract scripts.tests.test_austin_runtime_contract scripts.tests.test_play_render_truth -v`
   - `stylua --check roblox/src/ServerScriptService/ImportService/StreamingService.lua roblox/src/StarterPlayer/StarterPlayerScripts/WorldProbe.client.lua roblox/src/ServerScriptService/Tests/StreamingPriority.spec.lua`
   - `git diff --check`
+
+## 2026-04-03 18:05 CDT
+
+- Landed another local-safe play-fidelity tranche on `main`:
+  - `BuildingBuilder.lua`
+    - the bounded `preferPlayVisibleShellWalls` shellMesh path now keeps corner accents in addition to facade beltlines and roofline cues, so medium-cost explicit-wall shells read less flat and more like their edit-mode silhouettes without escalating to the full merged-cue path
+  - `PlayVisibleShellReadableCues.spec.lua`
+    - added a dedicated shellMesh truth spec for the explicit-wall readability path so this medium-cost play-visible lane stays pinned separately from simple-shell and merged-shell lanes
+- Added focused local-safe coverage in:
+  - updated `test_building_shell_mesh_readability_contract.py`
+  - updated `test_play_render_truth.py`
+  - new `PlayVisibleShellReadableCues.spec.lua`
+- Verification:
+  - `python3 -m unittest scripts.tests.test_building_shell_mesh_readability_contract scripts.tests.test_play_render_truth -v`
+  - `stylua --check roblox/src/ServerScriptService/ImportService/Builders/BuildingBuilder.lua roblox/src/ServerScriptService/Tests/PlayVisibleShellReadableCues.spec.lua`
+  - `git diff --check`
