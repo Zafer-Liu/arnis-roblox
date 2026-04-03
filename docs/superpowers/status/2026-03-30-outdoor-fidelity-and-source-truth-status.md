@@ -1839,3 +1839,26 @@ The compact historical archive index is:
   - `python3 -m unittest scripts.tests.test_terrain_chunk_edge_truth scripts.tests.test_play_render_truth scripts.tests.test_austin_runtime_contract -v`
   - `stylua --check roblox/src/ServerScriptService/ImportService/Builders/BuildingBuilder.lua roblox/src/ServerScriptService/Tests/ShellMeshCourtyardTruth.spec.lua`
   - `git diff --check`
+
+## 2026-04-03 14:02 CDT
+
+- Landed a broader local-safe play-fidelity tranche on `main`:
+  - `BootstrapAustin.server.lua`
+    - startup now requires a short consecutive-ready window before trusting streaming settlement, so `gameplay_ready` is less vulnerable to one transient good poll
+  - `StreamingService.lua`
+    - LOD visibility now uses camera distance plus the last runtime focal/avatar point, which should reduce near-player detail disappearing when the play camera is offset
+  - `BuildingBuilder.lua`
+    - bounded shaped-roof shellMesh buildings that still use merged walls now keep low-cost readable cues via facade beltlines and corner accents instead of depending on merged shell mass alone
+  - `TerrainBuilder.lua`
+    - steep mixed-height voxel columns now apply a secondary shallow ridge fill cap, which should reduce the false peak-box / vertical-plane terrain artifact
+- Added focused local-safe coverage in:
+  - `BuildingShellMeshReadableCues.spec.lua`
+  - `LODCameraAvatarOffset.spec.lua`
+  - `test_bootstrap_streaming_stability_truth.py`
+  - `test_building_shell_mesh_readability_contract.py`
+  - `test_streaming_lod_avatar_offset_contract.py`
+  - `test_terrain_steep_mixed_fill_depth_truth.py`
+- Verification:
+  - `python3 -m unittest scripts.tests.test_terrain_chunk_edge_truth scripts.tests.test_terrain_steep_mixed_fill_depth_truth scripts.tests.test_building_shell_mesh_readability_contract scripts.tests.test_streaming_lod_avatar_offset_contract scripts.tests.test_bootstrap_streaming_stability_truth scripts.tests.test_play_render_truth scripts.tests.test_austin_runtime_contract -v`
+  - `stylua --check roblox/src/ServerScriptService/BootstrapAustin.server.lua roblox/src/ServerScriptService/ImportService/StreamingService.lua roblox/src/ServerScriptService/ImportService/Builders/BuildingBuilder.lua roblox/src/ServerScriptService/ImportService/Builders/TerrainBuilder.lua roblox/src/ServerScriptService/Tests/BuildingShellMeshReadableCues.spec.lua roblox/src/ServerScriptService/Tests/LODCameraAvatarOffset.spec.lua roblox/src/ServerScriptService/Tests/ShellMeshCourtyardTruth.spec.lua roblox/src/ServerScriptService/Tests/TerrainOutdoorFidelity.spec.lua`
+  - `git diff --check`

@@ -1547,11 +1547,18 @@ local function getLodGroupAnchor(group, fallbackPosition)
     return fallbackPosition
 end
 
-local function updateChunkEntryLodGroups(chunkEntry, camPos, highDetailRadius, interiorRadius)
+local function updateChunkEntryLodGroups(
+    chunkEntry,
+    primaryFocusPos,
+    secondaryFocusPos,
+    highDetailRadius,
+    interiorRadius
+)
     if not chunkEntry or not chunkEntry.lodGroups then
         return
     end
 
+    local camPos = primaryFocusPos
     local folder = chunkEntry.folder
     local chunkCenter = nil
     if folder and folder.Parent then
@@ -1574,18 +1581,26 @@ local function updateChunkEntryLodGroups(chunkEntry, camPos, highDetailRadius, i
     for _, group in ipairs(chunkEntry.lodGroups.detail or {}) do
         if group:IsDescendantOf(Workspace) then
             local detailVisible = (getLodGroupAnchor(group, chunkCenter) - camPos).Magnitude <= highDetailRadius
+            if not detailVisible and typeof(secondaryFocusPos) == "Vector3" then
+                detailVisible = (getLodGroupAnchor(group, chunkCenter) - secondaryFocusPos).Magnitude
+                    <= highDetailRadius
+            end
             setGroupVisible(group, detailVisible)
         end
     end
     for _, group in ipairs(chunkEntry.lodGroups.interior or {}) do
         if group:IsDescendantOf(Workspace) then
             local interiorVisible = (getLodGroupAnchor(group, chunkCenter) - camPos).Magnitude <= interiorRadius
+            if not interiorVisible and typeof(secondaryFocusPos) == "Vector3" then
+                interiorVisible = (getLodGroupAnchor(group, chunkCenter) - secondaryFocusPos).Magnitude
+                    <= interiorRadius
+            end
             setGroupVisible(group, interiorVisible)
         end
     end
 end
 
--- Toggle visibility of LOD-tagged detail and interior parts based on camera distance.
+-- Toggle visibility of LOD-tagged detail and interior parts based on camera or last avatar distance.
 -- Runs at LOD_UPDATE_INTERVAL cadence — cheap: iterates CollectionService lists,
 -- not the full workspace tree.
 local function updateLOD()
@@ -1594,13 +1609,14 @@ local function updateLOD()
         return
     end
     local camPos = camera.CFrame.Position
+    local avatarFocusPos = streamingLastFocalPoint
     local config = streamingOptions and (streamingOptions.config or DefaultWorldConfig) or DefaultWorldConfig
     local highDetailRadius = config.HighDetailRadius or 2048
     local interiorRadius = highDetailRadius * 0.25 -- interiors only very close
 
     for _, chunkId in ipairs(ChunkLoader.ListLoadedChunks(streamingOptions.worldRootName)) do
         local chunkEntry = ChunkLoader.GetChunkEntry(chunkId, streamingOptions.worldRootName)
-        updateChunkEntryLodGroups(chunkEntry, camPos, highDetailRadius, interiorRadius)
+        updateChunkEntryLodGroups(chunkEntry, camPos, avatarFocusPos, highDetailRadius, interiorRadius)
     end
 end
 
@@ -2093,7 +2109,7 @@ function StreamingService.Update(focalPoint)
 
         for _, chunkId in ipairs(ChunkLoader.ListLoadedChunks(streamingOptions.worldRootName)) do
             local chunkEntry = ChunkLoader.GetChunkEntry(chunkId, streamingOptions.worldRootName)
-            updateChunkEntryLodGroups(chunkEntry, playerPos, highRadius, interiorRadius)
+            updateChunkEntryLodGroups(chunkEntry, playerPos, nil, highRadius, interiorRadius)
         end
 
         streamingLastFocalPoint = playerPos

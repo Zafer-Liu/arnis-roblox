@@ -1815,6 +1815,39 @@ local function shouldPreferPlayVisibleShellWalls(building, footprintPointCount, 
     return footprintPointCount <= 10
 end
 
+local function shouldEmitMergedShellReadableCues(building, footprintPointCount, height, holeLoopCount)
+    if shouldPreferSimpleShellDetail(building, footprintPointCount, height) then
+        return false
+    end
+
+    if shouldPreferPlayVisibleShellWalls(building, footprintPointCount, height, holeLoopCount) then
+        return false
+    end
+
+    local roofShape = string.lower(tostring(building.roof or "flat"))
+    if roofShape == "flat" or not PLAY_VISIBLE_SHELL_ROOF_SHAPES[roofShape] then
+        return false
+    end
+
+    local boundedHoleLoopCount = holeLoopCount or 0
+    if boundedHoleLoopCount > 1 then
+        return false
+    end
+
+    local levels = tonumber(building.levels) or math.max(1, math.floor(height / 5))
+    if levels > 8 or height > 40 or footprintPointCount > 12 then
+        return false
+    end
+
+    return true
+end
+
+local function buildMergedShellReadableCues(detailFolder, worldPts, baseY, height)
+    local beltlineCount = buildFacadeBeltlines(detailFolder, worldPts, baseY, height)
+    local cornerAccentCount = buildCornerAccents(detailFolder, worldPts, baseY, height)
+    return beltlineCount, cornerAccentCount
+end
+
 local function getRenderableFootprintPoints(worldPts)
     local effectiveCount = #worldPts
     if effectiveCount >= 2 and (worldPts[1] - worldPts[effectiveCount]).Magnitude <= 0.05 then
@@ -3001,6 +3034,19 @@ function BuildingBuilder.MeshBuildAll(parent, buildings, originStuds, chunk, con
                         buildSimpleShellOpenings(detailFolder, worldPts, baseY, height, windowBudget)
                     detailFolder:SetAttribute("ArnisSimpleShellDoorCueCount", doorCueCount)
                     detailFolder:SetAttribute("ArnisSimpleShellWindowPaneCount", windowPaneCount)
+                elseif
+                    shouldEmitMergedShellReadableCues(building, #worldPts, height, #footprintData.holeWorldLoops)
+                then
+                    local mergedShellCueStartedAt = os.clock()
+                    local beltlineCount, cornerAccentCount =
+                        buildMergedShellReadableCues(detailFolder, worldPts, baseY, height)
+                    detailFolder:SetAttribute("ArnisFacadeBeltlineCount", beltlineCount)
+                    detailFolder:SetAttribute("ArnisCornerAccentCount", cornerAccentCount)
+                    recordBuildingDetailPhase(
+                        buildStats,
+                        "mergedShellCueMs",
+                        (os.clock() - mergedShellCueStartedAt) * 1000
+                    )
                 end
                 detailFolder:SetAttribute(
                     "ArnisCorniceCount",

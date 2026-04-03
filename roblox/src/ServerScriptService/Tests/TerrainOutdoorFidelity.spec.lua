@@ -189,8 +189,8 @@ return function()
     )
     Assert.equal(
         peakProfile.surfaceFillDepth,
-        2,
-        "expected steep mixed voxels to shrink their rendered fill depth instead of becoming full-height terrain boxes"
+        1,
+        "expected steep mixed voxels to shrink their rendered fill depth to a single terrain voxel instead of becoming full-height terrain boxes"
     )
 
     local moderateProfilePlan = {

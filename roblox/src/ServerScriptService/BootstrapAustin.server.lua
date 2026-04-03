@@ -35,6 +35,7 @@ local BOOTSTRAP_LAST_SCRIPT_PATH_ATTR = BootstrapStateMachine.LAST_SCRIPT_PATH_A
 local BOOTSTRAP_ATTEMPT_ID_ATTR = "ArnisAustinBootstrapAttemptId"
 local STARTUP_STREAMING_TIMEOUT_SECONDS = 10
 local STARTUP_STREAMING_POLL_INTERVAL_SECONDS = 0.1
+local STARTUP_STREAMING_REQUIRED_READY_POLLS = 3
 
 if not RunService:IsStudio() then
     warn("[BootstrapAustin] Refusing to auto-import Austin outside Studio.")
@@ -212,17 +213,24 @@ local function waitForStartupStreamingReady(spawnPoint)
     end
 
     local deadline = os.clock() + STARTUP_STREAMING_TIMEOUT_SECONDS
+    local readyPollCount = 0
     while os.clock() < deadline do
         StreamingService.Update(spawnPoint)
         local startupResidency = StreamingService.GetStartupResidencySnapshot(spawnPoint, "GeneratedWorld_Austin")
         if startupResidency.ready then
-            return true
+            readyPollCount += 1
+            if readyPollCount >= STARTUP_STREAMING_REQUIRED_READY_POLLS then
+                return true
+            end
+        else
+            readyPollCount = 0
         end
         task.wait(STARTUP_STREAMING_POLL_INTERVAL_SECONDS)
     end
 
     StreamingService.Update(spawnPoint)
-    return StreamingService.GetStartupResidencySnapshot(spawnPoint, "GeneratedWorld_Austin").ready
+    local finalResidency = StreamingService.GetStartupResidencySnapshot(spawnPoint, "GeneratedWorld_Austin")
+    return finalResidency.ready and readyPollCount + 1 >= STARTUP_STREAMING_REQUIRED_READY_POLLS
 end
 
 local function onPlayer(player)
