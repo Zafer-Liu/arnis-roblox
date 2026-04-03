@@ -76,5 +76,21 @@ return function()
     )
     Workspace:SetAttribute(RunAll.SUITE_ACTIVE_ATTR, nil)
 
+    Workspace:SetAttribute(RunAll.SUITE_ACTIVE_ATTR, true)
+    local skippedResult = RunAll.run({
+        testsFolder = testsFolder,
+    })
+    Assert.equal(
+        skippedResult and skippedResult.skipped,
+        true,
+        "expected RunAll.run to skip duplicate invocations while a suite is already active"
+    )
+    Assert.equal(
+        Workspace:GetAttribute(RunAll.SUITE_ACTIVE_ATTR),
+        true,
+        "expected duplicate RunAll skip to preserve the existing active-suite guard"
+    )
+    Workspace:SetAttribute(RunAll.SUITE_ACTIVE_ATTR, nil)
+
     testsFolder:Destroy()
 end

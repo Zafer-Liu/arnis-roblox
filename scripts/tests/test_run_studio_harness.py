@@ -10,6 +10,8 @@ ROOT = Path(__file__).resolve().parents[2]
 HARNESS_PATH = ROOT / "scripts" / "run_studio_harness.sh"
 POLICY_PATH = ROOT / "scripts" / "studio_harness_policy.py"
 PROXY_LIB_PATH = ROOT / "scripts" / "studio_mcp_proxy_lib.py"
+UI_CONTROL_PATH = ROOT / "scripts" / "studio_ui_control.py"
+WORKFLOW_PATH = ROOT / "scripts" / "studio_workflow.py"
 
 
 class RunStudioHarnessTests(unittest.TestCase):
@@ -18,6 +20,8 @@ class RunStudioHarnessTests(unittest.TestCase):
         cls.text = HARNESS_PATH.read_text(encoding="utf-8")
         cls.policy_text = POLICY_PATH.read_text(encoding="utf-8")
         cls.proxy_lib_text = PROXY_LIB_PATH.read_text(encoding="utf-8")
+        cls.ui_text = UI_CONTROL_PATH.read_text(encoding="utf-8")
+        cls.workflow_text = WORKFLOW_PATH.read_text(encoding="utf-8")
 
     def test_capture_mcp_probe_uses_shared_stop_decision_policy(self) -> None:
         match = re.search(
@@ -227,18 +231,267 @@ class RunStudioHarnessTests(unittest.TestCase):
         self.assertIn('edit_readiness_target="edit_sync"', self.text)
 
     def test_play_focused_runs_skip_edit_mode_actions_when_edit_tests_are_disabled(self) -> None:
+        self.assertIn("should_run_filtered_play_tests_without_edit_phase()", self.text)
         self.assertIn("should_skip_edit_mode_actions_for_play()", self.text)
-        self.assertIn("if should_skip_edit_mode_actions_for_play; then", self.text)
+        self.assertIn(
+            "if should_skip_edit_mode_actions_for_play || should_run_filtered_play_tests_without_edit_phase; then",
+            self.text,
+        )
         self.assertIn('log "skipping edit-mode actions before play-focused harness run"', self.text)
         self.assertIn("if [[ $DO_PLAY -ne 1 ]]; then", self.text)
         self.assertIn("if [[ $RUNALL_EDIT_ENABLED -ne 0 ]]; then", self.text)
         self.assertIn('if [[ -n "$RUNALL_SPEC_FILTER" ]]; then', self.text)
 
-    def test_play_focused_runs_skip_live_vsync_server_startup(self) -> None:
+    def test_filtered_non_preview_play_tests_can_skip_edit_phase_when_play_tests_are_enabled(self) -> None:
+        self.assertIn("should_run_filtered_play_tests_without_edit_phase()", self.text)
+        self.assertIn('if [[ $RUNALL_PLAY_ENABLED -ne 1 ]]; then', self.text)
+        self.assertIn('if [[ -z "$RUNALL_SPEC_FILTER" || "$RUNALL_SPEC_FILTER" == *Preview* ]]; then', self.text)
+        self.assertIn("if should_skip_edit_mode_actions_for_play || should_run_filtered_play_tests_without_edit_phase; then", self.text)
+
+    def test_filtered_non_preview_play_tests_still_start_live_vsync_server(self) -> None:
         self.assertIn("should_start_live_vsync_server()", self.text)
         self.assertIn("if should_start_live_vsync_server; then", self.text)
         self.assertIn("ensure_vsync_server_running", self.text)
         self.assertIn('log "skipping live Vertigo Sync server startup for play-focused harness run"', self.text)
+        live_vsync_block = re.search(
+            r"should_start_live_vsync_server\(\) \{\n(?P<body>.*?)\n\}\n\nshould_require_vsync_plugin",
+            self.text,
+            re.DOTALL,
+        )
+        self.assertIsNotNone(live_vsync_block, "should_start_live_vsync_server function not found")
+        body = live_vsync_block.group("body")
+        self.assertNotIn("should_run_filtered_play_tests_without_edit_phase", body)
+
+    def test_filtered_non_preview_play_tests_still_require_vsync_plugin_install(self) -> None:
+        self.assertIn("should_require_vsync_plugin()", self.text)
+        plugin_block = re.search(
+            r"should_require_vsync_plugin\(\) \{\n(?P<body>.*?)\n\}\n\nwait_for_different_log",
+            self.text,
+            re.DOTALL,
+        )
+        self.assertIsNotNone(plugin_block, "should_require_vsync_plugin function not found")
+        body = plugin_block.group("body")
+        self.assertNotIn("should_run_filtered_play_tests_without_edit_phase", body)
+
+    def test_filtered_non_preview_play_tests_wait_for_project_sync_before_play(self) -> None:
+        project_sync_block = re.search(
+            r"wait_for_filtered_play_project_sync\(\) \{\n(?P<body>.*?)\n\}\n\nbuild_filtered_play_runall_log_pattern",
+            self.text,
+            re.DOTALL,
+        )
+        self.assertIsNotNone(project_sync_block, "wait_for_filtered_play_project_sync function not found")
+        project_sync_body = project_sync_block.group("body")
+        self.assertIn("wait_for_vsync_edit_readiness", project_sync_body)
+        self.assertIn("edit_sync", project_sync_body)
+        self.assertIn("filtered play-only proof phase=project-sync", project_sync_body)
+        helper_block = re.search(
+            r"run_filtered_play_only_non_preview_proof\(\) \{\n(?P<body>.*?)\n\}\n\nif \[\[ \$ATTACHED_TO_EXISTING_STUDIO -eq 1",
+            self.text,
+            re.DOTALL,
+        )
+        self.assertIsNotNone(helper_block, "run_filtered_play_only_non_preview_proof function not found")
+        body = helper_block.group("body")
+        self.assertIn("wait_for_filtered_play_project_sync", body)
+
+    def test_filtered_non_preview_play_tests_use_dedicated_state_machine_helper(self) -> None:
+        self.assertIn("run_filtered_play_only_non_preview_proof()", self.text)
+        helper_block = re.search(
+            r"run_filtered_play_only_non_preview_proof\(\) \{\n(?P<body>.*?)\n\}\n\nif \[\[ \$ATTACHED_TO_EXISTING_STUDIO -eq 1",
+            self.text,
+            re.DOTALL,
+        )
+        self.assertIsNotNone(helper_block, "run_filtered_play_only_non_preview_proof function not found")
+        body = helper_block.group("body")
+        self.assertIn("wait_for_play_transition_ready", body)
+        self.assertIn("wait_for_filtered_play_transition", body)
+        self.assertIn("build_filtered_play_runall_log_pattern", body)
+        self.assertIn('filtered play-only proof phase=entry-ready', body)
+        self.assertIn('filtered play-only proof phase=play-transition', body)
+        self.assertIn('filtered play-only proof phase=runall-complete', body)
+
+    def test_follow_new_template_handoff_emits_explicit_phase_logs(self) -> None:
+        handoff_block = re.search(
+            r"follow_new_template_handoff\(\) \{\n(?P<body>.*?)\n\}\n\ncapture_studio_screenshot",
+            self.text,
+            re.DOTALL,
+        )
+        self.assertIsNotNone(handoff_block, "follow_new_template_handoff function not found")
+        body = handoff_block.group("body")
+        self.assertIn('log "creating a fresh new experience"', body)
+        self.assertIn('fresh template handoff phase=request-new-file', body)
+        self.assertIn('fresh template handoff phase=wait-log-handoff', body)
+        self.assertIn('fresh template handoff phase=wait-editor-ready', body)
+        self.assertIn('fresh template handoff phase=wait-mcp-ready', body)
+        self.assertIn('fresh template handoff complete', body)
+
+    def test_follow_new_template_handoff_accepts_stable_current_log_fallback(self) -> None:
+        self.assertIn("wait_for_template_log_handoff_or_current_session()", self.text)
+        helper_block = re.search(
+            r"wait_for_template_log_handoff_or_current_session\(\) \{\n(?P<body>.*?)\n\}\n\nfollow_new_template_handoff",
+            self.text,
+            re.DOTALL,
+        )
+        self.assertIsNotNone(helper_block, "wait_for_template_log_handoff_or_current_session function not found")
+        helper_body = helper_block.group("body")
+        self.assertIn('studio_session_status_value status', helper_body)
+        self.assertIn('"ready_edit"', helper_body)
+        self.assertIn('"start_page"', helper_body)
+        self.assertIn('printf \'current:%s\\n\' "$status"', helper_body)
+        handoff_block = re.search(
+            r"follow_new_template_handoff\(\) \{\n(?P<body>.*?)\n\}\n\ncapture_studio_screenshot",
+            self.text,
+            re.DOTALL,
+        )
+        self.assertIsNotNone(handoff_block, "follow_new_template_handoff function not found")
+        handoff_body = handoff_block.group("body")
+        self.assertIn('wait_for_template_log_handoff_or_current_session', handoff_body)
+        self.assertIn('fresh template handoff stayed on current Studio log', handoff_body)
+        self.assertIn('NEW_TEMPLATE_HANDOFF_READY=1', handoff_body)
+
+    def test_fresh_template_launch_skips_redundant_outer_editor_ready_wait_after_handoff(self) -> None:
+        self.assertIn('NEW_TEMPLATE_HANDOFF_READY=0', self.text)
+        self.assertIn('skipping redundant editor-ready wait after fresh template handoff', self.text)
+        self.assertIn('if [[ $PLACE_PATH_CUSTOM -eq 0 && $NEW_TEMPLATE_HANDOFF_READY -eq 1 ]]; then', self.text)
+
+    def test_filtered_non_preview_play_tests_gate_on_start_ready_before_play(self) -> None:
+        self.assertIn("wait_for_play_transition_ready()", self.text)
+        ready_block = re.search(
+            r"wait_for_play_transition_ready\(\) \{\n(?P<body>.*?)\n\}\n\nwait_for_filtered_play_transition",
+            self.text,
+            re.DOTALL,
+        )
+        self.assertIsNotNone(ready_block, "wait_for_play_transition_ready function not found")
+        body = ready_block.group("body")
+        self.assertIn('if [[ $NEW_TEMPLATE_HANDOFF_READY -eq 1 ]]; then', body)
+        self.assertIn('filtered play-only proof start-ready accepted from fresh template handoff', body)
+        self.assertIn('session_status="$(studio_session_status_value status)"', body)
+        self.assertIn('if [[ "$session_status" == "ready_edit" ]]; then', body)
+        self.assertIn('filtered play-only proof start-ready accepted from session status=ready_edit', body)
+        self.assertIn('studio_session_status_value can_start_test_session', body)
+        self.assertIn('filtered play-only proof start-ready accepted from can_start_test_session', body)
+        self.assertIn('studio_session_status_json', body)
+        self.assertIn('studio_dump_ui_json', body)
+        self.assertIn('filtered play-only proof did not become start-ready before timeout', body)
+
+    def test_enter_play_mode_reports_trigger_path_and_fails_honestly(self) -> None:
+        self.assertIn("play_transition_observed()", self.text)
+        self.assertIn("confirm_play_trigger_observed()", self.text)
+        play_block = re.search(
+            r"enter_play_mode\(\) \{\n(?P<body>.*?)\n\}\n\nstop_play_mode",
+            self.text,
+            re.DOTALL,
+        )
+        self.assertIsNotNone(play_block, "enter_play_mode function not found")
+        body = play_block.group("body")
+        self.assertIn('enter_play_mode trigger=ui-start-test-session', body)
+        self.assertIn('enter_play_mode success=ui-start-test-session', body)
+        self.assertIn('enter_play_mode trigger=menu-play', body)
+        self.assertIn('enter_play_mode success=menu-play', body)
+        self.assertIn('enter_play_mode trigger=keycode-96', body)
+        self.assertIn('enter_play_mode success=keycode-96', body)
+        self.assertIn('confirm_play_trigger_observed "ui-start-test-session"', body)
+        self.assertIn('confirm_play_trigger_observed "menu-play"', body)
+        self.assertIn('confirm_play_trigger_observed "keycode-96"', body)
+        self.assertIn('run_studio_ui_action click-menu "Test" "Play"', body)
+        self.assertIn('enter_play_mode failed session=$(studio_session_status_json) ui=$(studio_dump_ui_json)', body)
+        self.assertIn('return 1', body)
+        self.assertNotIn("key code 96' >/dev/null 2>&1 || true", body)
+
+    def test_enter_play_mode_only_accepts_triggers_after_observed_transition(self) -> None:
+        observed_block = re.search(
+            r"play_transition_observed\(\) \{\n(?P<body>.*?)\n\}\n\nconfirm_play_trigger_observed",
+            self.text,
+            re.DOTALL,
+        )
+        self.assertIsNotNone(observed_block, "play_transition_observed function not found")
+        observed_body = observed_block.group("body")
+        self.assertIn("studio_log_indicates_play_session", observed_body)
+        self.assertNotIn('studio_session_status_value status', observed_body)
+        confirm_block = re.search(
+            r"confirm_play_trigger_observed\(\) \{\n(?P<body>.*?)\n\}\n\nenter_play_mode",
+            self.text,
+            re.DOTALL,
+        )
+        self.assertIsNotNone(confirm_block, "confirm_play_trigger_observed function not found")
+        confirm_body = confirm_block.group("body")
+        self.assertIn('log "enter_play_mode observed transition trigger=$trigger_name', confirm_body)
+        self.assertIn('log "enter_play_mode no transition observed trigger=$trigger_name', confirm_body)
+        self.assertIn("dismiss_startup_dialogs", confirm_body)
+        self.assertIn("play_transition_observed", confirm_body)
+
+    def test_filtered_non_preview_play_transition_retries_and_logs_progress(self) -> None:
+        transition_block = re.search(
+            r"wait_for_filtered_play_transition\(\) \{\n(?P<body>.*?)\n\}\n\nbuild_filtered_play_runall_log_pattern",
+            self.text,
+            re.DOTALL,
+        )
+        self.assertIsNotNone(transition_block, "wait_for_filtered_play_transition function not found")
+        body = transition_block.group("body")
+        self.assertIn('local retriggered=0', body)
+        self.assertIn('filtered play-only proof play-transition observed status=ready_play', body)
+        self.assertIn('filtered play-only proof play-transition observed play markers in Studio log', body)
+        self.assertIn('filtered play-only proof play-transition retrying play trigger', body)
+        self.assertIn('enter_play_mode || true', body)
+        self.assertIn('filtered play-only proof play-transition waiting elapsed=', body)
+
+    def test_filtered_non_preview_play_tests_use_spec_aware_log_pattern(self) -> None:
+        self.assertIn("build_filtered_play_runall_log_pattern()", self.text)
+        pattern_block = re.search(
+            r"build_filtered_play_runall_log_pattern\(\) \{\n(?P<body>.*?)\n\}\n\nrun_filtered_play_only_non_preview_proof",
+            self.text,
+            re.DOTALL,
+        )
+        self.assertIsNotNone(pattern_block, "build_filtered_play_runall_log_pattern function not found")
+        body = pattern_block.group("body")
+        self.assertIn('RUNALL_SPEC_FILTER', body)
+        self.assertIn("re.escape", body)
+        self.assertIn("TestEZ tests complete", body)
+        self.assertIn("Tests failed", body)
+
+    def test_filtered_non_preview_play_tests_use_direct_play_transition(self) -> None:
+        play_block = self.text.split('log "entering Play mode"', 1)[1]
+        self.assertIn("if should_run_filtered_play_tests_without_edit_phase; then", play_block)
+        self.assertIn('if ! run_filtered_play_only_non_preview_proof; then', play_block)
+
+    def test_filtered_non_preview_play_tests_preserve_runall_enablement_before_play(self) -> None:
+        play_block = self.text.split("elif [[ $DO_PLAY -eq 1 ]]; then", 1)[1]
+        self.assertIn('if [[ $KEEP_RUNALL_ENABLED -eq 0 ]]; then', play_block)
+        self.assertIn('if should_run_filtered_play_tests_without_edit_phase; then', play_block)
+        self.assertIn('log "preserving RunAll before play for filtered play-only non-preview proof"', play_block)
+        self.assertIn('log "disabling RunAll before play"', play_block)
+        self.assertIn("disable_runall_entry", play_block)
+
+    def test_filtered_non_preview_play_tests_sync_before_stopping_vsync(self) -> None:
+        play_block = self.text.split("elif [[ $DO_PLAY -eq 1 ]]; then", 1)[1]
+        self.assertIn("run_filtered_play_only_non_preview_proof", play_block)
+        self.assertIn('log "stopping Vertigo Sync server before Play to avoid duplicate bootstrap materialization"', play_block)
+        self.assertLess(
+            play_block.index("run_filtered_play_only_non_preview_proof"),
+            play_block.index('log "stopping Vertigo Sync server before Play to avoid duplicate bootstrap materialization"'),
+        )
+
+    def test_play_session_log_probe_accepts_playsolo_markers(self) -> None:
+        play_probe_block = re.search(
+            r"studio_log_indicates_play_session\(\) \{\n(?P<body>.*?)\n\}\n\nedit_action_completed_successfully_in_log",
+            self.text,
+            re.DOTALL,
+        )
+        self.assertIsNotNone(play_probe_block, "studio_log_indicates_play_session function not found")
+        body = play_probe_block.group("body")
+        self.assertIn("PlaceStateTransitionStatus becomes StartingPlayTest", body)
+        self.assertIn("State: PlaySoloIdle", body)
+        self.assertIn("PlaySoloPlayableTotalTime", body)
+        self.assertIn("\\\\[FLog::PlaySoloTiming\\\\]", body)
+        self.assertIn('if [[ -n "$ACTIVE_LOG" && -f "$ACTIVE_LOG" ]]; then', body)
+        self.assertIn('elif [[ -n "$LOG_SLICE_FILE" && -f "$LOG_SLICE_FILE" ]]; then', body)
+
+    def test_ui_control_exposes_can_start_test_session_status_field(self) -> None:
+        self.assertIn("has_start_test_session_menu_item", self.ui_text)
+        self.assertIn("has_start_test_session_menu_item_enabled", self.ui_text)
+        self.assertIn("has_play_menu_item", self.ui_text)
+        self.assertIn("has_play_menu_item_enabled", self.ui_text)
+        self.assertIn('"can_start_test_session":', self.ui_text)
+        self.assertIn('"can_start_test_session",', self.ui_text)
 
     def test_stop_play_mode_falls_back_to_ui_when_mcp_stop_fails(self) -> None:
         stop_block = re.search(
@@ -367,7 +620,7 @@ class RunStudioHarnessTests(unittest.TestCase):
         self.assertIn('run_studio_ui_action dismiss-startup-dialogs || true', self.text)
         self.assertIn('if run_studio_ui_action click-menu "$menu_bar_item" "$menu_item"; then', self.text)
         self.assertIn('run_studio_ui_action new-file || click_menu_item "File" "New"', self.text)
-        self.assertIn('if run_studio_ui_action start-test-session; then', self.text)
+        self.assertIn('if run_studio_ui_action start-test-session && confirm_play_trigger_observed "ui-start-test-session"; then', self.text)
         self.assertIn('if run_studio_ui_action stop-test-session; then', self.text)
         self.assertNotIn('python3 "$STUDIO_UI_CONTROL" quit >/dev/null 2>&1 || true', self.text)
         self.assertNotIn('python3 "$STUDIO_UI_CONTROL" dismiss-dont-save >/dev/null 2>&1 || true', self.text)
@@ -550,6 +803,19 @@ class RunStudioHarnessTests(unittest.TestCase):
         self.assertGreaterEqual(mcp_index, 0)
         self.assertLess(enable_index, mcp_index)
 
+    def test_vsync_plugin_is_bootstrapped_from_binary_on_clean_machine(self) -> None:
+        plugin_block = re.search(
+            r"ensure_vsync_plugin_installed\(\) \{\n(?P<body>.*?)\n\}\n\nensure_mcp_plugin_installed",
+            self.text,
+            re.DOTALL,
+        )
+        self.assertIsNotNone(plugin_block, "ensure_vsync_plugin_installed function not found")
+        body = plugin_block.group("body")
+        self.assertIn('local installed_plugin="$ROBLOX_PLUGIN_DIR/VertigoSyncPlugin.lua"', body)
+        self.assertIn('log "installing Vertigo Sync plugin from $VSYNC_BINARY"', body)
+        self.assertIn('"$VSYNC_BINARY" plugin-install >/dev/null', body)
+        self.assertNotIn("if [[ $VSYNC_SOURCE_REPO -eq 0 ]]; then\n    return 0\n  fi", body)
+
     def test_plugin_quarantine_is_file_level_not_directory_rename(self) -> None:
         self.assertIn("PLUGIN_SANDBOXED_FILES=()", self.text)
         self.assertIn('cp "$ROBLOX_PLUGIN_DIR/$plugin_name" "$sandbox_dir/$plugin_name"', self.text)
@@ -630,7 +896,7 @@ class RunStudioHarnessTests(unittest.TestCase):
 
     def test_isolated_non_preview_specs_skip_mcp_readiness_wait(self) -> None:
         self.assertIn("is_isolated_non_preview_edit_proof()", self.text)
-        self.assertIn('if is_isolated_non_preview_edit_proof; then\n    return 1\n  fi', self.text)
+        self.assertIn('if is_isolated_non_preview_edit_proof || should_run_filtered_play_tests_without_edit_phase; then\n    return 1\n  fi', self.text)
         self.assertIn('log "skipping Studio MCP readiness wait for isolated edit-only non-preview proof"', self.text)
         self.assertIn('log "skipping Studio MCP readiness wait while attaching isolated edit-only non-preview proof"', self.text)
 
@@ -835,7 +1101,7 @@ class RunStudioHarnessTests(unittest.TestCase):
         play_block = self.text.split('log "entering Play mode"', 1)[1]
         self.assertLess(
             play_block.index('run_probe_best_effort "play" 8'),
-            play_block.index('capture_studio_screenshot "play"'),
+            play_block.rindex('capture_studio_screenshot "play"'),
         )
 
     def test_play_transition_stops_live_vsync_before_entering_play(self) -> None:

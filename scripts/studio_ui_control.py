@@ -115,6 +115,10 @@ def classify_session_status(snapshot: dict, pid_count: int) -> dict:
     front_window = str(snapshot.get("front_window") or "")
     window_count = int(snapshot.get("window_count") or 0)
     modal_window_blocked = is_blocked_modal_window(front_window)
+    can_start_test_session = (
+        bool(snapshot.get("has_start_test_session_menu_item_enabled"))
+        or bool(snapshot.get("has_play_menu_item_enabled"))
+    )
 
     if not process_running:
         status = "not_running"
@@ -141,6 +145,7 @@ def classify_session_status(snapshot: dict, pid_count: int) -> dict:
         "blocked_dialog": status == "blocked_dialog",
         "ready_edit": status == "ready_edit",
         "ready_play": status == "ready_play",
+        "can_start_test_session": status == "ready_edit" and can_start_test_session,
         "ready_for_menu": status in {"ready_edit", "ready_play"},
         "ready_for_harness": status in {"ready_edit", "ready_play", "start_page"},
         "start_page": status == "start_page",
@@ -187,6 +192,10 @@ def capture_state_snapshot() -> tuple[int, dict]:
             "has_file_menu": False,
             "has_plugins_menu": False,
             "has_test_menu": False,
+            "has_start_test_session_menu_item": False,
+            "has_start_test_session_menu_item_enabled": False,
+            "has_play_menu_item": False,
+            "has_play_menu_item_enabled": False,
             "has_stop_menu_item": False,
             "has_stop_menu_item_enabled": False,
             "window_names": [],
@@ -276,7 +285,27 @@ tell application "System Events"
 
     set hasStopMenuItem to false
     set hasStopMenuItemEnabled to false
+    set hasStartTestSessionMenuItem to false
+    set hasStartTestSessionMenuItemEnabled to false
+    set hasPlayMenuItem to false
+    set hasPlayMenuItemEnabled to false
     if hasTestMenu then
+      try
+        set hasStartTestSessionMenuItem to exists menu item "Start Test Session" of menu 1 of menu bar item "Test" of menu bar 1
+      end try
+      if hasStartTestSessionMenuItem then
+        try
+          set hasStartTestSessionMenuItemEnabled to enabled of menu item "Start Test Session" of menu 1 of menu bar item "Test" of menu bar 1
+        end try
+      end if
+      try
+        set hasPlayMenuItem to exists menu item "Play" of menu 1 of menu bar item "Test" of menu bar 1
+      end try
+      if hasPlayMenuItem then
+        try
+          set hasPlayMenuItemEnabled to enabled of menu item "Play" of menu 1 of menu bar item "Test" of menu bar 1
+        end try
+      end if
       try
         set hasStopMenuItem to exists menu item "Stop" of menu 1 of menu bar item "Test" of menu bar 1
       end try
@@ -298,7 +327,7 @@ tell application "System Events"
     end try
     set AppleScript's text item delimiters to ""
 
-    return frontWindowName & "||" & (windowCount as text) & "||" & (count of menuNames as text) & "||" & (hasFileMenu as text) & "||" & (hasPluginsMenu as text) & "||" & (hasTestMenu as text) & "||" & (hasStopMenuItem as text) & "||" & (hasStopMenuItemEnabled as text) & "||" & windowNamesText & "||" & buttonNamesText
+    return frontWindowName & "||" & (windowCount as text) & "||" & (count of menuNames as text) & "||" & (hasFileMenu as text) & "||" & (hasPluginsMenu as text) & "||" & (hasTestMenu as text) & "||" & (hasStartTestSessionMenuItem as text) & "||" & (hasStartTestSessionMenuItemEnabled as text) & "||" & (hasPlayMenuItem as text) & "||" & (hasPlayMenuItemEnabled as text) & "||" & (hasStopMenuItem as text) & "||" & (hasStopMenuItemEnabled as text) & "||" & windowNamesText & "||" & buttonNamesText
   end tell
 end tell
 """
@@ -314,10 +343,14 @@ end tell
         "has_file_menu": parts[3].lower() == "true" if len(parts) > 3 else False,
         "has_plugins_menu": parts[4].lower() == "true" if len(parts) > 4 else False,
         "has_test_menu": parts[5].lower() == "true" if len(parts) > 5 else False,
-        "has_stop_menu_item": parts[6].lower() == "true" if len(parts) > 6 else False,
-        "has_stop_menu_item_enabled": parts[7].lower() == "true" if len(parts) > 7 else False,
-        "window_names": [item for item in parts[8].split(";;") if item] if len(parts) > 8 else [],
-        "button_names": [item for item in parts[9].split(";;") if item] if len(parts) > 9 else [],
+        "has_start_test_session_menu_item": parts[6].lower() == "true" if len(parts) > 6 else False,
+        "has_start_test_session_menu_item_enabled": parts[7].lower() == "true" if len(parts) > 7 else False,
+        "has_play_menu_item": parts[8].lower() == "true" if len(parts) > 8 else False,
+        "has_play_menu_item_enabled": parts[9].lower() == "true" if len(parts) > 9 else False,
+        "has_stop_menu_item": parts[10].lower() == "true" if len(parts) > 10 else False,
+        "has_stop_menu_item_enabled": parts[11].lower() == "true" if len(parts) > 11 else False,
+        "window_names": [item for item in parts[12].split(";;") if item] if len(parts) > 12 else [],
+        "button_names": [item for item in parts[13].split(";;") if item] if len(parts) > 13 else [],
     }
     payload["state"] = infer_state_label(payload)
     return 0, payload
@@ -505,7 +538,11 @@ def get_state_value(field: str) -> int:
     code, payload = capture_state_snapshot()
     if code != 0:
         return code
-    print(payload.get(field, ""))
+    value = payload.get(field, "")
+    if isinstance(value, bool):
+        print(str(value).lower())
+    else:
+        print(value)
     return 0
 
 
@@ -515,7 +552,11 @@ def get_session_status_value(field: str) -> int:
         return code
     pid_count = capture_process_count()
     status = classify_session_status(payload, pid_count)
-    print(status.get(field, ""))
+    value = status.get(field, "")
+    if isinstance(value, bool):
+        print(str(value).lower())
+    else:
+        print(value)
     return 0
 
 
@@ -576,6 +617,7 @@ def main() -> int:
             "blocked_dialog",
             "ready_edit",
             "ready_play",
+            "can_start_test_session",
             "ready_for_menu",
             "ready_for_harness",
             "start_page",

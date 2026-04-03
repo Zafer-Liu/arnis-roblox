@@ -1,8 +1,10 @@
 from __future__ import annotations
 
 import importlib.util
+import io
 import subprocess
 from pathlib import Path
+from contextlib import redirect_stdout
 import unittest
 from unittest import mock
 
@@ -194,6 +196,23 @@ class StudioUiControlTests(unittest.TestCase):
         script = run_mock.call_args.args[0]
         self.assertIn('click button "Continue" of w', script)
         self.assertIn('click button "Continue" of sheet 1 of w', script)
+
+    def test_get_session_status_value_prints_booleans_lowercase(self) -> None:
+        mod = load_module()
+        with (
+            mock.patch.object(
+                mod,
+                "capture_state_snapshot",
+                return_value=(0, {"state": "editor_ready", "front_window": "Place1 - Roblox Studio", "window_count": 1}),
+            ),
+            mock.patch.object(mod, "capture_process_count", return_value=1),
+            io.StringIO() as buffer,
+            redirect_stdout(buffer),
+        ):
+            exit_code = mod.get_session_status_value("can_start_test_session")
+            output = buffer.getvalue().strip()
+        self.assertEqual(exit_code, 0)
+        self.assertEqual(output, "false")
 
 
 if __name__ == "__main__":

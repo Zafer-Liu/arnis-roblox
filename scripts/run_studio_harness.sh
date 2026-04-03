@@ -53,6 +53,7 @@ MCP_SIDECAR_FIFO=""
 MCP_SIDECAR_LOG=""
 MCP_SIDECAR_DIR=""
 MCP_SIDECAR_OWNED=0
+NEW_TEMPLATE_HANDOFF_READY=0
 SCENE_MARKER_LUAU=""
 read -r -d '' SCENE_MARKER_LUAU <<'LUA' || true
 local function cloneStatsWithoutSourceIds(stats)
@@ -738,25 +739,23 @@ ensure_vsync_plugin_installed() {
 
   mkdir -p "$ROBLOX_PLUGIN_DIR"
 
-  if [[ $VSYNC_SOURCE_REPO -eq 0 ]]; then
-    return 0
-  fi
-
   local installed_plugin="$ROBLOX_PLUGIN_DIR/VertigoSyncPlugin.lua"
   local needs_install=0
   if [[ ! -f "$installed_plugin" ]]; then
     needs_install=1
-  elif find \
+  elif [[ $VSYNC_SOURCE_REPO -eq 1 ]] && find \
     "$VSYNC_REPO_DIR/src" \
     "$VSYNC_REPO_DIR/assets" \
     "$VSYNC_REPO_DIR/Cargo.toml" \
     "$VSYNC_REPO_DIR/Cargo.lock" \
     -type f -newer "$installed_plugin" -print -quit 2>/dev/null | grep -q .; then
     needs_install=1
+  elif [[ "$VSYNC_BINARY" -nt "$installed_plugin" ]]; then
+    needs_install=1
   fi
 
   if [[ $needs_install -eq 1 ]]; then
-    log "installing Vertigo Sync plugin from adjacent repo"
+    log "installing Vertigo Sync plugin from $VSYNC_BINARY"
     "$VSYNC_BINARY" plugin-install >/dev/null
   fi
 }
@@ -873,7 +872,7 @@ should_start_mcp_sidecar() {
   if [[ -z "$MCP_BINARY" || ! -x "$MCP_BINARY" ]]; then
     return 1
   fi
-  if is_isolated_non_preview_edit_proof; then
+  if is_isolated_non_preview_edit_proof || should_run_filtered_play_tests_without_edit_phase; then
     return 1
   fi
   return 0
@@ -1765,6 +1764,22 @@ should_skip_edit_mode_actions_for_play() {
   return 0
 }
 
+should_run_filtered_play_tests_without_edit_phase() {
+  if [[ $DO_PLAY -ne 1 ]]; then
+    return 1
+  fi
+  if [[ $RUNALL_EDIT_ENABLED -ne 0 ]]; then
+    return 1
+  fi
+  if [[ $RUNALL_PLAY_ENABLED -ne 1 ]]; then
+    return 1
+  fi
+  if [[ -z "$RUNALL_SPEC_FILTER" || "$RUNALL_SPEC_FILTER" == *Preview* ]]; then
+    return 1
+  fi
+  return 0
+}
+
 should_start_live_vsync_server() {
   if should_skip_edit_mode_actions_for_play; then
     return 1
@@ -2060,6 +2075,32 @@ wait_for_different_log() {
       printf '%s\n' "$newest"
       return 0
     fi
+    sleep 1
+    waited=$((waited + 1))
+  done
+  return 1
+}
+
+wait_for_template_log_handoff_or_current_session() {
+  local previous_log="$1"
+  local timeout_seconds="${2:-$PATTERN_WAIT_SECONDS}"
+  local waited=0
+  while [[ $waited -lt $timeout_seconds ]]; do
+    dismiss_startup_dialogs
+    local newest=""
+    newest="$(latest_studio_log)"
+    if [[ -n "$newest" && "$newest" != "$previous_log" ]]; then
+      printf 'log:%s\n' "$newest"
+      return 0
+    fi
+
+    local status=""
+    status="$(studio_session_status_value status)"
+    if [[ "$status" == "ready_edit" || "$status" == "start_page" || "$status" == "ready_play" ]]; then
+      printf 'current:%s\n' "$status"
+      return 0
+    fi
+
     sleep 1
     waited=$((waited + 1))
   done
@@ -2434,7 +2475,7 @@ wait_for_mcp_ready() {
   if [[ -z "$MCP_BINARY" || ! -x "$MCP_BINARY" ]]; then
     return 0
   fi
-  if is_isolated_non_preview_edit_proof; then
+  if is_isolated_non_preview_edit_proof || should_run_filtered_play_tests_without_edit_phase; then
     return 1
   fi
 
@@ -2611,15 +2652,15 @@ attached_session_is_really_playing() {
 
 studio_log_indicates_play_session() {
   local log_probe_file=""
-  if [[ -n "$LOG_SLICE_FILE" && -f "$LOG_SLICE_FILE" ]]; then
-    log_probe_file="$LOG_SLICE_FILE"
-  elif [[ -n "$ACTIVE_LOG" && -f "$ACTIVE_LOG" ]]; then
+  if [[ -n "$ACTIVE_LOG" && -f "$ACTIVE_LOG" ]]; then
     log_probe_file="$ACTIVE_LOG"
+  elif [[ -n "$LOG_SLICE_FILE" && -f "$LOG_SLICE_FILE" ]]; then
+    log_probe_file="$LOG_SLICE_FILE"
   else
     return 1
   fi
 
-  if rg -q "PlaceStateTransitionStatus becomes StartingPlayTest|\\[BootstrapAustin\\]|\\[RunAustin\\]|ARNIS_MCP_PLAY|StudioGameStateType_Client" "$log_probe_file"; then
+  if rg -q "PlaceStateTransitionStatus becomes StartingPlayTest|\\[BootstrapAustin\\]|\\[RunAustin\\]|ARNIS_MCP_PLAY|StudioGameStateType_Client|State: PlaySoloIdle|PlaySoloPlayableTotalTime|\\[FLog::PlaySoloTiming\\]" "$log_probe_file"; then
     return 0
   fi
 
@@ -2735,31 +2776,44 @@ switch_to_log() {
 }
 
 follow_new_template_handoff() {
+  NEW_TEMPLATE_HANDOFF_READY=0
   prepare_log_cursor
   log "creating a fresh new experience"
   activate_studio
   sleep 1
   dismiss_startup_dialogs
+  log "fresh template handoff phase=request-new-file"
   if ! new_file_template; then
     log "failed to trigger File > New; continuing with current Studio session"
     return 0
   fi
 
+  local handoff_result=""
   local next_log=""
-  next_log="$(wait_for_different_log "$ACTIVE_LOG")" || true
-  if [[ -n "$next_log" && "$next_log" != "$ACTIVE_LOG" ]]; then
+  log "fresh template handoff phase=wait-log-handoff"
+  handoff_result="$(wait_for_template_log_handoff_or_current_session "$ACTIVE_LOG" "$PATTERN_WAIT_SECONDS")" || true
+  if [[ "$handoff_result" == log:* ]]; then
+    next_log="${handoff_result#log:}"
     log "detected Studio handoff to a fresh template instance"
     switch_to_log "$next_log"
+    log "fresh template handoff phase=wait-editor-ready log=$ACTIVE_LOG timeout=${PATTERN_WAIT_SECONDS}s"
     wait_for_editor_ready "$PATTERN_WAIT_SECONDS" || {
       log "fresh template did not reach editor-ready state before timeout; continuing with best effort"
     }
+    log "fresh template handoff phase=wait-mcp-ready"
     wait_for_mcp_ready || {
       log "Studio MCP helper did not become ready after File > New; continuing without MCP readiness gate"
     }
   else
+    if [[ "$handoff_result" == current:* ]]; then
+      log "fresh template handoff stayed on current Studio log status=${handoff_result#current:}"
+    fi
+    log "fresh template handoff phase=wait-editor-ready-current-log timeout=10s"
     wait_for_editor_ready 10 || sleep 3
   fi
   dismiss_startup_dialogs
+  NEW_TEMPLATE_HANDOFF_READY=1
+  log "fresh template handoff complete"
 }
 
 capture_studio_screenshot() {
@@ -3487,18 +3541,52 @@ new_file_template() {
   run_studio_ui_action new-file || click_menu_item "File" "New"
 }
 
+play_transition_observed() {
+  if studio_log_indicates_play_session; then
+    return 0
+  fi
+
+  return 1
+}
+
+confirm_play_trigger_observed() {
+  local trigger_name="$1"
+  local timeout="${2:-5}"
+  local waited=0
+
+  while [[ $waited -lt $timeout ]]; do
+    dismiss_startup_dialogs
+    if play_transition_observed; then
+      log "enter_play_mode observed transition trigger=$trigger_name after ${waited}s"
+      return 0
+    fi
+    sleep 1
+    waited=$((waited + 1))
+  done
+
+  log "enter_play_mode no transition observed trigger=$trigger_name after ${timeout}s"
+  return 1
+}
+
 enter_play_mode() {
-  if run_studio_ui_action start-test-session; then
-    return 0
-  fi
-  if click_menu_item "Test" "Start Test Session"; then
-    return 0
-  fi
-  if click_menu_item "Test" "Play"; then
-    return 0
-  fi
   run_studio_ui_action activate || true
-  osascript -e 'tell application "System Events" to key code 96' >/dev/null 2>&1 || true
+  log "enter_play_mode trigger=keycode-96"
+  if osascript -e 'tell application "System Events" to key code 96' >/dev/null 2>&1 && confirm_play_trigger_observed "keycode-96"; then
+    log "enter_play_mode success=keycode-96"
+    return 0
+  fi
+  log "enter_play_mode trigger=ui-start-test-session"
+  if run_studio_ui_action start-test-session && confirm_play_trigger_observed "ui-start-test-session"; then
+    log "enter_play_mode success=ui-start-test-session"
+    return 0
+  fi
+  log "enter_play_mode trigger=menu-play"
+  if run_studio_ui_action click-menu "Test" "Play" && confirm_play_trigger_observed "menu-play"; then
+    log "enter_play_mode success=menu-play"
+    return 0
+  fi
+  log "enter_play_mode failed session=$(studio_session_status_json) ui=$(studio_dump_ui_json)"
+  return 1
 }
 
 stop_play_mode() {
@@ -4376,14 +4464,21 @@ if [[ "$CURRENT_STUDIO_STATUS" != "not_running" ]]; then
     if [[ $PLACE_PATH_CUSTOM -eq 0 ]]; then
       follow_new_template_handoff
     fi
-    wait_for_editor_ready "$PATTERN_WAIT_SECONDS" || {
-      log "Studio editor did not become ready after relaunch before timeout; continuing with best effort"
-    }
+    if [[ $PLACE_PATH_CUSTOM -eq 0 && $NEW_TEMPLATE_HANDOFF_READY -eq 1 ]]; then
+      log "skipping redundant editor-ready wait after fresh template handoff"
+    else
+      wait_for_editor_ready "$PATTERN_WAIT_SECONDS" || {
+        log "Studio editor did not become ready after relaunch before timeout; continuing with best effort"
+      }
+    fi
   if wait_for_mcp_ready; then
     MCP_READY=1
   elif is_isolated_non_preview_edit_proof; then
     MCP_READY=0
     log "skipping Studio MCP readiness wait for isolated edit-only non-preview proof"
+  elif should_run_filtered_play_tests_without_edit_phase; then
+    MCP_READY=0
+    log "skipping Studio MCP readiness wait for filtered play-only non-preview proof"
   else
     MCP_READY=0
     log "Studio MCP helper did not become ready after relaunch; edit-mode MCP actions will stay disabled"
@@ -4419,6 +4514,9 @@ if [[ "$CURRENT_STUDIO_STATUS" != "not_running" ]]; then
       elif is_isolated_non_preview_edit_proof; then
         MCP_READY=0
         log "skipping Studio MCP readiness wait while attaching isolated edit-only non-preview proof"
+      elif should_run_filtered_play_tests_without_edit_phase; then
+        MCP_READY=0
+        log "skipping Studio MCP readiness wait while attaching filtered play-only non-preview proof"
       else
         MCP_READY=0
         log "Studio MCP helper did not become ready while attaching to edit mode; edit-mode MCP actions will stay disabled"
@@ -4440,14 +4538,21 @@ else
   if [[ $PLACE_PATH_CUSTOM -eq 0 ]]; then
     follow_new_template_handoff
   fi
-  wait_for_editor_ready "$PATTERN_WAIT_SECONDS" || {
-    log "Studio editor did not become ready after initial launch before timeout; continuing with best effort"
-  }
+  if [[ $PLACE_PATH_CUSTOM -eq 0 && $NEW_TEMPLATE_HANDOFF_READY -eq 1 ]]; then
+    log "skipping redundant editor-ready wait after fresh template handoff"
+  else
+    wait_for_editor_ready "$PATTERN_WAIT_SECONDS" || {
+      log "Studio editor did not become ready after initial launch before timeout; continuing with best effort"
+    }
+  fi
   if wait_for_mcp_ready; then
     MCP_READY=1
   elif is_isolated_non_preview_edit_proof; then
     MCP_READY=0
     log "skipping Studio MCP readiness wait for isolated edit-only non-preview proof"
+  elif should_run_filtered_play_tests_without_edit_phase; then
+    MCP_READY=0
+    log "skipping Studio MCP readiness wait for filtered play-only non-preview proof"
   else
     MCP_READY=0
     log "Studio MCP helper did not become ready after initial launch; edit-mode MCP actions will stay disabled"
@@ -4471,7 +4576,7 @@ elif [[ $ATTACHED_TO_EXISTING_STUDIO -eq 1 && "$CURRENT_STUDIO_STATUS" == "ready
 fi
 
 if [[ $ATTACHED_TO_EXISTING_STUDIO -eq 0 || $ATTACHED_SESSION_ALREADY_PLAYING -eq 0 ]]; then
-  if should_skip_edit_mode_actions_for_play; then
+  if should_skip_edit_mode_actions_for_play || should_run_filtered_play_tests_without_edit_phase; then
     log "skipping edit-mode actions before play-focused harness run"
   else
   edit_mcp_status=0
@@ -4518,6 +4623,154 @@ if [[ $ATTACHED_TO_EXISTING_STUDIO -eq 0 || $ATTACHED_SESSION_ALREADY_PLAYING -e
   fi
 fi
 
+wait_for_play_transition_ready() {
+  local timeout="${1:-20}"
+  local waited=0
+
+  if [[ $NEW_TEMPLATE_HANDOFF_READY -eq 1 ]]; then
+    log "filtered play-only proof start-ready accepted from fresh template handoff"
+    return 0
+  fi
+
+  while [[ $waited -lt $timeout ]]; do
+    dismiss_startup_dialogs
+    local session_status=""
+    session_status="$(studio_session_status_value status)"
+    if [[ "$session_status" == "ready_edit" ]]; then
+      log "filtered play-only proof start-ready accepted from session status=ready_edit after ${waited}s"
+      return 0
+    fi
+    if [[ "$(studio_session_status_value can_start_test_session)" == "true" ]]; then
+      log "filtered play-only proof start-ready accepted from can_start_test_session after ${waited}s"
+      return 0
+    fi
+    sleep 1
+    waited=$((waited + 1))
+  done
+
+  log "filtered play-only proof did not become start-ready before timeout; session=$(studio_session_status_json) ui=$(studio_dump_ui_json)"
+  return 1
+}
+
+wait_for_filtered_play_transition() {
+  local timeout="${1:-20}"
+  local waited=0
+  local retriggered=0
+
+  while [[ $waited -lt $timeout ]]; do
+    dismiss_startup_dialogs
+    if [[ "$(studio_session_status_value status)" == "ready_play" ]]; then
+      log "filtered play-only proof play-transition observed status=ready_play after ${waited}s"
+      return 0
+    fi
+    if studio_log_indicates_play_session; then
+      log "filtered play-only proof play-transition observed play markers in Studio log after ${waited}s"
+      return 0
+    fi
+    if [[ $retriggered -eq 0 && $waited -ge 5 ]]; then
+      log "filtered play-only proof play-transition retrying play trigger after ${waited}s; session=$(studio_session_status_json)"
+      enter_play_mode || true
+      retriggered=1
+    fi
+    if [[ $((waited % 5)) -eq 0 ]]; then
+      log "filtered play-only proof play-transition waiting elapsed=${waited}s session=$(studio_session_status_json)"
+    fi
+    sleep 1
+    waited=$((waited + 1))
+  done
+
+  log "filtered play-only proof did not reach play transition before timeout; session=$(studio_session_status_json) ui=$(studio_dump_ui_json)"
+  return 1
+}
+
+wait_for_filtered_play_project_sync() {
+  local readiness_json=""
+  local readiness_attempt=1
+  local readiness_max_attempts=2
+
+  while [[ $readiness_attempt -le $readiness_max_attempts ]]; do
+    log "filtered play-only proof phase=project-sync target=edit_sync attempt=${readiness_attempt}/${readiness_max_attempts} timeout=${PATTERN_WAIT_SECONDS}s"
+    if readiness_json="$(VSYNC_EDIT_READINESS_TARGET="edit_sync" wait_for_vsync_edit_readiness)"; then
+      log "filtered play-only proof project sync ready: $readiness_json"
+      return 0
+    fi
+
+    if [[ $readiness_attempt -ge $readiness_max_attempts ]]; then
+      log "filtered play-only proof did not reach project sync readiness before timeout"
+      return 1
+    fi
+
+    log "filtered play-only proof project sync readiness timed out; attempting Vertigo Sync recovery"
+    recover_vsync_server_for_edit_readiness || {
+      log "filtered play-only proof project sync recovery failed"
+      return 1
+    }
+    readiness_attempt=$((readiness_attempt + 1))
+  done
+
+  return 1
+}
+
+build_filtered_play_runall_log_pattern() {
+  python3 - "$RUNALL_SPEC_FILTER" <<'PY'
+import re
+import sys
+
+spec_filter = sys.argv[1].strip()
+if spec_filter.endswith(".lua"):
+    spec_filter = spec_filter[:-4]
+
+patterns = [
+    re.escape(f"Running tests: {spec_filter}"),
+    re.escape(f"PASS {spec_filter}"),
+    re.escape(f"FAIL {spec_filter}"),
+    "TestEZ tests complete",
+    "Tests failed",
+]
+print("|".join(patterns))
+PY
+}
+
+run_filtered_play_only_non_preview_proof() {
+  local phase_timeout="$PLAY_WAIT_SECONDS"
+  if [[ $phase_timeout -lt 20 ]]; then
+    phase_timeout=20
+  fi
+
+  local runall_pattern=""
+  runall_pattern="$(build_filtered_play_runall_log_pattern)"
+
+  if ! wait_for_filtered_play_project_sync; then
+    return 1
+  fi
+
+  log "stopping Vertigo Sync server before Play to avoid duplicate bootstrap materialization"
+  stop_vsync_server
+
+  log "filtered play-only proof phase=entry-ready spec=$RUNALL_SPEC_FILTER timeout=${phase_timeout}s"
+  if ! wait_for_play_transition_ready "$phase_timeout"; then
+    return 1
+  fi
+
+  log "entering Play mode"
+  activate_studio
+
+  log "filtered play-only proof phase=play-transition spec=$RUNALL_SPEC_FILTER timeout=${phase_timeout}s"
+  enter_play_mode || log "failed to trigger Play mode via AppleScript/menu automation"
+  if ! wait_for_filtered_play_transition "$phase_timeout"; then
+    return 1
+  fi
+
+  log "filtered play-only proof phase=runall-complete spec=$RUNALL_SPEC_FILTER timeout=${PATTERN_WAIT_SECONDS}s pattern=$runall_pattern"
+  if ! wait_for_log_pattern "$runall_pattern" "$PATTERN_WAIT_SECONDS"; then
+    log "filtered play-only proof did not emit RunAll completion markers before timeout; session=$(studio_session_status_json) ui=$(studio_dump_ui_json)"
+    return 1
+  fi
+
+  sleep "$PLAY_WAIT_SECONDS"
+  return 0
+}
+
 if [[ $ATTACHED_TO_EXISTING_STUDIO -eq 1 && $ATTACHED_SESSION_ALREADY_PLAYING -eq 1 ]]; then
   log "capturing attached play screenshot"
   capture_studio_screenshot "play"
@@ -4526,20 +4779,33 @@ if [[ $ATTACHED_TO_EXISTING_STUDIO -eq 1 && $ATTACHED_SESSION_ALREADY_PLAYING -e
 elif [[ $DO_PLAY -eq 1 ]]; then
   play_probe_completed_via_mcp=0
   if [[ $KEEP_RUNALL_ENABLED -eq 0 ]]; then
-    log "disabling RunAll before play"
-    disable_runall_entry
+    if should_run_filtered_play_tests_without_edit_phase; then
+      log "preserving RunAll before play for filtered play-only non-preview proof"
+    else
+      log "disabling RunAll before play"
+      disable_runall_entry
+    fi
   fi
   if [[ $RELAUNCH_FOR_PLAY -eq 1 ]]; then
     relaunch_studio_for_phase "play" || log "play relaunch refused or failed; continuing in current session"
   fi
-  log "stopping Vertigo Sync server before Play to avoid duplicate bootstrap materialization"
-  stop_vsync_server
-  log "entering Play mode"
-  activate_studio
-  if run_play_probe_via_mcp; then
+  if should_run_filtered_play_tests_without_edit_phase; then
+    if ! run_filtered_play_only_non_preview_proof; then
+      echo "[harness] filtered play-only non-preview proof did not complete" >&2
+      exit 1
+    fi
+  elif run_play_probe_via_mcp; then
+    log "stopping Vertigo Sync server before Play to avoid duplicate bootstrap materialization"
+    stop_vsync_server
+    log "entering Play mode"
+    activate_studio
     play_probe_completed_via_mcp=1
     sleep 2
   else
+    log "stopping Vertigo Sync server before Play to avoid duplicate bootstrap materialization"
+    stop_vsync_server
+    log "entering Play mode"
+    activate_studio
     enter_play_mode || log "failed to trigger Play mode via AppleScript/menu automation"
     wait_for_playing 20 || log "Studio did not report playing state before timeout; falling back to Austin log markers"
     if wait_for_log_pattern "\\[BootstrapAustin\\] Starting Austin, TX import|\\[RunAustin\\]|\\[BootstrapAustin\\] Done\\." "$PATTERN_WAIT_SECONDS"; then

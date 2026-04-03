@@ -288,10 +288,12 @@ local function updateStreamingResidencyTelemetry(
 
     local ringBudgets = resolvedRings or {}
     local ringDesiredStats = desiredRingStats or {}
-    Workspace:SetAttribute(
-        "ArnisStreamingLoadedChunkCount",
-        #ChunkLoader.ListLoadedChunks(streamingOptions.worldRootName)
-    )
+    local worldRootName = if type(streamingOptions) == "table"
+        and type(streamingOptions.worldRootName) == "string"
+        and streamingOptions.worldRootName ~= ""
+        then streamingOptions.worldRootName
+        else DEFAULT_WORLD_ROOT_NAME
+    Workspace:SetAttribute("ArnisStreamingLoadedChunkCount", #ChunkLoader.ListLoadedChunks(worldRootName))
     Workspace:SetAttribute("ArnisStreamingSchedulerState", schedulerState or "active")
     Workspace:SetAttribute("ArnisStreamingCandidateChunkCount", #candidateChunkEntries)
     Workspace:SetAttribute("ArnisStreamingDesiredChunkCount", desiredChunkCount)
@@ -1265,13 +1267,13 @@ function StreamingService.Update(focalPoint)
                 local ring = if ringName then resolvedRings[ringName] else nil
                 local estimatedChunkCost = getEstimatedChunkOrSubplanCost(chunkRef, nil)
                 local ringStats = if ringName then desiredRingStats[ringName] else nil
-                local exceedsRingBudget = ring ~= nil
-                    and ring.EstimatedBudgetBytes > 0
-                    and ringStats.estimatedCost + estimatedChunkCost > ring.EstimatedBudgetBytes
                 local exceedsRingChunkLimit = ring ~= nil
                     and ring.MaxChunkCount > 0
                     and ringStats.chunkCount >= ring.MaxChunkCount
-                if ring == nil or exceedsRingBudget or exceedsRingChunkLimit then
+                -- Ring byte budgets are planning targets published through scheduler telemetry.
+                -- The hard admission stop line is the memory guardrail, so do not filter in-ring
+                -- work here purely for exceeding a ring's estimated-byte target.
+                if ring == nil or exceedsRingChunkLimit then
                     if currentLod ~= nil or ChunkLoader.GetChunkEntry(chunkRef.id, streamingOptions.worldRootName) ~= nil then
                         ChunkLoader.UnloadChunk(chunkRef.id, nil, streamingOptions.worldRootName)
                         ImportService.ResetSubplanState(chunkRef.id, streamingOptions.worldRootName)
@@ -1279,8 +1281,6 @@ function StreamingService.Update(focalPoint)
                         loadedChunkLods[chunkRef.id] = nil
                         lastEvictionReason = if ring == nil
                             then "outside_target_radius"
-                            elseif exceedsRingBudget
-                            then ringName .. "_budget_exceeded"
                             else ringName .. "_chunk_limit_exceeded"
                     end
                     if ring ~= nil then

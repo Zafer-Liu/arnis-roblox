@@ -62,6 +62,13 @@ function RunAll.withSuiteExecutionGuard(callback)
 end
 
 function RunAll.run(options)
+    if Workspace:GetAttribute(RunAll.SUITE_ACTIVE_ATTR) == true then
+        Logger.info("Skipping duplicate RunAll invocation while suite is already active")
+        return {
+            skipped = true,
+        }
+    end
+
     return RunAll.withSuiteExecutionGuard(function()
         local testsFolder = options and options.testsFolder or script.Parent
         local allResults = {
