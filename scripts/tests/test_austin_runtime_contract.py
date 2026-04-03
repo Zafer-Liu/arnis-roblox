@@ -426,10 +426,13 @@ class AustinRuntimeContractTests(unittest.TestCase):
         self.assertIn("localRoofCover =", self.world_probe_text)
         self.assertIn('local shellFolder = model:FindFirstChild("Shell")', self.world_probe_text)
         self.assertIn("local isRoofClosureDeck = descendant:GetAttribute(\"ArnisRoofClosureDeck\") == true", self.world_probe_text)
+        self.assertIn('name == "MergedShellRooflineCue"', self.world_probe_text)
+        self.assertIn('or name == "MergedShellPerimeterCue"', self.world_probe_text)
+        self.assertIn("local isRoofCue = isRoofCuePart(descendant)", self.world_probe_text)
         self.assertIn("if descendant:IsA(\"MeshPart\") and shellFolder and descendant:IsDescendantOf(shellFolder)", self.world_probe_text)
         self.assertRegex(
             self.world_probe_text,
-            r"if\s+shellFolder\s+and\s+descendant:IsDescendantOf\(shellFolder\)\s+and\s+not\s+isRoofPart\s+and\s+not\s+isRoofClosureDeck\s+then",
+            r"if\s+shellFolder\s+and\s+descendant:IsDescendantOf\(shellFolder\)\s+and\s+not\s+isRoofPart\s+and\s+not\s+isRoofCue\s+and\s+not\s+isRoofClosureDeck\s+then",
         )
         self.assertIn("WorldProbeSupport.shouldIgnoreGroundHit", self.world_probe_text)
         self.assertIn("WorldProbeSupport.classifySupportSurfaceRole", self.world_probe_text)

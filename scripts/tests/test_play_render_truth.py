@@ -397,6 +397,17 @@ class PlayRenderTruthTests(unittest.TestCase):
         self.assertIn("centerEdgeMaxDeltaStuds", terrain_probe_source)
         self.assertIn("local function countSampleSlots(samples)", terrain_probe_source)
 
+    def test_world_probe_counts_merged_shell_roof_cues_as_local_roof_cover(self) -> None:
+        world_probe_source = WORLD_PROBE.read_text(encoding="utf-8")
+
+        self.assertIn("local function isRoofCuePart(part)", world_probe_source)
+        self.assertIn('name == "MergedShellRooflineCue"', world_probe_source)
+        self.assertIn('or name == "MergedShellPerimeterCue"', world_probe_source)
+        self.assertIn("local isRoofCue = isRoofCuePart(descendant)", world_probe_source)
+        self.assertIn("if not isRoofPart and not isRoofCue then", world_probe_source)
+        self.assertIn("nearbyRoofParts += 1", world_probe_source)
+        self.assertIn("overheadRoofParts += 1", world_probe_source)
+
     def test_irregular_shaped_roofs_fall_back_to_visible_roof_geometry_not_only_closure_decks(self) -> None:
         source = BUILDING_BUILDER.read_text(encoding="utf-8")
 

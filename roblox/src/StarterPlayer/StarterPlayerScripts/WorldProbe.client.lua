@@ -111,6 +111,15 @@ local function isRoofClosureDeckPart(part)
     return string.find(string.lower(part.Name), "roof_closure", 1, true) ~= nil
 end
 
+local function isRoofCuePart(part)
+    if part == nil or not part:IsA("BasePart") then
+        return false
+    end
+
+    local name = part.Name
+    return name == "MergedShellRooflineCue" or name == "MergedShellPerimeterCue"
+end
+
 local function findNearestSourceId(hitInstance)
     local node = hitInstance
     while node and node.Parent do
@@ -333,11 +342,13 @@ local function summarizeWorld(rootPart, worldRoot, worldRootName, telemetryFlags
                 local isRoofClosureDeck = descendant:GetAttribute("ArnisRoofClosureDeck") == true
                     or isRoofClosureDeckPart(descendant)
                 local isRoofPart = string.find(nameLower, "roof", 1, true) ~= nil and not isRoofClosureDeck
+                local isRoofCue = isRoofCuePart(descendant)
 
                 if descendant:IsA("MeshPart") and shellFolder and descendant:IsDescendantOf(shellFolder) then
                     if
                         horizontalPartDistance <= NEARBY_BUILDING_RADIUS
                         and not isRoofPart
+                        and not isRoofCue
                         and not isRoofClosureDeck
                     then
                         nearbyMergedBuildingMeshParts += 1
@@ -348,6 +359,7 @@ local function summarizeWorld(rootPart, worldRoot, worldRootName, telemetryFlags
                     shellFolder
                     and descendant:IsDescendantOf(shellFolder)
                     and not isRoofPart
+                    and not isRoofCue
                     and not isRoofClosureDeck
                 then
                     local isNearbyShellWall, nearestShellWallDistanceStuds =
@@ -366,7 +378,7 @@ local function summarizeWorld(rootPart, worldRoot, worldRootName, telemetryFlags
                     end
                     continue
                 end
-                if not isRoofPart then
+                if not isRoofPart and not isRoofCue then
                     continue
                 end
 

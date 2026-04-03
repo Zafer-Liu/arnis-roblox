@@ -2095,3 +2095,17 @@ The compact historical archive index is:
   - `python3 -m unittest scripts.tests.test_play_render_truth scripts.tests.test_austin_runtime_contract -v`
   - `stylua --check roblox/src/ServerScriptService/ImportService/StreamingService.lua`
   - `git diff --check`
+
+## 2026-04-03 15:49 CDT
+
+- Landed another local-safe play-fidelity tranche on `main`:
+  - `WorldProbe.client.lua`
+    - player-local roof-cover telemetry now treats visible `MergedShellRooflineCue` and `MergedShellPerimeterCue` parts as roof cover instead of filtering them out as generic detail, so live play telemetry matches the startup roof envelope and scene-audit roof evidence rules
+    - merged-shell roof cues are excluded from the generic non-roof shell-wall path, avoiding double-classification in the local world probe
+- Added focused local-safe coverage in:
+  - updated `test_play_render_truth.py`
+  - updated `test_austin_runtime_contract.py`
+- Verification:
+  - `python3 -m unittest scripts.tests.test_play_render_truth scripts.tests.test_austin_runtime_contract -v`
+  - `stylua --check roblox/src/StarterPlayer/StarterPlayerScripts/WorldProbe.client.lua`
+  - `git diff --check`
