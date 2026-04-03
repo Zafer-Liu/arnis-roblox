@@ -2355,3 +2355,16 @@ The compact historical archive index is:
   - `cargo test -p arbx_planetary_store -p arbx_cli planetary_store --quiet`
   - `cargo test -p arbx_planetary_store --quiet`
   - `git diff --check rust/crates/arbx_planetary_store/src/lib.rs rust/crates/arbx_cli/src/main.rs`
+
+## 2026-04-03 18:55 CDT
+
+- Extended the planetary backbone again on `main`:
+  - `arbx_planetary_store`
+    - added direct JSON manifest ingestion into the canonical planetary store, so the backbone can sit in front of both existing JSON-first and SQLite-first workflows
+    - kept scene discovery, bbox subset, lightweight chunk summary, and geo scene lookup working across both ingest paths
+  - `arbx_cli`
+    - added `planetary-store ingest-json --manifest-json ...`
+- Verification:
+  - `cargo test -p arbx_planetary_store -p arbx_cli planetary_store --quiet`
+  - `cargo test -p arbx_planetary_store --quiet`
+  - `git diff --check rust/crates/arbx_planetary_store/src/lib.rs rust/crates/arbx_cli/src/main.rs`

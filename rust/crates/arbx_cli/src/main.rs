@@ -13,7 +13,7 @@ use arbx_pipeline::{
     NormalizeStage, PipelineContext, SourceTruthPack, TriangulateStage, ValidateStage,
 };
 use arbx_planetary_store::{
-    find_scenes_covering_geo_point, find_scenes_intersecting_geo_bbox, ingest_manifest_sqlite,
+    find_scenes_covering_geo_point, find_scenes_intersecting_geo_bbox, ingest_manifest_json, ingest_manifest_sqlite,
     init_planetary_store, list_scenes, read_scene_catalog_entry, read_scene_chunk_subset,
     read_scene_chunk_summary_subset, summarize_planetary_store,
 };
@@ -1848,7 +1848,7 @@ fn cmd_emit_runtime_lua(args: &[String]) -> Result<(), String> {
 fn cmd_planetary_store(args: &[String]) -> Result<(), String> {
     let Some(subcommand) = args.first().map(String::as_str) else {
         return Err(
-            "planetary-store requires a subcommand: init | ingest-manifest | summary | list-scenes | scene | subset | subset-summary | find-scenes".to_string(),
+            "planetary-store requires a subcommand: init | ingest-manifest | ingest-json | summary | list-scenes | scene | subset | subset-summary | find-scenes".to_string(),
         );
     };
 
@@ -1912,6 +1912,50 @@ fn cmd_planetary_store(args: &[String]) -> Result<(), String> {
                     .map_err(|err| format!("planetary-store ingest-manifest failed: {err}"))?;
             println!(
                 "Ingested scene {} ({}) with {} chunks and {} features into {}",
+                summary.scene_id,
+                summary.world_name,
+                summary.chunk_count,
+                summary.total_features,
+                store_path.display()
+            );
+            Ok(())
+        }
+        "ingest-json" => {
+            let mut store_path: Option<PathBuf> = None;
+            let mut manifest_json_path: Option<PathBuf> = None;
+            let mut scene_id: Option<String> = None;
+            let mut i = 1;
+            while i < args.len() {
+                match args[i].as_str() {
+                    "--store" => {
+                        let value = args.get(i + 1).ok_or("--store requires a path")?;
+                        store_path = Some(PathBuf::from(value));
+                        i += 2;
+                    }
+                    "--manifest-json" => {
+                        let value = args.get(i + 1).ok_or("--manifest-json requires a path")?;
+                        manifest_json_path = Some(PathBuf::from(value));
+                        i += 2;
+                    }
+                    "--scene" => {
+                        let value = args.get(i + 1).ok_or("--scene requires a scene id")?;
+                        scene_id = Some(value.clone());
+                        i += 2;
+                    }
+                    other => {
+                        return Err(format!(
+                            "unknown argument to planetary-store ingest-json: {other}"
+                        ))
+                    }
+                }
+            }
+            let store_path = store_path.ok_or("planetary-store ingest-json requires --store PATH")?;
+            let manifest_json_path =
+                manifest_json_path.ok_or("planetary-store ingest-json requires --manifest-json PATH")?;
+            let summary = ingest_manifest_json(&store_path, &manifest_json_path, scene_id.as_deref())
+                .map_err(|err| format!("planetary-store ingest-json failed: {err}"))?;
+            println!(
+                "Ingested JSON scene {} ({}) with {} chunks and {} features into {}",
                 summary.scene_id,
                 summary.world_name,
                 summary.chunk_count,
@@ -3257,6 +3301,26 @@ mod tests {
             store_path.display().to_string(),
             "--point".to_string(),
             "30.2,-97.8".to_string(),
+        ])
+        .unwrap();
+    }
+
+    #[test]
+    fn planetary_store_ingest_json_works() {
+        let tempdir = tempfile::tempdir().unwrap();
+        let store_path = tempdir.path().join("planetary.sqlite");
+        let manifest_path = tempdir.path().join("sample.json");
+        let manifest = build_sample_multi_chunk(2, 1);
+        std::fs::write(&manifest_path, manifest.to_json_pretty()).unwrap();
+
+        cmd_planetary_store(&[
+            "ingest-json".to_string(),
+            "--store".to_string(),
+            store_path.display().to_string(),
+            "--manifest-json".to_string(),
+            manifest_path.display().to_string(),
+            "--scene".to_string(),
+            "json_scene".to_string(),
         ])
         .unwrap();
     }

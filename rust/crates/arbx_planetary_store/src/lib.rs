@@ -4,6 +4,7 @@ use std::path::Path;
 use arbx_roblox_export::{stream_manifest_sqlite_all, StoredChunkRecord, StoredManifestMeta};
 use rusqlite::{params, Connection, OptionalExtension};
 use serde::Serialize;
+use serde_json::Value;
 
 pub type PlanetaryStoreResult<T> = Result<T, Box<dyn std::error::Error + Send + Sync>>;
 
@@ -158,6 +159,201 @@ fn infer_scene_id(
         return sanitize_scene_id(stem);
     }
     sanitize_scene_id(&meta.world_name)
+}
+
+fn infer_scene_id_from_world_name(
+    manifest_json_path: &Path,
+    world_name: &str,
+    explicit: Option<&str>,
+) -> String {
+    if let Some(scene_id) = explicit {
+        return sanitize_scene_id(scene_id);
+    }
+    if let Some(stem) = manifest_json_path
+        .file_stem()
+        .and_then(|value| value.to_str())
+    {
+        return sanitize_scene_id(stem);
+    }
+    sanitize_scene_id(world_name)
+}
+
+fn get_required_object<'a>(value: &'a Value, key: &str) -> PlanetaryStoreResult<&'a serde_json::Map<String, Value>> {
+    value.get(key)
+        .and_then(Value::as_object)
+        .ok_or_else(|| format!("manifest JSON is missing object field {}", key).into())
+}
+
+fn get_required_array<'a>(value: &'a Value, key: &str) -> PlanetaryStoreResult<&'a Vec<Value>> {
+    value.get(key)
+        .and_then(Value::as_array)
+        .ok_or_else(|| format!("manifest JSON is missing array field {}", key).into())
+}
+
+fn get_required_string(value: &Value, key: &str) -> PlanetaryStoreResult<String> {
+    value.get(key)
+        .and_then(Value::as_str)
+        .map(ToString::to_string)
+        .ok_or_else(|| format!("manifest JSON is missing string field {}", key).into())
+}
+
+fn get_required_f64(value: &Value, key: &str) -> PlanetaryStoreResult<f64> {
+    value.get(key)
+        .and_then(Value::as_f64)
+        .ok_or_else(|| format!("manifest JSON is missing numeric field {}", key).into())
+}
+
+fn get_required_usize(value: &Value, key: &str) -> PlanetaryStoreResult<usize> {
+    value.get(key)
+        .and_then(Value::as_u64)
+        .map(|value| value as usize)
+        .ok_or_else(|| format!("manifest JSON is missing unsigned integer field {}", key).into())
+}
+
+fn build_meta_from_manifest_json(value: &Value) -> PlanetaryStoreResult<StoredManifestMeta> {
+    let meta = get_required_object(value, "meta")?;
+    let bbox = meta
+        .get("bbox")
+        .and_then(Value::as_object)
+        .ok_or_else(|| "manifest JSON is missing object field meta.bbox".to_string())?;
+    let notes = meta
+        .get("notes")
+        .and_then(Value::as_array)
+        .map(|items| {
+            items.iter()
+                .filter_map(Value::as_str)
+                .map(ToString::to_string)
+                .collect::<Vec<_>>()
+        })
+        .unwrap_or_default();
+
+    Ok(StoredManifestMeta {
+        schema_version: get_required_string(value, "schemaVersion")?,
+        world_name: meta
+            .get("worldName")
+            .and_then(Value::as_str)
+            .map(ToString::to_string)
+            .ok_or_else(|| "manifest JSON is missing string field meta.worldName".to_string())?,
+        generator: meta
+            .get("generator")
+            .and_then(Value::as_str)
+            .map(ToString::to_string)
+            .ok_or_else(|| "manifest JSON is missing string field meta.generator".to_string())?,
+        source: meta
+            .get("source")
+            .and_then(Value::as_str)
+            .map(ToString::to_string)
+            .ok_or_else(|| "manifest JSON is missing string field meta.source".to_string())?,
+        meters_per_stud: meta
+            .get("metersPerStud")
+            .and_then(Value::as_f64)
+            .ok_or_else(|| "manifest JSON is missing numeric field meta.metersPerStud".to_string())?,
+        chunk_size_studs: meta
+            .get("chunkSizeStuds")
+            .and_then(Value::as_i64)
+            .map(|value| value as i32)
+            .ok_or_else(|| "manifest JSON is missing integer field meta.chunkSizeStuds".to_string())?,
+        bbox: arbx_geo::BoundingBox::new(
+            bbox.get("minLat")
+                .and_then(Value::as_f64)
+                .ok_or_else(|| "manifest JSON is missing numeric field meta.bbox.minLat".to_string())?,
+            bbox.get("minLon")
+                .and_then(Value::as_f64)
+                .ok_or_else(|| "manifest JSON is missing numeric field meta.bbox.minLon".to_string())?,
+            bbox.get("maxLat")
+                .and_then(Value::as_f64)
+                .ok_or_else(|| "manifest JSON is missing numeric field meta.bbox.maxLat".to_string())?,
+            bbox.get("maxLon")
+                .and_then(Value::as_f64)
+                .ok_or_else(|| "manifest JSON is missing numeric field meta.bbox.maxLon".to_string())?,
+        ),
+        total_features: meta
+            .get("totalFeatures")
+            .and_then(Value::as_u64)
+            .map(|value| value as usize)
+            .ok_or_else(|| "manifest JSON is missing unsigned integer field meta.totalFeatures".to_string())?,
+        notes,
+    })
+}
+
+pub fn ingest_manifest_json(
+    planetary_store_path: &Path,
+    manifest_json_path: &Path,
+    scene_id: Option<&str>,
+) -> PlanetaryStoreResult<PlanetarySceneSummary> {
+    let manifest_text = fs::read_to_string(manifest_json_path)?;
+    let manifest_value: Value = serde_json::from_str(&manifest_text)?;
+    let meta = build_meta_from_manifest_json(&manifest_value)?;
+    let resolved_scene_id = infer_scene_id_from_world_name(manifest_json_path, &meta.world_name, scene_id);
+    let chunk_refs = get_required_array(&manifest_value, "chunkRefs")?;
+    let chunks = get_required_array(&manifest_value, "chunks")?;
+
+    let mut connection = open_store(planetary_store_path)?;
+    let tx = connection.transaction()?;
+    tx.execute(
+        "DELETE FROM chunks WHERE scene_id = ?1",
+        params![resolved_scene_id.as_str()],
+    )?;
+    tx.execute(
+        "DELETE FROM scenes WHERE scene_id = ?1",
+        params![resolved_scene_id.as_str()],
+    )?;
+    replace_scene_meta(&tx, &resolved_scene_id, manifest_json_path, &meta)?;
+
+    let mut chunk_count = 0usize;
+    let mut total_features = 0usize;
+    for chunk in chunks {
+        let chunk_id = get_required_string(chunk, "id")?;
+        let origin = get_required_object(chunk, "originStuds")?;
+        let chunk_ref = chunk_refs
+            .iter()
+            .find(|candidate| candidate.get("id").and_then(Value::as_str) == Some(chunk_id.as_str()))
+            .ok_or_else(|| format!("manifest JSON is missing chunkRef for chunk {}", chunk_id))?;
+        let subplans_json = serde_json::to_string(
+            chunk_ref
+                .get("subplans")
+                .ok_or_else(|| format!("manifest JSON is missing subplans for chunkRef {}", chunk_id))?,
+        )?;
+        let chunk_json = serde_json::to_string(chunk)?;
+        let record = StoredChunkRecord {
+            chunk_id,
+            origin_studs: arbx_geo::Vec3::new(
+                origin
+                    .get("x")
+                    .and_then(Value::as_f64)
+                    .ok_or_else(|| "manifest JSON is missing numeric field originStuds.x".to_string())?,
+                origin
+                    .get("y")
+                    .and_then(Value::as_f64)
+                    .ok_or_else(|| "manifest JSON is missing numeric field originStuds.y".to_string())?,
+                origin
+                    .get("z")
+                    .and_then(Value::as_f64)
+                    .ok_or_else(|| "manifest JSON is missing numeric field originStuds.z".to_string())?,
+            ),
+            feature_count: get_required_usize(chunk_ref, "featureCount")?,
+            streaming_cost: get_required_f64(chunk_ref, "streamingCost")?,
+            estimated_memory_cost: chunk_ref.get("estimatedMemoryCost").and_then(Value::as_f64),
+            partition_version: chunk_ref
+                .get("partitionVersion")
+                .and_then(Value::as_str)
+                .map(ToString::to_string)
+                .unwrap_or_default(),
+            subplans_json,
+            chunk_json,
+        };
+        total_features += record.feature_count;
+        chunk_count += 1;
+        insert_chunk(&tx, &resolved_scene_id, record)?;
+    }
+    tx.commit()?;
+
+    Ok(PlanetarySceneSummary {
+        scene_id: resolved_scene_id,
+        world_name: meta.world_name,
+        chunk_count,
+        total_features,
+    })
 }
 
 fn replace_scene_meta(
@@ -787,5 +983,19 @@ mod tests {
         let scenes = find_scenes_covering_geo_point(&store_path, 30.2, -97.8).unwrap();
         assert_eq!(scenes.len(), 1);
         assert_eq!(scenes[0].scene_id, "austin");
+    }
+
+    #[test]
+    fn planetary_store_ingests_manifest_json() {
+        let dir = tempdir().unwrap();
+        let manifest_path = dir.path().join("sample.json");
+        let store_path = dir.path().join("planetary.sqlite");
+
+        let manifest = build_sample_multi_chunk(2, 1);
+        fs::write(&manifest_path, manifest.to_json_pretty()).unwrap();
+
+        let summary = ingest_manifest_json(&store_path, &manifest_path, Some("json_scene")).unwrap();
+        assert_eq!(summary.scene_id, "json_scene");
+        assert_eq!(summary.chunk_count, 2);
     }
 }
