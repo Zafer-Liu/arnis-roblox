@@ -36,6 +36,11 @@ class BuildingShellMeshReadabilityContractTests(unittest.TestCase):
         self.assertIn("MergedShellDoorCue", self.text)
         self.assertIn("ArnisMergedShellDoorCueCount", self.text)
 
+    def test_merged_shells_add_bounded_window_pane_cues(self) -> None:
+        self.assertIn("local function buildMergedShellWindowPaneCues", self.text)
+        self.assertIn("MergedShellWindowPaneCue", self.text)
+        self.assertIn("ArnisMergedShellWindowPaneCueCount", self.text)
+
 
 if __name__ == "__main__":
     unittest.main()

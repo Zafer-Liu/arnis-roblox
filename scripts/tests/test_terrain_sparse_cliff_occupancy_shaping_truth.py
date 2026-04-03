@@ -13,9 +13,10 @@ class TerrainSparseCliffOccupancyShapingTruthTests(unittest.TestCase):
         source = TERRAIN_BUILDER.read_text(encoding="utf-8")
 
         self.assertIn("local sparseCliffOccupancyScale =", source)
+        self.assertIn("local sparseCliffCoverageBias = sparsePeakCoverageDamping * sparsePeakCoverageDamping", source)
         self.assertRegex(
             source,
-            r"local sparseCliffOccupancyScale = if heightRange > 0\s+then math\.clamp\(edgeOccupancyScale \* sparsePeakCoverageDamping, 0\.35, 1\)\s+else 1",
+            r"local sparseCliffOccupancyScale = if heightRange > 0\s+then math\.clamp\(edgeOccupancyScale \* sparseCliffCoverageBias, 0\.2, 1\)\s+else 1",
         )
         self.assertIn("sparseCliffOccupancyScale = sparseCliffOccupancyScale", source)
 

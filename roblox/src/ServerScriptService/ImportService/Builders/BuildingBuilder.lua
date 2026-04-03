@@ -2026,6 +2026,44 @@ local function buildMergedShellDoorCue(parent, worldPts, baseY, height)
     return 1
 end
 
+local function buildMergedShellWindowPaneCues(parent, worldPts, baseY, height)
+    local edges = collectSimpleShellReadableEdges(worldPts)
+    if #edges == 0 then
+        return 0
+    end
+
+    local builtCount = 0
+    local maxWindowEdges = math.min(#edges, 4)
+    local paneHeight = math.max(1.6, math.min(height * 0.08, 2.2))
+    local paneWidthMin = 1.4
+    local paneWidthMax = 2.2
+    local paneCenterY = baseY + math.max(3.0, math.min(height * 0.2, 5.2))
+
+    for edgeIndex = 1, maxWindowEdges do
+        local edge = edges[edgeIndex]
+        local outward = Vector3.new(-edge.dir.Z, 0, edge.dir.X) * 0.15
+        local paneCue = Instance.new("Part")
+        paneCue.Name = "MergedShellWindowPaneCue"
+        paneCue.Size = Vector3.new(math.clamp(edge.len * 0.1, paneWidthMin, paneWidthMax), paneHeight, 0.12)
+        paneCue.Material = Enum.Material.Glass
+        paneCue.Color = Color3.fromRGB(58, 74, 96)
+        paneCue.Anchored = true
+        paneCue.CanCollide = false
+        paneCue.CanQuery = false
+        paneCue.CastShadow = false
+        paneCue.Transparency = 0.35
+        paneCue:SetAttribute("BaseTransparency", 0.35)
+        paneCue.CFrame = CFrame.lookAt(
+            edge.mid + outward + Vector3.new(0, paneCenterY, 0),
+            edge.mid + outward + Vector3.new(0, paneCenterY, 0) + edge.dir
+        )
+        paneCue.Parent = parent
+        builtCount += 1
+    end
+
+    return builtCount
+end
+
 local function getRenderableFootprintPoints(worldPts)
     local effectiveCount = #worldPts
     if effectiveCount >= 2 and (worldPts[1] - worldPts[effectiveCount]).Magnitude <= 0.05 then
@@ -2287,13 +2325,15 @@ local function buildMergedShellReadableCues(detailFolder, worldPts, baseY, heigh
     local wallPresenceCueCount = buildMergedShellWallPresenceCues(detailFolder, worldPts, baseY, height)
     local streetFacadeCueCount = buildMergedShellStreetFacadeCues(detailFolder, worldPts, baseY, height)
     local doorCueCount = buildMergedShellDoorCue(detailFolder, worldPts, baseY, height)
+    local windowPaneCueCount = buildMergedShellWindowPaneCues(detailFolder, worldPts, baseY, height)
     return beltlineCount,
         cornerAccentCount,
         rooflineCueCount,
         perimeterCueCount,
         wallPresenceCueCount,
         streetFacadeCueCount,
-        doorCueCount
+        doorCueCount,
+        windowPaneCueCount
 end
 
 local function addCornerAccentsToAccumulator(acc, worldPts, baseY, height)
@@ -2620,6 +2660,7 @@ function BuildingBuilder.FallbackBuild(parent, building, originStuds, chunk, win
     detailFolder:SetAttribute("ArnisMergedShellWallStripCount", 0)
     detailFolder:SetAttribute("ArnisMergedShellStreetFacadeCueCount", 0)
     detailFolder:SetAttribute("ArnisMergedShellDoorCueCount", 0)
+    detailFolder:SetAttribute("ArnisMergedShellWindowPaneCueCount", 0)
     detailFolder:SetAttribute("ArnisSimpleShellDoorCueCount", 0)
     detailFolder:SetAttribute("ArnisSimpleShellWindowPaneCount", 0)
     CollectionService:AddTag(detailFolder, "LOD_DetailGroup")
@@ -3247,7 +3288,7 @@ function BuildingBuilder.MeshBuildAll(parent, buildings, originStuds, chunk, con
                     shouldEmitMergedShellReadableCues(building, #worldPts, height, #footprintData.holeWorldLoops)
                 then
                     local mergedShellCueStartedAt = os.clock()
-                    local beltlineCount, cornerAccentCount, rooflineCueCount, perimeterCueCount, wallPresenceCueCount, streetFacadeCueCount, doorCueCount =
+                    local beltlineCount, cornerAccentCount, rooflineCueCount, perimeterCueCount, wallPresenceCueCount, streetFacadeCueCount, doorCueCount, windowPaneCueCount =
                         buildMergedShellReadableCues(detailFolder, worldPts, baseY, height)
                     detailFolder:SetAttribute("ArnisFacadeBeltlineCount", beltlineCount)
                     detailFolder:SetAttribute("ArnisCornerAccentCount", cornerAccentCount)
@@ -3257,6 +3298,7 @@ function BuildingBuilder.MeshBuildAll(parent, buildings, originStuds, chunk, con
                     detailFolder:SetAttribute("ArnisMergedShellWallStripCount", wallPresenceCueCount)
                     detailFolder:SetAttribute("ArnisMergedShellStreetFacadeCueCount", streetFacadeCueCount)
                     detailFolder:SetAttribute("ArnisMergedShellDoorCueCount", doorCueCount)
+                    detailFolder:SetAttribute("ArnisMergedShellWindowPaneCueCount", windowPaneCueCount)
                     recordBuildingDetailPhase(
                         buildStats,
                         "mergedShellCueMs",

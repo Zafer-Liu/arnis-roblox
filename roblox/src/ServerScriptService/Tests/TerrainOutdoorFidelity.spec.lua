@@ -315,6 +315,10 @@ return function()
         "expected sparse cliff columns to lower their interior occupancy so the column does not read like a solid plane"
     )
     Assert.truthy(
+        sparseCliffProfile.sparseCliffOccupancyScale <= 0.2,
+        "expected very sparse cliff columns to clamp down to a much lighter occupancy floor instead of leaving a broad vertical slab"
+    )
+    Assert.truthy(
         sparseCliffProfile.sparseCliffOccupancyScale < peakProfile.sparseCliffOccupancyScale,
         "expected sparser cliffs to taper occupancy more aggressively than denser steep peaks"
     )

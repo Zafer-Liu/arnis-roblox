@@ -2015,3 +2015,20 @@ The compact historical archive index is:
   - `python3 -m unittest scripts.tests.test_streaming_startup_prime_contract scripts.tests.test_streaming_lod_avatar_offset_contract scripts.tests.test_streaming_lod_live_root_focus_contract scripts.tests.test_streaming_lod_footprint_contract scripts.tests.test_streaming_residency_footprint_contract scripts.tests.test_austin_runtime_contract -v`
   - `stylua --check roblox/src/ServerScriptService/ImportService/StreamingService.lua`
   - `git diff --check`
+
+## 2026-04-03 15:41 CDT
+
+- Landed another local-safe play-fidelity tranche on `main`:
+  - `BuildingBuilder.lua`
+    - merged `shellMesh` readable-cue buildings now emit bounded `MergedShellWindowPaneCue` parts with an explicit count attribute, so tall merged shells keep some facade/window legibility in play mode instead of reading like plain wall mass plus a door
+  - `TerrainBuilder.lua`
+    - very sparse cliff columns now square the sparse-coverage damping before occupancy clamping, dropping the minimum occupancy floor for those extreme cases so false vertical slab faces taper harder
+- Added focused local-safe coverage in:
+  - updated `BuildingShellMeshReadableCues.spec.lua`
+  - updated `TerrainOutdoorFidelity.spec.lua`
+  - updated `test_building_shell_mesh_readability_contract.py`
+  - updated `test_terrain_sparse_cliff_occupancy_shaping_truth.py`
+- Verification:
+  - `python3 -m unittest scripts.tests.test_play_render_truth scripts.tests.test_building_shell_mesh_readability_contract scripts.tests.test_building_shell_mesh_wall_presence_contract scripts.tests.test_terrain_sparse_cliff_occupancy_shaping_truth scripts.tests.test_terrain_chunk_edge_truth scripts.tests.test_terrain_steep_mixed_fill_depth_truth scripts.tests.test_terrain_column_occupancy_shaping_truth -v`
+  - `stylua --check roblox/src/ServerScriptService/ImportService/Builders/BuildingBuilder.lua roblox/src/ServerScriptService/ImportService/Builders/TerrainBuilder.lua roblox/src/ServerScriptService/Tests/BuildingShellMeshReadableCues.spec.lua roblox/src/ServerScriptService/Tests/TerrainOutdoorFidelity.spec.lua`
+  - `git diff --check`

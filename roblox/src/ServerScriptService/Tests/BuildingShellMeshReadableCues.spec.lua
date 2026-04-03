@@ -93,6 +93,7 @@ return function()
     local perimeterCues = 0
     local streetFacadeCues = 0
     local doorCues = 0
+    local windowPaneCues = 0
     local streetFacadeCueYs = {}
     for _, child in ipairs(detailFolder:GetDescendants()) do
         if child:IsA("Part") and child.Name == "CornerAccent" then
@@ -108,6 +109,8 @@ return function()
             streetFacadeCueYs[#streetFacadeCueYs + 1] = child.Position.Y
         elseif child:IsA("Part") and child.Name == "MergedShellDoorCue" then
             doorCues += 1
+        elseif child:IsA("Part") and child.Name == "MergedShellWindowPaneCue" then
+            windowPaneCues += 1
         end
     end
 
@@ -117,6 +120,7 @@ return function()
     Assert.equal(perimeterCues, 4, "expected one perimeter cue per footprint corner")
     Assert.equal(streetFacadeCues, 4, "expected one street-level facade cue per footprint edge")
     Assert.equal(doorCues, 1, "expected one merged-shell door cue on the primary facade edge")
+    Assert.equal(windowPaneCues, 4, "expected one merged-shell window pane cue per footprint edge")
     for _, cueY in ipairs(streetFacadeCueYs) do
         Assert.truthy(
             cueY >= 1.5 and cueY <= 5,
@@ -149,6 +153,11 @@ return function()
         detailFolder:GetAttribute("ArnisMergedShellDoorCueCount"),
         1,
         "expected door cue attribute to reflect emitted street-facing geometry"
+    )
+    Assert.equal(
+        detailFolder:GetAttribute("ArnisMergedShellWindowPaneCueCount"),
+        4,
+        "expected window pane cue attribute to reflect emitted readable facade geometry"
     )
 
     local sceneSummary = SceneAudit.summarizeWorld(worldRoot)
