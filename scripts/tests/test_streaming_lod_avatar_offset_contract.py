@@ -14,10 +14,14 @@ class StreamingLodAvatarOffsetContractTests(unittest.TestCase):
     def setUpClass(cls) -> None:
         cls.streaming_text = STREAMING_SERVICE_PATH.read_text(encoding="utf-8")
 
-    def test_streaming_lod_visibility_uses_camera_or_last_avatar_focus(self) -> None:
+    def test_streaming_lod_visibility_uses_camera_or_live_avatar_focus(self) -> None:
         self.assertIn("local avatarFocusPos = streamingLastFocalPoint", self.streaming_text)
+        self.assertIn("local function resolveLivePlayerRootFocusPosition()", self.streaming_text)
+        self.assertIn("local livePlayerRootFocusPos = resolveLivePlayerRootFocusPosition()", self.streaming_text)
+        self.assertIn("if typeof(livePlayerRootFocusPos) == \"Vector3\" then", self.streaming_text)
+        self.assertIn("avatarFocusPos = livePlayerRootFocusPos", self.streaming_text)
         self.assertIn(
-            "local detailVisible = (getLodGroupAnchor(group, chunkCenter) - camPos).Magnitude <= highDetailRadius",
+            "local detailVisible = getLodGroupFootprintDistanceSq(group, chunkCenter, camPos) <= highDetailRadiusSq",
             self.streaming_text,
         )
         self.assertIn(
@@ -25,7 +29,7 @@ class StreamingLodAvatarOffsetContractTests(unittest.TestCase):
             self.streaming_text,
         )
         self.assertIn(
-            "local interiorVisible = (getLodGroupAnchor(group, chunkCenter) - camPos).Magnitude <= interiorRadius",
+            "local interiorVisible = getLodGroupFootprintDistanceSq(group, chunkCenter, camPos) <= interiorRadiusSq",
             self.streaming_text,
         )
         self.assertIn(

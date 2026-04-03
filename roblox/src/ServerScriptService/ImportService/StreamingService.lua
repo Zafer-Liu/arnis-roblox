@@ -1637,7 +1637,21 @@ local function updateChunkEntryLodGroups(
     end
 end
 
--- Toggle visibility of LOD-tagged detail and interior parts based on camera or last avatar distance.
+local function resolveLivePlayerRootFocusPosition()
+    for _, player in ipairs(Players:GetPlayers()) do
+        local character = player.Character
+        if character then
+            local rootPart = character:FindFirstChild("HumanoidRootPart") or character.PrimaryPart
+            if rootPart and rootPart:IsA("BasePart") then
+                return rootPart.Position
+            end
+        end
+    end
+
+    return nil
+end
+
+-- Toggle visibility of LOD-tagged detail and interior parts based on camera plus live avatar/root focus.
 -- Runs at LOD_UPDATE_INTERVAL cadence — cheap: iterates CollectionService lists,
 -- not the full workspace tree.
 local function updateLOD()
@@ -1647,6 +1661,10 @@ local function updateLOD()
     end
     local camPos = camera.CFrame.Position
     local avatarFocusPos = streamingLastFocalPoint
+    local livePlayerRootFocusPos = resolveLivePlayerRootFocusPosition()
+    if typeof(livePlayerRootFocusPos) == "Vector3" then
+        avatarFocusPos = livePlayerRootFocusPos
+    end
     local config = streamingOptions and (streamingOptions.config or DefaultWorldConfig) or DefaultWorldConfig
     local highDetailRadius = config.HighDetailRadius or 2048
     local interiorRadius = highDetailRadius * 0.25 -- interiors only very close

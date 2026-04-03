@@ -255,4 +255,33 @@ return function()
         peakProfile.edgeOccupancyScale < moderateProfile.edgeOccupancyScale,
         "expected steeper mixed voxels to taper more aggressively than milder mixed voxels"
     )
+
+    local sparsePeakProfilePlan = {
+        origin = { x = 0, y = 0, z = 0 },
+        cellSize = 4,
+        gridW = 1,
+        gridD = 1,
+        rMinX = 0,
+        rMinZ = 0,
+        cellMaterials = {
+            {
+                { Name = "Rock" },
+            },
+        },
+        voxelSubsampleOffsets = offsets,
+        sampleInterpolatedHeight = function(cellX, cellZ, fracX, fracZ)
+            if cellX == 0 and cellZ == 0 and fracX > 0.75 and fracZ > 0.75 then
+                return 16
+            end
+            return 0
+        end,
+    }
+
+    local sparsePeakProfile = TerrainBuilder._sampleVoxelColumnProfile(sparsePeakProfilePlan, 1, 1)
+    Assert.equal(sparsePeakProfile.peakSampleCoverage, 0.0625, "expected sparse peak coverage to stay measurable")
+    Assert.equal(
+        sparsePeakProfile.surfaceHeight,
+        1.5859375,
+        "expected sparse steep peaks to apply bounded damping instead of lifting the whole write voxel to the peak plane"
+    )
 end

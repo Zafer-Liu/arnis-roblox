@@ -1,4 +1,5 @@
 return function()
+    local Players = game:GetService("Players")
     local Workspace = game:GetService("Workspace")
     local ChunkLoader = require(script.Parent.Parent.ImportService.ChunkLoader)
     local StreamingService = require(script.Parent.Parent.ImportService.StreamingService)
@@ -77,12 +78,18 @@ return function()
         return groups[1]
     end
 
+    local rootPart = nil
+    local originalRootCFrame = nil
+
     local function cleanup(camera, originalCamera)
         StreamingService.Stop()
         ChunkLoader.Clear()
         local worldRoot = Workspace:FindFirstChild(testOptions.worldRootName)
         if worldRoot then
             worldRoot:Destroy()
+        end
+        if rootPart and originalRootCFrame then
+            rootPart.CFrame = originalRootCFrame
         end
         if camera then
             camera:Destroy()
@@ -97,6 +104,13 @@ return function()
     camera.CFrame = CFrame.new(4000, 100, 4000)
     camera.Parent = Workspace
     Workspace.CurrentCamera = camera
+
+    local player = Players:GetPlayers()[1]
+    Assert.truthy(player, "expected a player in play mode")
+    local character = player.Character or player.CharacterAdded:Wait()
+    rootPart = character:WaitForChild("HumanoidRootPart")
+    originalRootCFrame = rootPart.CFrame
+    rootPart.CFrame = CFrame.new(0, originalRootCFrame.Position.Y, 0)
 
     local ok, err = xpcall(function()
         StreamingService.Start(testManifest, testOptions)
@@ -125,6 +139,20 @@ return function()
             getPrimaryLodGroup("interior"):GetAttribute("ArnisLodVisible"),
             true,
             "expected interior to stay visible when camera moves away from the avatar focus"
+        )
+
+        rootPart.CFrame = CFrame.new(750, originalRootCFrame.Position.Y, 750)
+        task.wait(2.2)
+
+        Assert.equal(
+            getPrimaryLodGroup("detail"):GetAttribute("ArnisLodVisible"),
+            false,
+            "expected detail to hide once the live player root moves away"
+        )
+        Assert.equal(
+            getPrimaryLodGroup("interior"):GetAttribute("ArnisLodVisible"),
+            false,
+            "expected interior to hide once the live player root moves away"
         )
 
         StreamingService.Update(Vector3.new(750, 0, 750))

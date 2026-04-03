@@ -1905,6 +1905,50 @@ local function buildMergedShellPerimeterCues(parent, worldPts, baseY, height)
     return builtCount
 end
 
+local function buildMergedShellWallPresenceCues(parent, worldPts, baseY, height)
+    local builtCount = 0
+    local wallCueHeight = math.max(2.8, math.min(height * 0.26, 5.0))
+    local wallCueCenterY = baseY + math.max(wallCueHeight * 0.5 + 0.2, 1.8)
+
+    -- Street-level exterior strips keep wall mass readable without emitting
+    -- a full explicit wall loop.
+    for i = 1, #worldPts do
+        local p1 = worldPts[i]
+        local p2 = worldPts[(i % #worldPts) + 1]
+        local edgeVec = p2 - p1
+        local edgeLen = edgeVec.Magnitude
+        if edgeLen < 4 then
+            continue
+        end
+
+        local stripLen = math.max(3.2, math.min(edgeLen * 0.38, edgeLen - 0.4))
+        if stripLen < 3.2 then
+            continue
+        end
+
+        local dir = edgeVec.Unit
+        local outward = Vector3.new(-dir.Z, 0, dir.X) * 0.12
+        local mid = (p1 + p2) * 0.5
+
+        local wallPresence = Instance.new("Part")
+        wallPresence.Name = "MergedShellWallPresenceCue"
+        wallPresence.Size = Vector3.new(stripLen, wallCueHeight, 0.48)
+        wallPresence.Material = Enum.Material.Concrete
+        wallPresence.Color = Color3.fromRGB(190, 184, 176)
+        wallPresence.Anchored = true
+        wallPresence.CanCollide = false
+        wallPresence.CastShadow = false
+        wallPresence.CFrame = CFrame.lookAt(
+            mid + outward + Vector3.new(0, wallCueCenterY, 0),
+            mid + outward + Vector3.new(0, wallCueCenterY, 0) + dir
+        )
+        wallPresence.Parent = parent
+        builtCount += 1
+    end
+
+    return builtCount
+end
+
 local function getRenderableFootprintPoints(worldPts)
     local effectiveCount = #worldPts
     if effectiveCount >= 2 and (worldPts[1] - worldPts[effectiveCount]).Magnitude <= 0.05 then
@@ -2163,7 +2207,8 @@ local function buildMergedShellReadableCues(detailFolder, worldPts, baseY, heigh
     local cornerAccentCount = buildCornerAccents(detailFolder, worldPts, baseY, height)
     local rooflineCueCount = buildMergedShellRooflineCues(detailFolder, worldPts, baseY, height)
     local perimeterCueCount = buildMergedShellPerimeterCues(detailFolder, worldPts, baseY, height)
-    return beltlineCount, cornerAccentCount, rooflineCueCount, perimeterCueCount
+    local wallPresenceCueCount = buildMergedShellWallPresenceCues(detailFolder, worldPts, baseY, height)
+    return beltlineCount, cornerAccentCount, rooflineCueCount, perimeterCueCount, wallPresenceCueCount
 end
 
 local function addCornerAccentsToAccumulator(acc, worldPts, baseY, height)
@@ -2486,6 +2531,8 @@ function BuildingBuilder.FallbackBuild(parent, building, originStuds, chunk, win
     detailFolder:SetAttribute("ArnisCornerAccentCount", 0)
     detailFolder:SetAttribute("ArnisMergedShellRooflineCueCount", 0)
     detailFolder:SetAttribute("ArnisMergedShellPerimeterCueCount", 0)
+    detailFolder:SetAttribute("ArnisMergedShellWallPresenceCueCount", 0)
+    detailFolder:SetAttribute("ArnisMergedShellWallStripCount", 0)
     detailFolder:SetAttribute("ArnisSimpleShellDoorCueCount", 0)
     detailFolder:SetAttribute("ArnisSimpleShellWindowPaneCount", 0)
     CollectionService:AddTag(detailFolder, "LOD_DetailGroup")
@@ -2738,6 +2785,7 @@ function BuildingBuilder.MeshBuildAll(parent, buildings, originStuds, chunk, con
                 roofBuildMs = 0,
                 facadeDetailMs = 0,
                 perimeterDetailMs = 0,
+                mergedShellCueMs = 0,
                 terrainFillMs = 0,
                 rooftopDetailMs = 0,
                 nameLabelMs = 0,
@@ -2764,6 +2812,7 @@ function BuildingBuilder.MeshBuildAll(parent, buildings, originStuds, chunk, con
         roofBuildMs = 0,
         facadeDetailMs = 0,
         perimeterDetailMs = 0,
+        mergedShellCueMs = 0,
         terrainFillMs = 0,
         rooftopDetailMs = 0,
         nameLabelMs = 0,
@@ -2805,6 +2854,8 @@ function BuildingBuilder.MeshBuildAll(parent, buildings, originStuds, chunk, con
         detailFolder:SetAttribute("ArnisCornerAccentCount", 0)
         detailFolder:SetAttribute("ArnisMergedShellRooflineCueCount", 0)
         detailFolder:SetAttribute("ArnisMergedShellPerimeterCueCount", 0)
+        detailFolder:SetAttribute("ArnisMergedShellWallPresenceCueCount", 0)
+        detailFolder:SetAttribute("ArnisMergedShellWallStripCount", 0)
         detailFolder:SetAttribute("ArnisSimpleShellDoorCueCount", 0)
         detailFolder:SetAttribute("ArnisSimpleShellWindowPaneCount", 0)
         CollectionService:AddTag(detailFolder, "LOD_DetailGroup")
@@ -3107,12 +3158,14 @@ function BuildingBuilder.MeshBuildAll(parent, buildings, originStuds, chunk, con
                     shouldEmitMergedShellReadableCues(building, #worldPts, height, #footprintData.holeWorldLoops)
                 then
                     local mergedShellCueStartedAt = os.clock()
-                    local beltlineCount, cornerAccentCount, rooflineCueCount, perimeterCueCount =
+                    local beltlineCount, cornerAccentCount, rooflineCueCount, perimeterCueCount, wallPresenceCueCount =
                         buildMergedShellReadableCues(detailFolder, worldPts, baseY, height)
                     detailFolder:SetAttribute("ArnisFacadeBeltlineCount", beltlineCount)
                     detailFolder:SetAttribute("ArnisCornerAccentCount", cornerAccentCount)
                     detailFolder:SetAttribute("ArnisMergedShellRooflineCueCount", rooflineCueCount)
                     detailFolder:SetAttribute("ArnisMergedShellPerimeterCueCount", perimeterCueCount)
+                    detailFolder:SetAttribute("ArnisMergedShellWallPresenceCueCount", wallPresenceCueCount)
+                    detailFolder:SetAttribute("ArnisMergedShellWallStripCount", wallPresenceCueCount)
                     recordBuildingDetailPhase(
                         buildStats,
                         "mergedShellCueMs",
