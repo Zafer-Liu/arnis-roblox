@@ -898,7 +898,7 @@ class RunStudioHarnessTests(unittest.TestCase):
 
     def test_isolated_non_preview_specs_skip_mcp_readiness_wait(self) -> None:
         self.assertIn("is_isolated_non_preview_edit_proof()", self.text)
-        self.assertIn('if is_isolated_non_preview_edit_proof || should_run_filtered_play_tests_without_edit_phase; then\n    return 1\n  fi', self.text)
+        self.assertIn('if is_isolated_non_preview_edit_proof || should_skip_edit_mode_actions_for_play || should_run_filtered_play_tests_without_edit_phase; then\n    return 1\n  fi', self.text)
         self.assertIn('log "skipping Studio MCP readiness wait for isolated edit-only non-preview proof"', self.text)
         self.assertIn('log "skipping Studio MCP readiness wait while attaching isolated edit-only non-preview proof"', self.text)
 

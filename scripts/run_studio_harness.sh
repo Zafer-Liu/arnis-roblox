@@ -2475,7 +2475,7 @@ wait_for_mcp_ready() {
   if [[ -z "$MCP_BINARY" || ! -x "$MCP_BINARY" ]]; then
     return 0
   fi
-  if is_isolated_non_preview_edit_proof || should_run_filtered_play_tests_without_edit_phase; then
+  if is_isolated_non_preview_edit_proof || should_skip_edit_mode_actions_for_play || should_run_filtered_play_tests_without_edit_phase; then
     return 1
   fi
 
