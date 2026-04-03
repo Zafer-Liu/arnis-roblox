@@ -29,6 +29,7 @@ local HYSTERESIS_RATIO = 0.15
 
 -- LOD detail toggle: runs at a lower frequency to keep per-frame cost cheap.
 local LOD_UPDATE_INTERVAL = 2 -- seconds
+local LOD_MOVEMENT_REFRESH_THRESHOLD_STUDS = 24
 local lastLODUpdate = 0
 
 local LOD_HIGH = "High"
@@ -1887,6 +1888,28 @@ local function resolveCurrentCameraFocusPosition()
     return nil
 end
 
+local function shouldForceMovementLodRefresh()
+    if typeof(streamingLastFocalPoint) ~= "Vector3" then
+        return false
+    end
+
+    local livePlayerRootFocusPos = resolveLivePlayerRootFocusPosition()
+    if typeof(livePlayerRootFocusPos) ~= "Vector3" then
+        return false
+    end
+
+    local movementDelta = Vector3.new(
+        livePlayerRootFocusPos.X - streamingLastFocalPoint.X,
+        0,
+        livePlayerRootFocusPos.Z - streamingLastFocalPoint.Z
+    )
+    if movementDelta.Magnitude < LOD_MOVEMENT_REFRESH_THRESHOLD_STUDS then
+        return false
+    end
+
+    return true
+end
+
 -- Toggle visibility of LOD-tagged detail and interior parts based on camera plus live avatar/root focus.
 -- Runs at LOD_UPDATE_INTERVAL cadence — cheap: iterates CollectionService lists,
 -- not the full workspace tree.
@@ -1985,6 +2008,9 @@ function StreamingService.Start(manifest, options)
         end
 
         lastLODUpdate = lastLODUpdate + dt
+        if shouldForceMovementLodRefresh() then
+            lastLODUpdate = LOD_UPDATE_INTERVAL
+        end
         if lastLODUpdate >= LOD_UPDATE_INTERVAL then
             lastLODUpdate = 0
             updateLOD()

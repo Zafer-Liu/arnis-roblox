@@ -2175,3 +2175,17 @@ The compact historical archive index is:
   - `python3 -m unittest scripts.tests.test_terrain_sparse_peak_surface_damping_truth scripts.tests.test_play_render_truth -v`
   - `stylua --check roblox/src/ServerScriptService/ImportService/Builders/TerrainBuilder.lua roblox/src/ServerScriptService/Tests/TerrainOutdoorFidelity.spec.lua`
   - `git diff --check`
+
+## 2026-04-03 17:56 CDT
+
+- Landed another local-safe play-fidelity tranche on `main`:
+  - `StreamingService.lua`
+    - added a movement-triggered LOD refresh hook in the heartbeat path so meaningful live player-root movement can force the next detail visibility pass immediately instead of waiting for the full 2-second LOD cadence
+    - this specifically targets the movement-time “walk into it and then it appears” failure mode for already-loaded chunks
+- Added focused local-safe coverage in:
+  - new `test_streaming_movement_lod_refresh_contract.py`
+  - updated `test_austin_runtime_contract.py`
+- Verification:
+  - `python3 -m unittest scripts.tests.test_streaming_movement_lod_refresh_contract scripts.tests.test_austin_runtime_contract -v`
+  - `stylua --check roblox/src/ServerScriptService/ImportService/StreamingService.lua`
+  - `git diff --check`
