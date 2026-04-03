@@ -1411,3 +1411,20 @@ The compact historical archive index is:
 - Follow-up:
   - the deeper shell-wall / false-plane parity investigation is preserved separately in `git stash` as `pressure-replacement-and-play-parity-wip-2026-04-02`
   - I did not claim the visual issue fully solved yet; this slice removes one confirmed play-only divergence so the next runtime geometry investigation starts from a cleaner baseline
+
+### 2026-04-02: Isolated Roomed Shell Streaming Parity Is Green In Play Mode
+
+- I stopped widening the generic harness/debug loop and wrote a direct runtime parity proof for the user-reported play issue instead:
+  - `PlayStreamingRoomShellParity.spec.lua`
+- The spec builds the smallest high-signal reproduction:
+  - one roomed `shellMesh` building elevated above flat terrain
+  - startup import followed by `StreamingService.Start(...)` and one runtime update
+  - assertions that visible shell wall evidence remains present
+  - assertions that the room interior voxel remains `Air` with no floating terrain fill
+- Remote proof on clean `tertiary` from the isolated play harness is green:
+  - `Running tests: PlayStreamingRoomShellParity.spec`
+  - `PASS PlayStreamingRoomShellParity.spec`
+  - `TestEZ tests complete. total=1 passed=1 failed=0`
+- Interpretation:
+  - the broad claim that play-mode streaming startup always drops shell walls or reintroduces floating shell terrain fill is now disproven at the isolated runtime contract level
+  - the remaining “false planes over terrain / walls missing in play” report is therefore narrower and Austin-sample-specific, not a generic roomed-shell streaming-startup failure
