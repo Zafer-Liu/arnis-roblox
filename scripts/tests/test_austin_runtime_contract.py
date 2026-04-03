@@ -205,6 +205,7 @@ class AustinRuntimeContractTests(unittest.TestCase):
         self.assertIn("coherentEnvelopeCandidateCount", self.streaming_text)
         self.assertIn("coherentEnvelopeReady", self.streaming_text)
         self.assertIn("local function isStartupEnvelopeReady(envelopeTelemetry)", self.streaming_text)
+        self.assertIn('or name == "MergedShellWindowPaneCue"', self.streaming_text)
         self.assertIn("local function selectStartupEnvelopeTelemetry(candidateTelemetryBySourceId)", self.streaming_text)
         self.assertIn("local function countStartupEnvelopeCandidates(candidateTelemetryBySourceId)", self.streaming_text)
         self.assertIn("local coherentEnvelopeReady = isStartupEnvelopeReady({", self.streaming_text)
@@ -525,6 +526,7 @@ class AustinRuntimeContractTests(unittest.TestCase):
         self.assertIn("part.Transparency = partOptions.transparency", self.building_builder_text)
 
     def test_scene_audit_tracks_visible_detail_and_facade_truth_separately_from_total_parts(self) -> None:
+        self.assertIn('instance.Name == "MergedShellWindowPaneCue"', self.scene_audit_text)
         self.assertIn("buildingVisibleDetailPartCount", self.scene_audit_text)
         self.assertIn("buildingVisibleFacadePartCount", self.scene_audit_text)
         self.assertIn("visibleDetailParts = 0", self.scene_audit_text)

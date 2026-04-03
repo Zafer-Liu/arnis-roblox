@@ -221,6 +221,7 @@ class PlayRenderTruthTests(unittest.TestCase):
         source = STREAMING_SERVICE.read_text(encoding="utf-8")
 
         self.assertIn("local function isStartupReadableFacadeCuePart(part)", source)
+        self.assertIn('or name == "MergedShellWindowPaneCue"', source)
         self.assertIn("nearbyReadableFacadeCueParts", source)
         self.assertIn("coherentEnvelopeNearbyReadableFacadeCueParts", source)
         self.assertIn("local hasDirectWallEnvelope =", source)
@@ -232,6 +233,7 @@ class PlayRenderTruthTests(unittest.TestCase):
         source = SCENE_AUDIT.read_text(encoding="utf-8")
 
         self.assertIn("local function isVisibleWallCuePart(descendant)", source)
+        self.assertIn('instance.Name == "MergedShellWindowPaneCue"', source)
         self.assertIn("visibleWallCueParts = 0", source)
         self.assertIn("summary.visibleWallCueParts += 1", source)
         self.assertIn(

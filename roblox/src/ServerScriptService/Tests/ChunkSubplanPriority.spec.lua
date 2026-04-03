@@ -236,6 +236,26 @@ return function()
         "expected canonical layer ordering to include rails and barriers"
     )
 
+    local structurePriorityItems = {
+        {
+            chunkId = "0_0",
+            originStuds = { x = 0, y = 0, z = 0 },
+            subplan = { id = "roads", layer = "roads", featureCount = 1, streamingCost = 1 },
+        },
+        {
+            chunkId = "0_0",
+            originStuds = { x = 0, y = 0, z = 0 },
+            subplan = { id = "buildings", layer = "buildings", featureCount = 1, streamingCost = 1 },
+            highDetailStructurePriority = true,
+        },
+    }
+    ChunkPriority.SortWorkItems(structurePriorityItems, focusPoint, chunkSizeStuds, nil, nil)
+    Assert.equal(
+        structurePriorityItems[1].subplan.id,
+        "buildings",
+        "expected high-detail structural work to outrank same-band non-structural subplans"
+    )
+
     local sameChunkDagItems = {
         {
             chunkId = "0_0",

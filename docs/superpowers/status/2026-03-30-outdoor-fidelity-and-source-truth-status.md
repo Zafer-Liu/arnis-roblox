@@ -2032,3 +2032,23 @@ The compact historical archive index is:
   - `python3 -m unittest scripts.tests.test_play_render_truth scripts.tests.test_building_shell_mesh_readability_contract scripts.tests.test_building_shell_mesh_wall_presence_contract scripts.tests.test_terrain_sparse_cliff_occupancy_shaping_truth scripts.tests.test_terrain_chunk_edge_truth scripts.tests.test_terrain_steep_mixed_fill_depth_truth scripts.tests.test_terrain_column_occupancy_shaping_truth -v`
   - `stylua --check roblox/src/ServerScriptService/ImportService/Builders/BuildingBuilder.lua roblox/src/ServerScriptService/ImportService/Builders/TerrainBuilder.lua roblox/src/ServerScriptService/Tests/BuildingShellMeshReadableCues.spec.lua roblox/src/ServerScriptService/Tests/TerrainOutdoorFidelity.spec.lua`
   - `git diff --check`
+
+## 2026-04-03 15:09 CDT
+
+- Landed another local-safe play-fidelity tranche on `main`:
+  - `StreamingService.lua` / `ChunkPriority.lua`
+    - high-detail structural work now carries an explicit scheduler priority bit, so equally-near building work can outrank same-band non-structural subplans instead of waiting behind roads or other cheaper layers during startup and movement-time admissions
+    - whole-chunk high-detail building imports, high-detail building subplans, and high-detail whole-chunk fallbacks with building content all carry the same structure-priority hint
+  - `SceneAudit.lua`
+    - merged-shell window pane cues now count as readable facade truth in scene audits instead of disappearing from visible-facade accounting
+  - `StreamingService.lua`
+    - merged-shell window pane cues now count toward startup readable-facade envelope truth, so startup readiness better reflects what the player can actually see on merged-shell buildings
+- Added focused local-safe coverage in:
+  - updated `ChunkSubplanPriority.spec.lua`
+  - new `test_streaming_structure_priority_contract.py`
+  - updated `test_play_render_truth.py`
+  - updated `test_austin_runtime_contract.py`
+- Verification:
+  - `python3 -m unittest scripts.tests.test_play_render_truth scripts.tests.test_austin_runtime_contract scripts.tests.test_building_shell_mesh_readability_contract scripts.tests.test_streaming_structure_priority_contract -v`
+  - `stylua --check roblox/src/ServerScriptService/ImportService/StreamingService.lua roblox/src/ServerScriptService/ImportService/ChunkPriority.lua roblox/src/ServerScriptService/ImportService/SceneAudit.lua roblox/src/ServerScriptService/Tests/ChunkSubplanPriority.spec.lua`
+  - `git diff --check`

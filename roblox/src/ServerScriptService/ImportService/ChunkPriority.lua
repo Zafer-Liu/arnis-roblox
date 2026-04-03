@@ -685,6 +685,7 @@ function ChunkPriority.BuildPriorityKey(
         sourceOrder = sourceOrder,
         subplanId = type(subplan) == "table" and subplan.id or "",
         highDetailWholeChunkPriority = type(workItem) == "table" and workItem.highDetailWholeChunkPriority == true,
+        highDetailStructurePriority = type(workItem) == "table" and workItem.highDetailStructurePriority == true,
         forwardVector = forwardVector,
     }
 end
@@ -692,6 +693,10 @@ end
 local function compareWorkItemKeys(leftKey, rightKey)
     if leftKey.highDetailWholeChunkPriority ~= rightKey.highDetailWholeChunkPriority then
         return leftKey.highDetailWholeChunkPriority == true
+    end
+
+    if leftKey.highDetailStructurePriority ~= rightKey.highDetailStructurePriority then
+        return leftKey.highDetailStructurePriority == true
     end
 
     if leftKey.chunkId == rightKey.chunkId and leftKey.layerRank ~= rightKey.layerRank then

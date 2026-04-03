@@ -865,6 +865,7 @@ local function isStartupReadableFacadeCuePart(part)
     local name = part.Name
     return name == "MergedShellWallPresenceCue"
         or name == "MergedShellStreetFacadeCue"
+        or name == "MergedShellWindowPaneCue"
         or name == "MergedShellDoorCue"
         or name == "FacadeBeltline"
         or name == "CornerAccent"
@@ -1415,6 +1416,7 @@ local function appendStreamingWorkItems(workItems, chunkEntry, chunkOptions, con
             originStuds = chunkRef.originStuds,
             targetLod = targetLod,
             highDetailWholeChunkPriority = wholeChunkOptions.highDetailWholeChunkPriority == true,
+            highDetailStructurePriority = wholeChunkOptions.highDetailStructurePriority == true,
         }
     end
 
@@ -1429,13 +1431,23 @@ local function appendStreamingWorkItems(workItems, chunkEntry, chunkOptions, con
             configSignature = chunkOptions.configSignature,
             layerSignatures = chunkOptions.layerSignatures,
             highDetailWholeChunkPriority = true,
+            highDetailStructurePriority = true,
         })
         return false
     end
 
     local allowedSubplans = SubplanRollout.GetFullySchedulableSubplans(chunkRef, config)
     if allowedSubplans == nil then
-        appendWholeChunkWorkItem(chunkOptions)
+        appendWholeChunkWorkItem({
+            worldRootName = chunkOptions.worldRootName,
+            frameBudgetSeconds = chunkOptions.frameBudgetSeconds,
+            nonBlocking = chunkOptions.nonBlocking,
+            shouldCancel = chunkOptions.shouldCancel,
+            config = chunkOptions.config,
+            configSignature = chunkOptions.configSignature,
+            layerSignatures = chunkOptions.layerSignatures,
+            highDetailStructurePriority = shouldPrioritizeHighDetailStructures(chunkRef, targetLod),
+        })
         return false
     end
 
@@ -1447,6 +1459,9 @@ local function appendStreamingWorkItems(workItems, chunkEntry, chunkOptions, con
             originStuds = chunkRef.originStuds,
             subplan = subplan,
             targetLod = targetLod,
+            highDetailStructurePriority = targetLod == LOD_HIGH
+                and type(subplan) == "table"
+                and subplan.layer == "buildings",
         }
     end
     return true
@@ -1468,6 +1483,14 @@ local function getPendingSubplans(chunkRef, config)
         end
     end
     return pending
+end
+
+local function chunkRefHasBuildingContent(chunkRef)
+    return type(chunkRef) == "table" and type(chunkRef.buildings) == "table" and #chunkRef.buildings > 0
+end
+
+local function shouldPrioritizeHighDetailStructures(chunkRef, targetLod)
+    return targetLod == LOD_HIGH and chunkRefHasBuildingContent(chunkRef)
 end
 
 hasPendingBuildingSubplans = function(chunkRef, config)
@@ -1505,11 +1528,13 @@ local function queuePendingSubplans(workItems, chunkEntry, chunkOptions, targetL
                 configSignature = chunkOptions.configSignature,
                 layerSignatures = chunkOptions.layerSignatures,
                 highDetailWholeChunkPriority = true,
+                highDetailStructurePriority = true,
             },
             chunkId = chunkEntry.ref.id,
             originStuds = chunkEntry.ref.originStuds,
             targetLod = targetLod,
             highDetailWholeChunkPriority = true,
+            highDetailStructurePriority = true,
         }
         return true
     end
@@ -1527,6 +1552,9 @@ local function queuePendingSubplans(workItems, chunkEntry, chunkOptions, targetL
             originStuds = chunkEntry.ref.originStuds,
             subplan = subplan,
             targetLod = targetLod,
+            highDetailStructurePriority = targetLod == LOD_HIGH
+                and type(subplan) == "table"
+                and subplan.layer == "buildings",
         }
     end
     return true

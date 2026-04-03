@@ -309,6 +309,7 @@ local function summarizeBuildingStructure(building)
         local name = descendant.Name
         return name == "MergedShellWallPresenceCue"
             or name == "MergedShellStreetFacadeCue"
+            or name == "MergedShellWindowPaneCue"
             or name == "MergedShellDoorCue"
             or name == "FacadeBeltline"
             or name == "CornerAccent"
@@ -503,7 +504,12 @@ local function isRoofClosurePart(instance)
 end
 
 local function isFacadePart(instance)
-    return instance:IsA("BasePart") and string.find(instance.Name, "_facade_", 1, true) ~= nil
+    return instance:IsA("BasePart")
+        and (
+            string.find(instance.Name, "_facade_", 1, true) ~= nil
+            or instance.Name == "MergedShellStreetFacadeCue"
+            or instance.Name == "MergedShellWindowPaneCue"
+        )
 end
 
 local function inferPropKind(instance)
