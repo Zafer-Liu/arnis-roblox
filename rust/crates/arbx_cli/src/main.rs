@@ -13,8 +13,8 @@ use arbx_pipeline::{
     NormalizeStage, PipelineContext, SourceTruthPack, TriangulateStage, ValidateStage,
 };
 use arbx_planetary_store::{
-    ingest_manifest_sqlite, init_planetary_store, list_scenes, read_scene_catalog_entry, read_scene_chunk_subset,
-    summarize_planetary_store,
+    ingest_manifest_sqlite, init_planetary_store, list_scenes, read_scene_catalog_entry,
+    read_scene_chunk_subset, read_scene_chunk_summary_subset, summarize_planetary_store,
 };
 use arbx_roblox_export::{
     build_sample_multi_chunk, export_to_chunks, read_manifest_sqlite_all, write_manifest_sqlite,
@@ -1847,7 +1847,7 @@ fn cmd_emit_runtime_lua(args: &[String]) -> Result<(), String> {
 fn cmd_planetary_store(args: &[String]) -> Result<(), String> {
     let Some(subcommand) = args.first().map(String::as_str) else {
         return Err(
-            "planetary-store requires a subcommand: init | ingest-manifest | summary | list-scenes | scene".to_string(),
+            "planetary-store requires a subcommand: init | ingest-manifest | summary | list-scenes | scene | subset-summary".to_string(),
         );
     };
 
@@ -2062,6 +2062,83 @@ fn cmd_planetary_store(args: &[String]) -> Result<(), String> {
                 "{}",
                 serde_json::to_string_pretty(&subset)
                     .map_err(|err| format!("subset json failed: {err}"))?
+            );
+            Ok(())
+        }
+        "subset-summary" => {
+            let mut store_path: Option<PathBuf> = None;
+            let mut scene_id: Option<String> = None;
+            let mut bbox_studs: Option<(f64, f64, f64, f64)> = None;
+            let mut limit: Option<usize> = None;
+            let mut i = 1;
+            while i < args.len() {
+                match args[i].as_str() {
+                    "--store" => {
+                        let value = args.get(i + 1).ok_or("--store requires a path")?;
+                        store_path = Some(PathBuf::from(value));
+                        i += 2;
+                    }
+                    "--scene" => {
+                        let value = args.get(i + 1).ok_or("--scene requires a scene id")?;
+                        scene_id = Some(value.clone());
+                        i += 2;
+                    }
+                    "--bbox-studs" => {
+                        let value = args
+                            .get(i + 1)
+                            .ok_or("--bbox-studs requires MIN_X,MIN_Z,MAX_X,MAX_Z")?;
+                        let parts: Vec<f64> = value
+                            .split(',')
+                            .map(|part| {
+                                part.trim().parse::<f64>().map_err(|_| {
+                                    format!("invalid number in --bbox-studs: {}", part)
+                                })
+                            })
+                            .collect::<Result<Vec<f64>, String>>()?;
+                        if parts.len() != 4 {
+                            return Err(
+                                "--bbox-studs requires four comma-separated numbers".to_string()
+                            );
+                        }
+                        bbox_studs = Some((parts[0], parts[1], parts[2], parts[3]));
+                        i += 2;
+                    }
+                    "--limit" => {
+                        let value = args.get(i + 1).ok_or("--limit requires a number")?;
+                        limit = Some(
+                            value
+                                .parse::<usize>()
+                                .map_err(|_| format!("invalid --limit value: {value}"))?,
+                        );
+                        i += 2;
+                    }
+                    other => {
+                        return Err(format!(
+                            "unknown argument to planetary-store subset-summary: {other}"
+                        ))
+                    }
+                }
+            }
+            let store_path =
+                store_path.ok_or("planetary-store subset-summary requires --store PATH")?;
+            let scene_id = scene_id.ok_or("planetary-store subset-summary requires --scene ID")?;
+            let (min_x, min_z, max_x, max_z) = bbox_studs.ok_or(
+                "planetary-store subset-summary requires --bbox-studs MIN_X,MIN_Z,MAX_X,MAX_Z",
+            )?;
+            let subset = read_scene_chunk_summary_subset(
+                &store_path,
+                &scene_id,
+                min_x,
+                min_z,
+                max_x,
+                max_z,
+                limit,
+            )
+            .map_err(|err| format!("planetary-store subset-summary failed: {err}"))?;
+            println!(
+                "{}",
+                serde_json::to_string_pretty(&subset)
+                    .map_err(|err| format!("subset-summary json failed: {err}"))?
             );
             Ok(())
         }
@@ -3049,6 +3126,39 @@ mod tests {
             store_path.display().to_string(),
             "--scene".to_string(),
             "austin".to_string(),
+        ])
+        .unwrap();
+    }
+
+    #[test]
+    fn planetary_store_subset_summary_works() {
+        let tempdir = tempfile::tempdir().unwrap();
+        let store_path = tempdir.path().join("planetary.sqlite");
+        let manifest_path = tempdir.path().join("sample.sqlite");
+        let manifest = build_sample_multi_chunk(3, 1);
+        write_manifest_sqlite(&manifest, &manifest_path).unwrap();
+
+        cmd_planetary_store(&[
+            "ingest-manifest".to_string(),
+            "--store".to_string(),
+            store_path.display().to_string(),
+            "--manifest-sqlite".to_string(),
+            manifest_path.display().to_string(),
+            "--scene".to_string(),
+            "austin".to_string(),
+        ])
+        .unwrap();
+
+        cmd_planetary_store(&[
+            "subset-summary".to_string(),
+            "--store".to_string(),
+            store_path.display().to_string(),
+            "--scene".to_string(),
+            "austin".to_string(),
+            "--bbox-studs".to_string(),
+            "200,0,500,200".to_string(),
+            "--limit".to_string(),
+            "1".to_string(),
         ])
         .unwrap();
     }

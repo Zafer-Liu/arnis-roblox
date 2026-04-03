@@ -2327,3 +2327,16 @@ The compact historical archive index is:
   - `cargo test -p arbx_planetary_store -p arbx_cli planetary_store --quiet`
   - `cargo test -p arbx_planetary_store --quiet`
   - `git diff --check rust/crates/arbx_planetary_store/src/lib.rs rust/crates/arbx_cli/src/main.rs`
+
+## 2026-04-03 18:40 CDT
+
+- Extended the planetary backbone again on `main`:
+  - `arbx_planetary_store`
+    - added lightweight `PlanetaryChunkSummary` reads by stud-space bbox with optional result limits
+    - this gives the canonical store a metadata-only chunk query path suitable for realtime streaming orchestration before fetching full chunk payloads
+  - `arbx_cli`
+    - added `planetary-store subset-summary --bbox-studs ... [--limit N]`
+- Verification:
+  - `cargo test -p arbx_planetary_store -p arbx_cli planetary_store --quiet`
+  - `cargo test -p arbx_planetary_store --quiet`
+  - `git diff --check rust/crates/arbx_planetary_store/src/lib.rs rust/crates/arbx_cli/src/main.rs`

@@ -40,6 +40,17 @@ pub struct PlanetarySceneSubset {
     pub chunks: Vec<StoredChunkRecord>,
 }
 
+#[derive(Debug, Clone, PartialEq, Serialize)]
+pub struct PlanetaryChunkSummary {
+    pub chunk_id: String,
+    pub origin_x: f64,
+    pub origin_z: f64,
+    pub feature_count: usize,
+    pub streaming_cost: f64,
+    pub estimated_memory_cost: Option<f64>,
+    pub partition_version: String,
+}
+
 fn ensure_parent_dir(path: &Path) -> PlanetaryStoreResult<()> {
     if let Some(parent) = path.parent() {
         fs::create_dir_all(parent)?;
@@ -447,6 +458,71 @@ pub fn read_scene_chunk_subset(
     })
 }
 
+pub fn read_scene_chunk_summary_subset(
+    path: &Path,
+    scene_id: &str,
+    min_x: f64,
+    min_z: f64,
+    max_x: f64,
+    max_z: f64,
+    limit: Option<usize>,
+) -> PlanetaryStoreResult<Vec<PlanetaryChunkSummary>> {
+    let connection = open_store(path)?;
+    let chunk_size_studs: i32 = connection
+        .query_row(
+            "SELECT chunk_size_studs FROM scenes WHERE scene_id = ?1",
+            params![scene_id],
+            |row| row.get(0),
+        )
+        .optional()?
+        .ok_or_else(|| format!("scene {} is not present in planetary store", scene_id))?;
+
+    let mut sql = String::from(
+        "
+        SELECT
+            chunk_id,
+            origin_x,
+            origin_z,
+            feature_count,
+            streaming_cost,
+            estimated_memory_cost,
+            partition_version
+        FROM chunks
+        WHERE scene_id = ?1
+          AND origin_x <= ?2
+          AND origin_x + ?3 >= ?4
+          AND origin_z <= ?5
+          AND origin_z + ?3 >= ?6
+        ORDER BY origin_z ASC, origin_x ASC
+        ",
+    );
+    if let Some(limit) = limit {
+        sql.push_str(&format!(" LIMIT {}", limit));
+    }
+
+    let mut statement = connection.prepare(&sql)?;
+    let rows = statement.query_map(
+        params![scene_id, max_x, chunk_size_studs as f64, min_x, max_z, min_z],
+        |row| {
+            Ok(PlanetaryChunkSummary {
+                chunk_id: row.get(0)?,
+                origin_x: row.get(1)?,
+                origin_z: row.get(2)?,
+                feature_count: row.get::<_, i64>(3)? as usize,
+                streaming_cost: row.get(4)?,
+                estimated_memory_cost: row.get(5)?,
+                partition_version: row.get(6)?,
+            })
+        },
+    )?;
+
+    let mut chunks = Vec::new();
+    for row in rows {
+        chunks.push(row?);
+    }
+    Ok(chunks)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -551,5 +627,29 @@ mod tests {
         assert_eq!(scenes[1].scene_id, "austin_b");
         assert_eq!(scenes[0].chunk_count, 1);
         assert_eq!(scenes[1].chunk_count, 2);
+    }
+
+    #[test]
+    fn planetary_store_reads_chunk_summary_subset_by_stud_bbox() {
+        let dir = tempdir().unwrap();
+        let manifest_path = dir.path().join("sample.sqlite");
+        let store_path = dir.path().join("planetary.sqlite");
+
+        let manifest = build_sample_multi_chunk(3, 1);
+        write_manifest_sqlite(&manifest, &manifest_path).unwrap();
+        ingest_manifest_sqlite(&store_path, &manifest_path, Some("sample_austin")).unwrap();
+
+        let chunks = read_scene_chunk_summary_subset(
+            &store_path,
+            "sample_austin",
+            200.0,
+            0.0,
+            500.0,
+            200.0,
+            Some(1),
+        )
+        .unwrap();
+        assert_eq!(chunks.len(), 1);
+        assert_eq!(chunks[0].chunk_id, "0_0");
     }
 }
