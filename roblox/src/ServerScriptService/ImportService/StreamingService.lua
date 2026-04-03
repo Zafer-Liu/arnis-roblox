@@ -848,6 +848,7 @@ local function newStartupEnvelopeTelemetry(sourceId)
         sourceId = sourceId,
         nearbyBuildingModels = 0,
         nearbyMergedBuildingMeshParts = 0,
+        nearbyReadableFacadeCueParts = 0,
         nearbyWallParts = 0,
         nearbyRoofParts = 0,
         overheadRoofParts = 0,
@@ -856,11 +857,27 @@ local function newStartupEnvelopeTelemetry(sourceId)
     }
 end
 
+local function isStartupReadableFacadeCuePart(part)
+    if part == nil or not part:IsA("BasePart") then
+        return false
+    end
+
+    local name = part.Name
+    return name == "MergedShellWallPresenceCue"
+        or name == "MergedShellStreetFacadeCue"
+        or name == "MergedShellDoorCue"
+        or name == "FacadeBeltline"
+        or name == "CornerAccent"
+end
+
 local function isStartupEnvelopeReady(envelopeTelemetry)
+    local hasDirectWallEnvelope = envelopeTelemetry.nearbyWallParts > 0
+        and envelopeTelemetry.collidableWallPartsNearby > 0
+    local hasMergedReadableEnvelope = envelopeTelemetry.nearbyMergedBuildingMeshParts > 0
+        and envelopeTelemetry.nearbyReadableFacadeCueParts > 0
     return type(envelopeTelemetry) == "table"
         and envelopeTelemetry.nearbyBuildingModels > 0
-        and envelopeTelemetry.nearbyWallParts > 0
-        and envelopeTelemetry.collidableWallPartsNearby > 0
+        and (hasDirectWallEnvelope or hasMergedReadableEnvelope)
         and envelopeTelemetry.nearbyRoofParts > 0
         and envelopeTelemetry.overheadRoofParts > 0
 end
@@ -884,7 +901,8 @@ local function selectStartupEnvelopeTelemetry(candidateTelemetryBySourceId)
                 + candidateTelemetry.collidableWallPartsNearby * 20
                 + candidateTelemetry.nearbyRoofParts * 20
                 + candidateTelemetry.overheadRoofParts * 10
-                + candidateTelemetry.nearbyMergedBuildingMeshParts
+                + candidateTelemetry.nearbyMergedBuildingMeshParts * 4
+                + candidateTelemetry.nearbyReadableFacadeCueParts * 12
             if
                 selectedEnvelopeTelemetry == nil
                 or score > selectedScore
@@ -915,6 +933,7 @@ local function buildStartupStructureTelemetry(spawnPoint, worldRootName)
     local structureTelemetry = {
         nearbyBuildingModels = 0,
         nearbyMergedBuildingMeshParts = 0,
+        nearbyReadableFacadeCueParts = 0,
         nearbyWallParts = 0,
         nearbyRoofParts = 0,
         overheadRoofParts = 0,
@@ -922,6 +941,7 @@ local function buildStartupStructureTelemetry(spawnPoint, worldRootName)
         nearestWallDistanceStuds = nil,
         coherentEnvelopeNearbyBuildingModels = 0,
         coherentEnvelopeNearbyMergedBuildingMeshParts = 0,
+        coherentEnvelopeNearbyReadableFacadeCueParts = 0,
         coherentEnvelopeNearbyWallParts = 0,
         coherentEnvelopeNearbyRoofParts = 0,
         coherentEnvelopeOverheadRoofParts = 0,
@@ -960,7 +980,6 @@ local function buildStartupStructureTelemetry(spawnPoint, worldRootName)
             continue
         end
 
-        local mergedMeshes = buildingsFolder:FindFirstChild("MergedMeshes")
         for _, model in ipairs(buildingsFolder:GetDescendants()) do
             if not model:IsA("Model") or model:GetAttribute("ArnisImportBuildingHeight") == nil then
                 continue
@@ -1005,15 +1024,14 @@ local function buildStartupStructureTelemetry(spawnPoint, worldRootName)
                 local roofClosureDeck = isRoofClosureDeckPart(descendant)
                 local roofPart = string.find(nameLower, "roof", 1, true) ~= nil and not roofClosureDeck
 
-                if descendant:IsA("MeshPart") and mergedMeshes and descendant:IsDescendantOf(mergedMeshes) then
-                    if
-                        horizontalPartDistance <= STARTUP_NEARBY_BUILDING_RADIUS
-                        and not roofPart
-                        and not roofClosureDeck
-                    then
-                        structureTelemetry.nearbyMergedBuildingMeshParts += 1
-                        envelopeTelemetry.nearbyMergedBuildingMeshParts += 1
-                    end
+                if
+                    descendant:IsA("MeshPart")
+                    and horizontalPartDistance <= STARTUP_NEARBY_BUILDING_RADIUS
+                    and not roofPart
+                    and not roofClosureDeck
+                then
+                    structureTelemetry.nearbyMergedBuildingMeshParts += 1
+                    envelopeTelemetry.nearbyMergedBuildingMeshParts += 1
                 end
 
                 if roofPart then
@@ -1056,6 +1074,24 @@ local function buildStartupStructureTelemetry(spawnPoint, worldRootName)
                     end
                 end
             end
+
+            local detailFolder = model:FindFirstChild("Detail")
+            if detailFolder then
+                for _, descendant in ipairs(detailFolder:GetDescendants()) do
+                    if not isStartupReadableFacadeCuePart(descendant) or descendant.Transparency >= 0.99 then
+                        continue
+                    end
+
+                    local partOffset = descendant.Position - spawnPoint
+                    local horizontalPartDistance = Vector2.new(partOffset.X, partOffset.Z).Magnitude
+                    if horizontalPartDistance > STARTUP_NEARBY_WALL_RADIUS then
+                        continue
+                    end
+
+                    structureTelemetry.nearbyReadableFacadeCueParts += 1
+                    envelopeTelemetry.nearbyReadableFacadeCueParts += 1
+                end
+            end
         end
     end
 
@@ -1064,6 +1100,8 @@ local function buildStartupStructureTelemetry(spawnPoint, worldRootName)
         structureTelemetry.coherentEnvelopeNearbyBuildingModels = coherentEnvelopeTelemetry.nearbyBuildingModels
         structureTelemetry.coherentEnvelopeNearbyMergedBuildingMeshParts =
             coherentEnvelopeTelemetry.nearbyMergedBuildingMeshParts
+        structureTelemetry.coherentEnvelopeNearbyReadableFacadeCueParts =
+            coherentEnvelopeTelemetry.nearbyReadableFacadeCueParts
         structureTelemetry.coherentEnvelopeNearbyWallParts = coherentEnvelopeTelemetry.nearbyWallParts
         structureTelemetry.coherentEnvelopeNearbyRoofParts = coherentEnvelopeTelemetry.nearbyRoofParts
         structureTelemetry.coherentEnvelopeOverheadRoofParts = coherentEnvelopeTelemetry.overheadRoofParts
@@ -1086,6 +1124,8 @@ function StreamingService.GetStartupResidencySnapshot(spawnPoint, worldRootName)
     local requiredNearChunks = math.max(1, nearDesired)
     local coherentEnvelopeReady = isStartupEnvelopeReady({
         nearbyBuildingModels = structureTelemetry.coherentEnvelopeNearbyBuildingModels,
+        nearbyMergedBuildingMeshParts = structureTelemetry.coherentEnvelopeNearbyMergedBuildingMeshParts,
+        nearbyReadableFacadeCueParts = structureTelemetry.coherentEnvelopeNearbyReadableFacadeCueParts,
         nearbyWallParts = structureTelemetry.coherentEnvelopeNearbyWallParts,
         collidableWallPartsNearby = structureTelemetry.coherentEnvelopeCollidableWallPartsNearby,
         nearbyRoofParts = structureTelemetry.coherentEnvelopeNearbyRoofParts,
@@ -1103,6 +1143,7 @@ function StreamingService.GetStartupResidencySnapshot(spawnPoint, worldRootName)
         schedulerState = schedulerState,
         nearbyBuildingModels = structureTelemetry.nearbyBuildingModels,
         nearbyMergedBuildingMeshParts = structureTelemetry.nearbyMergedBuildingMeshParts,
+        nearbyReadableFacadeCueParts = structureTelemetry.nearbyReadableFacadeCueParts,
         nearbyWallParts = structureTelemetry.nearbyWallParts,
         nearbyRoofParts = structureTelemetry.nearbyRoofParts,
         overheadRoofParts = structureTelemetry.overheadRoofParts,
@@ -1110,6 +1151,7 @@ function StreamingService.GetStartupResidencySnapshot(spawnPoint, worldRootName)
         nearestWallDistanceStuds = structureTelemetry.nearestWallDistanceStuds,
         coherentEnvelopeNearbyBuildingModels = structureTelemetry.coherentEnvelopeNearbyBuildingModels,
         coherentEnvelopeNearbyMergedBuildingMeshParts = structureTelemetry.coherentEnvelopeNearbyMergedBuildingMeshParts,
+        coherentEnvelopeNearbyReadableFacadeCueParts = structureTelemetry.coherentEnvelopeNearbyReadableFacadeCueParts,
         coherentEnvelopeNearbyWallParts = structureTelemetry.coherentEnvelopeNearbyWallParts,
         coherentEnvelopeNearbyRoofParts = structureTelemetry.coherentEnvelopeNearbyRoofParts,
         coherentEnvelopeOverheadRoofParts = structureTelemetry.coherentEnvelopeOverheadRoofParts,
@@ -1345,17 +1387,37 @@ local function buildStreamingTerrainNeighborContext(chunkRef)
     }
 end
 
+local hasPendingBuildingSubplans
+local shouldBypassHighDetailSubplanRollout
+
 local function appendStreamingWorkItems(workItems, chunkEntry, chunkOptions, config, targetLod)
-    local chunkRef = chunkEntry.ref
-    local allowedSubplans = SubplanRollout.GetFullySchedulableSubplans(chunkRef, config)
-    if allowedSubplans == nil then
+    local function appendWholeChunkWorkItem(wholeChunkOptions)
         workItems[#workItems + 1] = {
             chunkEntry = chunkEntry,
-            chunkOptions = chunkOptions,
+            chunkOptions = wholeChunkOptions,
             chunkId = chunkRef.id,
             originStuds = chunkRef.originStuds,
             targetLod = targetLod,
         }
+    end
+
+    local chunkRef = chunkEntry.ref
+    if shouldBypassHighDetailSubplanRollout(chunkEntry, chunkOptions, targetLod) then
+        appendWholeChunkWorkItem({
+            worldRootName = chunkOptions.worldRootName,
+            frameBudgetSeconds = chunkOptions.frameBudgetSeconds,
+            nonBlocking = chunkOptions.nonBlocking,
+            shouldCancel = chunkOptions.shouldCancel,
+            config = chunkOptions.config,
+            configSignature = chunkOptions.configSignature,
+            layerSignatures = chunkOptions.layerSignatures,
+        })
+        return false
+    end
+
+    local allowedSubplans = SubplanRollout.GetFullySchedulableSubplans(chunkRef, config)
+    if allowedSubplans == nil then
+        appendWholeChunkWorkItem(chunkOptions)
         return false
     end
 
@@ -1390,7 +1452,48 @@ local function getPendingSubplans(chunkRef, config)
     return pending
 end
 
+hasPendingBuildingSubplans = function(chunkRef, config)
+    local pendingSubplans = getPendingSubplans(chunkRef, config)
+    if pendingSubplans == nil then
+        return false
+    end
+
+    for _, subplan in ipairs(pendingSubplans) do
+        if type(subplan) == "table" and subplan.layer == "buildings" then
+            return true
+        end
+    end
+
+    return false
+end
+
+shouldBypassHighDetailSubplanRollout = function(chunkEntry, chunkOptions, targetLod)
+    return targetLod == LOD_HIGH
+        and type(chunkEntry) == "table"
+        and type(chunkOptions) == "table"
+        and hasPendingBuildingSubplans(chunkEntry.ref, chunkOptions.config)
+end
+
 local function queuePendingSubplans(workItems, chunkEntry, chunkOptions, targetLod)
+    if shouldBypassHighDetailSubplanRollout(chunkEntry, chunkOptions, targetLod) then
+        workItems[#workItems + 1] = {
+            chunkEntry = chunkEntry,
+            chunkOptions = {
+                worldRootName = chunkOptions.worldRootName,
+                frameBudgetSeconds = chunkOptions.frameBudgetSeconds,
+                nonBlocking = chunkOptions.nonBlocking,
+                shouldCancel = chunkOptions.shouldCancel,
+                config = chunkOptions.config,
+                configSignature = chunkOptions.configSignature,
+                layerSignatures = chunkOptions.layerSignatures,
+            },
+            chunkId = chunkEntry.ref.id,
+            originStuds = chunkEntry.ref.originStuds,
+            targetLod = targetLod,
+        }
+        return true
+    end
+
     local pendingSubplans = getPendingSubplans(chunkEntry.ref, chunkOptions.config)
     if pendingSubplans == nil or #pendingSubplans == 0 then
         return false

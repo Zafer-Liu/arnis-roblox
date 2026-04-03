@@ -167,6 +167,37 @@ local function resolveOffsetNeighborIndex(cellIndex, localCount, neighborCount, 
     return clampIndex(resolvedIndex, 0, neighborCount - 1)
 end
 
+local function buildDerivedTerrainNeighborSignature(terrainNeighbors)
+    if type(terrainNeighbors) ~= "table" then
+        return "none"
+    end
+
+    local directions = { "west", "east", "north", "south", "northWest", "northEast", "southWest", "southEast" }
+    local tokens = {}
+    for _, direction in ipairs(directions) do
+        local descriptor = terrainNeighbors[direction]
+        local neighborId = descriptor and descriptor.id or nil
+        if type(neighborId) == "string" and neighborId ~= "" then
+            tokens[#tokens + 1] = direction .. "=" .. neighborId
+        end
+    end
+
+    if #tokens == 0 then
+        return "none"
+    end
+
+    return table.concat(tokens, ",")
+end
+
+local function resolveTerrainNeighborSignature(options)
+    if type(options) == "table" and type(options.terrainNeighborSignature) == "string" then
+        return options.terrainNeighborSignature
+    end
+
+    local terrainNeighbors = if type(options) == "table" then options.terrainNeighbors else nil
+    return buildDerivedTerrainNeighborSignature(terrainNeighbors)
+end
+
 local function resolveNeighborHeightSample(plan, cellX, cellZ)
     local localHeight = sampleTerrainGridHeight(plan.terrainGrid, cellX, cellZ)
     if cellX >= 0 and cellX < plan.gridW and cellZ >= 0 and cellZ < plan.gridD then
@@ -422,10 +453,7 @@ local function buildChunkPlan(chunk, options)
     local gridD = terrainGrid.depth
     local heights = terrainGrid.heights
     local terrainNeighbors = if type(options) == "table" then options.terrainNeighbors else nil
-    local terrainNeighborSignature = if type(options) == "table"
-            and type(options.terrainNeighborSignature) == "string"
-        then options.terrainNeighborSignature
-        else "none"
+    local terrainNeighborSignature = resolveTerrainNeighborSignature(options)
 
     local minH = 0
     local maxH = 0
@@ -568,10 +596,7 @@ function TerrainBuilder.PrepareChunk(chunk, options)
         return nil
     end
 
-    local terrainNeighborSignature = if type(options) == "table"
-            and type(options.terrainNeighborSignature) == "string"
-        then options.terrainNeighborSignature
-        else "none"
+    local terrainNeighborSignature = resolveTerrainNeighborSignature(options)
     local cachedPlan = rawget(chunk, BUILD_PLAN_CACHE_KEY)
     if
         cachedPlan ~= nil

@@ -301,10 +301,24 @@ local function summarizeBuildingStructure(building)
             or string.find(lowerName, "corner", 1, true) ~= nil
     end
 
+    local function isVisibleWallCuePart(descendant)
+        if descendant == nil or not descendant:IsA("BasePart") then
+            return false
+        end
+
+        local name = descendant.Name
+        return name == "MergedShellWallPresenceCue"
+            or name == "MergedShellStreetFacadeCue"
+            or name == "MergedShellDoorCue"
+            or name == "FacadeBeltline"
+            or name == "CornerAccent"
+    end
+
     local summary = {
         shellParts = 0,
         shellMeshParts = 0,
         visibleShellWallParts = 0,
+        visibleWallCueParts = 0,
         roofParts = 0,
         roofClosureParts = 0,
         detailParts = 0,
@@ -340,6 +354,9 @@ local function summarizeBuildingStructure(building)
                 local isVisible = descendant.Transparency < 0.99
                 if isVisible then
                     summary.visibleDetailParts += 1
+                    if isVisibleWallCuePart(descendant) then
+                        summary.visibleWallCueParts += 1
+                    end
                 end
                 if string.find(descendant.Name, "_facade_", 1, true) ~= nil then
                     summary.facadeParts += 1
@@ -765,7 +782,7 @@ function SceneAudit.summarizeWorld(worldRoot)
                         scene.buildingModelsMissingDirectShell += 1
                     end
                     local expectsVisibleShellWalls = usageBucket ~= "roof"
-                    if structureSummary.visibleShellWallParts > 0 then
+                    if structureSummary.visibleShellWallParts > 0 or structureSummary.visibleWallCueParts > 0 then
                         scene.buildingModelsWithVisibleShellWalls += 1
                     elseif expectsVisibleShellWalls then
                         scene.buildingModelsWithoutVisibleShellWalls += 1
@@ -780,6 +797,7 @@ function SceneAudit.summarizeWorld(worldRoot)
                             roofParts = roofParts,
                             roofClosureParts = roofClosureParts,
                             visibleShellWallParts = structureSummary.visibleShellWallParts,
+                            visibleWallCueParts = structureSummary.visibleWallCueParts,
                             x = math.round(pivot.Position.X * 10) / 10,
                             z = math.round(pivot.Position.Z * 10) / 10,
                         }, MAX_BUILDING_VISIBLE_WALL_GAP_DETAILS)

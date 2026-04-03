@@ -35,11 +35,7 @@ return function()
     local secondPlan = TerrainBuilder.PrepareChunk(chunk)
 
     Assert.truthy(firstPlan, "expected terrain build plan to be created")
-    Assert.equal(
-        firstPlan,
-        secondPlan,
-        "expected terrain build plan to be reused for the same chunk table"
-    )
+    Assert.equal(firstPlan, secondPlan, "expected terrain build plan to be reused for the same chunk table")
     Assert.equal(
         TerrainBuilder.GetPreparedChunkPlan(chunk),
         firstPlan,
@@ -54,5 +50,58 @@ return function()
         firstPlan.requestedSampleResolution,
         1,
         "expected terrain plans to preserve the configured sampling intent"
+    )
+
+    local eastNeighborChunk = {
+        id = "terrain_plan_reuse_east",
+        originStuds = { x = 64, y = 0, z = 0 },
+        terrain = {
+            cellSizeStuds = 16,
+            width = 4,
+            depth = 4,
+            heights = {
+                30,
+                30,
+                30,
+                30,
+                30,
+                30,
+                30,
+                30,
+                30,
+                30,
+                30,
+                30,
+                30,
+                30,
+                30,
+                30,
+            },
+            material = "Grass",
+        },
+    }
+
+    local neighborAwarePlan = TerrainBuilder.PrepareChunk(chunk, {
+        terrainNeighbors = {
+            east = {
+                id = eastNeighborChunk.id,
+                terrain = eastNeighborChunk.terrain,
+            },
+        },
+    })
+
+    Assert.notEqual(
+        neighborAwarePlan,
+        firstPlan,
+        "expected neighbor-aware terrain context to invalidate a stale seam-blind cached plan"
+    )
+    Assert.equal(
+        neighborAwarePlan.terrainNeighborSignature,
+        "east=" .. eastNeighborChunk.id,
+        "expected terrain plans to derive a deterministic signature from neighbor context"
+    )
+    Assert.truthy(
+        neighborAwarePlan.sampleInterpolatedHeight(3, 1, 1, 0) > firstPlan.sampleInterpolatedHeight(3, 1, 1, 0),
+        "expected east-edge interpolation to pick up the new neighbor height after cache invalidation"
     )
 end

@@ -1941,3 +1941,22 @@ The compact historical archive index is:
   - `python3 -m unittest scripts.tests.test_building_shell_mesh_wall_presence_contract scripts.tests.test_building_shell_mesh_readability_contract scripts.tests.test_terrain_sparse_peak_surface_damping_truth scripts.tests.test_terrain_column_occupancy_shaping_truth scripts.tests.test_streaming_lod_live_root_focus_contract scripts.tests.test_streaming_lod_avatar_offset_contract scripts.tests.test_play_render_truth scripts.tests.test_austin_runtime_contract -v`
   - `stylua --check roblox/src/ServerScriptService/ImportService/Builders/BuildingBuilder.lua roblox/src/ServerScriptService/ImportService/Builders/TerrainBuilder.lua roblox/src/ServerScriptService/ImportService/StreamingService.lua roblox/src/ServerScriptService/Tests/BuildingShellMeshWallPresenceCues.spec.lua roblox/src/ServerScriptService/Tests/LODCameraAvatarOffset.spec.lua roblox/src/ServerScriptService/Tests/TerrainOutdoorFidelity.spec.lua`
   - `git diff --check`
+
+## 2026-04-03 14:02 CDT
+
+- Landed a broader local-safe play-fidelity/runtime-convergence tranche on `main`:
+  - `StreamingService.lua`
+    - startup structural readiness now accepts merged-shell readable facade cues when explicit collidable wall parts are absent, so near-spawn high-fidelity shellMesh buildings can satisfy readiness truth without waiting for the wrong wall contract
+    - high-detail chunks with pending `buildings` subplans now bypass the throttled subplan rollout path and queue a whole-chunk import instead, reducing late wall/roof/facade appearance around the player
+  - `SceneAudit.lua`
+    - merged-shell readable cues now count as visible wall evidence, keeping play-mode wall-gap audits aligned with the intended merged-shell readability path
+  - `TerrainBuilder.lua`
+    - prepared terrain plans now derive a deterministic neighbor signature from supplied neighbor context when callers omit an explicit signature, so seam-aware plans invalidate correctly instead of reusing stale seam-blind cache entries
+- Added focused local-safe coverage in:
+  - `StartupMergedShellReadableEnvelope.spec.lua`
+  - `HighDetailWholeChunkAdmission.spec.lua`
+  - updated `TerrainPlanReuse.spec.lua`, `test_play_render_truth.py`, and `test_austin_runtime_contract.py`
+- Verification:
+  - `python3 -m unittest scripts.tests.test_play_render_truth scripts.tests.test_austin_runtime_contract -v`
+  - `stylua --check roblox/src/ServerScriptService/ImportService/StreamingService.lua roblox/src/ServerScriptService/ImportService/SceneAudit.lua roblox/src/ServerScriptService/ImportService/Builders/TerrainBuilder.lua roblox/src/ServerScriptService/Tests/StartupMergedShellReadableEnvelope.spec.lua roblox/src/ServerScriptService/Tests/HighDetailWholeChunkAdmission.spec.lua roblox/src/ServerScriptService/Tests/TerrainPlanReuse.spec.lua`
+  - `git diff --check`

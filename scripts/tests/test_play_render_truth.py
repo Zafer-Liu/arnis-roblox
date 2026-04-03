@@ -165,6 +165,13 @@ class PlayRenderTruthTests(unittest.TestCase):
         self.assertIn("importOptions.terrainNeighbors = terrainNeighborContext.neighbors", streaming_source)
         self.assertIn("importOptions.terrainNeighborSignature = terrainNeighborContext.signature", streaming_source)
 
+    def test_terrain_plan_cache_derives_neighbor_signature_from_neighbor_context(self) -> None:
+        source = TERRAIN_BUILDER.read_text(encoding="utf-8")
+
+        self.assertIn("local function buildDerivedTerrainNeighborSignature(terrainNeighbors)", source)
+        self.assertIn("local function resolveTerrainNeighborSignature(options)", source)
+        self.assertIn("terrainNeighborSignature = resolveTerrainNeighborSignature(options)", source)
+
     def test_terrain_material_richness_flows_from_builder_to_preview_hotspot_summary(self) -> None:
         terrain_source = TERRAIN_BUILDER.read_text(encoding="utf-8")
         import_service_source = IMPORT_SERVICE.read_text(encoding="utf-8")
@@ -199,6 +206,28 @@ class PlayRenderTruthTests(unittest.TestCase):
         self.assertNotIn('Instance.new("BloomEffect")', source)
         self.assertNotIn('Instance.new("SunRaysEffect")', source)
         self.assertNotIn('Instance.new("ColorCorrectionEffect")', source)
+
+    def test_startup_structure_truth_accepts_merged_shell_readable_cues(self) -> None:
+        source = STREAMING_SERVICE.read_text(encoding="utf-8")
+
+        self.assertIn("local function isStartupReadableFacadeCuePart(part)", source)
+        self.assertIn("nearbyReadableFacadeCueParts", source)
+        self.assertIn("coherentEnvelopeNearbyReadableFacadeCueParts", source)
+        self.assertIn("local hasDirectWallEnvelope =", source)
+        self.assertIn("local hasMergedReadableEnvelope =", source)
+        self.assertIn("envelopeTelemetry.nearbyMergedBuildingMeshParts > 0", source)
+        self.assertIn("and envelopeTelemetry.nearbyReadableFacadeCueParts > 0", source)
+
+    def test_scene_audit_treats_merged_shell_readable_cues_as_visible_wall_evidence(self) -> None:
+        source = SCENE_AUDIT.read_text(encoding="utf-8")
+
+        self.assertIn("local function isVisibleWallCuePart(descendant)", source)
+        self.assertIn("visibleWallCueParts = 0", source)
+        self.assertIn("summary.visibleWallCueParts += 1", source)
+        self.assertIn(
+            "if structureSummary.visibleShellWallParts > 0 or structureSummary.visibleWallCueParts > 0 then",
+            source,
+        )
 
     def test_runtime_import_threads_chunk_ownership_into_layer_folders(self) -> None:
         source = IMPORT_SERVICE.read_text(encoding="utf-8")

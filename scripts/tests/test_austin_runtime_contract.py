@@ -240,6 +240,19 @@ class AustinRuntimeContractTests(unittest.TestCase):
         self.assertIn('if not chunkFolder or chunkFolder:GetAttribute("ArnisChunkId") ~= chunkId then', self.streaming_text)
         self.assertIn("local buildingsFolder = chunkFolder:FindFirstChild(\"Buildings\")", self.streaming_text)
 
+    def test_streaming_service_bypasses_subplan_rollout_for_high_detail_building_chunks(self) -> None:
+        self.assertIn("local hasPendingBuildingSubplans", self.streaming_text)
+        self.assertIn("local shouldBypassHighDetailSubplanRollout", self.streaming_text)
+        self.assertIn("hasPendingBuildingSubplans = function(chunkRef, config)", self.streaming_text)
+        self.assertIn(
+            "shouldBypassHighDetailSubplanRollout = function(chunkEntry, chunkOptions, targetLod)",
+            self.streaming_text,
+        )
+        self.assertIn("if shouldBypassHighDetailSubplanRollout(chunkEntry, chunkOptions, targetLod) then", self.streaming_text)
+        self.assertIn("workItems[#workItems + 1] = {", self.streaming_text)
+        self.assertIn("targetLod == LOD_HIGH", self.streaming_text)
+        self.assertIn('subplan.layer == "buildings"', self.streaming_text)
+
     def test_world_config_declares_explicit_runtime_streaming_rings(self) -> None:
         self.assertIn("StreamingRings = {", self.world_config_text)
         self.assertIn("near = {", self.world_config_text)
