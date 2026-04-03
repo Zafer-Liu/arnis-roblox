@@ -333,6 +333,8 @@ class RunStudioHarnessTests(unittest.TestCase):
         )
         self.assertIsNotNone(helper_block, "wait_for_template_log_handoff_or_current_session function not found")
         helper_body = helper_block.group("body")
+        self.assertIn("grep -qE 'State: PlaceIdle|OpenPlaceSuccess'", helper_body)
+        self.assertIn("printf 'current:place_idle\\n'", helper_body)
         self.assertIn('studio_session_status_value status', helper_body)
         self.assertIn('"ready_edit"', helper_body)
         self.assertIn('"start_page"', helper_body)
@@ -346,6 +348,7 @@ class RunStudioHarnessTests(unittest.TestCase):
         handoff_body = handoff_block.group("body")
         self.assertIn('wait_for_template_log_handoff_or_current_session', handoff_body)
         self.assertIn('fresh template handoff stayed on current Studio log', handoff_body)
+        self.assertIn('fresh template handoff accepted current Studio log from PlaceIdle marker', handoff_body)
         self.assertIn('NEW_TEMPLATE_HANDOFF_READY=1', handoff_body)
 
     def test_fresh_template_launch_skips_redundant_outer_editor_ready_wait_after_handoff(self) -> None:

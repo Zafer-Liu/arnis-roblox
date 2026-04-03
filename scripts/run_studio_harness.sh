@@ -2094,6 +2094,11 @@ wait_for_template_log_handoff_or_current_session() {
       return 0
     fi
 
+    if [[ -n "$previous_log" && -f "$previous_log" ]] && grep -qE 'State: PlaceIdle|OpenPlaceSuccess' "$previous_log"; then
+      printf 'current:place_idle\n'
+      return 0
+    fi
+
     local status=""
     status="$(studio_session_status_value status)"
     if [[ "$status" == "ready_edit" || "$status" == "start_page" || "$status" == "ready_play" ]]; then
@@ -2808,8 +2813,12 @@ follow_new_template_handoff() {
     if [[ "$handoff_result" == current:* ]]; then
       log "fresh template handoff stayed on current Studio log status=${handoff_result#current:}"
     fi
-    log "fresh template handoff phase=wait-editor-ready-current-log timeout=10s"
-    wait_for_editor_ready 10 || sleep 3
+    if [[ "$handoff_result" == "current:place_idle" ]]; then
+      log "fresh template handoff accepted current Studio log from PlaceIdle marker"
+    else
+      log "fresh template handoff phase=wait-editor-ready-current-log timeout=10s"
+      wait_for_editor_ready 10 || sleep 3
+    fi
   fi
   dismiss_startup_dialogs
   NEW_TEMPLATE_HANDOFF_READY=1
