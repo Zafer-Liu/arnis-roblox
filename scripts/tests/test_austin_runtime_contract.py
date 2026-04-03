@@ -458,6 +458,14 @@ class AustinRuntimeContractTests(unittest.TestCase):
         self.assertIn("ArnisShellWallEvidence", self.scene_audit_text)
         self.assertIn("part.Transparency = partOptions.transparency", self.building_builder_text)
 
+    def test_scene_audit_tracks_visible_detail_and_facade_truth_separately_from_total_parts(self) -> None:
+        self.assertIn("buildingVisibleDetailPartCount", self.scene_audit_text)
+        self.assertIn("buildingVisibleFacadePartCount", self.scene_audit_text)
+        self.assertIn("visibleDetailParts = 0", self.scene_audit_text)
+        self.assertIn("visibleFacadeParts = 0", self.scene_audit_text)
+        self.assertIn("scene.buildingVisibleDetailPartCount += visibleDetailParts", self.scene_audit_text)
+        self.assertIn("scene.buildingVisibleFacadePartCount += visibleFacadeParts", self.scene_audit_text)
+
 
 if __name__ == "__main__":
     unittest.main()

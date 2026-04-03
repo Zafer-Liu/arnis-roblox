@@ -1796,3 +1796,13 @@ The compact historical archive index is:
 - Next `tertiary` proof should answer:
   - whether per-group LOD anchors materially reduce play-only facade/detail disappearance near chunk edges
   - whether peak-coverage terrain shaping reduces the false peak planes without introducing underfilled hilltops
+
+## 2026-04-03 12:26 CDT
+
+- Tightened scene-truth accounting after the LOD-anchor slice:
+  - `SceneAudit.lua` now tracks visible building detail/facade counts separately from total detail/facade counts, so hidden runtime groups no longer look equivalent to visible play-mode detail
+  - updated `SceneAudit.spec.lua`, `test_play_render_truth.py`, and `test_austin_runtime_contract.py` to lock the new visible-vs-total contract
+- Verification:
+  - `python3 -m unittest scripts.tests.test_terrain_chunk_edge_truth scripts.tests.test_play_render_truth scripts.tests.test_austin_runtime_contract -v`
+  - `stylua --check roblox/src/ServerScriptService/ImportService/SceneAudit.lua roblox/src/ServerScriptService/Tests/SceneAudit.spec.lua`
+  - `git diff --check`

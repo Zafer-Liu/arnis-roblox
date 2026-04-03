@@ -414,6 +414,8 @@ return function()
         "expected hipped closure-only coverage to preserve closure-deck evidence"
     )
     Assert.equal(summary.buildingFacadePartCount, 1, "expected one facade part")
+    Assert.equal(summary.buildingVisibleDetailPartCount, 1, "expected one visible building detail part")
+    Assert.equal(summary.buildingVisibleFacadePartCount, 1, "expected one visible facade part")
     Assert.equal(summary.buildingModelsWithDirectShell, 5, "expected five buildings with direct shell geometry")
     Assert.equal(summary.buildingModelsMissingDirectShell, 1, "expected one building relying on merged geometry")
     Assert.equal(

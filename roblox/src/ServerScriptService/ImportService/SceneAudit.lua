@@ -177,11 +177,13 @@ local function newSummary()
         meshPartCount = 0,
         buildingModelCount = 0,
         buildingDetailPartCount = 0,
+        buildingVisibleDetailPartCount = 0,
         buildingShellPartCount = 0,
         buildingShellMeshPartCount = 0,
         buildingRoofPartCount = 0,
         buildingModelsWithRoofClosureDeck = 0,
         buildingFacadePartCount = 0,
+        buildingVisibleFacadePartCount = 0,
         buildingModelsWithDirectRoof = 0,
         buildingModelsWithMergedRoofOnly = 0,
         buildingModelsWithNoRoofEvidence = 0,
@@ -306,7 +308,9 @@ local function summarizeBuildingStructure(building)
         roofParts = 0,
         roofClosureParts = 0,
         detailParts = 0,
+        visibleDetailParts = 0,
         facadeParts = 0,
+        visibleFacadeParts = 0,
     }
 
     local shellFolder = building:FindFirstChild("Shell")
@@ -333,8 +337,15 @@ local function summarizeBuildingStructure(building)
         for _, descendant in ipairs(detailFolder:GetDescendants()) do
             if descendant:IsA("BasePart") then
                 summary.detailParts += 1
+                local isVisible = descendant.Transparency < 0.99
+                if isVisible then
+                    summary.visibleDetailParts += 1
+                end
                 if string.find(descendant.Name, "_facade_", 1, true) ~= nil then
                     summary.facadeParts += 1
+                    if isVisible then
+                        summary.visibleFacadeParts += 1
+                    end
                 end
             end
         end
@@ -675,13 +686,17 @@ function SceneAudit.summarizeWorld(worldRoot)
                     local roofParts = structureSummary.roofParts
                     local roofClosureParts = structureSummary.roofClosureParts
                     local detailParts = structureSummary.detailParts
+                    local visibleDetailParts = structureSummary.visibleDetailParts
                     local facadeParts = structureSummary.facadeParts
+                    local visibleFacadeParts = structureSummary.visibleFacadeParts
 
                     scene.buildingShellPartCount += shellParts
                     scene.buildingShellMeshPartCount += shellMeshParts
                     scene.buildingRoofPartCount += roofParts
                     scene.buildingDetailPartCount += detailParts
+                    scene.buildingVisibleDetailPartCount += visibleDetailParts
                     scene.buildingFacadePartCount += facadeParts
+                    scene.buildingVisibleFacadePartCount += visibleFacadeParts
                     local evidenceKind = "none"
                     if roofParts > 0 then
                         evidenceKind = "direct"

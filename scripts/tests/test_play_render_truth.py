@@ -278,6 +278,8 @@ class PlayRenderTruthTests(unittest.TestCase):
         self.assertIn("buildingClosureOnlyRoofGapDetails", source)
         self.assertIn("buildingModelsWithVisibleShellWalls", source)
         self.assertIn("buildingModelsWithoutVisibleShellWalls", source)
+        self.assertIn("buildingVisibleDetailPartCount", source)
+        self.assertIn("buildingVisibleFacadePartCount", source)
         self.assertIn("buildingRoofCoverageByUsage", source)
         self.assertIn("buildingRoofCoverageByShape", source)
         self.assertRegex(
