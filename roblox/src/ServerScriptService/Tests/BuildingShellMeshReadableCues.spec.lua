@@ -92,6 +92,7 @@ return function()
     local rooflineCues = 0
     local perimeterCues = 0
     local streetFacadeCues = 0
+    local doorCues = 0
     local streetFacadeCueYs = {}
     for _, child in ipairs(detailFolder:GetDescendants()) do
         if child:IsA("Part") and child.Name == "CornerAccent" then
@@ -105,6 +106,8 @@ return function()
         elseif child:IsA("Part") and child.Name == "MergedShellStreetFacadeCue" then
             streetFacadeCues += 1
             streetFacadeCueYs[#streetFacadeCueYs + 1] = child.Position.Y
+        elseif child:IsA("Part") and child.Name == "MergedShellDoorCue" then
+            doorCues += 1
         end
     end
 
@@ -113,12 +116,19 @@ return function()
     Assert.equal(rooflineCues, 4, "expected one roofline cue per footprint edge")
     Assert.equal(perimeterCues, 4, "expected one perimeter cue per footprint corner")
     Assert.equal(streetFacadeCues, 4, "expected one street-level facade cue per footprint edge")
+    Assert.equal(doorCues, 1, "expected one merged-shell door cue on the primary facade edge")
     for _, cueY in ipairs(streetFacadeCueYs) do
         Assert.truthy(
             cueY >= 1.5 and cueY <= 5,
             "expected street-level facade cues to sit low enough to read from street level"
         )
     end
+    local doorCue = detailFolder:FindFirstChild("MergedShellDoorCue")
+    Assert.truthy(doorCue, "expected merged-shell door cue part")
+    Assert.truthy(
+        doorCue.Position.Y >= 1.5 and doorCue.Position.Y <= 4.5,
+        "expected merged-shell door cue to sit at street-facing eye level"
+    )
 
     Assert.equal(
         detailFolder:GetAttribute("ArnisMergedShellRooflineCueCount"),
@@ -134,6 +144,11 @@ return function()
         detailFolder:GetAttribute("ArnisMergedShellStreetFacadeCueCount"),
         4,
         "expected street-level facade cue attribute to reflect emitted facade geometry"
+    )
+    Assert.equal(
+        detailFolder:GetAttribute("ArnisMergedShellDoorCueCount"),
+        1,
+        "expected door cue attribute to reflect emitted street-facing geometry"
     )
 
     local sceneSummary = SceneAudit.summarizeWorld(worldRoot)

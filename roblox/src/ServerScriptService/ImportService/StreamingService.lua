@@ -1126,6 +1126,23 @@ local function getIndexCoord(value, cellSize)
     return math.floor(value / cellSize)
 end
 
+local function getChunkEntryCellRange(chunkEntry, cellSize)
+    local chunkRef = type(chunkEntry) == "table" and chunkEntry.ref or nil
+    local footprintBounds = ChunkPriority.GetChunkFootprintBounds(chunkRef)
+    if footprintBounds ~= nil then
+        return getIndexCoord(footprintBounds.minX, cellSize),
+            getIndexCoord(footprintBounds.maxX, cellSize),
+            getIndexCoord(footprintBounds.minY, cellSize),
+            getIndexCoord(footprintBounds.maxY, cellSize)
+    end
+
+    local centerX = type(chunkEntry) == "table" and chunkEntry.centerX or 0
+    local centerZ = type(chunkEntry) == "table" and chunkEntry.centerZ or 0
+    local cellX = getIndexCoord(centerX, cellSize)
+    local cellZ = getIndexCoord(centerZ, cellSize)
+    return cellX, cellX, cellZ, cellZ
+end
+
 local function buildChunkSpatialIndex(chunkRefs, config)
     local targetRadius = config.StreamingTargetRadius or 2048
     local cellSize = math.max(config.ChunkSizeStuds or 256, targetRadius)
@@ -1143,19 +1160,22 @@ local function buildChunkSpatialIndex(chunkRefs, config)
             centerZ = centerZ,
             materializedChunk = nil,
         }
-        local cellX = getIndexCoord(centerX, cellSize)
-        local cellZ = getIndexCoord(centerZ, cellSize)
-        local row = buckets[cellX]
-        if not row then
-            row = {}
-            buckets[cellX] = row
+        local minCellX, maxCellX, minCellZ, maxCellZ = getChunkEntryCellRange(chunkEntry, cellSize)
+        for cellX = minCellX, maxCellX do
+            local row = buckets[cellX]
+            if not row then
+                row = {}
+                buckets[cellX] = row
+            end
+            for cellZ = minCellZ, maxCellZ do
+                local bucket = row[cellZ]
+                if not bucket then
+                    bucket = {}
+                    row[cellZ] = bucket
+                end
+                bucket[#bucket + 1] = chunkEntry
+            end
         end
-        local bucket = row[cellZ]
-        if not bucket then
-            bucket = {}
-            row[cellZ] = bucket
-        end
-        bucket[#bucket + 1] = chunkEntry
     end
 
     return {
@@ -1174,6 +1194,7 @@ local function getCandidateChunkRefs(index, playerPos, targetRadius)
     local minCellZ = getIndexCoord(playerPos.Z - targetRadius, index.cellSize)
     local maxCellZ = getIndexCoord(playerPos.Z + targetRadius, index.cellSize)
     local candidates = {}
+    local seenChunkIds = {}
 
     for cellX = minCellX, maxCellX do
         local row = index.buckets[cellX]
@@ -1182,7 +1203,11 @@ local function getCandidateChunkRefs(index, playerPos, targetRadius)
                 local bucket = row[cellZ]
                 if bucket then
                     for _, chunkEntry in ipairs(bucket) do
-                        candidates[#candidates + 1] = chunkEntry
+                        local chunkId = type(chunkEntry) == "table" and chunkEntry.ref and chunkEntry.ref.id or nil
+                        if type(chunkId) == "string" and not seenChunkIds[chunkId] then
+                            seenChunkIds[chunkId] = true
+                            candidates[#candidates + 1] = chunkEntry
+                        end
                     end
                 end
             end

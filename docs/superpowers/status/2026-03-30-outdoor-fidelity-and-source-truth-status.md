@@ -103,6 +103,25 @@ The compact historical archive index is:
 
 ## Status Notes
 
+### 2026-04-03 13:34 CDT: Local-Safe Swarm Tightened Footprint Admission, Sparse Cliffs, And Street-Level Building Cues
+
+- Landed another product tranche on `main` without local Studio:
+  - `StreamingService.lua` now indexes chunk candidates across every spatial-index cell touched by a chunk footprint, then dedupes candidate collection so overlapping footprints are admitted early instead of waiting for the player to move closer to the chunk center.
+  - `TerrainBuilder.lua` now applies a bounded `sparseCliffOccupancyScale` so sparse steep cliff columns start from a lower occupancy baseline instead of reading like solid vertical planes.
+  - `BuildingBuilder.lua` now emits a deterministic `MergedShellDoorCue` on the primary readable facade edge so merged `shellMesh` buildings keep one stronger street-facing entrance cue near player eye level.
+- Added/updated local-safe coverage in:
+  - `StreamingFootprintResidency.spec.lua`
+  - `TerrainOutdoorFidelity.spec.lua`
+  - `BuildingShellMeshReadableCues.spec.lua`
+  - `scripts/tests/test_streaming_residency_footprint_contract.py`
+  - `scripts/tests/test_terrain_sparse_cliff_occupancy_shaping_truth.py`
+  - `scripts/tests/test_building_shell_mesh_readability_contract.py`
+- Local-safe verification passed on 2026-04-03:
+  - `python3 -m unittest scripts.tests.test_streaming_residency_footprint_contract scripts.tests.test_streaming_dual_focus_priority_contract scripts.tests.test_streaming_lod_footprint_contract scripts.tests.test_streaming_lod_live_root_focus_contract scripts.tests.test_building_shell_mesh_readability_contract scripts.tests.test_building_shell_mesh_wall_presence_contract scripts.tests.test_terrain_sparse_peak_surface_damping_truth scripts.tests.test_terrain_sparse_cliff_occupancy_shaping_truth scripts.tests.test_terrain_chunk_edge_truth scripts.tests.test_terrain_steep_mixed_fill_depth_truth scripts.tests.test_terrain_column_occupancy_shaping_truth scripts.tests.test_play_render_truth scripts.tests.test_austin_runtime_contract -v`
+  - `stylua --check roblox/src/ServerScriptService/ImportService/Builders/BuildingBuilder.lua roblox/src/ServerScriptService/ImportService/Builders/TerrainBuilder.lua roblox/src/ServerScriptService/ImportService/StreamingService.lua roblox/src/ServerScriptService/Tests/BuildingShellMeshReadableCues.spec.lua roblox/src/ServerScriptService/Tests/TerrainOutdoorFidelity.spec.lua roblox/src/ServerScriptService/Tests/StreamingFootprintResidency.spec.lua`
+  - `git diff --check`
+- Next `tertiary`-only proof question is whether the overlapping-footprint admission fix reduces “invisible until you walk into it” behavior, while the terrain/building cue changes should be checked against sparse peak planes and street-level facade legibility in live play.
+
 ### 2026-04-03 13:26 CDT: Local-Safe Play-Fidelity Swarm Tightened Terrain, Facade Readability, And Footprint Residency
 
 - Landed a three-slice local-safe product tranche on `main` without running Studio locally:

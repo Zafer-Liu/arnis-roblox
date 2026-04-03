@@ -383,6 +383,9 @@ local function sampleVoxelColumnProfile(plan, ix, globalIz)
     local edgeOccupancyScale = if heightRange > 0
         then math.clamp(1 - heightRangeFactor * (1 - peakCoverageBias) * 0.5, 0.35, 1)
         else 1
+    local sparseCliffOccupancyScale = if heightRange > 0
+        then math.clamp(edgeOccupancyScale * sparsePeakCoverageDamping, 0.35, 1)
+        else 1
     if heightRange > 0 then
         local ridgeCoverageBias = peakCoverageBias * peakCoverageBias
         local ridgeFillDepth =
@@ -397,6 +400,7 @@ local function sampleVoxelColumnProfile(plan, ix, globalIz)
         surfaceHeight = surfaceHeight,
         surfaceFillDepth = surfaceFillDepth,
         edgeOccupancyScale = edgeOccupancyScale,
+        sparseCliffOccupancyScale = sparseCliffOccupancyScale,
         dominantMaterialName = dominantMaterialName,
         material = materialByName[dominantMaterialName],
         materialSampleCount = dominantMaterialSampleCount,
@@ -666,7 +670,7 @@ function TerrainBuilder.Build(_parent, chunk, preparedPlan)
 
                 for iy = vy0, vy1 do
                     local voxelCenterY = rMinY + (iy - 0.5) * TERRAIN_WRITE_RESOLUTION
-                    local occupancy = 1
+                    local occupancy = columnProfile.sparseCliffOccupancyScale
 
                     if iy == vy0 then
                         local bottomOccupancy =

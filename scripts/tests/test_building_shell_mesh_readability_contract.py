@@ -30,6 +30,12 @@ class BuildingShellMeshReadabilityContractTests(unittest.TestCase):
         self.assertIn("MergedShellStreetFacadeCue", self.text)
         self.assertIn("ArnisMergedShellStreetFacadeCueCount", self.text)
 
+    def test_merged_shells_add_a_street_facing_door_cue(self) -> None:
+        self.assertIn("collectSimpleShellReadableEdges", self.text)
+        self.assertIn("local function buildMergedShellDoorCue", self.text)
+        self.assertIn("MergedShellDoorCue", self.text)
+        self.assertIn("ArnisMergedShellDoorCueCount", self.text)
+
 
 if __name__ == "__main__":
     unittest.main()

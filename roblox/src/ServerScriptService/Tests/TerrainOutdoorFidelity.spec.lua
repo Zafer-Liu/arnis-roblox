@@ -287,4 +287,35 @@ return function()
         sparsePeakProfile.surfaceHeight < 1.4,
         "expected sparse steep peaks to stay close to the surrounding surface instead of forming a false elevated plane"
     )
+
+    local sparseCliffProfilePlan = {
+        origin = { x = 0, y = 0, z = 0 },
+        cellSize = 4,
+        gridW = 1,
+        gridD = 1,
+        rMinX = 0,
+        rMinZ = 0,
+        cellMaterials = {
+            {
+                { Name = "Rock" },
+            },
+        },
+        voxelSubsampleOffsets = offsets,
+        sampleInterpolatedHeight = function(cellX, cellZ, fracX, fracZ)
+            if cellX == 0 and cellZ == 0 and fracX > 0.75 and fracZ > 0.75 then
+                return 16
+            end
+            return 0
+        end,
+    }
+
+    local sparseCliffProfile = TerrainBuilder._sampleVoxelColumnProfile(sparseCliffProfilePlan, 1, 1)
+    Assert.truthy(
+        sparseCliffProfile.sparseCliffOccupancyScale < 0.5,
+        "expected sparse cliff columns to lower their interior occupancy so the column does not read like a solid plane"
+    )
+    Assert.truthy(
+        sparseCliffProfile.sparseCliffOccupancyScale < peakProfile.sparseCliffOccupancyScale,
+        "expected sparser cliffs to taper occupancy more aggressively than denser steep peaks"
+    )
 end
