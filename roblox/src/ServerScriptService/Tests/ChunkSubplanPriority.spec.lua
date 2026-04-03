@@ -309,6 +309,37 @@ return function()
         "expected subplan cost signals to outrank manifest/source order within the same layer"
     )
 
+    local memorySiblingItems = {
+        {
+            chunkId = "0_0",
+            originStuds = { x = 0, y = 0, z = 0 },
+            subplan = {
+                id = "roads:heavy-memory",
+                layer = "roads",
+                featureCount = 1,
+                streamingCost = 8,
+                estimatedMemoryCost = 96,
+            },
+        },
+        {
+            chunkId = "0_0",
+            originStuds = { x = 0, y = 0, z = 0 },
+            subplan = {
+                id = "roads:light-memory",
+                layer = "roads",
+                featureCount = 1,
+                streamingCost = 8,
+                estimatedMemoryCost = 16,
+            },
+        },
+    }
+    ChunkPriority.SortWorkItems(memorySiblingItems, focusPoint, chunkSizeStuds, nil, nil)
+    Assert.equal(
+        table.concat({ memorySiblingItems[1].subplan.id, memorySiblingItems[2].subplan.id }, ","),
+        "roads:light-memory,roads:heavy-memory",
+        "expected estimated memory cost to outrank lexical ids when same-layer sibling value signals tie"
+    )
+
     local crossChunkBandItems = {
         {
             chunkId = "0_0",

@@ -153,6 +153,15 @@ function ChunkPriority.GetStreamingCost(chunkLike)
     return total
 end
 
+function ChunkPriority.GetEstimatedMemoryCost(chunkLike)
+    local cached = chunkLike and chunkLike.estimatedMemoryCost
+    if isNonNegativeNumber(cached) then
+        return cached
+    end
+
+    return ChunkPriority.GetStreamingCost(chunkLike)
+end
+
 local function makeMetrics(
     chunkLike,
     focusPoint,
@@ -162,7 +171,8 @@ local function makeMetrics(
     directionCenterX,
     directionCenterZ,
     streamingCost,
-    featureCount
+    featureCount,
+    estimatedMemoryCost
 )
     local resolvedDistanceCenterX, resolvedDistanceCenterZ = distanceCenterX, distanceCenterZ
     if resolvedDistanceCenterX == nil or resolvedDistanceCenterZ == nil then
@@ -188,6 +198,9 @@ local function makeMetrics(
         distanceBand = distanceBand,
         streamingCost = if streamingCost ~= nil then streamingCost else ChunkPriority.GetStreamingCost(chunkLike),
         featureCount = if featureCount ~= nil then featureCount else ChunkPriority.GetFeatureCount(chunkLike),
+        estimatedMemoryCost = if estimatedMemoryCost ~= nil
+            then estimatedMemoryCost
+            else ChunkPriority.GetEstimatedMemoryCost(chunkLike),
     }
 end
 
@@ -277,6 +290,10 @@ local function compareMetrics(aId, aMetrics, bId, bMetrics, forwardVector, obser
         end
     end
 
+    if aMetrics.estimatedMemoryCost ~= bMetrics.estimatedMemoryCost then
+        return aMetrics.estimatedMemoryCost < bMetrics.estimatedMemoryCost
+    end
+
     if aMetrics.streamingCost ~= bMetrics.streamingCost then
         return aMetrics.streamingCost < bMetrics.streamingCost
     end
@@ -307,6 +324,7 @@ function ChunkPriority.BuildChunkPriorityKey(
         dz = metrics.dz,
         distSq = metrics.distSq,
         distanceBand = metrics.distanceBand,
+        estimatedMemoryCost = metrics.estimatedMemoryCost,
         streamingCost = metrics.streamingCost,
         featureCount = metrics.featureCount,
         observedCost = getObservedCost(observedCostById, chunkId),
@@ -412,6 +430,9 @@ local function getSubplanMetrics(workItem, focusPoint, chunkSizeStuds)
     local featureCount = if type(subplan) == "table" and isNonNegativeNumber(subplan.featureCount)
         then subplan.featureCount
         else nil
+    local estimatedMemoryCost = if type(subplan) == "table" and isNonNegativeNumber(subplan.estimatedMemoryCost)
+        then subplan.estimatedMemoryCost
+        else nil
 
     return chunkId,
         subplan,
@@ -424,7 +445,8 @@ local function getSubplanMetrics(workItem, focusPoint, chunkSizeStuds)
             centerX,
             centerZ,
             streamingCost,
-            featureCount
+            featureCount,
+            estimatedMemoryCost
         )
 end
 
@@ -448,6 +470,7 @@ function ChunkPriority.BuildPriorityKey(
         dz = metrics.dz,
         distSq = metrics.distSq,
         distanceBand = metrics.distanceBand,
+        estimatedMemoryCost = metrics.estimatedMemoryCost,
         streamingCost = metrics.streamingCost,
         featureCount = metrics.featureCount,
         observedCost = getObservedCost(observedCostById, chunkId, type(subplan) == "table" and subplan.id or nil),
@@ -513,6 +536,10 @@ local function compareWorkItemKeys(leftKey, rightKey)
         if leftLateral ~= rightLateral then
             return leftLateral < rightLateral
         end
+    end
+
+    if leftKey.estimatedMemoryCost ~= rightKey.estimatedMemoryCost then
+        return leftKey.estimatedMemoryCost < rightKey.estimatedMemoryCost
     end
 
     if leftKey.streamingCost ~= rightKey.streamingCost then

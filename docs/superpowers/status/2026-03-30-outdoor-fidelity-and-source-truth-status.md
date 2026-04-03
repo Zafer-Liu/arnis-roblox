@@ -1332,3 +1332,28 @@ The compact historical archive index is:
 - Interpretation:
   - movement lookahead is now a real residency/prefetch contract instead of just a tie-breaker inside the current radius
   - this is a better planetary-streaming shape because the runtime can start pulling ahead-of-motion chunks before the camera/player reaches the old focal boundary
+
+### 2026-04-02: Ring Pressure Now Breaks Equal-Value Ties By Estimated Memory Cost
+
+- I kept the next slice on runtime scheduler policy rather than widening harness behavior.
+- The concrete gap after the lookahead work was:
+  - chunk ordering already considered distance band, heading, observed import cost, and `streamingCost`
+  - but under ring pressure it still ignored `estimatedMemoryCost`, even though memory is the authoritative residency constraint
+  - with equal distance, heading, feature count, and streaming cost, the scheduler could still keep the heavier chunk just because its id sorted earlier
+- I fixed that in `ChunkPriority.lua`:
+  - chunk-level and subplan-level metrics now carry `estimatedMemoryCost`
+  - when higher-value signals tie, lower estimated memory cost now wins before the older `streamingCost` fallback
+  - absent explicit `estimatedMemoryCost`, the priority code falls back to the existing `streamingCost` heuristic so old behavior stays stable where no memory hint exists
+- I added regression coverage in:
+  - `StreamingPriority.spec.lua` proving a one-slot ring prefers the lower estimated-memory chunk under otherwise equal scheduler signals
+  - `ChunkSubplanPriority.spec.lua` proving same-layer sibling subplans use estimated memory cost before lexical ids when value signals tie
+- Verification for this slice:
+  - local-safe green: `python3 -m unittest scripts.tests.test_austin_runtime_contract -v`
+  - local-safe green: `git diff --check`
+  - remote `tertiary` green:
+    - `Running tests: StreamingPriority.spec`
+    - `PASS StreamingPriority.spec`
+    - `TestEZ tests complete. total=1 passed=1 failed=0`
+- Interpretation:
+  - the scheduler now behaves more like a real memory-bounded streaming engine instead of a distance-plus-id sorter
+  - this should make bounded residency decisions more stable as we push toward larger Austin slices and planetary streaming budgets

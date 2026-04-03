@@ -370,6 +370,89 @@ return function()
         ChunkLoader.Clear()
         StreamingService.Stop()
 
+        local ringPressureManifest = {
+            schemaVersion = "0.4.0",
+            meta = manifest.meta,
+            chunkRefs = {
+                {
+                    id = "a_heavy_tie",
+                    originStuds = { x = 0, y = 0, z = 0 },
+                    shards = { "fake" },
+                    featureCount = 1,
+                    streamingCost = 8,
+                    estimatedMemoryCost = 96,
+                },
+                {
+                    id = "z_light_tie",
+                    originStuds = { x = 0, y = 0, z = 0 },
+                    shards = { "fake" },
+                    featureCount = 1,
+                    streamingCost = 8,
+                    estimatedMemoryCost = 16,
+                },
+            },
+            GetChunk = function(_, chunkId)
+                return makeChunk(chunkId, 0)
+            end,
+        }
+        local ringPressureOptions = {
+            worldRootName = "StreamingPriorityRingPressureWorld",
+            config = {
+                StreamingEnabled = true,
+                StreamingTargetRadius = 200,
+                HighDetailRadius = 200,
+                ChunkSizeStuds = 100,
+                StreamingMaxWorkItemsPerUpdate = 1,
+                StreamingRings = {
+                    near = {
+                        MaxRadiusStuds = 200,
+                        EstimatedBudgetBytes = 128,
+                        MaxChunkCount = 1,
+                    },
+                    mid = {
+                        MaxRadiusStuds = 200,
+                        EstimatedBudgetBytes = 0,
+                        MaxChunkCount = 0,
+                    },
+                    far = {
+                        MaxRadiusStuds = 200,
+                        EstimatedBudgetBytes = 0,
+                        MaxChunkCount = 0,
+                    },
+                },
+                TerrainMode = "none",
+                RoadMode = "mesh",
+                BuildingMode = "shellMesh",
+                WaterMode = "mesh",
+                LanduseMode = "fill",
+            },
+        }
+
+        StreamingService.Start(ringPressureManifest, ringPressureOptions)
+        StreamingService.Update(Vector3.new(0, 0, 0))
+        Assert.equal(
+            importOrder[1],
+            "z_light_tie",
+            "expected ring-pressure residency to prefer the lower estimated-memory chunk when distance and content-value signals tie"
+        )
+        Assert.truthy(
+            ChunkLoader.GetChunkEntry("z_light_tie", ringPressureOptions.worldRootName),
+            "expected the lower estimated-memory chunk to occupy the single near-ring slot"
+        )
+        Assert.falsy(
+            ChunkLoader.GetChunkEntry("a_heavy_tie", ringPressureOptions.worldRootName),
+            "expected the heavier same-priority chunk to stay out of residency under the single-slot ring cap"
+        )
+        Assert.equal(
+            Workspace:GetAttribute("ArnisStreamingRingNearDesiredEstimatedCost"),
+            16,
+            "expected desired ring telemetry to reflect the chosen lower estimated-memory residency candidate"
+        )
+
+        importOrder = {}
+        ChunkLoader.Clear()
+        StreamingService.Stop()
+
         local subplanKey = ChunkPriority.BuildPriorityKey(
             {
                 chunkId = "near_heavy",
