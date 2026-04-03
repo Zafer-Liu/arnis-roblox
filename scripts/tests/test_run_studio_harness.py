@@ -1140,6 +1140,16 @@ class RunStudioHarnessTests(unittest.TestCase):
         self.assertIn('requested_mode="start_play"', body)
         self.assertNotIn('"run_script_in_play_mode"', body)
 
+    def test_play_probe_requires_ready_mcp_helper_before_authoritative_probe(self) -> None:
+        play_probe_block = re.search(
+            r"run_play_probe_via_mcp\(\) \{\n(?P<body>.*?)\n\}\n\nlog_effective_play_camera_state",
+            self.text,
+            re.DOTALL,
+        )
+        self.assertIsNotNone(play_probe_block, "run_play_probe_via_mcp function not found")
+        body = play_probe_block.group("body")
+        self.assertIn('if [[ -z "$MCP_BINARY" || ! -x "$MCP_BINARY" || $MCP_READY -ne 1 ]]; then', body)
+
     def test_play_probe_logs_structured_mcp_errors_before_cleanup(self) -> None:
         play_probe_block = re.search(
             r"run_play_probe_via_mcp\(\) \{\n(?P<body>.*?)\n\}\n\nlog_effective_play_camera_state",

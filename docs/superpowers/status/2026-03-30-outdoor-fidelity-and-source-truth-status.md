@@ -1428,3 +1428,18 @@ The compact historical archive index is:
 - Interpretation:
   - the broad claim that play-mode streaming startup always drops shell walls or reintroduces floating shell terrain fill is now disproven at the isolated runtime contract level
   - the remaining “false planes over terrain / walls missing in play” report is therefore narrower and Austin-sample-specific, not a generic roomed-shell streaming-startup failure
+
+### 2026-04-02: Harness Play Probe Now Respects Failed MCP Readiness Instead Of Burning 100 Seconds
+
+- While trying to pull back a real Austin play screenshot through the harness artifact path, I found a concrete DX regression in the current harness flow:
+  - after the harness already logged `Studio MCP helper did not become ready ...`, the play path still entered `run_play_probe_via_mcp()`
+  - that wasted about 100 seconds before falling back to the direct play trigger, delaying screenshot/audit collection without improving proof quality
+- I added a direct regression in `scripts/tests/test_run_studio_harness.py` that requires `run_play_probe_via_mcp()` to gate on `MCP_READY`.
+- I then updated `scripts/run_studio_harness.sh` so the authoritative MCP play probe now returns immediately when the helper is not actually ready, instead of burning the fallback timeout.
+- Verification for this slice:
+  - local-safe green: `python3 -m unittest scripts.tests.test_run_studio_harness.RunStudioHarnessTests.test_play_probe_requires_ready_mcp_helper_before_authoritative_probe -v`
+  - local-safe green: `bash -n scripts/run_studio_harness.sh`
+  - local-safe green: `git diff --check`
+- Follow-up:
+  - rerun the Austin play proof through the harness screenshot path after this lands on `main`
+  - use the returned `...-play.png` and scene-audit artifacts to pin the real false-surface / missing-wall Austin parity bug

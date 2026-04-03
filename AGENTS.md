@@ -90,6 +90,19 @@ For every meaningful code change:
 - Keep anything that mutates `Workspace.GeneratedWorld` behind an importer or chunk loader service.
 - When a feature is not ready, fail loudly with a TODO and a clear message.
 
+## Studio harness capabilities
+
+- Prefer `scripts/run_studio_harness.sh` and `scripts/run_studio_harness_remote.sh` for Studio proof work instead of ad hoc desktop automation.
+- The harness already supports:
+  - clean-place or fresh-template launch
+  - edit-only and play-mode runs
+  - `--spec-filter` isolated Luau spec execution
+  - edit/play screenshots via `--screenshot` with phase-specific outputs such as `/tmp/arnis-studio-harness-edit.png` and `/tmp/arnis-studio-harness-play.png`
+  - MCP probes and ordered bootstrap/play telemetry capture
+  - preview telemetry artifacts and scene fidelity/parity audits
+  - remote artifact sync back to the local machine through `scripts/run_studio_harness_remote.sh`
+- When you need a visual proof on a remote Studio machine, use the harness screenshot/artifact path first. Do not treat raw SSH `screencapture` as the authoritative capture lane when the harness can capture and sync the image itself.
+
 ## Rust-specific guardrails
 
 - Keep exporter crates dependency-light until contracts settle.

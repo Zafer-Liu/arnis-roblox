@@ -29,6 +29,19 @@ Kodex should read `AGENTS.md` first.
 - Keep remote Studio hosts and machine-specific paths in ignored local config or env, not in committed repo scripts.
 - Treat `primary` and `tertiary` as local profile aliases only; the committed repo must stay portable across direct-dev and remote-executor machines. Prefer `tertiary` for remote Studio proof work when that lane is selected.
 
+## Studio harness tool surface
+
+- Use `scripts/run_studio_harness.sh` as the primary local Studio proof tool.
+- Use `scripts/run_studio_harness_remote.sh` when the proof lane is remote and you need artifacts synced back locally.
+- The harness already provides:
+  - clean-place or fresh-template startup
+  - edit-only or play-mode execution
+  - isolated Luau spec runs via `--spec-filter`
+  - edit/play screenshots via `--screenshot`
+  - MCP probes, bootstrap/play telemetry, preview telemetry capture, and scene fidelity/parity audits
+  - remote fetch of logs, screenshots, and preview/plugin-state artifacts
+- If you need to inspect what Studio rendered on a remote host, prefer the harness screenshot artifact path first. Do not default to raw remote `screencapture` when the harness can capture and return the phase-specific image.
+
 ## Immediate tasks Kodex can safely take on
 
 1. Replace placeholder terrain import with a real voxel writer path.

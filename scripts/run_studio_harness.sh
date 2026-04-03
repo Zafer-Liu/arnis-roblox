@@ -3637,7 +3637,7 @@ PY
 }
 
 run_play_probe_via_mcp() {
-  if [[ -z "$MCP_BINARY" || ! -x "$MCP_BINARY" ]]; then
+  if [[ -z "$MCP_BINARY" || ! -x "$MCP_BINARY" || $MCP_READY -ne 1 ]]; then
     return 1
   fi
 
