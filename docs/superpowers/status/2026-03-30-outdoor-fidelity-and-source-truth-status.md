@@ -1388,3 +1388,26 @@ The compact historical archive index is:
 - Interpretation:
   - the scheduler now behaves more like a real memory-bounded streaming engine instead of a distance-plus-id sorter
   - this should make bounded residency decisions more stable as we push toward larger Austin slices and planetary streaming budgets
+
+### 2026-04-02: Play Bootstrap Now Reuses Shared World State Instead Of A Divergent Lighting Fork
+
+- I pivoted briefly from streaming policy to a higher-signal play-vs-edit parity issue reported from the real Austin sample:
+  - play mode looked materially worse than edit mode
+  - the bootstrap path was still hand-authoring its own lighting/post-processing stack
+  - preview/full-bake already went through `WorldStateApplier`, which also owns canonical `ArnisWorldRootName` publication
+- I added a new local contract in `scripts/tests/test_play_render_truth.py` that required:
+  - `BootstrapAustin.server.lua` to require `WorldStateApplier`
+  - play bootstrap to call `WorldStateApplier.Apply(...)` with `worldRootName = "GeneratedWorld_Austin"`
+  - the old direct `Atmosphere` / `BloomEffect` / `SunRaysEffect` / `ColorCorrectionEffect` instantiation to disappear from the bootstrap script
+- I then updated `BootstrapAustin.server.lua` so play mode now:
+  - applies shared world state through `WorldStateApplier`
+  - publishes the canonical world-root contract through the same path as preview/full-bake
+  - starts minimap/loading-screen lifecycle through the shared applier instead of the old one-off bootstrap block
+- Verification for this slice:
+  - local-safe red then green: `python3 -m unittest scripts.tests.test_play_render_truth.PlayRenderTruthTests.test_play_bootstrap_reuses_shared_world_state_application -v`
+  - local-safe green: `python3 -m unittest scripts.tests.test_play_render_truth -v`
+  - local-safe green: `python3 -m unittest scripts.tests.test_austin_runtime_contract -v`
+  - local-safe green: `git diff --check`
+- Follow-up:
+  - the deeper shell-wall / false-plane parity investigation is preserved separately in `git stash` as `pressure-replacement-and-play-parity-wip-2026-04-02`
+  - I did not claim the visual issue fully solved yet; this slice removes one confirmed play-only divergence so the next runtime geometry investigation starts from a cleaner baseline

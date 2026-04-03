@@ -15,6 +15,7 @@ IMPORT_SIGNATURES = ROOT / "roblox" / "src" / "ServerScriptService" / "ImportSer
 STREAMING_SERVICE = ROOT / "roblox" / "src" / "ServerScriptService" / "ImportService" / "StreamingService.lua"
 WORLD_PROBE = ROOT / "roblox" / "src" / "StarterPlayer" / "StarterPlayerScripts" / "WorldProbe.client.lua"
 WORLD_PROBE_TERRAIN = ROOT / "roblox" / "src" / "ReplicatedStorage" / "Shared" / "WorldProbeTerrain.lua"
+BOOTSTRAP_AUSTIN = ROOT / "roblox" / "src" / "ServerScriptService" / "BootstrapAustin.server.lua"
 
 
 class PlayRenderTruthTests(unittest.TestCase):
@@ -133,6 +134,20 @@ class PlayRenderTruthTests(unittest.TestCase):
         self.assertIn("terrainDominantMaterial", preview_builder_source)
         self.assertIn("terrainDominantMaterialCellCount", preview_builder_source)
         self.assertIn("terrainNonGrassCellCount", preview_builder_source)
+
+    def test_play_bootstrap_reuses_shared_world_state_application(self) -> None:
+        source = BOOTSTRAP_AUSTIN.read_text(encoding="utf-8")
+
+        self.assertIn(
+            "local WorldStateApplier = require(script.Parent.ImportService.WorldStateApplier)",
+            source,
+        )
+        self.assertIn("WorldStateApplier.Apply(", source)
+        self.assertIn('worldRootName = "GeneratedWorld_Austin"', source)
+        self.assertNotIn('Instance.new("Atmosphere")', source)
+        self.assertNotIn('Instance.new("BloomEffect")', source)
+        self.assertNotIn('Instance.new("SunRaysEffect")', source)
+        self.assertNotIn('Instance.new("ColorCorrectionEffect")', source)
 
     def test_preview_hotspot_summary_threads_chunk_shape_context(self) -> None:
         import_service_source = IMPORT_SERVICE.read_text(encoding="utf-8")

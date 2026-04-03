@@ -14,7 +14,6 @@ end
 
 local Players = game:GetService("Players")
 local Workspace = game:GetService("Workspace")
-local Lighting = game:GetService("Lighting")
 local RunService = game:GetService("RunService")
 
 local AustinSpawn = require(script.Parent.ImportService.AustinSpawn)
@@ -22,6 +21,7 @@ local BootstrapStateMachine = require(script.Parent.ImportService.BootstrapState
 local RunAustin = require(script.Parent.ImportService.RunAustin)
 local StreamingService = require(script.Parent.ImportService.StreamingService)
 local SubplanRollout = require(script.Parent.ImportService.SubplanRollout)
+local WorldStateApplier = require(script.Parent.ImportService.WorldStateApplier)
 local WorldConfig = require(game:GetService("ReplicatedStorage").Shared.WorldConfig)
 local StreamingRuntimeConfig = require(game:GetService("ReplicatedStorage").Shared.StreamingRuntimeConfig)
 local BOOTSTRAP_STATE_ATTR = BootstrapStateMachine.STATE_ATTR
@@ -298,6 +298,12 @@ end
 spawnCFrame = CFrame.lookAt(Vector3.new(spawnPoint.X, spawnSurfaceY, spawnPoint.Z), lookTarget)
 spawn.CFrame = CFrame.new(spawnPoint.X, spawnCenterY, spawnPoint.Z)
 
+WorldStateApplier.Apply(manifestSource, runtimeWorldConfig, {
+    worldRootName = "GeneratedWorld_Austin",
+    startMinimap = true,
+    hideLoadingScreen = true,
+})
+
 importReady = true
 Players.CharacterAutoLoads = true
 
@@ -341,48 +347,5 @@ setBootstrapState("minimap_ready")
 
 holdingPad:Destroy()
 
-Lighting.Ambient = Color3.fromRGB(120, 100, 80) -- warm Texas ambient
-Lighting.Brightness = 3.5
-Lighting.ColorShift_Bottom = Color3.fromRGB(255, 200, 120)
-Lighting.ColorShift_Top = Color3.fromRGB(180, 220, 255)
-Lighting.EnvironmentDiffuseScale = 0.6
-Lighting.EnvironmentSpecularScale = 0.8
-Lighting.ExposureCompensation = 0.3
-Lighting.GeographicLatitude = 30.265 -- Austin, TX
-Lighting.TimeOfDay = "16:30:00" -- late afternoon golden hour
-Lighting.ShadowSoftness = 0.3
-Lighting.OutdoorAmbient = Color3.fromRGB(140, 150, 180)
-
--- Atmosphere
-local atmo = Instance.new("Atmosphere")
-atmo.Density = 0.35
-atmo.Offset = 0.2
-atmo.Color = Color3.fromRGB(255, 220, 170) -- warm Texas haze
-atmo.Decay = Color3.fromRGB(100, 80, 60)
-atmo.Glare = 0.4
-atmo.Haze = 1.8
-atmo.Parent = Lighting
-
--- Bloom post-processing
-local bloom = Instance.new("BloomEffect")
-bloom.Intensity = 0.4
-bloom.Size = 24
-bloom.Threshold = 0.95
-bloom.Parent = Lighting
-
--- Sun rays
-local sunRays = Instance.new("SunRaysEffect")
-sunRays.Intensity = 0.08
-sunRays.Spread = 0.5
-sunRays.Parent = Lighting
-
--- Color correction for cinematic look
-local cc = Instance.new("ColorCorrectionEffect")
-cc.Brightness = 0.02
-cc.Contrast = 0.08
-cc.Saturation = 0.15
-cc.TintColor = Color3.fromRGB(255, 248, 235)
-cc.Parent = Lighting
-
-print("[BootstrapAustin] Spawn and atmosphere configured.")
+print("[BootstrapAustin] Spawn and shared world state configured.")
 setBootstrapState("gameplay_ready")
