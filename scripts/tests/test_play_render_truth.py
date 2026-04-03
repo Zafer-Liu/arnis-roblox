@@ -11,12 +11,16 @@ SCENE_AUDIT = ROOT / "roblox" / "src" / "ServerScriptService" / "ImportService" 
 ROOM_BUILDER = ROOT / "roblox" / "src" / "ServerScriptService" / "ImportService" / "Builders" / "RoomBuilder.lua"
 TERRAIN_BUILDER = ROOT / "roblox" / "src" / "ServerScriptService" / "ImportService" / "Builders" / "TerrainBuilder.lua"
 IMPORT_SERVICE = ROOT / "roblox" / "src" / "ServerScriptService" / "ImportService" / "init.lua"
+HIPPED_ROOF_TRUTH = ROOT / "roblox" / "src" / "ServerScriptService" / "Tests" / "HippedRoofTruth.spec.lua"
 AUSTIN_PREVIEW_BUILDER = ROOT / "roblox" / "src" / "ServerScriptService" / "StudioPreview" / "AustinPreviewBuilder.lua"
 IMPORT_SIGNATURES = ROOT / "roblox" / "src" / "ServerScriptService" / "ImportService" / "ImportSignatures.lua"
 STREAMING_SERVICE = ROOT / "roblox" / "src" / "ServerScriptService" / "ImportService" / "StreamingService.lua"
 WORLD_PROBE = ROOT / "roblox" / "src" / "StarterPlayer" / "StarterPlayerScripts" / "WorldProbe.client.lua"
 WORLD_PROBE_TERRAIN = ROOT / "roblox" / "src" / "ReplicatedStorage" / "Shared" / "WorldProbeTerrain.lua"
 BOOTSTRAP_AUSTIN = ROOT / "roblox" / "src" / "ServerScriptService" / "BootstrapAustin.server.lua"
+GABLED_IRREGULAR_FOOTPRINT_TRUTH = (
+    ROOT / "roblox" / "src" / "ServerScriptService" / "Tests" / "GabledIrregularFootprintTruth.spec.lua"
+)
 
 
 class PlayRenderTruthTests(unittest.TestCase):
@@ -115,8 +119,9 @@ class PlayRenderTruthTests(unittest.TestCase):
         self.assertIn("dominantMaterialName", source)
         self.assertIn("averageHeight = totalHeight / sampleCount", source)
         self.assertIn("heightRange = maxHeight - minHeight", source)
-        self.assertIn("surfaceHeight = if maxHeight - minHeight >= TERRAIN_WRITE_RESOLUTION then maxHeight else averageHeight", source)
-        self.assertIn("surfaceFillDepth = if heightRange >= TERRAIN_WRITE_RESOLUTION", source)
+        self.assertIn("local surfaceHeightBias = math.clamp(heightRange / TERRAIN_WRITE_RESOLUTION, 0, 1)", source)
+        self.assertIn("surfaceHeight = averageHeight + (maxHeight - averageHeight) * surfaceHeightBias", source)
+        self.assertRegex(source, r"surfaceFillDepth = if heightRange > 0\s+then")
         self.assertIn("local worldBotY = worldSurfY - columnProfile.surfaceFillDepth", source)
         self.assertIn("local worldSurfY = origin.y + columnProfile.surfaceHeight", source)
 
@@ -266,6 +271,21 @@ class PlayRenderTruthTests(unittest.TestCase):
             source,
             r'elseif roofShape == "pyramidal" or roofShape == "hipped" then[\s\S]*buildFallbackFlatVisibleRoof\(',
             "expected irregular hipped roofs to keep visible roof evidence in fallback mode",
+        )
+
+    def test_shellmesh_roof_truth_specs_exercise_shellmesh_mode(self) -> None:
+        hipped_source = HIPPED_ROOF_TRUTH.read_text(encoding="utf-8")
+        gabled_source = GABLED_IRREGULAR_FOOTPRINT_TRUTH.read_text(encoding="utf-8")
+
+        self.assertIn(
+            'BuildingMode = "shellMesh"',
+            hipped_source,
+            "expected hipped roof truth to use shellMesh play mode",
+        )
+        self.assertIn(
+            'BuildingMode = "shellMesh"',
+            gabled_source,
+            "expected irregular gabled roof truth to use shellMesh play mode",
         )
 
     def test_player_local_terrain_telemetry_carries_material_richness(self) -> None:

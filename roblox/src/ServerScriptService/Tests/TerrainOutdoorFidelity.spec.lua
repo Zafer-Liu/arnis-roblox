@@ -187,4 +187,50 @@ return function()
         2,
         "expected steep mixed voxels to shrink their rendered fill depth instead of becoming full-height terrain boxes"
     )
+
+    local moderateProfilePlan = {
+        origin = { x = 0, y = 0, z = 0 },
+        cellSize = 2,
+        gridW = 2,
+        gridD = 2,
+        rMinX = 0,
+        rMinZ = 0,
+        cellMaterials = {
+            {
+                { Name = "Ground" },
+                { Name = "Ground" },
+            },
+            {
+                { Name = "Ground" },
+                { Name = "Ground" },
+            },
+        },
+        voxelSubsampleOffsets = offsets,
+        sampleInterpolatedHeight = function(cellX, cellZ)
+            if cellX == 1 and cellZ == 1 then
+                return 3
+            end
+            return 0
+        end,
+    }
+
+    local moderateProfile = TerrainBuilder._sampleVoxelColumnProfile(moderateProfilePlan, 1, 1)
+    Assert.equal(
+        moderateProfile.averageHeight,
+        0.75,
+        "expected moderate mixed voxels to retain average-height telemetry"
+    )
+    Assert.equal(
+        moderateProfile.heightRange,
+        3,
+        "expected moderate mixed voxels to capture sub-threshold height spread"
+    )
+    Assert.truthy(
+        moderateProfile.surfaceHeight > moderateProfile.averageHeight,
+        "expected moderate mixed voxels to bias the surface above the simple average instead of flattening back to it"
+    )
+    Assert.truthy(
+        moderateProfile.surfaceFillDepth < 8,
+        "expected moderate mixed voxels to reduce fill depth instead of keeping a full terrain slab"
+    )
 end

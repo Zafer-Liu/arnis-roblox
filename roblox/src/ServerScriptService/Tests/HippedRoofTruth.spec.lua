@@ -55,7 +55,7 @@ return function()
         clearFirst = true,
         worldRootName = worldRootName,
         config = {
-            BuildingMode = "shellParts",
+            BuildingMode = "shellMesh",
             TerrainMode = "none",
             RoadMode = "none",
             WaterMode = "none",
@@ -66,8 +66,7 @@ return function()
     local worldRoot = Workspace:FindFirstChild(worldRootName)
     Assert.truthy(worldRoot, "expected hipped roof truth world root")
 
-    local building =
-        worldRoot:FindFirstChild("0_0"):FindFirstChild("Buildings"):FindFirstChild("hipped_house")
+    local building = worldRoot:FindFirstChild("0_0"):FindFirstChild("Buildings"):FindFirstChild("hipped_house")
     Assert.truthy(building, "expected rectangular hipped building")
 
     local roofParts = {}

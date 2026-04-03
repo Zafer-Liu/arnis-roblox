@@ -57,7 +57,7 @@ return function()
         clearFirst = true,
         worldRootName = worldRootName,
         config = {
-            BuildingMode = "shellParts",
+            BuildingMode = "shellMesh",
             TerrainMode = "none",
             RoadMode = "none",
             WaterMode = "none",
