@@ -24,6 +24,12 @@ class BuildingShellMeshReadabilityContractTests(unittest.TestCase):
         self.assertIn("buildMergedShellPerimeterCues", self.text)
         self.assertIn("ArnisMergedShellRooflineCueCount", self.text)
 
+    def test_merged_shells_add_bounded_street_facade_cues(self) -> None:
+        self.assertIn("local function getMergedShellStreetFacadeY", self.text)
+        self.assertIn("local function buildMergedShellStreetFacadeCues", self.text)
+        self.assertIn("MergedShellStreetFacadeCue", self.text)
+        self.assertIn("ArnisMergedShellStreetFacadeCueCount", self.text)
+
 
 if __name__ == "__main__":
     unittest.main()

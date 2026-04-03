@@ -9,6 +9,7 @@ ROOT = Path(__file__).resolve().parents[2]
 BOOTSTRAP_PATH = ROOT / "roblox" / "src" / "ServerScriptService" / "BootstrapAustin.server.lua"
 RUN_AUSTIN_PATH = ROOT / "roblox" / "src" / "ServerScriptService" / "ImportService" / "RunAustin.lua"
 STREAMING_SERVICE_PATH = ROOT / "roblox" / "src" / "ServerScriptService" / "ImportService" / "StreamingService.lua"
+CHUNK_PRIORITY_PATH = ROOT / "roblox" / "src" / "ServerScriptService" / "ImportService" / "ChunkPriority.lua"
 IMPORT_SERVICE_PATH = ROOT / "roblox" / "src" / "ServerScriptService" / "ImportService" / "init.lua"
 SIGNATURES_PATH = ROOT / "roblox" / "src" / "ServerScriptService" / "ImportService" / "ImportSignatures.lua"
 WORLD_PROBE_PATH = ROOT / "roblox" / "src" / "StarterPlayer" / "StarterPlayerScripts" / "WorldProbe.client.lua"
@@ -33,6 +34,7 @@ class AustinRuntimeContractTests(unittest.TestCase):
         cls.bootstrap_text = BOOTSTRAP_PATH.read_text(encoding="utf-8")
         cls.run_austin_text = RUN_AUSTIN_PATH.read_text(encoding="utf-8")
         cls.streaming_text = STREAMING_SERVICE_PATH.read_text(encoding="utf-8")
+        cls.chunk_priority_text = CHUNK_PRIORITY_PATH.read_text(encoding="utf-8")
         cls.import_service_text = IMPORT_SERVICE_PATH.read_text(encoding="utf-8")
         cls.signatures_text = SIGNATURES_PATH.read_text(encoding="utf-8") if SIGNATURES_PATH.exists() else ""
         cls.world_probe_text = WORLD_PROBE_PATH.read_text(encoding="utf-8") if WORLD_PROBE_PATH.exists() else ""
@@ -216,6 +218,19 @@ class AustinRuntimeContractTests(unittest.TestCase):
         self.assertIn("local interiorRadiusSq = interiorRadius * interiorRadius", self.streaming_text)
         self.assertIn("local detailVisible = getLodGroupFootprintDistanceSq(group, chunkCenter, camPos) <= highDetailRadiusSq", self.streaming_text)
         self.assertIn("local interiorVisible = getLodGroupFootprintDistanceSq(group, chunkCenter, camPos) <= interiorRadiusSq", self.streaming_text)
+
+    def test_streaming_residency_uses_chunk_footprint_distance_not_only_chunk_center(self) -> None:
+        self.assertIn("function ChunkPriority.GetChunkFootprintBounds", self.chunk_priority_text)
+        self.assertIn("function ChunkPriority.GetChunkFootprintDistanceSq", self.chunk_priority_text)
+        self.assertIn("local chunkFootprintBounds = ChunkPriority.GetChunkFootprintBounds(chunkRef)", self.streaming_text)
+        self.assertIn("chunkRef.streamingFootprintBounds = chunkFootprintBounds", self.streaming_text)
+        self.assertIn(
+            "ChunkPriority.GetChunkFootprintDistanceSq(chunkRef, playerPos, streamingOptions.config.ChunkSizeStuds)",
+            self.streaming_text,
+        )
+        self.assertIn("local actualDistSq = getChunkDistanceSqToPoint(chunkEntry, playerPos)", self.streaming_text)
+        self.assertIn("local ringName = getChunkRingName(chunkFootprintDistanceSq, resolvedRings)", self.streaming_text)
+        self.assertIn("if chunkFootprintDistanceSq > targetExitRadiusSq then", self.streaming_text)
 
     def test_streaming_service_requires_registered_chunks_for_startup_structure_telemetry(self) -> None:
         self.assertIn("for _, chunkId in ipairs(ChunkLoader.ListLoadedChunks(resolvedWorldRootName)) do", self.streaming_text)

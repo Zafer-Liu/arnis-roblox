@@ -91,6 +91,8 @@ return function()
     local beltlines = 0
     local rooflineCues = 0
     local perimeterCues = 0
+    local streetFacadeCues = 0
+    local streetFacadeCueYs = {}
     for _, child in ipairs(detailFolder:GetDescendants()) do
         if child:IsA("Part") and child.Name == "CornerAccent" then
             cornerAccents += 1
@@ -100,6 +102,9 @@ return function()
             rooflineCues += 1
         elseif child:IsA("Part") and child.Name == "MergedShellPerimeterCue" then
             perimeterCues += 1
+        elseif child:IsA("Part") and child.Name == "MergedShellStreetFacadeCue" then
+            streetFacadeCues += 1
+            streetFacadeCueYs[#streetFacadeCueYs + 1] = child.Position.Y
         end
     end
 
@@ -107,6 +112,13 @@ return function()
     Assert.equal(beltlines, 4, "expected one facade beltline per footprint edge")
     Assert.equal(rooflineCues, 4, "expected one roofline cue per footprint edge")
     Assert.equal(perimeterCues, 4, "expected one perimeter cue per footprint corner")
+    Assert.equal(streetFacadeCues, 4, "expected one street-level facade cue per footprint edge")
+    for _, cueY in ipairs(streetFacadeCueYs) do
+        Assert.truthy(
+            cueY >= 1.5 and cueY <= 5,
+            "expected street-level facade cues to sit low enough to read from street level"
+        )
+    end
 
     Assert.equal(
         detailFolder:GetAttribute("ArnisMergedShellRooflineCueCount"),
@@ -118,10 +130,15 @@ return function()
         4,
         "expected perimeter cue attribute to reflect emitted corner geometry"
     )
+    Assert.equal(
+        detailFolder:GetAttribute("ArnisMergedShellStreetFacadeCueCount"),
+        4,
+        "expected street-level facade cue attribute to reflect emitted facade geometry"
+    )
 
     local sceneSummary = SceneAudit.summarizeWorld(worldRoot)
     Assert.truthy(
-        sceneSummary.buildingVisibleDetailPartCount >= 16,
+        sceneSummary.buildingVisibleDetailPartCount >= 20,
         "expected merged shell cues to add visible detail parts"
     )
 

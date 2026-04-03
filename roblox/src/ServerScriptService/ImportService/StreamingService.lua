@@ -264,10 +264,9 @@ local function buildStreamingRingTelemetry(playerPos, resolvedRings)
     for _, chunkId in ipairs(ChunkLoader.ListLoadedChunks(streamingOptions.worldRootName)) do
         local chunkRef = streamingChunkRefsById[chunkId]
         if chunkRef then
-            local centerX, centerZ = getChunkCenter(chunkRef, streamingOptions.config.ChunkSizeStuds)
-            local dx = playerPos.X - centerX
-            local dz = playerPos.Z - centerZ
-            local ringName = getChunkRingName(dx * dx + dz * dz, resolvedRings)
+            local chunkFootprintDistanceSq =
+                ChunkPriority.GetChunkFootprintDistanceSq(chunkRef, playerPos, streamingOptions.config.ChunkSizeStuds)
+            local ringName = getChunkRingName(chunkFootprintDistanceSq, resolvedRings)
             if ringName then
                 local ringTelemetry = telemetry[ringName]
                 ringTelemetry.residentChunkCount += 1
@@ -1133,7 +1132,11 @@ local function buildChunkSpatialIndex(chunkRefs, config)
     local buckets = {}
 
     for _, chunkRef in ipairs(chunkRefs or {}) do
-        local centerX, centerZ = getChunkCenter(chunkRef, config.ChunkSizeStuds)
+        local chunkFootprintBounds = ChunkPriority.GetChunkFootprintBounds(chunkRef)
+        if chunkFootprintBounds ~= nil then
+            chunkRef.streamingFootprintBounds = chunkFootprintBounds
+        end
+        local centerX, centerZ = ChunkPriority.GetChunkFootprintCenterXZ(chunkRef, config.ChunkSizeStuds)
         local chunkEntry = {
             ref = chunkRef,
             centerX = centerX,
@@ -1219,9 +1222,15 @@ local function getSchedulerCandidateChunkRefs(index, playerPos, schedulerFocusPo
 end
 
 local function getChunkDistanceSqToPoint(chunkEntry, point)
-    local dx = point.X - chunkEntry.centerX
-    local dz = point.Z - chunkEntry.centerZ
-    return dx * dx + dz * dz
+    if type(chunkEntry) ~= "table" or type(chunkEntry.ref) ~= "table" then
+        return math.huge
+    end
+
+    return ChunkPriority.GetChunkFootprintDistanceSq(
+        chunkEntry.ref,
+        point,
+        streamingOptions and streamingOptions.config and streamingOptions.config.ChunkSizeStuds or nil
+    )
 end
 
 local function getMaterializedChunk(chunkEntry)
@@ -2129,10 +2138,9 @@ function StreamingService.Update(focalPoint)
                 local resolvedEvictionReason = "not_desired_for_ring_budget"
                 local chunkRef = streamingChunkRefsById and streamingChunkRefsById[chunkId] or nil
                 if chunkRef ~= nil then
-                    local centerX, centerZ = getChunkCenter(chunkRef, chunkSizeStuds)
-                    local dx = playerPos.X - centerX
-                    local dz = playerPos.Z - centerZ
-                    if dx * dx + dz * dz > targetExitRadiusSq then
+                    local chunkFootprintDistanceSq =
+                        ChunkPriority.GetChunkFootprintDistanceSq(chunkRef, playerPos, chunkSizeStuds)
+                    if chunkFootprintDistanceSq > targetExitRadiusSq then
                         resolvedEvictionReason = "outside_target_radius"
                     end
                 end

@@ -80,6 +80,124 @@ local function getChunkOrigin(chunkLikeOrEntry)
     return {}
 end
 
+local function isFootprintBounds(bounds)
+    return type(bounds) == "table"
+        and type(bounds.minX) == "number"
+        and type(bounds.minY) == "number"
+        and type(bounds.maxX) == "number"
+        and type(bounds.maxY) == "number"
+end
+
+local function getBoundsCenterXZ(bounds)
+    return (bounds.minX + bounds.maxX) * 0.5, (bounds.minY + bounds.maxY) * 0.5
+end
+
+local function getPointToBoundsDistanceSq(point, bounds)
+    if typeof(point) ~= "Vector3" or not isFootprintBounds(bounds) then
+        return math.huge
+    end
+
+    local closestX = math.clamp(point.X, bounds.minX, bounds.maxX)
+    local closestZ = math.clamp(point.Z, bounds.minY, bounds.maxY)
+    local dx = point.X - closestX
+    local dz = point.Z - closestZ
+    return dx * dx + dz * dz
+end
+
+local function getChunkFootprintBounds(chunkLikeOrEntry)
+    if type(chunkLikeOrEntry) ~= "table" then
+        return nil
+    end
+
+    if isFootprintBounds(chunkLikeOrEntry.streamingFootprintBounds) then
+        return chunkLikeOrEntry.streamingFootprintBounds
+    end
+
+    if isFootprintBounds(chunkLikeOrEntry.footprintBounds) then
+        return chunkLikeOrEntry.footprintBounds
+    end
+
+    local chunkLike = getChunkLike(chunkLikeOrEntry)
+    if type(chunkLike) ~= "table" then
+        return nil
+    end
+
+    if isFootprintBounds(chunkLike.streamingFootprintBounds) then
+        return chunkLike.streamingFootprintBounds
+    end
+
+    if isFootprintBounds(chunkLike.footprintBounds) then
+        return chunkLike.footprintBounds
+    end
+
+    local origin = getChunkOrigin(chunkLikeOrEntry)
+    local originX = origin.x or 0
+    local originZ = origin.z or 0
+    local subplans = chunkLike.subplans
+    if type(subplans) ~= "table" then
+        return nil
+    end
+
+    local minX, minZ, maxX, maxZ = nil, nil, nil, nil
+    for _, subplan in ipairs(subplans) do
+        local bounds = type(subplan) == "table" and subplan.bounds or nil
+        if isFootprintBounds(bounds) then
+            local worldMinX = originX + bounds.minX
+            local worldMinZ = originZ + bounds.minY
+            local worldMaxX = originX + bounds.maxX
+            local worldMaxZ = originZ + bounds.maxY
+            if minX == nil or worldMinX < minX then
+                minX = worldMinX
+            end
+            if minZ == nil or worldMinZ < minZ then
+                minZ = worldMinZ
+            end
+            if maxX == nil or worldMaxX > maxX then
+                maxX = worldMaxX
+            end
+            if maxZ == nil or worldMaxZ > maxZ then
+                maxZ = worldMaxZ
+            end
+        end
+    end
+
+    if minX == nil then
+        return nil
+    end
+
+    return {
+        minX = minX,
+        minY = minZ,
+        maxX = maxX,
+        maxY = maxZ,
+    }
+end
+
+local function getChunkFootprintCenterXZ(chunkLikeOrEntry, chunkSizeStuds)
+    local bounds = getChunkFootprintBounds(chunkLikeOrEntry)
+    if isFootprintBounds(bounds) then
+        return getBoundsCenterXZ(bounds)
+    end
+
+    return getChunkCenterXZ(chunkLikeOrEntry, chunkSizeStuds)
+end
+
+local function getChunkFootprintDistanceSq(chunkLikeOrEntry, point, chunkSizeStuds)
+    local bounds = getChunkFootprintBounds(chunkLikeOrEntry)
+    if isFootprintBounds(bounds) then
+        return getPointToBoundsDistanceSq(point, bounds)
+    end
+
+    local centerX, centerZ = getChunkFootprintCenterXZ(chunkLikeOrEntry, chunkSizeStuds)
+    if typeof(point) ~= "Vector3" then
+        return math.huge
+    end
+
+    local dx = centerX - point.X
+    local dz = centerZ - point.Z
+    return dx * dx + dz * dz
+end
+
 local function getChunkCenterXZ(chunkLikeOrEntry, chunkSizeStuds)
     local origin = getChunkOrigin(chunkLikeOrEntry)
     local halfSize = chunkSizeStuds * 0.5
@@ -100,7 +218,7 @@ local function getChunkEntryCenterXZ(chunkLikeOrEntry, chunkSizeStuds)
         end
     end
 
-    return getChunkCenterXZ(chunkLikeOrEntry, chunkSizeStuds)
+    return getChunkFootprintCenterXZ(chunkLikeOrEntry, chunkSizeStuds)
 end
 
 local function isNonNegativeNumber(value)
@@ -162,6 +280,18 @@ function ChunkPriority.GetEstimatedMemoryCost(chunkLike)
     return ChunkPriority.GetStreamingCost(chunkLike)
 end
 
+function ChunkPriority.GetChunkFootprintBounds(chunkLikeOrEntry)
+    return getChunkFootprintBounds(chunkLikeOrEntry)
+end
+
+function ChunkPriority.GetChunkFootprintDistanceSq(chunkLikeOrEntry, point, chunkSizeStuds)
+    return getChunkFootprintDistanceSq(chunkLikeOrEntry, point, chunkSizeStuds)
+end
+
+function ChunkPriority.GetChunkFootprintCenterXZ(chunkLikeOrEntry, chunkSizeStuds)
+    return getChunkFootprintCenterXZ(chunkLikeOrEntry, chunkSizeStuds)
+end
+
 local function makeMetrics(
     chunkLike,
     focusPoint,
@@ -177,7 +307,7 @@ local function makeMetrics(
 )
     local resolvedDistanceCenterX, resolvedDistanceCenterZ = distanceCenterX, distanceCenterZ
     if resolvedDistanceCenterX == nil or resolvedDistanceCenterZ == nil then
-        resolvedDistanceCenterX, resolvedDistanceCenterZ = getChunkCenterXZ(chunkLike, chunkSizeStuds)
+        resolvedDistanceCenterX, resolvedDistanceCenterZ = getChunkFootprintCenterXZ(chunkLike, chunkSizeStuds)
     end
 
     local resolvedDirectionCenterX, resolvedDirectionCenterZ = directionCenterX, directionCenterZ
@@ -187,14 +317,24 @@ local function makeMetrics(
 
     local dx = resolvedDirectionCenterX - focusPoint.X
     local dz = resolvedDirectionCenterZ - focusPoint.Z
-    local distanceDx = resolvedDistanceCenterX - focusPoint.X
-    local distanceDz = resolvedDistanceCenterZ - focusPoint.Z
-    local distSq = distanceDx * distanceDx + distanceDz * distanceDz
+    local footprintBounds = getChunkFootprintBounds(chunkLike)
+    local distSq = nil
+    if isFootprintBounds(footprintBounds) then
+        distSq = getPointToBoundsDistanceSq(focusPoint, footprintBounds)
+    else
+        local distanceDx = resolvedDistanceCenterX - focusPoint.X
+        local distanceDz = resolvedDistanceCenterZ - focusPoint.Z
+        distSq = distanceDx * distanceDx + distanceDz * distanceDz
+    end
     local secondaryDistSq = nil
     if typeof(secondaryFocusPoint) == "Vector3" then
-        local secondaryDistanceDx = resolvedDistanceCenterX - secondaryFocusPoint.X
-        local secondaryDistanceDz = resolvedDistanceCenterZ - secondaryFocusPoint.Z
-        secondaryDistSq = secondaryDistanceDx * secondaryDistanceDx + secondaryDistanceDz * secondaryDistanceDz
+        if isFootprintBounds(footprintBounds) then
+            secondaryDistSq = getPointToBoundsDistanceSq(secondaryFocusPoint, footprintBounds)
+        else
+            local secondaryDistanceDx = resolvedDistanceCenterX - secondaryFocusPoint.X
+            local secondaryDistanceDz = resolvedDistanceCenterZ - secondaryFocusPoint.Z
+            secondaryDistSq = secondaryDistanceDx * secondaryDistanceDx + secondaryDistanceDz * secondaryDistanceDz
+        end
         distSq = math.min(distSq, secondaryDistSq)
     end
     local distanceBand = math.floor(math.sqrt(distSq) / math.max(chunkSizeStuds, 1))
@@ -323,7 +463,7 @@ function ChunkPriority.BuildChunkPriorityKey(
 )
     local chunkId = getChunkId(chunkLikeOrEntry)
     local anchorX, anchorZ = getChunkPriorityAnchorXZ(chunkLikeOrEntry)
-    local centerX, centerZ = getChunkCenterXZ(chunkLikeOrEntry, chunkSizeStuds)
+    local centerX, centerZ = getChunkFootprintCenterXZ(chunkLikeOrEntry, chunkSizeStuds)
     local metrics = makeMetrics(
         getChunkLike(chunkLikeOrEntry),
         focusPoint,
@@ -394,7 +534,7 @@ function ChunkPriority.SortChunkIdsByPriority(
         local chunkLike = chunkRefById and chunkRefById[chunkId]
         if chunkLike then
             local anchorX, anchorZ = getChunkPriorityAnchorXZ(chunkLike)
-            local centerX, centerZ = getChunkCenterXZ(chunkLike, chunkSizeStuds)
+            local centerX, centerZ = getChunkFootprintCenterXZ(chunkLike, chunkSizeStuds)
             metricsById[chunkId] = makeMetrics(
                 chunkLike,
                 focusPoint,
@@ -476,6 +616,19 @@ local function getSubplanMetrics(workItem, focusPoint, secondaryFocusPoint, chun
         centerZ = (origin.z or 0) + (((bounds.minY or 0) + (bounds.maxY or 0)) * 0.5)
     end
 
+    local metricChunkLike = chunkLike
+    if type(bounds) == "table" then
+        metricChunkLike = {
+            originStuds = origin,
+            streamingFootprintBounds = {
+                minX = (origin.x or 0) + (bounds.minX or 0),
+                minY = (origin.z or 0) + (bounds.minY or 0),
+                maxX = (origin.x or 0) + (bounds.maxX or 0),
+                maxY = (origin.z or 0) + (bounds.maxY or 0),
+            },
+        }
+    end
+
     local streamingCost = if type(subplan) == "table" and isNonNegativeNumber(subplan.streamingCost)
         then subplan.streamingCost
         else nil
@@ -489,7 +642,7 @@ local function getSubplanMetrics(workItem, focusPoint, secondaryFocusPoint, chun
     return chunkId,
         subplan,
         makeMetrics(
-            chunkLike,
+            metricChunkLike,
             focusPoint,
             secondaryFocusPoint,
             chunkSizeStuds,

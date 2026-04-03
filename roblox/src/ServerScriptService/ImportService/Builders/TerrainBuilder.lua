@@ -372,7 +372,10 @@ local function sampleVoxelColumnProfile(plan, ix, globalIz)
     local peakCoverageBias = math.max(peakSampleCoverage, normalizedPeakCoverage)
     local surfaceHeightBias = heightRangeFactor * peakCoverageBias
     local surfaceHeightCoverageDamping = math.clamp(0.5 + peakCoverageBias * 2, 0.5, 1)
-    surfaceHeightBias = surfaceHeightBias * surfaceHeightCoverageDamping
+    -- Very sparse peaks should stay close to the surrounding surface instead of
+    -- turning one hot sample into a broad elevated plane.
+    local sparsePeakCoverageDamping = math.clamp(peakSampleCoverage * 8, 0.5, 1)
+    surfaceHeightBias = surfaceHeightBias * surfaceHeightCoverageDamping * sparsePeakCoverageDamping
     local surfaceHeight = averageHeight + (maxHeight - averageHeight) * surfaceHeightBias
     local surfaceFillDepth = if heightRange > 0
         then math.max(1, TERRAIN_THICKNESS * math.clamp(normalizedPeakCoverage + peakCoverageBias * 0.25, 0, 1))

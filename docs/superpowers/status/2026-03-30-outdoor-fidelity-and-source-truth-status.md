@@ -103,6 +103,25 @@ The compact historical archive index is:
 
 ## Status Notes
 
+### 2026-04-03 13:26 CDT: Local-Safe Play-Fidelity Swarm Tightened Terrain, Facade Readability, And Footprint Residency
+
+- Landed a three-slice local-safe product tranche on `main` without running Studio locally:
+  - `TerrainBuilder.lua` now applies extra damping to very sparse steep peaks so isolated highs stay closer to the surrounding surface instead of turning into broad false planes.
+  - `BuildingBuilder.lua` now emits bounded `MergedShellStreetFacadeCue` geometry for merged `shellMesh` buildings so street-level facades stay more legible in play without abandoning the mesh path.
+  - `ChunkPriority.lua` and `StreamingService.lua` now use chunk footprint distance more consistently for residency/ring accounting instead of falling back to chunk-center behavior when footprint metadata exists.
+- Added/updated local contract coverage in:
+  - `TerrainOutdoorFidelity.spec.lua`
+  - `BuildingShellMeshReadableCues.spec.lua`
+  - `scripts/tests/test_terrain_sparse_peak_surface_damping_truth.py`
+  - `scripts/tests/test_building_shell_mesh_readability_contract.py`
+  - `scripts/tests/test_streaming_residency_footprint_contract.py`
+  - `scripts/tests/test_austin_runtime_contract.py`
+- Local-safe verification passed on 2026-04-03:
+  - `python3 -m unittest scripts.tests.test_streaming_residency_footprint_contract scripts.tests.test_streaming_dual_focus_priority_contract scripts.tests.test_streaming_lod_footprint_contract scripts.tests.test_streaming_lod_live_root_focus_contract scripts.tests.test_building_shell_mesh_readability_contract scripts.tests.test_building_shell_mesh_wall_presence_contract scripts.tests.test_terrain_sparse_peak_surface_damping_truth scripts.tests.test_terrain_chunk_edge_truth scripts.tests.test_terrain_steep_mixed_fill_depth_truth scripts.tests.test_terrain_column_occupancy_shaping_truth scripts.tests.test_play_render_truth scripts.tests.test_austin_runtime_contract -v`
+  - `stylua --check roblox/src/ServerScriptService/ImportService/Builders/BuildingBuilder.lua roblox/src/ServerScriptService/ImportService/Builders/TerrainBuilder.lua roblox/src/ServerScriptService/ImportService/ChunkPriority.lua roblox/src/ServerScriptService/ImportService/StreamingService.lua roblox/src/ServerScriptService/Tests/BuildingShellMeshReadableCues.spec.lua roblox/src/ServerScriptService/Tests/TerrainOutdoorFidelity.spec.lua`
+  - `git diff --check`
+- Next step remains `tertiary`-only proof to measure whether this tranche materially reduces street-level facade emptiness, sparse peak false planes, and chunks that feel missing until the player crosses their footprint.
+
 ### 2026-04-03: Play-Probe False Positives No Longer Generate Bogus Play Scene Audits
 
 - Continued the `tertiary`-only play-focused Austin proof lane after the earlier seeded-manifest-summary fix.

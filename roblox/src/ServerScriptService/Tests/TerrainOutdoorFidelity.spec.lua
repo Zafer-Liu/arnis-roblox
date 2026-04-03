@@ -279,9 +279,12 @@ return function()
 
     local sparsePeakProfile = TerrainBuilder._sampleVoxelColumnProfile(sparsePeakProfilePlan, 1, 1)
     Assert.equal(sparsePeakProfile.peakSampleCoverage, 0.0625, "expected sparse peak coverage to stay measurable")
-    Assert.equal(
-        sparsePeakProfile.surfaceHeight,
-        1.5859375,
-        "expected sparse steep peaks to apply bounded damping instead of lifting the whole write voxel to the peak plane"
+    Assert.truthy(
+        sparsePeakProfile.surfaceHeight > sparsePeakProfile.averageHeight,
+        "expected sparse steep peaks to stay above the surrounding average height"
+    )
+    Assert.truthy(
+        sparsePeakProfile.surfaceHeight < 1.4,
+        "expected sparse steep peaks to stay close to the surrounding surface instead of forming a false elevated plane"
     )
 end
