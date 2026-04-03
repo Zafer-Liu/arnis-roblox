@@ -303,15 +303,28 @@ local function resolveNeighborHeightSample(plan, cellX, cellZ)
         return nil
     end
 
+    local function blendNeighborSamples(primarySample, secondarySample)
+        if primarySample ~= nil and secondarySample ~= nil then
+            return (primarySample + secondarySample) * 0.5
+        end
+        return primarySample or secondarySample
+    end
+
     if cellX < 0 then
         local cornerSample = nil
+        local blendedEdgeSample = nil
         if cellZ < 0 then
             cornerSample = sampleCornerNeighbor("northWest")
+            blendedEdgeSample = blendNeighborSamples(sampleEdgeNeighbor("west"), sampleEdgeNeighbor("north"))
         elseif cellZ >= plan.gridD then
             cornerSample = sampleCornerNeighbor("southWest")
+            blendedEdgeSample = blendNeighborSamples(sampleEdgeNeighbor("west"), sampleEdgeNeighbor("south"))
         end
         if cornerSample ~= nil then
             return cornerSample
+        end
+        if blendedEdgeSample ~= nil then
+            return blendedEdgeSample
         end
         local edgeSample = sampleEdgeNeighbor("west")
         if edgeSample ~= nil then
@@ -319,13 +332,19 @@ local function resolveNeighborHeightSample(plan, cellX, cellZ)
         end
     elseif cellX >= plan.gridW then
         local cornerSample = nil
+        local blendedEdgeSample = nil
         if cellZ < 0 then
             cornerSample = sampleCornerNeighbor("northEast")
+            blendedEdgeSample = blendNeighborSamples(sampleEdgeNeighbor("east"), sampleEdgeNeighbor("north"))
         elseif cellZ >= plan.gridD then
             cornerSample = sampleCornerNeighbor("southEast")
+            blendedEdgeSample = blendNeighborSamples(sampleEdgeNeighbor("east"), sampleEdgeNeighbor("south"))
         end
         if cornerSample ~= nil then
             return cornerSample
+        end
+        if blendedEdgeSample ~= nil then
+            return blendedEdgeSample
         end
         local edgeSample = sampleEdgeNeighbor("east")
         if edgeSample ~= nil then

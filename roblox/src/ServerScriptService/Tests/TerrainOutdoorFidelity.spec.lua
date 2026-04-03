@@ -97,6 +97,54 @@ return function()
         "expected diagonal seam samples to consult the diagonal chunk corner instead of creating a vertical local cliff"
     )
 
+    local blendedCornerPlan = {
+        terrainGrid = {
+            width = 2,
+            depth = 2,
+            heights = {
+                4,
+                8,
+                6,
+                10,
+            },
+        },
+        gridW = 2,
+        gridD = 2,
+        terrainNeighbors = {
+            east = {
+                id = "1_0",
+                terrain = {
+                    width = 2,
+                    depth = 2,
+                    heights = {
+                        12,
+                        14,
+                        16,
+                        18,
+                    },
+                },
+            },
+            south = {
+                id = "0_1",
+                terrain = {
+                    width = 2,
+                    depth = 2,
+                    heights = {
+                        30,
+                        32,
+                        34,
+                        36,
+                    },
+                },
+            },
+        },
+    }
+    Assert.equal(
+        TerrainBuilder._resolveNeighborHeightSample(blendedCornerPlan, 2, 2),
+        23,
+        "expected missing diagonal seam samples to blend adjacent edge neighbors instead of snapping to a single edge"
+    )
+
     local edgeProgressionPlan = {
         terrainGrid = {
             width = 5,

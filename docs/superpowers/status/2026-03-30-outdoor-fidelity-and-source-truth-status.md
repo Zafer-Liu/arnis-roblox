@@ -2109,3 +2109,16 @@ The compact historical archive index is:
   - `python3 -m unittest scripts.tests.test_play_render_truth scripts.tests.test_austin_runtime_contract -v`
   - `stylua --check roblox/src/StarterPlayer/StarterPlayerScripts/WorldProbe.client.lua`
   - `git diff --check`
+
+## 2026-04-03 16:07 CDT
+
+- Landed another local-safe play-fidelity tranche on `main`:
+  - `TerrainBuilder.lua`
+    - when the true diagonal neighbor chunk is missing, diagonal seam samples now blend the two adjacent edge-neighbor heights instead of snapping to a single edge sample, reducing corner seam discontinuities and boxy cliff corners at chunk boundaries
+- Added focused local-safe coverage in:
+  - updated `test_terrain_chunk_edge_truth.py`
+  - updated `TerrainOutdoorFidelity.spec.lua`
+- Verification:
+  - `python3 -m unittest scripts.tests.test_terrain_chunk_edge_truth scripts.tests.test_terrain_sparse_peak_surface_damping_truth scripts.tests.test_terrain_sparse_cliff_occupancy_shaping_truth scripts.tests.test_terrain_steep_mixed_fill_depth_truth scripts.tests.test_terrain_column_occupancy_shaping_truth -v`
+  - `stylua --check roblox/src/ServerScriptService/ImportService/Builders/TerrainBuilder.lua roblox/src/ServerScriptService/Tests/TerrainOutdoorFidelity.spec.lua`
+  - `git diff --check`

@@ -44,6 +44,16 @@ class TerrainChunkEdgeTruthTests(unittest.TestCase):
             r"surfaceFillDepth = if heightRange > 0\s+then math\.max\(1, TERRAIN_THICKNESS \* math\.clamp\(normalizedPeakCoverage \+ peakCoverageBias \* 0\.25, 0, 1\)\)",
         )
 
+    def test_missing_diagonal_neighbors_blend_adjacent_edge_samples_instead_of_snapping_to_one_side(self) -> None:
+        source = TERRAIN_BUILDER.read_text(encoding="utf-8")
+
+        self.assertIn("local function blendNeighborSamples(primarySample, secondarySample)", source)
+        self.assertIn("return (primarySample + secondarySample) * 0.5", source)
+        self.assertIn('blendNeighborSamples(sampleEdgeNeighbor("west"), sampleEdgeNeighbor("north"))', source)
+        self.assertIn('blendNeighborSamples(sampleEdgeNeighbor("west"), sampleEdgeNeighbor("south"))', source)
+        self.assertIn('blendNeighborSamples(sampleEdgeNeighbor("east"), sampleEdgeNeighbor("north"))', source)
+        self.assertIn('blendNeighborSamples(sampleEdgeNeighbor("east"), sampleEdgeNeighbor("south"))', source)
+
 
 if __name__ == "__main__":
     unittest.main()
