@@ -1960,3 +1960,18 @@ The compact historical archive index is:
   - `python3 -m unittest scripts.tests.test_play_render_truth scripts.tests.test_austin_runtime_contract -v`
   - `stylua --check roblox/src/ServerScriptService/ImportService/StreamingService.lua roblox/src/ServerScriptService/ImportService/SceneAudit.lua roblox/src/ServerScriptService/ImportService/Builders/TerrainBuilder.lua roblox/src/ServerScriptService/Tests/StartupMergedShellReadableEnvelope.spec.lua roblox/src/ServerScriptService/Tests/HighDetailWholeChunkAdmission.spec.lua roblox/src/ServerScriptService/Tests/TerrainPlanReuse.spec.lua`
   - `git diff --check`
+
+## 2026-04-03 14:10 CDT
+
+- Landed another local-safe play-fidelity tranche on `main`:
+  - `ChunkPriority.lua` / `StreamingService.lua`
+    - high-detail whole-chunk building admissions now carry an explicit priority bit through work-item sorting, so near-player full building imports outrank competing subplan work during the startup/play window instead of getting starved by cheaper sibling subplans
+  - `TerrainBuilder.lua`
+    - implicit follow-up `PrepareChunk(chunk)` calls now reuse the best cached prepared plan when no new options are supplied, so a seam-aware terrain plan does not silently downgrade back to seam-blind sampling on later build passes
+- Added focused local-safe coverage in:
+  - `HighDetailWholeChunkPriority.spec.lua`
+  - updated `TerrainPlanReuse.spec.lua`, `test_play_render_truth.py`, and `test_austin_runtime_contract.py`
+- Verification:
+  - `python3 -m unittest scripts.tests.test_play_render_truth scripts.tests.test_austin_runtime_contract -v`
+  - `stylua --check roblox/src/ServerScriptService/ImportService/StreamingService.lua roblox/src/ServerScriptService/ImportService/ChunkPriority.lua roblox/src/ServerScriptService/ImportService/Builders/TerrainBuilder.lua roblox/src/ServerScriptService/Tests/HighDetailWholeChunkPriority.spec.lua roblox/src/ServerScriptService/Tests/TerrainPlanReuse.spec.lua`
+  - `git diff --check`

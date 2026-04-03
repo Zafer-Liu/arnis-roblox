@@ -252,6 +252,7 @@ class AustinRuntimeContractTests(unittest.TestCase):
         self.assertIn("workItems[#workItems + 1] = {", self.streaming_text)
         self.assertIn("targetLod == LOD_HIGH", self.streaming_text)
         self.assertIn('subplan.layer == "buildings"', self.streaming_text)
+        self.assertIn("highDetailWholeChunkPriority = true", self.streaming_text)
 
     def test_world_config_declares_explicit_runtime_streaming_rings(self) -> None:
         self.assertIn("StreamingRings = {", self.world_config_text)

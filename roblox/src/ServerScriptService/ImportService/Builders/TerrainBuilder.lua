@@ -596,8 +596,17 @@ function TerrainBuilder.PrepareChunk(chunk, options)
         return nil
     end
 
-    local terrainNeighborSignature = resolveTerrainNeighborSignature(options)
     local cachedPlan = rawget(chunk, BUILD_PLAN_CACHE_KEY)
+    if
+        cachedPlan ~= nil
+        and options == nil
+        and cachedPlan.terrainGrid == chunk.terrain
+        and cachedPlan.origin == chunk.originStuds
+    then
+        return cachedPlan
+    end
+
+    local terrainNeighborSignature = resolveTerrainNeighborSignature(options)
     if
         cachedPlan ~= nil
         and cachedPlan.terrainGrid == chunk.terrain

@@ -171,6 +171,8 @@ class PlayRenderTruthTests(unittest.TestCase):
         self.assertIn("local function buildDerivedTerrainNeighborSignature(terrainNeighbors)", source)
         self.assertIn("local function resolveTerrainNeighborSignature(options)", source)
         self.assertIn("terrainNeighborSignature = resolveTerrainNeighborSignature(options)", source)
+        self.assertIn("options == nil", source)
+        self.assertIn("return cachedPlan", source)
 
     def test_terrain_material_richness_flows_from_builder_to_preview_hotspot_summary(self) -> None:
         terrain_source = TERRAIN_BUILDER.read_text(encoding="utf-8")

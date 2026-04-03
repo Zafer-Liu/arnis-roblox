@@ -104,4 +104,11 @@ return function()
         neighborAwarePlan.sampleInterpolatedHeight(3, 1, 1, 0) > firstPlan.sampleInterpolatedHeight(3, 1, 1, 0),
         "expected east-edge interpolation to pick up the new neighbor height after cache invalidation"
     )
+
+    local implicitReusePlan = TerrainBuilder.PrepareChunk(chunk)
+    Assert.equal(
+        implicitReusePlan,
+        neighborAwarePlan,
+        "expected implicit prepare calls to reuse the best cached seam-aware plan instead of downgrading to seam-blind terrain"
+    )
 end

@@ -1398,6 +1398,7 @@ local function appendStreamingWorkItems(workItems, chunkEntry, chunkOptions, con
             chunkId = chunkRef.id,
             originStuds = chunkRef.originStuds,
             targetLod = targetLod,
+            highDetailWholeChunkPriority = wholeChunkOptions.highDetailWholeChunkPriority == true,
         }
     end
 
@@ -1411,6 +1412,7 @@ local function appendStreamingWorkItems(workItems, chunkEntry, chunkOptions, con
             config = chunkOptions.config,
             configSignature = chunkOptions.configSignature,
             layerSignatures = chunkOptions.layerSignatures,
+            highDetailWholeChunkPriority = true,
         })
         return false
     end
@@ -1486,10 +1488,12 @@ local function queuePendingSubplans(workItems, chunkEntry, chunkOptions, targetL
                 config = chunkOptions.config,
                 configSignature = chunkOptions.configSignature,
                 layerSignatures = chunkOptions.layerSignatures,
+                highDetailWholeChunkPriority = true,
             },
             chunkId = chunkEntry.ref.id,
             originStuds = chunkEntry.ref.originStuds,
             targetLod = targetLod,
+            highDetailWholeChunkPriority = true,
         }
         return true
     end
