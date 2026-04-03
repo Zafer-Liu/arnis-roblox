@@ -2259,3 +2259,21 @@ The compact historical archive index is:
   - `python3 -m unittest scripts.tests.test_building_shell_mesh_readability_contract scripts.tests.test_play_render_truth scripts.tests.test_streaming_import_lod_refresh_contract scripts.tests.test_austin_runtime_contract -v`
   - `stylua --check roblox/src/ServerScriptService/ImportService/Builders/BuildingBuilder.lua roblox/src/ServerScriptService/ImportService/StreamingService.lua roblox/src/ServerScriptService/Tests/PlayVisibleShellReadableCues.spec.lua`
   - `git diff --check`
+
+## 2026-04-03 18:13 CDT
+
+- Landed another local-safe bundled play-fidelity tranche on `main`:
+  - `BuildingBuilder.lua`
+    - the bounded `preferPlayVisibleShellWalls` shellMesh path now carries the full cheap facade kit as well: street-facade cues and window-pane cues join beltlines, roofline cues, corner accents, and the street-facing door cue, so medium-cost explicit-wall shells stop reading like plain walls at player height
+  - `StreamingService.lua`
+    - newly imported chunks now get their LOD visibility applied immediately after import succeeds, reducing the last bit of intra-update “it loaded but still looks stale” lag for fresh resident chunks
+  - `PlayVisibleShellReadableCues.spec.lua`
+    - expanded again so the dedicated explicit-wall readability lane now stays pinned for street-facade and window-pane coverage too
+- Added focused local-safe coverage in:
+  - updated `test_building_shell_mesh_readability_contract.py`
+  - updated `test_play_render_truth.py`
+  - new `test_streaming_import_lod_refresh_contract.py`
+- Verification:
+  - `python3 -m unittest scripts.tests.test_building_shell_mesh_readability_contract scripts.tests.test_play_render_truth scripts.tests.test_streaming_import_lod_refresh_contract scripts.tests.test_austin_runtime_contract -v`
+  - `stylua --check roblox/src/ServerScriptService/ImportService/Builders/BuildingBuilder.lua roblox/src/ServerScriptService/ImportService/StreamingService.lua roblox/src/ServerScriptService/Tests/PlayVisibleShellReadableCues.spec.lua`
+  - `git diff --check`

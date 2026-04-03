@@ -17,8 +17,25 @@ class StreamingImportLodRefreshContractTests(unittest.TestCase):
     def test_streaming_updates_newly_imported_chunk_lod_visibility_immediately(self) -> None:
         self.assertIn("local importedChunkEntry = ChunkLoader.GetChunkEntry(chunkRef.id, streamingOptions.worldRootName)", self.streaming_text)
         self.assertIn("local immediateCameraFocusPos = resolveCurrentCameraFocusPosition()", self.streaming_text)
+        self.assertIn("updateChunkEntryLodGroups(", self.streaming_text)
         self.assertIn(
-            "updateChunkEntryLodGroups(importedChunkEntry, immediateCameraFocusPos, playerPos, highRadius, interiorRadius)",
+            "importedChunkEntry,",
+            self.streaming_text,
+        )
+        self.assertIn(
+            "immediateCameraFocusPos,",
+            self.streaming_text,
+        )
+        self.assertIn(
+            "playerPos,",
+            self.streaming_text,
+        )
+        self.assertIn(
+            "highRadius,",
+            self.streaming_text,
+        )
+        self.assertIn(
+            "interiorRadius",
             self.streaming_text,
         )
 

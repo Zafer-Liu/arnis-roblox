@@ -357,6 +357,7 @@ class PlayRenderTruthTests(unittest.TestCase):
         )
         self.assertIn('detailFolder:SetAttribute("ArnisCornerAccentCount", playVisibleCornerAccentCount)', source)
         self.assertIn('detailFolder:SetAttribute("ArnisMergedShellDoorCueCount", playVisibleDoorCueCount)', source)
+        self.assertIn('detailFolder:SetAttribute("ArnisMergedShellStreetFacadeCueCount", playVisibleStreetFacadeCueCount)', source)
         self.assertIn('detailFolder:SetAttribute("ArnisMergedShellWindowPaneCueCount", playVisibleWindowPaneCueCount)', source)
         self.assertIn("if boundedHoleLoopCount == 1 then", source)
         self.assertIn("return levels <= 5 and height <= 28 and footprintPointCount <= 12", source)

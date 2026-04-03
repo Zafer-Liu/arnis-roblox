@@ -91,6 +91,10 @@ return function()
         "expected play-visible shell path to keep a bounded street-facing door cue"
     )
     Assert.truthy(
+        (detailFolder:GetAttribute("ArnisMergedShellStreetFacadeCueCount") or 0) >= 4,
+        "expected play-visible shell path to keep bounded street facade readability cues"
+    )
+    Assert.truthy(
         (detailFolder:GetAttribute("ArnisMergedShellWindowPaneCueCount") or 0) >= 1,
         "expected play-visible shell path to keep bounded window pane readability cues"
     )
