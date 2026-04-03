@@ -4796,6 +4796,18 @@ elif [[ $DO_PLAY -eq 1 ]]; then
       echo "[harness] filtered play-only non-preview proof did not complete" >&2
       exit 1
     fi
+  elif should_skip_edit_mode_actions_for_play; then
+    log "stopping Vertigo Sync server before Play to avoid duplicate bootstrap materialization"
+    stop_vsync_server
+    log "entering Play mode"
+    activate_studio
+    enter_play_mode || log "failed to trigger Play mode via AppleScript/menu automation"
+    wait_for_playing 20 || log "Studio did not report playing state before timeout; falling back to Austin log markers"
+    if wait_for_log_pattern "\\[BootstrapAustin\\] Starting Austin, TX import|\\[RunAustin\\]|\\[BootstrapAustin\\] Done\\." "$PATTERN_WAIT_SECONDS"; then
+      sleep "$PLAY_WAIT_SECONDS"
+    else
+      log "play-mode Austin markers not observed before timeout; continuing"
+    fi
   elif run_play_probe_via_mcp; then
     log "stopping Vertigo Sync server before Play to avoid duplicate bootstrap materialization"
     stop_vsync_server

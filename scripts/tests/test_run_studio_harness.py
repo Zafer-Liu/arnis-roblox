@@ -1124,6 +1124,14 @@ class RunStudioHarnessTests(unittest.TestCase):
         self.assertIn('log "skipping redundant play MCP probe after successful authoritative play proof"', play_block)
         self.assertIn('run_probe_best_effort "play" 8', play_block)
 
+    def test_play_focused_harness_bypasses_authoritative_mcp_play_probe(self) -> None:
+        play_block = self.text.split("elif [[ $DO_PLAY -eq 1 ]]; then", 1)[1]
+        self.assertIn("elif should_skip_edit_mode_actions_for_play; then", play_block)
+        self.assertLess(
+            play_block.index("elif should_skip_edit_mode_actions_for_play; then"),
+            play_block.index("elif run_play_probe_via_mcp; then"),
+        )
+
     def test_play_probe_keeps_play_session_alive_until_harness_capture(self) -> None:
         self.assertIn("play_probe_succeeded = False", self.text)
         self.assertIn("play_probe_succeeded = True", self.text)
