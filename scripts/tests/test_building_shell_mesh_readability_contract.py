@@ -43,6 +43,11 @@ class BuildingShellMeshReadabilityContractTests(unittest.TestCase):
         self.assertIn("MergedShellWindowPaneCue", self.text)
         self.assertIn("ArnisMergedShellWindowPaneCueCount", self.text)
 
+    def test_play_visible_shell_wall_path_adds_roofline_and_beltline_readability_cues(self) -> None:
+        self.assertIn("local function buildPlayVisibleShellReadableCues", self.text)
+        self.assertIn("playVisibleFacadeBeltlineCount", self.text)
+        self.assertIn("playVisibleRooflineCueCount", self.text)
+
 
 if __name__ == "__main__":
     unittest.main()

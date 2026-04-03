@@ -2141,3 +2141,20 @@ The compact historical archive index is:
   - `python3 -m unittest scripts.tests.test_building_shell_mesh_readability_contract scripts.tests.test_play_render_truth scripts.tests.test_austin_runtime_contract -v`
   - `stylua --check roblox/src/ServerScriptService/ImportService/Builders/BuildingBuilder.lua roblox/src/ServerScriptService/Tests/FlatShellMeshRoofTruth.spec.lua`
   - `git diff --check`
+
+## 2026-04-03 17:31 CDT
+
+- Landed another local-safe play-fidelity tranche on `main`:
+  - `BuildingBuilder.lua`
+    - the bounded `preferPlayVisibleShellWalls` shellMesh path now adds cheap roofline and facade beltline readability cues instead of leaving the detail folder mostly blank, so low-cost explicit-wall shells read closer to edit mode without abandoning the explicit wall fallback
+  - `WorldProbe.client.lua`
+    - player-local enclosure telemetry now reports `nearbyReadableFacadeCueParts`, so merged-shell readability cues show up in live local enclosure truth instead of only in startup and scene-audit paths
+- Added focused local-safe coverage in:
+  - updated `test_building_shell_mesh_readability_contract.py`
+  - updated `test_play_render_truth.py`
+  - updated `test_austin_runtime_contract.py`
+  - reused `FlatShellMeshRoofTruth.spec.lua` as the flat-roof proof point
+- Verification:
+  - `python3 -m unittest scripts.tests.test_building_shell_mesh_readability_contract scripts.tests.test_play_render_truth scripts.tests.test_austin_runtime_contract -v`
+  - `stylua --check roblox/src/ServerScriptService/ImportService/Builders/BuildingBuilder.lua roblox/src/ServerScriptService/Tests/FlatShellMeshRoofTruth.spec.lua roblox/src/StarterPlayer/StarterPlayerScripts/WorldProbe.client.lua`
+  - `git diff --check`

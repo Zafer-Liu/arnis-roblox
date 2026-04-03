@@ -348,6 +348,11 @@ class PlayRenderTruthTests(unittest.TestCase):
             r"if\s+preferPlayVisibleShellWalls\s+then[\s\S]*buildWallLoopParts\(shellFolder,\s*bldgName,\s*worldPts,\s*baseY,\s*height,\s*mat,\s*color,\s*\"outer\"",
             "expected bounded shellMesh fallback to keep explicit shell wall parts for medium-complexity buildings",
         )
+        self.assertRegex(
+            source,
+            r"if\s+preferPlayVisibleShellWalls\s+then[\s\S]*buildPlayVisibleShellReadableCues\(detailFolder,\s*worldPts,\s*baseY,\s*height\)",
+            "expected bounded shellMesh fallback to add cheap roofline and beltline readability cues",
+        )
         self.assertIn("if boundedHoleLoopCount == 1 then", source)
         self.assertIn("return levels <= 5 and height <= 28 and footprintPointCount <= 12", source)
 
@@ -407,6 +412,17 @@ class PlayRenderTruthTests(unittest.TestCase):
         self.assertIn("if not isRoofPart and not isRoofCue then", world_probe_source)
         self.assertIn("nearbyRoofParts += 1", world_probe_source)
         self.assertIn("overheadRoofParts += 1", world_probe_source)
+
+    def test_world_probe_counts_merged_shell_readable_facade_cues_in_local_enclosure(self) -> None:
+        world_probe_source = WORLD_PROBE.read_text(encoding="utf-8")
+
+        self.assertIn("local function isReadableFacadeCuePart(part)", world_probe_source)
+        self.assertIn('name == "MergedShellWallPresenceCue"', world_probe_source)
+        self.assertIn('or name == "MergedShellStreetFacadeCue"', world_probe_source)
+        self.assertIn('or name == "MergedShellWindowPaneCue"', world_probe_source)
+        self.assertIn("local nearbyReadableFacadeCueParts = 0", world_probe_source)
+        self.assertIn("nearbyReadableFacadeCueParts += 1", world_probe_source)
+        self.assertIn("readableFacadeCueParts = nearbyReadableFacadeCueParts", world_probe_source)
 
     def test_irregular_shaped_roofs_fall_back_to_visible_roof_geometry_not_only_closure_decks(self) -> None:
         source = BUILDING_BUILDER.read_text(encoding="utf-8")

@@ -418,6 +418,7 @@ class AustinRuntimeContractTests(unittest.TestCase):
         self.assertIn("terrainY =", self.world_probe_text)
         self.assertIn("supportMinusTerrainYStuds =", self.world_probe_text)
         self.assertIn("nearbyWallParts =", self.world_probe_text)
+        self.assertIn("nearbyReadableFacadeCueParts =", self.world_probe_text)
         self.assertIn("collidableWallPartsNearby =", self.world_probe_text)
         self.assertIn("nearestWallDistanceStuds =", self.world_probe_text)
         self.assertIn("overheadRoofMinClearanceStuds =", self.world_probe_text)
@@ -429,6 +430,7 @@ class AustinRuntimeContractTests(unittest.TestCase):
         self.assertIn('name == "MergedShellRooflineCue"', self.world_probe_text)
         self.assertIn('or name == "MergedShellPerimeterCue"', self.world_probe_text)
         self.assertIn("local isRoofCue = isRoofCuePart(descendant)", self.world_probe_text)
+        self.assertIn("local function isReadableFacadeCuePart(part)", self.world_probe_text)
         self.assertIn("if descendant:IsA(\"MeshPart\") and shellFolder and descendant:IsDescendantOf(shellFolder)", self.world_probe_text)
         self.assertRegex(
             self.world_probe_text,

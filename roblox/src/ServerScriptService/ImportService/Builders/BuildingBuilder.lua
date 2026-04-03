@@ -2336,6 +2336,12 @@ local function buildMergedShellReadableCues(detailFolder, worldPts, baseY, heigh
         windowPaneCueCount
 end
 
+local function buildPlayVisibleShellReadableCues(detailFolder, worldPts, baseY, height)
+    local facadeBeltlineCount = buildFacadeBeltlines(detailFolder, worldPts, baseY, height)
+    local rooflineCueCount = buildMergedShellRooflineCues(detailFolder, worldPts, baseY, height)
+    return facadeBeltlineCount, rooflineCueCount
+end
+
 local function addCornerAccentsToAccumulator(acc, worldPts, baseY, height)
     local builtCount = 0
     local accentHeight = math.max(3, math.min(height - 1.2, height * 0.72))
@@ -3129,6 +3135,10 @@ function BuildingBuilder.MeshBuildAll(parent, buildings, originStuds, chunk, con
                             string.format("inner%d", holeIndex)
                         )
                     end
+                    local playVisibleFacadeBeltlineCount, playVisibleRooflineCueCount =
+                        buildPlayVisibleShellReadableCues(detailFolder, worldPts, baseY, height)
+                    detailFolder:SetAttribute("ArnisFacadeBeltlineCount", playVisibleFacadeBeltlineCount)
+                    detailFolder:SetAttribute("ArnisMergedShellRooflineCueCount", playVisibleRooflineCueCount)
                 else
                     -- Merge opaque walls into EditableMesh accumulators
                     local acc = getAccumulator(mat, color)

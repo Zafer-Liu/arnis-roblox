@@ -120,6 +120,20 @@ local function isRoofCuePart(part)
     return name == "MergedShellRooflineCue" or name == "MergedShellPerimeterCue"
 end
 
+local function isReadableFacadeCuePart(part)
+    if part == nil or not part:IsA("BasePart") then
+        return false
+    end
+
+    local name = part.Name
+    return name == "MergedShellWallPresenceCue"
+        or name == "MergedShellStreetFacadeCue"
+        or name == "MergedShellWindowPaneCue"
+        or name == "MergedShellDoorCue"
+        or name == "FacadeBeltline"
+        or name == "CornerAccent"
+end
+
 local function findNearestSourceId(hitInstance)
     local node = hitInstance
     while node and node.Parent do
@@ -261,6 +275,7 @@ local function summarizeWorld(rootPart, worldRoot, worldRootName, telemetryFlags
     local overheadRoofParts = 0
     local overheadRoofMinClearanceStuds = nil
     local nearbyWallParts = 0
+    local nearbyReadableFacadeCueParts = 0
     local collidableWallPartsNearby = 0
     local nearestWallDistanceStuds = nil
     local nearestBuildingSourceIds = {}
@@ -343,6 +358,7 @@ local function summarizeWorld(rootPart, worldRoot, worldRootName, telemetryFlags
                     or isRoofClosureDeckPart(descendant)
                 local isRoofPart = string.find(nameLower, "roof", 1, true) ~= nil and not isRoofClosureDeck
                 local isRoofCue = isRoofCuePart(descendant)
+                local isReadableFacadeCue = isReadableFacadeCuePart(descendant)
 
                 if descendant:IsA("MeshPart") and shellFolder and descendant:IsDescendantOf(shellFolder) then
                     if
@@ -378,6 +394,9 @@ local function summarizeWorld(rootPart, worldRoot, worldRootName, telemetryFlags
                     end
                     continue
                 end
+                if isReadableFacadeCue and horizontalPartDistance <= NEARBY_WALL_RADIUS then
+                    nearbyReadableFacadeCueParts += 1
+                end
                 if not isRoofPart and not isRoofCue then
                     continue
                 end
@@ -411,6 +430,7 @@ local function summarizeWorld(rootPart, worldRoot, worldRootName, telemetryFlags
         }
         localEnclosure = {
             nearbyWallParts = nearbyWallParts,
+            readableFacadeCueParts = nearbyReadableFacadeCueParts,
             collidableWallPartsNearby = collidableWallPartsNearby,
             nearestWallDistanceStuds = roundTenths(nearestWallDistanceStuds),
         }
@@ -435,6 +455,7 @@ local function summarizeWorld(rootPart, worldRoot, worldRootName, telemetryFlags
         overheadRoofParts = overheadRoofParts,
         overheadRoofMinClearanceStuds = roundTenths(overheadRoofMinClearanceStuds),
         nearbyWallParts = nearbyWallParts,
+        nearbyReadableFacadeCueParts = nearbyReadableFacadeCueParts,
         collidableWallPartsNearby = collidableWallPartsNearby,
         nearestWallDistanceStuds = roundTenths(nearestWallDistanceStuds),
         nearestBuildingSourceIds = nearestBuildingSourceIds,
@@ -486,6 +507,7 @@ local function publishWorldTelemetry()
         supportMinusTerrainYStuds = nil,
         supportSourceIds = {},
         nearbyWallParts = 0,
+        nearbyReadableFacadeCueParts = 0,
         collidableWallPartsNearby = 0,
         nearestWallDistanceStuds = nil,
         overheadRoofMinClearanceStuds = nil,
@@ -515,6 +537,7 @@ local function publishWorldTelemetry()
         terrainY = nil,
         supportMinusTerrainYStuds = nil,
         nearbyWallParts = 0,
+        nearbyReadableFacadeCueParts = 0,
         collidableWallPartsNearby = 0,
         nearestWallDistanceStuds = nil,
         overheadRoofMinClearanceStuds = nil,
@@ -561,6 +584,7 @@ local function publishWorldTelemetry()
         compactPayload.terrainY = payload.terrainY
         compactPayload.supportMinusTerrainYStuds = payload.supportMinusTerrainYStuds
         compactPayload.nearbyWallParts = payload.nearbyWallParts
+        compactPayload.nearbyReadableFacadeCueParts = payload.nearbyReadableFacadeCueParts
         compactPayload.collidableWallPartsNearby = payload.collidableWallPartsNearby
         compactPayload.nearestWallDistanceStuds = payload.nearestWallDistanceStuds
         compactPayload.overheadRoofMinClearanceStuds = payload.overheadRoofMinClearanceStuds
