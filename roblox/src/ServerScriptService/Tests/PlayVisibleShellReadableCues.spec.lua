@@ -86,6 +86,10 @@ return function()
         (detailFolder:GetAttribute("ArnisCornerAccentCount") or 0) >= 4,
         "expected play-visible shell path to keep corner accent readability cues"
     )
+    Assert.truthy(
+        (detailFolder:GetAttribute("ArnisMergedShellDoorCueCount") or 0) >= 1,
+        "expected play-visible shell path to keep a bounded street-facing door cue"
+    )
 
     worldRoot:Destroy()
 end

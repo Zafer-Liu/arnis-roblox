@@ -2208,6 +2208,23 @@ The compact historical archive index is:
   - `stylua --check roblox/src/ServerScriptService/ImportService/StreamingService.lua roblox/src/StarterPlayer/StarterPlayerScripts/WorldProbe.client.lua roblox/src/ServerScriptService/Tests/StreamingPriority.spec.lua`
   - `git diff --check`
 
+## 2026-04-03 18:06 CDT
+
+- Landed another local-safe play-fidelity tranche on `main`:
+  - `BuildingBuilder.lua`
+    - the bounded `preferPlayVisibleShellWalls` shellMesh path now carries the full cheap player-facing readability kit: facade beltlines, roofline cues, corner accents, and a bounded street-facing door cue
+    - this keeps the medium-cost explicit-wall lane materially closer to edit-mode legibility without promoting those buildings into the heavier merged readability path
+  - `PlayVisibleShellReadableCues.spec.lua`
+    - expanded the dedicated explicit-wall readability spec so this lane now stays pinned for roofline, beltline, corner-accent, and door-cue coverage together
+- Added focused local-safe coverage in:
+  - updated `test_building_shell_mesh_readability_contract.py`
+  - updated `test_play_render_truth.py`
+  - updated `PlayVisibleShellReadableCues.spec.lua`
+- Verification:
+  - `python3 -m unittest scripts.tests.test_building_shell_mesh_readability_contract scripts.tests.test_play_render_truth -v`
+  - `stylua --check roblox/src/ServerScriptService/ImportService/Builders/BuildingBuilder.lua roblox/src/ServerScriptService/Tests/PlayVisibleShellReadableCues.spec.lua`
+  - `git diff --check`
+
 ## 2026-04-03 18:05 CDT
 
 - Landed another local-safe play-fidelity tranche on `main`:

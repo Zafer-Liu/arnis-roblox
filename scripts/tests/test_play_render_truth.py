@@ -356,6 +356,7 @@ class PlayRenderTruthTests(unittest.TestCase):
             "expected bounded shellMesh fallback to add cheap roofline and beltline readability cues",
         )
         self.assertIn('detailFolder:SetAttribute("ArnisCornerAccentCount", playVisibleCornerAccentCount)', source)
+        self.assertIn('detailFolder:SetAttribute("ArnisMergedShellDoorCueCount", playVisibleDoorCueCount)', source)
         self.assertIn("if boundedHoleLoopCount == 1 then", source)
         self.assertIn("return levels <= 5 and height <= 28 and footprintPointCount <= 12", source)
 
