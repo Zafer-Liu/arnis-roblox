@@ -2340,3 +2340,18 @@ The compact historical archive index is:
   - `cargo test -p arbx_planetary_store -p arbx_cli planetary_store --quiet`
   - `cargo test -p arbx_planetary_store --quiet`
   - `git diff --check rust/crates/arbx_planetary_store/src/lib.rs rust/crates/arbx_cli/src/main.rs`
+
+## 2026-04-03 18:44 CDT
+
+- Extended the planetary backbone again on `main`:
+  - `arbx_planetary_store`
+    - added geographic scene discovery by bbox intersection
+    - added geographic scene discovery by point containment
+    - the canonical store can now answer both “what scenes exist here?” and “what chunk summaries cover this local bbox?” which are the two basic orchestration queries for planetary streaming
+  - `arbx_cli`
+    - added `planetary-store find-scenes --bbox ...`
+    - added `planetary-store find-scenes --point ...`
+- Verification:
+  - `cargo test -p arbx_planetary_store -p arbx_cli planetary_store --quiet`
+  - `cargo test -p arbx_planetary_store --quiet`
+  - `git diff --check rust/crates/arbx_planetary_store/src/lib.rs rust/crates/arbx_cli/src/main.rs`

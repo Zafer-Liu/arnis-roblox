@@ -13,8 +13,9 @@ use arbx_pipeline::{
     NormalizeStage, PipelineContext, SourceTruthPack, TriangulateStage, ValidateStage,
 };
 use arbx_planetary_store::{
-    ingest_manifest_sqlite, init_planetary_store, list_scenes, read_scene_catalog_entry,
-    read_scene_chunk_subset, read_scene_chunk_summary_subset, summarize_planetary_store,
+    find_scenes_covering_geo_point, find_scenes_intersecting_geo_bbox, ingest_manifest_sqlite,
+    init_planetary_store, list_scenes, read_scene_catalog_entry, read_scene_chunk_subset,
+    read_scene_chunk_summary_subset, summarize_planetary_store,
 };
 use arbx_roblox_export::{
     build_sample_multi_chunk, export_to_chunks, read_manifest_sqlite_all, write_manifest_sqlite,
@@ -1847,7 +1848,7 @@ fn cmd_emit_runtime_lua(args: &[String]) -> Result<(), String> {
 fn cmd_planetary_store(args: &[String]) -> Result<(), String> {
     let Some(subcommand) = args.first().map(String::as_str) else {
         return Err(
-            "planetary-store requires a subcommand: init | ingest-manifest | summary | list-scenes | scene | subset-summary".to_string(),
+            "planetary-store requires a subcommand: init | ingest-manifest | summary | list-scenes | scene | subset | subset-summary | find-scenes".to_string(),
         );
     };
 
@@ -2139,6 +2140,73 @@ fn cmd_planetary_store(args: &[String]) -> Result<(), String> {
                 "{}",
                 serde_json::to_string_pretty(&subset)
                     .map_err(|err| format!("subset-summary json failed: {err}"))?
+            );
+            Ok(())
+        }
+        "find-scenes" => {
+            let mut store_path: Option<PathBuf> = None;
+            let mut bbox: Option<(f64, f64, f64, f64)> = None;
+            let mut point: Option<(f64, f64)> = None;
+            let mut i = 1;
+            while i < args.len() {
+                match args[i].as_str() {
+                    "--store" => {
+                        let value = args.get(i + 1).ok_or("--store requires a path")?;
+                        store_path = Some(PathBuf::from(value));
+                        i += 2;
+                    }
+                    "--bbox" => {
+                        let value =
+                            args.get(i + 1).ok_or("--bbox requires MIN_LAT,MIN_LON,MAX_LAT,MAX_LON")?;
+                        let parts: Vec<f64> = value
+                            .split(',')
+                            .map(|part| {
+                                part.trim()
+                                    .parse::<f64>()
+                                    .map_err(|_| format!("invalid number in --bbox: {}", part))
+                            })
+                            .collect::<Result<Vec<f64>, String>>()?;
+                        if parts.len() != 4 {
+                            return Err("--bbox requires four comma-separated numbers".to_string());
+                        }
+                        bbox = Some((parts[0], parts[1], parts[2], parts[3]));
+                        i += 2;
+                    }
+                    "--point" => {
+                        let value = args.get(i + 1).ok_or("--point requires LAT,LON")?;
+                        let parts: Vec<f64> = value
+                            .split(',')
+                            .map(|part| {
+                                part.trim()
+                                    .parse::<f64>()
+                                    .map_err(|_| format!("invalid number in --point: {}", part))
+                            })
+                            .collect::<Result<Vec<f64>, String>>()?;
+                        if parts.len() != 2 {
+                            return Err("--point requires two comma-separated numbers".to_string());
+                        }
+                        point = Some((parts[0], parts[1]));
+                        i += 2;
+                    }
+                    other => {
+                        return Err(format!("unknown argument to planetary-store find-scenes: {other}"))
+                    }
+                }
+            }
+            let store_path = store_path.ok_or("planetary-store find-scenes requires --store PATH")?;
+            let scenes = if let Some((min_lat, min_lon, max_lat, max_lon)) = bbox {
+                find_scenes_intersecting_geo_bbox(&store_path, min_lat, min_lon, max_lat, max_lon)
+                    .map_err(|err| format!("planetary-store find-scenes bbox failed: {err}"))?
+            } else if let Some((lat, lon)) = point {
+                find_scenes_covering_geo_point(&store_path, lat, lon)
+                    .map_err(|err| format!("planetary-store find-scenes point failed: {err}"))?
+            } else {
+                return Err("planetary-store find-scenes requires either --bbox or --point".to_string());
+            };
+            println!(
+                "{}",
+                serde_json::to_string_pretty(&scenes)
+                    .map_err(|err| format!("find-scenes json failed: {err}"))?
             );
             Ok(())
         }
@@ -3159,6 +3227,36 @@ mod tests {
             "200,0,500,200".to_string(),
             "--limit".to_string(),
             "1".to_string(),
+        ])
+        .unwrap();
+    }
+
+    #[test]
+    fn planetary_store_find_scenes_works() {
+        let tempdir = tempfile::tempdir().unwrap();
+        let store_path = tempdir.path().join("planetary.sqlite");
+        let manifest_path = tempdir.path().join("sample.sqlite");
+        let mut manifest = build_sample_multi_chunk(1, 1);
+        manifest.meta.bbox = arbx_geo::BoundingBox::new(30.0, -98.0, 30.5, -97.5);
+        write_manifest_sqlite(&manifest, &manifest_path).unwrap();
+
+        cmd_planetary_store(&[
+            "ingest-manifest".to_string(),
+            "--store".to_string(),
+            store_path.display().to_string(),
+            "--manifest-sqlite".to_string(),
+            manifest_path.display().to_string(),
+            "--scene".to_string(),
+            "austin".to_string(),
+        ])
+        .unwrap();
+
+        cmd_planetary_store(&[
+            "find-scenes".to_string(),
+            "--store".to_string(),
+            store_path.display().to_string(),
+            "--point".to_string(),
+            "30.2,-97.8".to_string(),
         ])
         .unwrap();
     }

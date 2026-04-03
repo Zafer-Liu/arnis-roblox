@@ -51,6 +51,22 @@ pub struct PlanetaryChunkSummary {
     pub partition_version: String,
 }
 
+fn bbox_intersects(
+    min_lat_a: f64,
+    min_lon_a: f64,
+    max_lat_a: f64,
+    max_lon_a: f64,
+    min_lat_b: f64,
+    min_lon_b: f64,
+    max_lat_b: f64,
+    max_lon_b: f64,
+) -> bool {
+    min_lat_a <= max_lat_b
+        && max_lat_a >= min_lat_b
+        && min_lon_a <= max_lon_b
+        && max_lon_a >= min_lon_b
+}
+
 fn ensure_parent_dir(path: &Path) -> PlanetaryStoreResult<()> {
     if let Some(parent) = path.parent() {
         fs::create_dir_all(parent)?;
@@ -369,6 +385,88 @@ pub fn read_scene_catalog_entry(
         .map_err(Into::into)
 }
 
+pub fn find_scenes_intersecting_geo_bbox(
+    path: &Path,
+    min_lat: f64,
+    min_lon: f64,
+    max_lat: f64,
+    max_lon: f64,
+) -> PlanetaryStoreResult<Vec<PlanetarySceneCatalogEntry>> {
+    let connection = open_store(path)?;
+    let mut statement = connection.prepare(
+        "
+        SELECT
+            scenes.scene_id,
+            scenes.world_name,
+            scenes.chunk_size_studs,
+            scenes.total_features,
+            scenes.manifest_store_path,
+            scenes.bbox_min_lat,
+            scenes.bbox_min_lon,
+            scenes.bbox_max_lat,
+            scenes.bbox_max_lon,
+            COUNT(chunks.chunk_id) AS chunk_count
+        FROM scenes
+        LEFT JOIN chunks ON chunks.scene_id = scenes.scene_id
+        GROUP BY
+            scenes.scene_id,
+            scenes.world_name,
+            scenes.chunk_size_studs,
+            scenes.total_features,
+            scenes.manifest_store_path,
+            scenes.bbox_min_lat,
+            scenes.bbox_min_lon,
+            scenes.bbox_max_lat,
+            scenes.bbox_max_lon
+        ORDER BY scenes.scene_id ASC
+        ",
+    )?;
+    let rows = statement.query_map([], |row| {
+        Ok((
+            PlanetarySceneCatalogEntry {
+                scene_id: row.get(0)?,
+                world_name: row.get(1)?,
+                chunk_size_studs: row.get(2)?,
+                total_features: row.get::<_, i64>(3)? as usize,
+                manifest_store_path: row.get(4)?,
+                chunk_count: row.get::<_, i64>(9)? as usize,
+            },
+            (
+                row.get::<_, f64>(5)?,
+                row.get::<_, f64>(6)?,
+                row.get::<_, f64>(7)?,
+                row.get::<_, f64>(8)?,
+            ),
+        ))
+    })?;
+
+    let mut scenes = Vec::new();
+    for row in rows {
+        let (entry, (scene_min_lat, scene_min_lon, scene_max_lat, scene_max_lon)) = row?;
+        if bbox_intersects(
+            min_lat,
+            min_lon,
+            max_lat,
+            max_lon,
+            scene_min_lat,
+            scene_min_lon,
+            scene_max_lat,
+            scene_max_lon,
+        ) {
+            scenes.push(entry);
+        }
+    }
+    Ok(scenes)
+}
+
+pub fn find_scenes_covering_geo_point(
+    path: &Path,
+    lat: f64,
+    lon: f64,
+) -> PlanetaryStoreResult<Vec<PlanetarySceneCatalogEntry>> {
+    find_scenes_intersecting_geo_bbox(path, lat, lon, lat, lon)
+}
+
 pub fn scene_exists(path: &Path, scene_id: &str) -> PlanetaryStoreResult<bool> {
     let connection = open_store(path)?;
     let exists = connection
@@ -651,5 +749,43 @@ mod tests {
         .unwrap();
         assert_eq!(chunks.len(), 1);
         assert_eq!(chunks[0].chunk_id, "0_0");
+    }
+
+    #[test]
+    fn planetary_store_finds_scenes_intersecting_geo_bbox() {
+        let dir = tempdir().unwrap();
+        let manifest_a_path = dir.path().join("sample_a.sqlite");
+        let manifest_b_path = dir.path().join("sample_b.sqlite");
+        let store_path = dir.path().join("planetary.sqlite");
+
+        let mut manifest_a = build_sample_multi_chunk(1, 1);
+        manifest_a.meta.bbox = arbx_geo::BoundingBox::new(30.0, -98.0, 30.5, -97.5);
+        let mut manifest_b = build_sample_multi_chunk(1, 1);
+        manifest_b.meta.bbox = arbx_geo::BoundingBox::new(40.0, -75.0, 40.5, -74.5);
+        write_manifest_sqlite(&manifest_a, &manifest_a_path).unwrap();
+        write_manifest_sqlite(&manifest_b, &manifest_b_path).unwrap();
+
+        ingest_manifest_sqlite(&store_path, &manifest_a_path, Some("austin")).unwrap();
+        ingest_manifest_sqlite(&store_path, &manifest_b_path, Some("philly")).unwrap();
+
+        let scenes = find_scenes_intersecting_geo_bbox(&store_path, 30.1, -97.9, 30.2, -97.8).unwrap();
+        assert_eq!(scenes.len(), 1);
+        assert_eq!(scenes[0].scene_id, "austin");
+    }
+
+    #[test]
+    fn planetary_store_finds_scenes_covering_geo_point() {
+        let dir = tempdir().unwrap();
+        let manifest_path = dir.path().join("sample.sqlite");
+        let store_path = dir.path().join("planetary.sqlite");
+
+        let mut manifest = build_sample_multi_chunk(1, 1);
+        manifest.meta.bbox = arbx_geo::BoundingBox::new(30.0, -98.0, 30.5, -97.5);
+        write_manifest_sqlite(&manifest, &manifest_path).unwrap();
+        ingest_manifest_sqlite(&store_path, &manifest_path, Some("austin")).unwrap();
+
+        let scenes = find_scenes_covering_geo_point(&store_path, 30.2, -97.8).unwrap();
+        assert_eq!(scenes.len(), 1);
+        assert_eq!(scenes[0].scene_id, "austin");
     }
 }
