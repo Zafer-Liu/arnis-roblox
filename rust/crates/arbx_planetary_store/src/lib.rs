@@ -16,6 +16,16 @@ pub struct PlanetarySceneSummary {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct PlanetarySceneCatalogEntry {
+    pub scene_id: String,
+    pub world_name: String,
+    pub chunk_size_studs: i32,
+    pub chunk_count: usize,
+    pub total_features: usize,
+    pub manifest_store_path: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct PlanetaryStoreSummary {
     pub scene_count: usize,
     pub chunk_count: usize,
@@ -267,6 +277,87 @@ pub fn summarize_planetary_store(path: &Path) -> PlanetaryStoreResult<PlanetaryS
     })
 }
 
+pub fn list_scenes(path: &Path) -> PlanetaryStoreResult<Vec<PlanetarySceneCatalogEntry>> {
+    let connection = open_store(path)?;
+    let mut statement = connection.prepare(
+        "
+        SELECT
+            scenes.scene_id,
+            scenes.world_name,
+            scenes.chunk_size_studs,
+            scenes.total_features,
+            scenes.manifest_store_path,
+            COUNT(chunks.chunk_id) AS chunk_count
+        FROM scenes
+        LEFT JOIN chunks ON chunks.scene_id = scenes.scene_id
+        GROUP BY
+            scenes.scene_id,
+            scenes.world_name,
+            scenes.chunk_size_studs,
+            scenes.total_features,
+            scenes.manifest_store_path
+        ORDER BY scenes.scene_id ASC
+        ",
+    )?;
+    let rows = statement.query_map([], |row| {
+        Ok(PlanetarySceneCatalogEntry {
+            scene_id: row.get(0)?,
+            world_name: row.get(1)?,
+            chunk_size_studs: row.get(2)?,
+            total_features: row.get::<_, i64>(3)? as usize,
+            manifest_store_path: row.get(4)?,
+            chunk_count: row.get::<_, i64>(5)? as usize,
+        })
+    })?;
+
+    let mut entries = Vec::new();
+    for row in rows {
+        entries.push(row?);
+    }
+    Ok(entries)
+}
+
+pub fn read_scene_catalog_entry(
+    path: &Path,
+    scene_id: &str,
+) -> PlanetaryStoreResult<Option<PlanetarySceneCatalogEntry>> {
+    let connection = open_store(path)?;
+    connection
+        .query_row(
+            "
+            SELECT
+                scenes.scene_id,
+                scenes.world_name,
+                scenes.chunk_size_studs,
+                scenes.total_features,
+                scenes.manifest_store_path,
+                COUNT(chunks.chunk_id) AS chunk_count
+            FROM scenes
+            LEFT JOIN chunks ON chunks.scene_id = scenes.scene_id
+            WHERE scenes.scene_id = ?1
+            GROUP BY
+                scenes.scene_id,
+                scenes.world_name,
+                scenes.chunk_size_studs,
+                scenes.total_features,
+                scenes.manifest_store_path
+            ",
+            params![scene_id],
+            |row| {
+                Ok(PlanetarySceneCatalogEntry {
+                    scene_id: row.get(0)?,
+                    world_name: row.get(1)?,
+                    chunk_size_studs: row.get(2)?,
+                    total_features: row.get::<_, i64>(3)? as usize,
+                    manifest_store_path: row.get(4)?,
+                    chunk_count: row.get::<_, i64>(5)? as usize,
+                })
+            },
+        )
+        .optional()
+        .map_err(Into::into)
+}
+
 pub fn scene_exists(path: &Path, scene_id: &str) -> PlanetaryStoreResult<bool> {
     let connection = open_store(path)?;
     let exists = connection
@@ -439,5 +530,26 @@ mod tests {
 
         assert_eq!(subset.chunk_size_studs, 256);
         assert_eq!(ids, vec!["0_0", "1_0"]);
+    }
+
+    #[test]
+    fn planetary_store_lists_scenes() {
+        let dir = tempdir().unwrap();
+        let manifest_a_path = dir.path().join("sample_a.sqlite");
+        let manifest_b_path = dir.path().join("sample_b.sqlite");
+        let store_path = dir.path().join("planetary.sqlite");
+
+        write_manifest_sqlite(&build_sample_multi_chunk(1, 1), &manifest_a_path).unwrap();
+        write_manifest_sqlite(&build_sample_multi_chunk(2, 1), &manifest_b_path).unwrap();
+
+        ingest_manifest_sqlite(&store_path, &manifest_a_path, Some("austin_a")).unwrap();
+        ingest_manifest_sqlite(&store_path, &manifest_b_path, Some("austin_b")).unwrap();
+
+        let scenes = list_scenes(&store_path).unwrap();
+        assert_eq!(scenes.len(), 2);
+        assert_eq!(scenes[0].scene_id, "austin_a");
+        assert_eq!(scenes[1].scene_id, "austin_b");
+        assert_eq!(scenes[0].chunk_count, 1);
+        assert_eq!(scenes[1].chunk_count, 2);
     }
 }

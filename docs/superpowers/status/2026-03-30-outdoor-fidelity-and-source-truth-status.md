@@ -2312,3 +2312,18 @@ The compact historical archive index is:
   - `cargo test -p arbx_planetary_store -p arbx_cli planetary_store --quiet`
   - `cargo test -p arbx_planetary_store --quiet`
   - `git diff --check rust/Cargo.toml rust/crates/arbx_planetary_store/Cargo.toml rust/crates/arbx_planetary_store/src/lib.rs rust/crates/arbx_cli/Cargo.toml rust/crates/arbx_cli/src/main.rs rust/crates/arbx_roblox_export/src/manifest_store.rs`
+
+## 2026-04-03 18:34 CDT
+
+- Extended the planetary backbone on `main`:
+  - `arbx_planetary_store`
+    - added scene discovery through `list_scenes`
+    - added per-scene metadata reads through `read_scene_catalog_entry`
+    - kept bbox-based chunk subset reads as the scene-local retrieval primitive
+  - `arbx_cli`
+    - added `planetary-store list-scenes`
+    - added `planetary-store scene --scene ...`
+- Verification:
+  - `cargo test -p arbx_planetary_store -p arbx_cli planetary_store --quiet`
+  - `cargo test -p arbx_planetary_store --quiet`
+  - `git diff --check rust/crates/arbx_planetary_store/src/lib.rs rust/crates/arbx_cli/src/main.rs`
