@@ -4478,6 +4478,9 @@ if [[ "$CURRENT_STUDIO_STATUS" != "not_running" ]]; then
   elif is_isolated_non_preview_edit_proof; then
     MCP_READY=0
     log "skipping Studio MCP readiness wait for isolated edit-only non-preview proof"
+  elif should_skip_edit_mode_actions_for_play; then
+    MCP_READY=0
+    log "skipping Studio MCP readiness wait for play-focused harness run"
   elif should_run_filtered_play_tests_without_edit_phase; then
     MCP_READY=0
     log "skipping Studio MCP readiness wait for filtered play-only non-preview proof"
@@ -4516,6 +4519,9 @@ if [[ "$CURRENT_STUDIO_STATUS" != "not_running" ]]; then
       elif is_isolated_non_preview_edit_proof; then
         MCP_READY=0
         log "skipping Studio MCP readiness wait while attaching isolated edit-only non-preview proof"
+      elif should_skip_edit_mode_actions_for_play; then
+        MCP_READY=0
+        log "skipping Studio MCP readiness wait while attaching play-focused harness run"
       elif should_run_filtered_play_tests_without_edit_phase; then
         MCP_READY=0
         log "skipping Studio MCP readiness wait while attaching filtered play-only non-preview proof"
@@ -4552,6 +4558,9 @@ else
   elif is_isolated_non_preview_edit_proof; then
     MCP_READY=0
     log "skipping Studio MCP readiness wait for isolated edit-only non-preview proof"
+  elif should_skip_edit_mode_actions_for_play; then
+    MCP_READY=0
+    log "skipping Studio MCP readiness wait for play-focused harness run"
   elif should_run_filtered_play_tests_without_edit_phase; then
     MCP_READY=0
     log "skipping Studio MCP readiness wait for filtered play-only non-preview proof"

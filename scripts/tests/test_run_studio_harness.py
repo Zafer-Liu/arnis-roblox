@@ -902,6 +902,11 @@ class RunStudioHarnessTests(unittest.TestCase):
         self.assertIn('log "skipping Studio MCP readiness wait for isolated edit-only non-preview proof"', self.text)
         self.assertIn('log "skipping Studio MCP readiness wait while attaching isolated edit-only non-preview proof"', self.text)
 
+    def test_play_focused_runs_skip_mcp_readiness_wait(self) -> None:
+        self.assertIn("should_skip_edit_mode_actions_for_play()", self.text)
+        self.assertIn('log "skipping Studio MCP readiness wait for play-focused harness run"', self.text)
+        self.assertIn('log "skipping Studio MCP readiness wait while attaching play-focused harness run"', self.text)
+
     def test_harness_tracks_real_mcp_bridge_readiness_before_using_edit_actions(self) -> None:
         self.assertIn('MCP_READY_WAIT_SECONDS="${HARNESS_MCP_READY_WAIT_SECONDS:-12}"', self.text)
         self.assertIn('MCP_READY=1', self.text)
