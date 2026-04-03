@@ -2052,3 +2052,18 @@ The compact historical archive index is:
   - `python3 -m unittest scripts.tests.test_play_render_truth scripts.tests.test_austin_runtime_contract scripts.tests.test_building_shell_mesh_readability_contract scripts.tests.test_streaming_structure_priority_contract -v`
   - `stylua --check roblox/src/ServerScriptService/ImportService/StreamingService.lua roblox/src/ServerScriptService/ImportService/ChunkPriority.lua roblox/src/ServerScriptService/ImportService/SceneAudit.lua roblox/src/ServerScriptService/Tests/ChunkSubplanPriority.spec.lua`
   - `git diff --check`
+
+## 2026-04-03 15:23 CDT
+
+- Landed another local-safe play-fidelity tranche on `main`:
+  - `TerrainBuilder.lua`
+    - sparse steep peak columns now apply an extra `isolatedPeakSupportDamping` term on top of the existing coverage damping, so single-sample or weakly-supported peaks stay closer to the surrounding terrain surface instead of lifting into false ridge planes in play mode
+  - `TerrainOutdoorFidelity.spec.lua`
+    - tightened the sparse-peak expectation so the local test fixture now locks a lower allowed lifted surface for the worst isolated-peak case
+- Added focused local-safe coverage in:
+  - updated `test_terrain_sparse_peak_surface_damping_truth.py`
+  - updated `TerrainOutdoorFidelity.spec.lua`
+- Verification:
+  - `python3 -m unittest scripts.tests.test_terrain_sparse_peak_surface_damping_truth scripts.tests.test_terrain_sparse_cliff_occupancy_shaping_truth scripts.tests.test_terrain_chunk_edge_truth scripts.tests.test_terrain_steep_mixed_fill_depth_truth scripts.tests.test_terrain_column_occupancy_shaping_truth -v`
+  - `stylua --check roblox/src/ServerScriptService/ImportService/Builders/TerrainBuilder.lua roblox/src/ServerScriptService/Tests/TerrainOutdoorFidelity.spec.lua`
+  - `git diff --check`

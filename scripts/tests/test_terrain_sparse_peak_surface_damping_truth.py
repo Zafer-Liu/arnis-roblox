@@ -22,7 +22,11 @@ class TerrainSparsePeakSurfaceDampingTruthTests(unittest.TestCase):
             source,
         )
         self.assertIn(
-            "surfaceHeightBias = surfaceHeightBias * surfaceHeightCoverageDamping",
+            "surfaceHeightBias = surfaceHeightBias",
+            source,
+        )
+        self.assertIn(
+            "* surfaceHeightCoverageDamping",
             source,
         )
 
@@ -35,7 +39,28 @@ class TerrainSparsePeakSurfaceDampingTruthTests(unittest.TestCase):
             r"local sparsePeakCoverageDamping = math\.clamp\(peakSampleCoverage \* 8, 0\.5, 1\)",
         )
         self.assertIn(
-            "surfaceHeightBias = surfaceHeightBias * surfaceHeightCoverageDamping * sparsePeakCoverageDamping",
+            "surfaceHeightBias = surfaceHeightBias",
+            source,
+        )
+        self.assertIn(
+            "* surfaceHeightCoverageDamping",
+            source,
+        )
+        self.assertIn(
+            "* sparsePeakCoverageDamping",
+            source,
+        )
+
+    def test_sparse_steep_peak_surface_bias_applies_isolated_peak_support_damping(self) -> None:
+        source = TERRAIN_BUILDER.read_text(encoding="utf-8")
+
+        self.assertIn("local isolatedPeakSupportDamping =", source)
+        self.assertRegex(
+            source,
+            r"local isolatedPeakSupportDamping = math\.clamp\(0\.25 \+ normalizedPeakCoverage \* 4, 0\.25, 1\)",
+        )
+        self.assertIn(
+            "* isolatedPeakSupportDamping",
             source,
         )
 
