@@ -2003,3 +2003,15 @@ The compact historical archive index is:
   - `python3 -m unittest scripts.tests.test_play_render_truth scripts.tests.test_austin_runtime_contract scripts.tests.test_streaming_lod_avatar_offset_contract scripts.tests.test_streaming_lod_live_root_focus_contract scripts.tests.test_streaming_lod_footprint_contract scripts.tests.test_streaming_residency_footprint_contract scripts.tests.test_terrain_chunk_edge_truth -v`
   - `stylua --check roblox/src/ServerScriptService/ImportService/Builders/TerrainBuilder.lua roblox/src/ServerScriptService/ImportService/init.lua roblox/src/ServerScriptService/ImportService/StreamingService.lua roblox/src/ServerScriptService/Tests/TerrainPlanReuse.spec.lua`
   - `git diff --check`
+
+## 2026-04-03 15:28 CDT
+
+- Landed another local-safe play-fidelity tranche on `main`:
+  - `StreamingService.lua`
+    - `StreamingService.Start(...)` now primes one immediate `StreamingService.Update()` before the heartbeat scheduler takes over, so startup residency can begin loading near-player chunks immediately instead of waiting for the first movement-driven cadence
+- Added focused local-safe coverage in:
+  - new `test_streaming_startup_prime_contract.py`
+- Verification:
+  - `python3 -m unittest scripts.tests.test_streaming_startup_prime_contract scripts.tests.test_streaming_lod_avatar_offset_contract scripts.tests.test_streaming_lod_live_root_focus_contract scripts.tests.test_streaming_lod_footprint_contract scripts.tests.test_streaming_residency_footprint_contract scripts.tests.test_austin_runtime_contract -v`
+  - `stylua --check roblox/src/ServerScriptService/ImportService/StreamingService.lua`
+  - `git diff --check`

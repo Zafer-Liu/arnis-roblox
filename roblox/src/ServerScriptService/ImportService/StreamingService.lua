@@ -1907,6 +1907,7 @@ function StreamingService.Start(manifest, options)
         "layers=" .. tostring(streamingSubplanRollout.allowedLayerCount),
         "chunks=" .. tostring(streamingSubplanRollout.allowlistedChunkCount)
     )
+    StreamingService.Update()
     updateLOD()
 
     heartbeatConn = RunService.Heartbeat:Connect(function(dt)
