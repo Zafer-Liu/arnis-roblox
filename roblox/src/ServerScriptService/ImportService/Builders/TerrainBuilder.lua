@@ -441,12 +441,15 @@ local function sampleVoxelColumnProfile(plan, ix, globalIz)
     -- Very sparse peaks should stay close to the surrounding surface instead of
     -- turning one hot sample into a broad elevated plane.
     local sparsePeakCoverageDamping = math.clamp(peakSampleCoverage * 8, 0.5, 1)
+    -- Extremely sparse peaks should not inflate into a broad false top plane.
+    local sparsePeakPlaneDamping = math.clamp(peakSampleCoverage * 4, 0.25, 1)
     -- Isolated peaks with very little overall support should stay even closer to
     -- the surrounding surface to avoid false ridge planes in play mode.
     local isolatedPeakSupportDamping = math.clamp(0.25 + normalizedPeakCoverage * 4, 0.25, 1)
     surfaceHeightBias = surfaceHeightBias
         * surfaceHeightCoverageDamping
         * sparsePeakCoverageDamping
+        * sparsePeakPlaneDamping
         * isolatedPeakSupportDamping
     local surfaceHeight = averageHeight + (maxHeight - averageHeight) * surfaceHeightBias
     local surfaceFillDepth = if heightRange > 0

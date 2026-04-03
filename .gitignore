@@ -38,6 +38,7 @@ roblox/src/ServerStorage/SampleData/AustinManifest.lua
 Thumbs.db
 .vscode/
 .idea/
+.omx/
 analysis/
 .worktrees/
 worktrees/

@@ -332,8 +332,8 @@ return function()
         "expected sparse steep peaks to stay above the surrounding average height"
     )
     Assert.truthy(
-        sparsePeakProfile.surfaceHeight < 1.2,
-        "expected sparse steep peaks to stay even closer to the surrounding surface instead of forming a false elevated plane"
+        sparsePeakProfile.surfaceHeight < 1.05,
+        "expected sparse steep peaks to stay very close to the surrounding surface instead of forming a false elevated plane"
     )
 
     local sparseCliffProfilePlan = {

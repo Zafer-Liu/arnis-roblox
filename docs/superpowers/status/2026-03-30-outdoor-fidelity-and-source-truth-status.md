@@ -2158,3 +2158,20 @@ The compact historical archive index is:
   - `python3 -m unittest scripts.tests.test_building_shell_mesh_readability_contract scripts.tests.test_play_render_truth scripts.tests.test_austin_runtime_contract -v`
   - `stylua --check roblox/src/ServerScriptService/ImportService/Builders/BuildingBuilder.lua roblox/src/ServerScriptService/Tests/FlatShellMeshRoofTruth.spec.lua roblox/src/StarterPlayer/StarterPlayerScripts/WorldProbe.client.lua`
   - `git diff --check`
+
+## 2026-04-03 17:52 CDT
+
+- Landed another local-safe play-fidelity tranche on `main`:
+  - `TerrainBuilder.lua`
+    - added an extra `sparsePeakPlaneDamping` term on top of the existing sparse-peak support damping so the sparsest steep peaks stay flatter and stop inflating into broad false top planes
+  - `TerrainOutdoorFidelity.spec.lua`
+    - tightened the sparse-peak runtime expectation again so the unit fixture now locks an even lower surface height ceiling for the worst peak-plane case
+- Repo hygiene:
+  - added `.omx/` to `.gitignore` so Codex-side local tooling state no longer pollutes the worktree
+- Added focused local-safe coverage in:
+  - updated `test_terrain_sparse_peak_surface_damping_truth.py`
+  - updated `test_play_render_truth.py`
+- Verification:
+  - `python3 -m unittest scripts.tests.test_terrain_sparse_peak_surface_damping_truth scripts.tests.test_play_render_truth -v`
+  - `stylua --check roblox/src/ServerScriptService/ImportService/Builders/TerrainBuilder.lua roblox/src/ServerScriptService/Tests/TerrainOutdoorFidelity.spec.lua`
+  - `git diff --check`

@@ -64,6 +64,19 @@ class TerrainSparsePeakSurfaceDampingTruthTests(unittest.TestCase):
             source,
         )
 
+    def test_sparse_steep_peak_surface_bias_applies_sparse_plane_damping(self) -> None:
+        source = TERRAIN_BUILDER.read_text(encoding="utf-8")
+
+        self.assertIn("local sparsePeakPlaneDamping =", source)
+        self.assertRegex(
+            source,
+            r"local sparsePeakPlaneDamping = math\.clamp\(peakSampleCoverage \* 4, 0\.25, 1\)",
+        )
+        self.assertIn(
+            "* sparsePeakPlaneDamping",
+            source,
+        )
+
 
 if __name__ == "__main__":
     unittest.main()

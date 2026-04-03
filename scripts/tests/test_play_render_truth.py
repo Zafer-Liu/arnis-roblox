@@ -143,10 +143,12 @@ class PlayRenderTruthTests(unittest.TestCase):
             source,
         )
         self.assertIn("surfaceHeight = averageHeight + (maxHeight - averageHeight) * surfaceHeightBias", source)
+        self.assertIn("local sparsePeakPlaneDamping =", source)
         self.assertRegex(
             source,
             r"surfaceFillDepth = if heightRange > 0\s+then math\.max\(1, TERRAIN_THICKNESS \* math\.clamp\(normalizedPeakCoverage \+ peakCoverageBias \* 0\.25, 0, 1\)\)",
         )
+        self.assertIn("* sparsePeakPlaneDamping", source)
         self.assertIn("normalizedPeakCoverage", source)
         self.assertIn("local worldBotY = worldSurfY - columnProfile.surfaceFillDepth", source)
         self.assertIn("local worldSurfY = origin.y + columnProfile.surfaceHeight", source)
