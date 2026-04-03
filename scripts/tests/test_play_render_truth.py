@@ -357,6 +357,10 @@ class PlayRenderTruthTests(unittest.TestCase):
     def test_scene_audit_surfaces_closure_only_roof_gaps_separately_from_generic_roofless_buildings(self) -> None:
         source = SCENE_AUDIT.read_text(encoding="utf-8")
 
+        self.assertIn('descendant.Name == "MergedShellRooflineCue"', source)
+        self.assertIn('descendant.Name == "MergedShellPerimeterCue"', source)
+        self.assertIn("roofCueParts = 0", source)
+        self.assertIn("local hasMergedRoofCue = roofCueParts > 0", source)
         self.assertIn("buildingModelsWithClosureOnlyRoofGap", source)
         self.assertIn("buildingClosureOnlyRoofGapDetails", source)
         self.assertIn("buildingModelsWithVisibleShellWalls", source)
@@ -367,7 +371,7 @@ class PlayRenderTruthTests(unittest.TestCase):
         self.assertIn("buildingRoofCoverageByShape", source)
         self.assertRegex(
             source,
-            r"roofClosureParts\s*>\s*0[\s\S]*buildingModelsWithClosureOnlyRoofGap",
+            r"roofClosureParts\s*>\s*0[\s\S]*evidenceKind == \"none\"[\s\S]*buildingModelsWithClosureOnlyRoofGap",
             "expected SceneAudit to classify closure-only shaped roofs as a dedicated roof gap instead of burying them in generic no-roof counts",
         )
 

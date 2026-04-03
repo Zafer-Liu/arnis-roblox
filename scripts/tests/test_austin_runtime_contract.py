@@ -523,6 +523,8 @@ class AustinRuntimeContractTests(unittest.TestCase):
         self.assertIn("ArnisRoofClosureDeck = true", self.building_builder_text)
         self.assertIn("ArnisShellWallEvidence", self.building_builder_text)
         self.assertIn("ArnisShellWallEvidence", self.scene_audit_text)
+        self.assertIn('descendant.Name == "MergedShellRooflineCue"', self.scene_audit_text)
+        self.assertIn('descendant.Name == "MergedShellPerimeterCue"', self.scene_audit_text)
         self.assertIn("part.Transparency = partOptions.transparency", self.building_builder_text)
 
     def test_scene_audit_tracks_visible_detail_and_facade_truth_separately_from_total_parts(self) -> None:

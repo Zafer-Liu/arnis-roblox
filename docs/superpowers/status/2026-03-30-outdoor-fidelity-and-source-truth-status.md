@@ -2067,3 +2067,17 @@ The compact historical archive index is:
   - `python3 -m unittest scripts.tests.test_terrain_sparse_peak_surface_damping_truth scripts.tests.test_terrain_sparse_cliff_occupancy_shaping_truth scripts.tests.test_terrain_chunk_edge_truth scripts.tests.test_terrain_steep_mixed_fill_depth_truth scripts.tests.test_terrain_column_occupancy_shaping_truth -v`
   - `stylua --check roblox/src/ServerScriptService/ImportService/Builders/TerrainBuilder.lua roblox/src/ServerScriptService/Tests/TerrainOutdoorFidelity.spec.lua`
   - `git diff --check`
+
+## 2026-04-03 15:25 CDT
+
+- Landed another local-safe play-fidelity tranche on `main`:
+  - `SceneAudit.lua`
+    - merged-shell `MergedShellRooflineCue` and `MergedShellPerimeterCue` parts now count as merged roof evidence when visible, so intentionally roof-readable shellMesh buildings stop falling into the generic no-roof bucket during play-fidelity audits
+    - closure-only roof gaps remain gated on `evidenceKind == "none"`, so closure decks still do not masquerade as visible roof truth
+- Added focused local-safe coverage in:
+  - updated `test_play_render_truth.py`
+  - updated `test_austin_runtime_contract.py`
+- Verification:
+  - `python3 -m unittest scripts.tests.test_play_render_truth scripts.tests.test_austin_runtime_contract -v`
+  - `stylua --check roblox/src/ServerScriptService/ImportService/SceneAudit.lua`
+  - `git diff --check`

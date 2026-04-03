@@ -321,6 +321,7 @@ local function summarizeBuildingStructure(building)
         visibleShellWallParts = 0,
         visibleWallCueParts = 0,
         roofParts = 0,
+        roofCueParts = 0,
         roofClosureParts = 0,
         detailParts = 0,
         visibleDetailParts = 0,
@@ -357,6 +358,9 @@ local function summarizeBuildingStructure(building)
                     summary.visibleDetailParts += 1
                     if isVisibleWallCuePart(descendant) then
                         summary.visibleWallCueParts += 1
+                    end
+                    if descendant.Name == "MergedShellRooflineCue" or descendant.Name == "MergedShellPerimeterCue" then
+                        summary.roofCueParts += 1
                     end
                 end
                 if string.find(descendant.Name, "_facade_", 1, true) ~= nil then
@@ -707,6 +711,7 @@ function SceneAudit.summarizeWorld(worldRoot)
                     local shellParts = structureSummary.shellParts
                     local shellMeshParts = structureSummary.shellMeshParts
                     local roofParts = structureSummary.roofParts
+                    local roofCueParts = structureSummary.roofCueParts
                     local roofClosureParts = structureSummary.roofClosureParts
                     local detailParts = structureSummary.detailParts
                     local visibleDetailParts = structureSummary.visibleDetailParts
@@ -720,10 +725,11 @@ function SceneAudit.summarizeWorld(worldRoot)
                     scene.buildingVisibleDetailPartCount += visibleDetailParts
                     scene.buildingFacadePartCount += facadeParts
                     scene.buildingVisibleFacadePartCount += visibleFacadeParts
+                    local hasMergedRoofCue = roofCueParts > 0
                     local evidenceKind = "none"
                     if roofParts > 0 then
                         evidenceKind = "direct"
-                    elseif building:GetAttribute("ArnisImportHasMergedRoofGeometry") == true then
+                    elseif building:GetAttribute("ArnisImportHasMergedRoofGeometry") == true or hasMergedRoofCue then
                         evidenceKind = "merged_only"
                     end
                     local usageBucket =
