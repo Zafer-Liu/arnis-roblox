@@ -129,6 +129,31 @@ local function describeTerrainNeighborChunk(chunk)
     }
 end
 
+local function buildTerrainNeighborContextSignature(neighbors)
+    if type(neighbors) ~= "table" then
+        return "none"
+    end
+
+    local directions = { "west", "east", "north", "south", "northWest", "northEast", "southWest", "southEast" }
+    local tokens = {}
+    for _, direction in ipairs(directions) do
+        local descriptor = neighbors[direction]
+        local neighborId = descriptor and descriptor.id or "none"
+        local neighborTerrain = descriptor and descriptor.terrain or nil
+        local terrainIdentityToken = tostring(neighborTerrain)
+        local heightsIdentityToken = if type(neighborTerrain) == "table"
+            then tostring(neighborTerrain.heights)
+            else "none"
+        tokens[#tokens + 1] = table.concat({
+            direction .. "=" .. tostring(neighborId),
+            terrainIdentityToken,
+            heightsIdentityToken,
+        }, "@")
+    end
+
+    return table.concat(tokens, ",")
+end
+
 local function buildTerrainNeighborContextByChunkId(chunks)
     local contexts = {}
     local chunksByOrigin = {}
@@ -172,16 +197,7 @@ local function buildTerrainNeighborContextByChunkId(chunks)
 
         contexts[chunk.id] = {
             neighbors = neighbors,
-            signature = table.concat({
-                "west=" .. tostring(neighbors.west and neighbors.west.id or "none"),
-                "east=" .. tostring(neighbors.east and neighbors.east.id or "none"),
-                "north=" .. tostring(neighbors.north and neighbors.north.id or "none"),
-                "south=" .. tostring(neighbors.south and neighbors.south.id or "none"),
-                "northWest=" .. tostring(neighbors.northWest and neighbors.northWest.id or "none"),
-                "northEast=" .. tostring(neighbors.northEast and neighbors.northEast.id or "none"),
-                "southWest=" .. tostring(neighbors.southWest and neighbors.southWest.id or "none"),
-                "southEast=" .. tostring(neighbors.southEast and neighbors.southEast.id or "none"),
-            }, ","),
+            signature = buildTerrainNeighborContextSignature(neighbors),
         }
     end
 

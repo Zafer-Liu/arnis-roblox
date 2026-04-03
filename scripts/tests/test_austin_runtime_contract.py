@@ -216,8 +216,21 @@ class AustinRuntimeContractTests(unittest.TestCase):
         self.assertIn("local function getLodGroupFootprintDistanceSq(group, fallbackPosition, point)", self.streaming_text)
         self.assertIn("local highDetailRadiusSq = highDetailRadius * highDetailRadius", self.streaming_text)
         self.assertIn("local interiorRadiusSq = interiorRadius * interiorRadius", self.streaming_text)
-        self.assertIn("local detailVisible = getLodGroupFootprintDistanceSq(group, chunkCenter, camPos) <= highDetailRadiusSq", self.streaming_text)
-        self.assertIn("local interiorVisible = getLodGroupFootprintDistanceSq(group, chunkCenter, camPos) <= interiorRadiusSq", self.streaming_text)
+        self.assertIn("local cameraFocusPos = primaryFocusPos", self.streaming_text)
+        self.assertIn("local avatarFocusPos = secondaryFocusPos", self.streaming_text)
+        self.assertIn("local detailVisible = isLodGroupVisibleForFocus(group, chunkCenter, cameraFocusPos, highDetailRadiusSq)", self.streaming_text)
+        self.assertIn(
+            "detailVisible = isLodGroupVisibleForFocus(group, chunkCenter, avatarFocusPos, highDetailRadiusSq)",
+            self.streaming_text,
+        )
+        self.assertIn(
+            "local interiorVisible = isLodGroupVisibleForFocus(group, chunkCenter, avatarFocusPos, interiorRadiusSq)",
+            self.streaming_text,
+        )
+
+    def test_streaming_start_applies_immediate_lod_sync_for_seeded_chunks(self) -> None:
+        self.assertIn("seedLoadedChunkLods(streamingChunkOptionsByLod, streamingOptions.worldRootName)", self.streaming_text)
+        self.assertIn("updateLOD()", self.streaming_text)
         self.assertIn("local function resolveCurrentCameraFocusPosition()", self.streaming_text)
         self.assertIn("local immediateCameraFocusPos = resolveCurrentCameraFocusPosition()", self.streaming_text)
 

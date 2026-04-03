@@ -1372,18 +1372,34 @@ local function buildStreamingTerrainNeighborContext(chunkRef)
         southEast = resolveNeighbor(1, 1),
     }
 
+    local function buildStreamingTerrainNeighborContextSignature(neighbors)
+        if type(neighbors) ~= "table" then
+            return "none"
+        end
+
+        local directions = { "west", "east", "north", "south", "northWest", "northEast", "southWest", "southEast" }
+        local tokens = {}
+        for _, direction in ipairs(directions) do
+            local descriptor = neighbors[direction]
+            local neighborId = descriptor and descriptor.id or "none"
+            local neighborTerrain = descriptor and descriptor.terrain or nil
+            local terrainIdentityToken = tostring(neighborTerrain)
+            local heightsIdentityToken = if type(neighborTerrain) == "table"
+                then tostring(neighborTerrain.heights)
+                else "none"
+            tokens[#tokens + 1] = table.concat({
+                direction .. "=" .. tostring(neighborId),
+                terrainIdentityToken,
+                heightsIdentityToken,
+            }, "@")
+        end
+
+        return table.concat(tokens, ",")
+    end
+
     return {
         neighbors = neighbors,
-        signature = table.concat({
-            "west=" .. tostring(neighbors.west and neighbors.west.id or "none"),
-            "east=" .. tostring(neighbors.east and neighbors.east.id or "none"),
-            "north=" .. tostring(neighbors.north and neighbors.north.id or "none"),
-            "south=" .. tostring(neighbors.south and neighbors.south.id or "none"),
-            "northWest=" .. tostring(neighbors.northWest and neighbors.northWest.id or "none"),
-            "northEast=" .. tostring(neighbors.northEast and neighbors.northEast.id or "none"),
-            "southWest=" .. tostring(neighbors.southWest and neighbors.southWest.id or "none"),
-            "southEast=" .. tostring(neighbors.southEast and neighbors.southEast.id or "none"),
-        }, ","),
+        signature = buildStreamingTerrainNeighborContextSignature(neighbors),
     }
 end
 
@@ -1733,7 +1749,8 @@ local function updateChunkEntryLodGroups(
         return
     end
 
-    local camPos = primaryFocusPos
+    local cameraFocusPos = primaryFocusPos
+    local avatarFocusPos = secondaryFocusPos
     local folder = chunkEntry.folder
     local chunkCenter = nil
     if folder and folder.Parent then
@@ -1756,23 +1773,26 @@ local function updateChunkEntryLodGroups(
     local highDetailRadiusSq = highDetailRadius * highDetailRadius
     local interiorRadiusSq = interiorRadius * interiorRadius
 
+    local function isLodGroupVisibleForFocus(group, fallbackPosition, focusPos, radiusSq)
+        if typeof(focusPos) ~= "Vector3" then
+            return false
+        end
+
+        return getLodGroupFootprintDistanceSq(group, fallbackPosition, focusPos) <= radiusSq
+    end
+
     for _, group in ipairs(chunkEntry.lodGroups.detail or {}) do
         if group:IsDescendantOf(Workspace) then
-            local detailVisible = getLodGroupFootprintDistanceSq(group, chunkCenter, camPos) <= highDetailRadiusSq
-            if not detailVisible and typeof(secondaryFocusPos) == "Vector3" then
-                detailVisible = getLodGroupFootprintDistanceSq(group, chunkCenter, secondaryFocusPos)
-                    <= highDetailRadiusSq
+            local detailVisible = isLodGroupVisibleForFocus(group, chunkCenter, cameraFocusPos, highDetailRadiusSq)
+            if not detailVisible and typeof(avatarFocusPos) == "Vector3" then
+                detailVisible = isLodGroupVisibleForFocus(group, chunkCenter, avatarFocusPos, highDetailRadiusSq)
             end
             setGroupVisible(group, detailVisible)
         end
     end
     for _, group in ipairs(chunkEntry.lodGroups.interior or {}) do
         if group:IsDescendantOf(Workspace) then
-            local interiorVisible = getLodGroupFootprintDistanceSq(group, chunkCenter, camPos) <= interiorRadiusSq
-            if not interiorVisible and typeof(secondaryFocusPos) == "Vector3" then
-                interiorVisible = getLodGroupFootprintDistanceSq(group, chunkCenter, secondaryFocusPos)
-                    <= interiorRadiusSq
-            end
+            local interiorVisible = isLodGroupVisibleForFocus(group, chunkCenter, avatarFocusPos, interiorRadiusSq)
             setGroupVisible(group, interiorVisible)
         end
     end
@@ -1887,6 +1907,7 @@ function StreamingService.Start(manifest, options)
         "layers=" .. tostring(streamingSubplanRollout.allowedLayerCount),
         "chunks=" .. tostring(streamingSubplanRollout.allowlistedChunkCount)
     )
+    updateLOD()
 
     heartbeatConn = RunService.Heartbeat:Connect(function(dt)
         local now = os.clock()
@@ -2318,7 +2339,7 @@ function StreamingService.Update(focalPoint)
         local immediateCameraFocusPos = resolveCurrentCameraFocusPosition()
         for _, chunkId in ipairs(ChunkLoader.ListLoadedChunks(streamingOptions.worldRootName)) do
             local chunkEntry = ChunkLoader.GetChunkEntry(chunkId, streamingOptions.worldRootName)
-            updateChunkEntryLodGroups(chunkEntry, playerPos, immediateCameraFocusPos, highRadius, interiorRadius)
+            updateChunkEntryLodGroups(chunkEntry, immediateCameraFocusPos, playerPos, highRadius, interiorRadius)
         end
 
         streamingLastFocalPoint = playerPos

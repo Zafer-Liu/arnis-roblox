@@ -1988,3 +1988,18 @@ The compact historical archive index is:
   - `python3 -m unittest scripts.tests.test_play_render_truth scripts.tests.test_austin_runtime_contract -v`
   - `stylua --check roblox/src/ServerScriptService/ImportService/StreamingService.lua roblox/src/ServerScriptService/ImportService/ChunkPriority.lua roblox/src/ServerScriptService/ImportService/Builders/TerrainBuilder.lua roblox/src/ServerScriptService/Tests/LODCameraAvatarOffset.spec.lua roblox/src/ServerScriptService/Tests/HighDetailWholeChunkPriority.spec.lua roblox/src/ServerScriptService/Tests/TerrainPlanReuse.spec.lua`
   - `git diff --check`
+
+## 2026-04-03 15:07 CDT
+
+- Landed another local-safe play-fidelity tranche on `main`:
+  - `TerrainBuilder.lua` / `ImportService/init.lua` / `StreamingService.lua`
+    - terrain neighbor signatures now include neighbor terrain identity, not just chunk id, so seam-aware prepared plans invalidate when a neighbor chunk is reloaded or revised under the same stable id instead of reusing stale border samples
+    - streaming LOD visibility now uses split focus policy: exterior detail remains camera-aware with avatar/root fallback, while interiors stay gated to avatar/root focus only
+    - `StreamingService.Start(...)` now applies one immediate LOD sync after seeding loaded chunk LOD state, so already-loaded startup chunks do not wait for the delayed heartbeat before their detail visibility is corrected
+- Added focused local-safe coverage in:
+  - updated `TerrainPlanReuse.spec.lua`
+  - updated `test_play_render_truth.py`, `test_austin_runtime_contract.py`, `test_streaming_lod_avatar_offset_contract.py`, and `test_streaming_lod_footprint_contract.py`
+- Verification:
+  - `python3 -m unittest scripts.tests.test_play_render_truth scripts.tests.test_austin_runtime_contract scripts.tests.test_streaming_lod_avatar_offset_contract scripts.tests.test_streaming_lod_live_root_focus_contract scripts.tests.test_streaming_lod_footprint_contract scripts.tests.test_streaming_residency_footprint_contract scripts.tests.test_terrain_chunk_edge_truth -v`
+  - `stylua --check roblox/src/ServerScriptService/ImportService/Builders/TerrainBuilder.lua roblox/src/ServerScriptService/ImportService/init.lua roblox/src/ServerScriptService/ImportService/StreamingService.lua roblox/src/ServerScriptService/Tests/TerrainPlanReuse.spec.lua`
+  - `git diff --check`

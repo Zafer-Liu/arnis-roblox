@@ -167,6 +167,22 @@ local function resolveOffsetNeighborIndex(cellIndex, localCount, neighborCount, 
     return clampIndex(resolvedIndex, 0, neighborCount - 1)
 end
 
+local function buildTerrainNeighborDescriptorSignature(direction, descriptor)
+    local neighborId = descriptor and descriptor.id or nil
+    local neighborTerrain = descriptor and descriptor.terrain or nil
+    if type(neighborId) ~= "string" or neighborId == "" then
+        return nil
+    end
+
+    local terrainIdentityToken = tostring(neighborTerrain)
+    local heightsIdentityToken = if type(neighborTerrain) == "table" then tostring(neighborTerrain.heights) else "none"
+    return table.concat({
+        direction .. "=" .. neighborId,
+        terrainIdentityToken,
+        heightsIdentityToken,
+    }, "@")
+end
+
 local function buildDerivedTerrainNeighborSignature(terrainNeighbors)
     if type(terrainNeighbors) ~= "table" then
         return "none"
@@ -176,9 +192,9 @@ local function buildDerivedTerrainNeighborSignature(terrainNeighbors)
     local tokens = {}
     for _, direction in ipairs(directions) do
         local descriptor = terrainNeighbors[direction]
-        local neighborId = descriptor and descriptor.id or nil
-        if type(neighborId) == "string" and neighborId ~= "" then
-            tokens[#tokens + 1] = direction .. "=" .. neighborId
+        local descriptorSignature = buildTerrainNeighborDescriptorSignature(direction, descriptor)
+        if descriptorSignature ~= nil then
+            tokens[#tokens + 1] = descriptorSignature
         end
     end
 

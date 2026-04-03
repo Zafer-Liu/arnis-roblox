@@ -24,21 +24,18 @@ class StreamingLodFootprintContractTests(unittest.TestCase):
         )
         self.assertIn("local highDetailRadiusSq = highDetailRadius * highDetailRadius", self.streaming_text)
         self.assertIn("local interiorRadiusSq = interiorRadius * interiorRadius", self.streaming_text)
+        self.assertIn("local function isLodGroupVisibleForFocus(group, fallbackPosition, focusPos, radiusSq)", self.streaming_text)
         self.assertRegex(
             self.streaming_text,
-            r"local detailVisible = getLodGroupFootprintDistanceSq\(group, chunkCenter, camPos\) <= highDetailRadiusSq",
+            r"local detailVisible = isLodGroupVisibleForFocus\(group, chunkCenter, cameraFocusPos, highDetailRadiusSq\)",
         )
         self.assertRegex(
             self.streaming_text,
-            r"detailVisible = getLodGroupFootprintDistanceSq\(group, chunkCenter, secondaryFocusPos\)\s*<= highDetailRadiusSq",
+            r"detailVisible = isLodGroupVisibleForFocus\(group, chunkCenter, avatarFocusPos, highDetailRadiusSq\)",
         )
         self.assertRegex(
             self.streaming_text,
-            r"local interiorVisible = getLodGroupFootprintDistanceSq\(group, chunkCenter, camPos\) <= interiorRadiusSq",
-        )
-        self.assertRegex(
-            self.streaming_text,
-            r"interiorVisible = getLodGroupFootprintDistanceSq\(group, chunkCenter, secondaryFocusPos\)\s*<= interiorRadiusSq",
+            r"local interiorVisible = isLodGroupVisibleForFocus\(group, chunkCenter, avatarFocusPos, interiorRadiusSq\)",
         )
         self.assertNotIn(
             "local detailVisible = (getLodGroupAnchor(group, chunkCenter) - camPos).Magnitude <= highDetailRadius",

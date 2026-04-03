@@ -20,24 +20,26 @@ class StreamingLodAvatarOffsetContractTests(unittest.TestCase):
         self.assertIn("local livePlayerRootFocusPos = resolveLivePlayerRootFocusPosition()", self.streaming_text)
         self.assertIn("if typeof(livePlayerRootFocusPos) == \"Vector3\" then", self.streaming_text)
         self.assertIn("avatarFocusPos = livePlayerRootFocusPos", self.streaming_text)
+        self.assertIn("local cameraFocusPos = primaryFocusPos", self.streaming_text)
+        self.assertIn("local avatarFocusPos = secondaryFocusPos", self.streaming_text)
         self.assertIn(
-            "local detailVisible = getLodGroupFootprintDistanceSq(group, chunkCenter, camPos) <= highDetailRadiusSq",
+            "local detailVisible = isLodGroupVisibleForFocus(group, chunkCenter, cameraFocusPos, highDetailRadiusSq)",
             self.streaming_text,
         )
         self.assertIn(
-            "if not detailVisible and typeof(secondaryFocusPos) == \"Vector3\" then",
+            "detailVisible = isLodGroupVisibleForFocus(group, chunkCenter, avatarFocusPos, highDetailRadiusSq)",
             self.streaming_text,
         )
         self.assertIn(
-            "local interiorVisible = getLodGroupFootprintDistanceSq(group, chunkCenter, camPos) <= interiorRadiusSq",
+            "local interiorVisible = isLodGroupVisibleForFocus(group, chunkCenter, avatarFocusPos, interiorRadiusSq)",
             self.streaming_text,
         )
         self.assertIn(
-            "if not interiorVisible and typeof(secondaryFocusPos) == \"Vector3\" then",
+            "updateChunkEntryLodGroups(chunkEntry, immediateCameraFocusPos, playerPos, highRadius, interiorRadius)",
             self.streaming_text,
         )
         self.assertIn(
-            "updateChunkEntryLodGroups(chunkEntry, playerPos, nil, highRadius, interiorRadius)",
+            "updateChunkEntryLodGroups(chunkEntry, camPos, avatarFocusPos, highDetailRadius, interiorRadius)",
             self.streaming_text,
         )
 

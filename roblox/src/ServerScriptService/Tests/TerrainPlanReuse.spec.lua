@@ -111,4 +111,58 @@ return function()
         neighborAwarePlan,
         "expected implicit prepare calls to reuse the best cached seam-aware plan instead of downgrading to seam-blind terrain"
     )
+
+    local revisedEastNeighborTerrain = {
+        cellSizeStuds = 16,
+        width = 4,
+        depth = 4,
+        heights = {
+            45,
+            45,
+            45,
+            45,
+            45,
+            45,
+            45,
+            45,
+            45,
+            45,
+            45,
+            45,
+            45,
+            45,
+            45,
+            45,
+        },
+        material = "Grass",
+    }
+
+    local sameIdRevisedNeighborPlan = TerrainBuilder.PrepareChunk(chunk, {
+        terrainNeighbors = {
+            east = {
+                id = eastNeighborChunk.id,
+                terrain = revisedEastNeighborTerrain,
+            },
+        },
+    })
+
+    Assert.notEqual(
+        sameIdRevisedNeighborPlan,
+        neighborAwarePlan,
+        "expected revised seam-aware terrain context to invalidate the cached plan even when the neighbor chunk id stays stable"
+    )
+    Assert.truthy(
+        string.find(sameIdRevisedNeighborPlan.terrainNeighborSignature, "east=" .. eastNeighborChunk.id, 1, true) ~= nil,
+        "expected revised seam-aware signature to retain the deterministic neighbor id token"
+    )
+    Assert.notEqual(
+        sameIdRevisedNeighborPlan.terrainNeighborSignature,
+        neighborAwarePlan.terrainNeighborSignature,
+        "expected seam-aware signature to change when the neighbor terrain payload changes under the same chunk id"
+    )
+    Assert.truthy(
+        sameIdRevisedNeighborPlan.sampleInterpolatedHeight(3, 1, 1, 0)
+            > neighborAwarePlan.sampleInterpolatedHeight(3, 1, 1, 0),
+        "expected east-edge interpolation to pick up revised neighbor terrain heights even when the neighbor id stays stable"
+    )
 end

@@ -158,10 +158,12 @@ class PlayRenderTruthTests(unittest.TestCase):
 
         self.assertIn("local function resolveNeighborHeightSample(plan, cellX, cellZ)", terrain_source)
         self.assertIn("local function buildTerrainNeighborContextByChunkId(chunks)", import_service_source)
+        self.assertIn("local function buildTerrainNeighborContextSignature(neighbors)", import_service_source)
         self.assertIn("terrainNeighborContext = terrainNeighborContextByChunkId[chunk.id]", import_service_source)
         self.assertIn("perChunkOptions.terrainNeighbors = terrainNeighborContext.neighbors", import_service_source)
         self.assertIn("perChunkOptions.terrainNeighborSignature = terrainNeighborContext.signature", import_service_source)
         self.assertIn("local function buildStreamingTerrainNeighborContext(chunkRef)", streaming_source)
+        self.assertIn("local function buildStreamingTerrainNeighborContextSignature(neighbors)", streaming_source)
         self.assertIn("importOptions.terrainNeighbors = terrainNeighborContext.neighbors", streaming_source)
         self.assertIn("importOptions.terrainNeighborSignature = terrainNeighborContext.signature", streaming_source)
 
@@ -169,6 +171,12 @@ class PlayRenderTruthTests(unittest.TestCase):
         source = TERRAIN_BUILDER.read_text(encoding="utf-8")
 
         self.assertIn("local function buildDerivedTerrainNeighborSignature(terrainNeighbors)", source)
+        self.assertIn("local function buildTerrainNeighborDescriptorSignature(direction, descriptor)", source)
+        self.assertIn("local terrainIdentityToken = tostring(neighborTerrain)", source)
+        self.assertIn(
+            'local heightsIdentityToken = if type(neighborTerrain) == "table" then tostring(neighborTerrain.heights) else "none"',
+            source,
+        )
         self.assertIn("local function resolveTerrainNeighborSignature(options)", source)
         self.assertIn("terrainNeighborSignature = resolveTerrainNeighborSignature(options)", source)
         self.assertIn("options == nil", source)
