@@ -2277,3 +2277,18 @@ The compact historical archive index is:
   - `python3 -m unittest scripts.tests.test_building_shell_mesh_readability_contract scripts.tests.test_play_render_truth scripts.tests.test_streaming_import_lod_refresh_contract scripts.tests.test_austin_runtime_contract -v`
   - `stylua --check roblox/src/ServerScriptService/ImportService/Builders/BuildingBuilder.lua roblox/src/ServerScriptService/ImportService/StreamingService.lua roblox/src/ServerScriptService/Tests/PlayVisibleShellReadableCues.spec.lua`
   - `git diff --check`
+
+## 2026-04-03 18:17 CDT
+
+- Landed another local-safe terrain-fidelity tranche on `main`:
+  - `TerrainBuilder.lua`
+    - sparse steep peaks now apply an extra `sparsePeakEdgeOccupancyDamping` term before voxel top/bottom occupancy shaping, so the thinnest peak cases taper their caps more aggressively instead of keeping a thicker false top plane
+  - `TerrainOutdoorFidelity.spec.lua`
+    - tightened the sparse-peak runtime expectation to require a lower edge-occupancy scale on the pathological single-sample peak fixture
+- Added focused local-safe coverage in:
+  - updated `test_terrain_column_occupancy_shaping_truth.py`
+  - updated `test_play_render_truth.py`
+- Verification:
+  - `python3 -m unittest scripts.tests.test_terrain_column_occupancy_shaping_truth scripts.tests.test_terrain_sparse_peak_surface_damping_truth scripts.tests.test_play_render_truth -v`
+  - `stylua --check roblox/src/ServerScriptService/ImportService/Builders/TerrainBuilder.lua roblox/src/ServerScriptService/Tests/TerrainOutdoorFidelity.spec.lua`
+  - `git diff --check`

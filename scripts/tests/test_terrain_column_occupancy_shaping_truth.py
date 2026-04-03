@@ -21,6 +21,16 @@ class TerrainColumnOccupancyShapingTruthTests(unittest.TestCase):
         self.assertIn("occupancy = math.min(occupancy, bottomOccupancy * columnProfile.edgeOccupancyScale)", source)
         self.assertIn("occupancy = math.min(occupancy, topOccupancy * columnProfile.edgeOccupancyScale)", source)
 
+    def test_sparse_peak_voxel_columns_apply_extra_edge_occupancy_damping(self) -> None:
+        source = TERRAIN_BUILDER.read_text(encoding="utf-8")
+
+        self.assertIn("local sparsePeakEdgeOccupancyDamping =", source)
+        self.assertRegex(
+            source,
+            r"local sparsePeakEdgeOccupancyDamping = math\.clamp\(0\.25 \+ peakSampleCoverage \* 6, 0\.25, 1\)",
+        )
+        self.assertIn("edgeOccupancyScale = edgeOccupancyScale * sparsePeakEdgeOccupancyDamping", source)
+
 
 if __name__ == "__main__":
     unittest.main()

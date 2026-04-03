@@ -458,6 +458,8 @@ local function sampleVoxelColumnProfile(plan, ix, globalIz)
     local edgeOccupancyScale = if heightRange > 0
         then math.clamp(1 - heightRangeFactor * (1 - peakCoverageBias) * 0.5, 0.35, 1)
         else 1
+    local sparsePeakEdgeOccupancyDamping = math.clamp(0.25 + peakSampleCoverage * 6, 0.25, 1)
+    edgeOccupancyScale = edgeOccupancyScale * sparsePeakEdgeOccupancyDamping
     local sparseCliffCoverageBias = sparsePeakCoverageDamping * sparsePeakCoverageDamping
     local sparseCliffOccupancyScale = if heightRange > 0
         then math.clamp(edgeOccupancyScale * sparseCliffCoverageBias, 0.2, 1)

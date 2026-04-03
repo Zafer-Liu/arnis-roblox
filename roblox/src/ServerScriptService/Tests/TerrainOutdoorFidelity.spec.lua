@@ -335,6 +335,10 @@ return function()
         sparsePeakProfile.surfaceHeight < 1.05,
         "expected sparse steep peaks to stay very close to the surrounding surface instead of forming a false elevated plane"
     )
+    Assert.truthy(
+        sparsePeakProfile.edgeOccupancyScale < 0.4,
+        "expected sparse steep peaks to taper their top and bottom occupancy more aggressively instead of keeping a thick cap"
+    )
 
     local sparseCliffProfilePlan = {
         origin = { x = 0, y = 0, z = 0 },
