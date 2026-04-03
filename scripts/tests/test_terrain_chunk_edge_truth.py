@@ -33,11 +33,16 @@ class TerrainChunkEdgeTruthTests(unittest.TestCase):
 
         self.assertIn("local peakSampleCount = 0", source)
         self.assertIn("local peakSampleCoverage = peakSampleCount / sampleCount", source)
+        self.assertIn("local heightRangeFactor = math.clamp(heightRange / TERRAIN_WRITE_RESOLUTION, 0, 1)", source)
+        self.assertIn("local peakCoverageBias = math.max(peakSampleCoverage, normalizedPeakCoverage)", source)
         self.assertIn(
-            "local surfaceHeightBias = math.clamp(heightRange / TERRAIN_WRITE_RESOLUTION, 0, 1) * peakSampleCoverage",
+            "local surfaceHeightBias = heightRangeFactor * peakCoverageBias",
             source,
         )
-        self.assertIn("peakSampleCoverage = peakSampleCoverage", source)
+        self.assertRegex(
+            source,
+            r"surfaceFillDepth = if heightRange > 0\s+then math\.max\(1, TERRAIN_THICKNESS \* math\.clamp\(normalizedPeakCoverage \+ peakCoverageBias \* 0\.25, 0, 1\)\)",
+        )
 
 
 if __name__ == "__main__":

@@ -51,7 +51,13 @@ class PlayRenderTruthTests(unittest.TestCase):
             "expected StreamingService to derive signatures from the shared ImportSignatures helper",
         )
         self.assertIn('model:GetAttribute("ArnisChunkId")', streaming_source)
-        self.assertIn('and structureTelemetry.collidableWallPartsNearby > 0', streaming_source)
+        self.assertIn("coherentEnvelopeReady", streaming_source)
+        self.assertIn("coherentEnvelopeSourceId", streaming_source)
+        self.assertIn("coherentEnvelopeCandidateCount", streaming_source)
+        self.assertIn("local function isStartupEnvelopeReady(envelopeTelemetry)", streaming_source)
+        self.assertIn("local function selectStartupEnvelopeTelemetry(candidateTelemetryBySourceId)", streaming_source)
+        self.assertIn("local function countStartupEnvelopeCandidates(candidateTelemetryBySourceId)", streaming_source)
+        self.assertIn("and coherentEnvelopeReady", streaming_source)
 
     def test_roof_only_builder_uses_rooftop_base_metadata(self) -> None:
         source = BUILDING_BUILDER.read_text(encoding="utf-8")
@@ -125,11 +131,19 @@ class PlayRenderTruthTests(unittest.TestCase):
         self.assertIn("local peakSampleCoverage = peakSampleCount / sampleCount", source)
         self.assertIn("local normalizedPeakCoverage =", source)
         self.assertIn(
-            "local surfaceHeightBias = math.clamp(heightRange / TERRAIN_WRITE_RESOLUTION, 0, 1) * peakSampleCoverage",
+            "local heightRangeFactor = math.clamp(heightRange / TERRAIN_WRITE_RESOLUTION, 0, 1)",
+            source,
+        )
+        self.assertIn("local peakCoverageBias = math.max(peakSampleCoverage, normalizedPeakCoverage)", source)
+        self.assertIn(
+            "local surfaceHeightBias = heightRangeFactor * peakCoverageBias",
             source,
         )
         self.assertIn("surfaceHeight = averageHeight + (maxHeight - averageHeight) * surfaceHeightBias", source)
-        self.assertRegex(source, r"surfaceFillDepth = if heightRange > 0\s+then")
+        self.assertRegex(
+            source,
+            r"surfaceFillDepth = if heightRange > 0\s+then math\.max\(1, TERRAIN_THICKNESS \* math\.clamp\(normalizedPeakCoverage \+ peakCoverageBias \* 0\.25, 0, 1\)\)",
+        )
         self.assertIn("normalizedPeakCoverage", source)
         self.assertIn("local worldBotY = worldSurfY - columnProfile.surfaceFillDepth", source)
         self.assertIn("local worldSurfY = origin.y + columnProfile.surfaceHeight", source)
@@ -254,14 +268,15 @@ class PlayRenderTruthTests(unittest.TestCase):
             "expected bounded corner accents to be limited to the simple-shell detail path",
         )
 
-    def test_shell_mesh_simple_low_rise_buildings_keep_explicit_shell_walls_for_play_visibility(self) -> None:
+    def test_shell_mesh_bounded_low_medium_buildings_keep_explicit_shell_walls_for_play_visibility(self) -> None:
         source = BUILDING_BUILDER.read_text(encoding="utf-8")
         scene_audit_source = SCENE_AUDIT.read_text(encoding="utf-8")
 
+        self.assertIn("local function shouldPreferPlayVisibleShellWalls", source)
         self.assertRegex(
             source,
-            r"function\s+BuildingBuilder\.MeshBuildAll[\s\S]*if\s+preferSimpleShellDetail\s+then[\s\S]*buildWallLoopParts\(shellFolder,\s*bldgName,\s*worldPts,\s*baseY,\s*height,\s*mat,\s*color,\s*\"outer\"",
-            "expected simple low-rise shellMesh buildings to keep explicit shell wall parts instead of only merged wall meshes",
+            r"function\s+BuildingBuilder\.MeshBuildAll[\s\S]*local\s+preferPlayVisibleShellWalls\s*=\s*[\s\S]*shouldPreferPlayVisibleShellWalls[\s\S]*if\s+preferPlayVisibleShellWalls\s+then[\s\S]*buildWallLoopParts\(shellFolder,\s*bldgName,\s*worldPts,\s*baseY,\s*height,\s*mat,\s*color,\s*\"outer\"",
+            "expected bounded low/medium shellMesh buildings to keep explicit shell wall parts instead of only merged wall meshes",
         )
         self.assertIn('part:SetAttribute("ArnisShellWallEvidence", true)', source)
         self.assertIn('ArnisShellWallEvidence', scene_audit_source)
@@ -269,6 +284,20 @@ class PlayRenderTruthTests(unittest.TestCase):
             scene_audit_source,
             r"ArnisShellWallEvidence[\s\S]*visibleShellWallParts",
             "expected SceneAudit to count explicit shell wall evidence when classifying visible shell walls",
+        )
+
+    def test_shell_mesh_bounded_fallback_expands_explicit_wall_visibility_by_shape_and_size(self) -> None:
+        source = BUILDING_BUILDER.read_text(encoding="utf-8")
+
+        self.assertIn("local function shouldPreferPlayVisibleShellWalls", source)
+        self.assertIn("PLAY_VISIBLE_SHELL_ROOF_SHAPES", source)
+        self.assertIn("levels > 6 or height > 34", source)
+        self.assertIn("return footprintPointCount <= 10", source)
+        self.assertIn("preferPlayVisibleShellWalls", source)
+        self.assertRegex(
+            source,
+            r"if\s+preferPlayVisibleShellWalls\s+then[\s\S]*buildWallLoopParts\(shellFolder,\s*bldgName,\s*worldPts,\s*baseY,\s*height,\s*mat,\s*color,\s*\"outer\"",
+            "expected bounded shellMesh fallback to keep explicit shell wall parts for medium-complexity buildings",
         )
 
     def test_scene_audit_surfaces_closure_only_roof_gaps_separately_from_generic_roofless_buildings(self) -> None:
@@ -303,6 +332,7 @@ class PlayRenderTruthTests(unittest.TestCase):
         self.assertIn("missingEdgeSampleCount", terrain_probe_source)
         self.assertIn("edgeTerrainYRangeStuds", terrain_probe_source)
         self.assertIn("centerEdgeMaxDeltaStuds", terrain_probe_source)
+        self.assertIn("local function countSampleSlots(samples)", terrain_probe_source)
 
     def test_irregular_shaped_roofs_fall_back_to_visible_roof_geometry_not_only_closure_decks(self) -> None:
         source = BUILDING_BUILDER.read_text(encoding="utf-8")

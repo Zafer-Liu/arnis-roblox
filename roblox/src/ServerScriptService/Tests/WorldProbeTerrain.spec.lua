@@ -198,6 +198,32 @@ return function()
         "expected sparse edge coverage to keep center-edge cliff visibility"
     )
 
+    local holeySummary = WorldProbeTerrain.summarizeTerrainSamples({
+        [1] = { terrainY = 9.0, terrainMaterial = "Grass" },
+        [3] = { terrainY = 12.0, terrainMaterial = "Rock" },
+        [5] = { terrainY = 15.0, terrainMaterial = "Grass" },
+    }, {
+        centerIndex = 3,
+        samplePattern = "cross_5",
+        sampleRadiusStuds = 12,
+        neighborPairs = {
+            { 3, 1 },
+            { 3, 2 },
+            { 3, 4 },
+            { 3, 5 },
+        },
+        edgeIndices = { 1, 2, 4, 5 },
+    })
+    Assert.equal(holeySummary.sampleCount, 3, "expected holey terrain samples to count only populated slots")
+    Assert.equal(holeySummary.missingSampleCount, 2, "expected holey terrain samples to count unfilled slots")
+    Assert.equal(holeySummary.coverageRatio, 0.6, "expected holey terrain samples to report the true coverage ratio")
+    Assert.equal(
+        holeySummary.convergenceStatus,
+        "edge_incomplete",
+        "expected holey terrain samples to mark the probe as edge incomplete when edge slots are missing"
+    )
+    Assert.equal(holeySummary.edgeCoverageRatio, 0.5, "expected holey terrain samples to report partial edge coverage")
+
     local centerPeakSummary = WorldProbeTerrain.summarizeTerrainSamples({
         { terrainY = 10.0, terrainMaterial = "Grass" },
         { terrainY = 10.0, terrainMaterial = "Grass" },

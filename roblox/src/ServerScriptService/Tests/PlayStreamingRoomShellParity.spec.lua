@@ -178,6 +178,44 @@ return function()
         })
         StreamingService.Update(Vector3.new(16, 0, 16))
 
+        local startupResidency = StreamingService.GetStartupResidencySnapshot(Vector3.new(16, 0, 16), worldRootName)
+        Assert.truthy(
+            startupResidency.ready,
+            "expected startup residency to resolve the roomed shell building coherently"
+        )
+        Assert.equal(
+            startupResidency.coherentEnvelopeCandidateCount,
+            1,
+            "expected exactly one coherent nearby startup envelope"
+        )
+        Assert.equal(
+            startupResidency.coherentEnvelopeSourceId,
+            "roomed_shell_building",
+            "expected the coherent startup envelope to come from the roomed shell building"
+        )
+        Assert.equal(
+            startupResidency.coherentEnvelopeNearbyBuildingModels,
+            1,
+            "expected one coherent nearby building model"
+        )
+        Assert.truthy(
+            startupResidency.coherentEnvelopeNearbyWallParts >= 1,
+            "expected coherent nearby shell wall evidence"
+        )
+        Assert.truthy(
+            startupResidency.coherentEnvelopeCollidableWallPartsNearby >= 1,
+            "expected coherent nearby collidable shell wall evidence"
+        )
+        Assert.equal(
+            startupResidency.coherentEnvelopeNearbyRoofParts,
+            1,
+            "expected closure decks to stay out of coherent roof evidence"
+        )
+        Assert.truthy(
+            startupResidency.coherentEnvelopeOverheadRoofParts >= 1,
+            "expected coherent overhead roof evidence near the spawn point"
+        )
+
         local streamedState = summarizeChunkWorld()
         local streamedMaterial, streamedOccupancy = readVoxel(interiorSampleCenter)
         local streamedShellFolder = streamedState.building:FindFirstChild("Shell")

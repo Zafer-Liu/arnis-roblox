@@ -22,9 +22,24 @@ local function buildIndexSet(indices)
     return indexSet
 end
 
+local function countSampleSlots(samples)
+    local totalSlots = 0
+    if type(samples) ~= "table" then
+        return totalSlots
+    end
+
+    for index in pairs(samples) do
+        if type(index) == "number" and index > totalSlots then
+            totalSlots = index
+        end
+    end
+
+    return totalSlots
+end
+
 function WorldProbeTerrain.summarizeTerrainSamples(samples, options)
     options = options or {}
-    local totalSlots = if type(samples) == "table" then #samples else 0
+    local totalSlots = countSampleSlots(samples)
     local samplePattern = if type(options.samplePattern) == "string" and options.samplePattern ~= ""
         then options.samplePattern
         else "unknown"

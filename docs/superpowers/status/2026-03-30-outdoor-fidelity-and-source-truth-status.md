@@ -1806,3 +1806,22 @@ The compact historical archive index is:
   - `python3 -m unittest scripts.tests.test_terrain_chunk_edge_truth scripts.tests.test_play_render_truth scripts.tests.test_austin_runtime_contract -v`
   - `stylua --check roblox/src/ServerScriptService/ImportService/SceneAudit.lua roblox/src/ServerScriptService/Tests/SceneAudit.spec.lua`
   - `git diff --check`
+
+## 2026-04-03 12:36 CDT
+
+- Integrated another local-safe play-fidelity tranche on `main`:
+  - `StreamingService.lua`
+    - startup readiness now selects a coherent nearby structural envelope by source building instead of trusting pooled wall/roof counts across unrelated models
+    - this keeps spawn readiness false when nearby wall-only and roof-only buildings happen to coexist but no single nearby building is actually complete enough for play
+  - `BuildingBuilder.lua`
+    - shellMesh explicit wall fallback is now widened one step beyond the narrow simple-shell path, but it stays shape/size bounded instead of usage-wide
+  - `TerrainBuilder.lua` / `WorldProbeTerrain.lua`
+    - mixed-voxel surface bias now uses both peak coverage and average-vs-min spread, and sparse-slot terrain telemetry now counts numeric sample slots truthfully even when the sample table has holes
+- Verification:
+  - `python3 -m unittest scripts.tests.test_terrain_chunk_edge_truth scripts.tests.test_play_render_truth scripts.tests.test_austin_runtime_contract -v`
+  - `stylua --check roblox/src/ReplicatedStorage/Shared/WorldProbeTerrain.lua roblox/src/ServerScriptService/ImportService/Builders/BuildingBuilder.lua roblox/src/ServerScriptService/ImportService/Builders/TerrainBuilder.lua roblox/src/ServerScriptService/ImportService/StreamingService.lua roblox/src/ServerScriptService/Tests/PlayStreamingRoomShellParity.spec.lua roblox/src/ServerScriptService/Tests/StartupStructuralEnvelopeSettlement.spec.lua roblox/src/ServerScriptService/Tests/WorldProbeTerrain.spec.lua`
+  - `git diff --check`
+- Next `tertiary` proof should answer:
+  - whether coherent spawn-envelope readiness reduces the “looks empty until I walk through it” play-start behavior
+  - whether the bounded shell-wall fallback materially improves wall presence for medium-complexity shellMesh buildings
+  - whether the revised mixed-voxel shaping reduces both flat false planes and underfilled hilltops

@@ -368,10 +368,12 @@ local function sampleVoxelColumnProfile(plan, ix, globalIz)
     local normalizedPeakCoverage = if heightRange > 0
         then math.clamp((averageHeight - minHeight) / heightRange, 0, 1)
         else 1
-    local surfaceHeightBias = math.clamp(heightRange / TERRAIN_WRITE_RESOLUTION, 0, 1) * peakSampleCoverage
+    local heightRangeFactor = math.clamp(heightRange / TERRAIN_WRITE_RESOLUTION, 0, 1)
+    local peakCoverageBias = math.max(peakSampleCoverage, normalizedPeakCoverage)
+    local surfaceHeightBias = heightRangeFactor * peakCoverageBias
     local surfaceHeight = averageHeight + (maxHeight - averageHeight) * surfaceHeightBias
     local surfaceFillDepth = if heightRange > 0
-        then math.max(1, TERRAIN_THICKNESS * normalizedPeakCoverage)
+        then math.max(1, TERRAIN_THICKNESS * math.clamp(normalizedPeakCoverage + peakCoverageBias * 0.25, 0, 1))
         else TERRAIN_THICKNESS
 
     return {

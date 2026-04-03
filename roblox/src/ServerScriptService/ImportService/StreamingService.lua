@@ -843,6 +843,74 @@ local function isRoofClosureDeckPart(part)
     return string.find(string.lower(part.Name), "roof_closure", 1, true) ~= nil
 end
 
+local function newStartupEnvelopeTelemetry(sourceId)
+    return {
+        sourceId = sourceId,
+        nearbyBuildingModels = 0,
+        nearbyMergedBuildingMeshParts = 0,
+        nearbyWallParts = 0,
+        nearbyRoofParts = 0,
+        overheadRoofParts = 0,
+        collidableWallPartsNearby = 0,
+        nearestWallDistanceStuds = nil,
+    }
+end
+
+local function isStartupEnvelopeReady(envelopeTelemetry)
+    return type(envelopeTelemetry) == "table"
+        and envelopeTelemetry.nearbyBuildingModels > 0
+        and envelopeTelemetry.nearbyWallParts > 0
+        and envelopeTelemetry.collidableWallPartsNearby > 0
+        and envelopeTelemetry.nearbyRoofParts > 0
+        and envelopeTelemetry.overheadRoofParts > 0
+end
+
+local function selectStartupEnvelopeTelemetry(candidateTelemetryBySourceId)
+    local selectedEnvelopeTelemetry = nil
+    local selectedScore = -1
+    local selectedSourceId = nil
+    local candidateSourceIds = {}
+
+    for sourceId in pairs(candidateTelemetryBySourceId or {}) do
+        candidateSourceIds[#candidateSourceIds + 1] = sourceId
+    end
+    table.sort(candidateSourceIds)
+
+    for _, sourceId in ipairs(candidateSourceIds) do
+        local candidateTelemetry = candidateTelemetryBySourceId[sourceId]
+        if isStartupEnvelopeReady(candidateTelemetry) then
+            local score = candidateTelemetry.nearbyBuildingModels * 100
+                + candidateTelemetry.nearbyWallParts * 20
+                + candidateTelemetry.collidableWallPartsNearby * 20
+                + candidateTelemetry.nearbyRoofParts * 20
+                + candidateTelemetry.overheadRoofParts * 10
+                + candidateTelemetry.nearbyMergedBuildingMeshParts
+            if
+                selectedEnvelopeTelemetry == nil
+                or score > selectedScore
+                or (score == selectedScore and tostring(sourceId) < tostring(selectedSourceId))
+            then
+                selectedEnvelopeTelemetry = candidateTelemetry
+                selectedScore = score
+                selectedSourceId = sourceId
+            end
+        end
+    end
+
+    return selectedEnvelopeTelemetry
+end
+
+local function countStartupEnvelopeCandidates(candidateTelemetryBySourceId)
+    local candidateCount = 0
+    for _, candidateTelemetry in pairs(candidateTelemetryBySourceId or {}) do
+        if isStartupEnvelopeReady(candidateTelemetry) then
+            candidateCount += 1
+        end
+    end
+
+    return candidateCount
+end
+
 local function buildStartupStructureTelemetry(spawnPoint, worldRootName)
     local structureTelemetry = {
         nearbyBuildingModels = 0,
@@ -852,7 +920,17 @@ local function buildStartupStructureTelemetry(spawnPoint, worldRootName)
         overheadRoofParts = 0,
         collidableWallPartsNearby = 0,
         nearestWallDistanceStuds = nil,
+        coherentEnvelopeNearbyBuildingModels = 0,
+        coherentEnvelopeNearbyMergedBuildingMeshParts = 0,
+        coherentEnvelopeNearbyWallParts = 0,
+        coherentEnvelopeNearbyRoofParts = 0,
+        coherentEnvelopeOverheadRoofParts = 0,
+        coherentEnvelopeCollidableWallPartsNearby = 0,
+        coherentEnvelopeNearestWallDistanceStuds = nil,
+        coherentEnvelopeSourceId = nil,
+        coherentEnvelopeCandidateCount = 0,
     }
+    local envelopeTelemetryBySourceId = {}
 
     if typeof(spawnPoint) ~= "Vector3" then
         return structureTelemetry
@@ -904,6 +982,12 @@ local function buildStartupStructureTelemetry(spawnPoint, worldRootName)
             end
 
             structureTelemetry.nearbyBuildingModels += 1
+            local envelopeTelemetry = envelopeTelemetryBySourceId[sourceId]
+            if envelopeTelemetry == nil then
+                envelopeTelemetry = newStartupEnvelopeTelemetry(sourceId)
+                envelopeTelemetryBySourceId[sourceId] = envelopeTelemetry
+            end
+            envelopeTelemetry.nearbyBuildingModels += 1
 
             local shellFolder = model:FindFirstChild("Shell")
             if not shellFolder then
@@ -928,16 +1012,19 @@ local function buildStartupStructureTelemetry(spawnPoint, worldRootName)
                         and not roofClosureDeck
                     then
                         structureTelemetry.nearbyMergedBuildingMeshParts += 1
+                        envelopeTelemetry.nearbyMergedBuildingMeshParts += 1
                     end
                 end
 
                 if roofPart then
                     structureTelemetry.nearbyRoofParts += 1
+                    envelopeTelemetry.nearbyRoofParts += 1
                     if
                         horizontalPartDistance <= STARTUP_OVERHEAD_ROOF_RADIUS
                         and partOffset.Y >= STARTUP_OVERHEAD_MIN_DELTA_Y
                     then
                         structureTelemetry.overheadRoofParts += 1
+                        envelopeTelemetry.overheadRoofParts += 1
                     end
                     continue
                 end
@@ -950,8 +1037,10 @@ local function buildStartupStructureTelemetry(spawnPoint, worldRootName)
                     WorldProbeGeometry.isNearbyShellWall(descendant, spawnPoint, STARTUP_NEARBY_WALL_RADIUS)
                 if isNearbyShellWall then
                     structureTelemetry.nearbyWallParts += 1
+                    envelopeTelemetry.nearbyWallParts += 1
                     if descendant.CanCollide then
                         structureTelemetry.collidableWallPartsNearby += 1
+                        envelopeTelemetry.collidableWallPartsNearby += 1
                     end
                     if
                         structureTelemetry.nearestWallDistanceStuds == nil
@@ -959,10 +1048,31 @@ local function buildStartupStructureTelemetry(spawnPoint, worldRootName)
                     then
                         structureTelemetry.nearestWallDistanceStuds = nearestShellWallDistanceStuds
                     end
+                    if
+                        envelopeTelemetry.nearestWallDistanceStuds == nil
+                        or nearestShellWallDistanceStuds < envelopeTelemetry.nearestWallDistanceStuds
+                    then
+                        envelopeTelemetry.nearestWallDistanceStuds = nearestShellWallDistanceStuds
+                    end
                 end
             end
         end
     end
+
+    local coherentEnvelopeTelemetry = selectStartupEnvelopeTelemetry(envelopeTelemetryBySourceId)
+    if coherentEnvelopeTelemetry ~= nil then
+        structureTelemetry.coherentEnvelopeNearbyBuildingModels = coherentEnvelopeTelemetry.nearbyBuildingModels
+        structureTelemetry.coherentEnvelopeNearbyMergedBuildingMeshParts =
+            coherentEnvelopeTelemetry.nearbyMergedBuildingMeshParts
+        structureTelemetry.coherentEnvelopeNearbyWallParts = coherentEnvelopeTelemetry.nearbyWallParts
+        structureTelemetry.coherentEnvelopeNearbyRoofParts = coherentEnvelopeTelemetry.nearbyRoofParts
+        structureTelemetry.coherentEnvelopeOverheadRoofParts = coherentEnvelopeTelemetry.overheadRoofParts
+        structureTelemetry.coherentEnvelopeCollidableWallPartsNearby =
+            coherentEnvelopeTelemetry.collidableWallPartsNearby
+        structureTelemetry.coherentEnvelopeNearestWallDistanceStuds = coherentEnvelopeTelemetry.nearestWallDistanceStuds
+        structureTelemetry.coherentEnvelopeSourceId = coherentEnvelopeTelemetry.sourceId
+    end
+    structureTelemetry.coherentEnvelopeCandidateCount = countStartupEnvelopeCandidates(envelopeTelemetryBySourceId)
 
     return structureTelemetry
 end
@@ -974,13 +1084,17 @@ function StreamingService.GetStartupResidencySnapshot(spawnPoint, worldRootName)
     local schedulerState = Workspace:GetAttribute("ArnisStreamingSchedulerState")
     local structureTelemetry = buildStartupStructureTelemetry(spawnPoint, worldRootName)
     local requiredNearChunks = math.max(1, nearDesired)
+    local coherentEnvelopeReady = isStartupEnvelopeReady({
+        nearbyBuildingModels = structureTelemetry.coherentEnvelopeNearbyBuildingModels,
+        nearbyWallParts = structureTelemetry.coherentEnvelopeNearbyWallParts,
+        collidableWallPartsNearby = structureTelemetry.coherentEnvelopeCollidableWallPartsNearby,
+        nearbyRoofParts = structureTelemetry.coherentEnvelopeNearbyRoofParts,
+        overheadRoofParts = structureTelemetry.coherentEnvelopeOverheadRoofParts,
+    })
     local ready = nearResident >= requiredNearChunks
         and queuedWorkItems <= 0
         and schedulerState == "steady_state"
-        and structureTelemetry.nearbyBuildingModels > 0
-        and structureTelemetry.nearbyWallParts > 0
-        and structureTelemetry.collidableWallPartsNearby > 0
-        and structureTelemetry.nearbyRoofParts > 0
+        and coherentEnvelopeReady
 
     return {
         nearResidentChunkCount = nearResident,
@@ -994,6 +1108,16 @@ function StreamingService.GetStartupResidencySnapshot(spawnPoint, worldRootName)
         overheadRoofParts = structureTelemetry.overheadRoofParts,
         collidableWallPartsNearby = structureTelemetry.collidableWallPartsNearby,
         nearestWallDistanceStuds = structureTelemetry.nearestWallDistanceStuds,
+        coherentEnvelopeNearbyBuildingModels = structureTelemetry.coherentEnvelopeNearbyBuildingModels,
+        coherentEnvelopeNearbyMergedBuildingMeshParts = structureTelemetry.coherentEnvelopeNearbyMergedBuildingMeshParts,
+        coherentEnvelopeNearbyWallParts = structureTelemetry.coherentEnvelopeNearbyWallParts,
+        coherentEnvelopeNearbyRoofParts = structureTelemetry.coherentEnvelopeNearbyRoofParts,
+        coherentEnvelopeOverheadRoofParts = structureTelemetry.coherentEnvelopeOverheadRoofParts,
+        coherentEnvelopeCollidableWallPartsNearby = structureTelemetry.coherentEnvelopeCollidableWallPartsNearby,
+        coherentEnvelopeNearestWallDistanceStuds = structureTelemetry.coherentEnvelopeNearestWallDistanceStuds,
+        coherentEnvelopeSourceId = structureTelemetry.coherentEnvelopeSourceId,
+        coherentEnvelopeCandidateCount = structureTelemetry.coherentEnvelopeCandidateCount,
+        coherentEnvelopeReady = coherentEnvelopeReady,
         ready = ready,
     }
 end

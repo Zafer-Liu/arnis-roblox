@@ -48,24 +48,31 @@ return function()
         Assert.equal(emptySnapshot.nearbyWallParts, 0, "expected no nearby wall evidence before shells load")
         Assert.equal(emptySnapshot.nearbyRoofParts, 0, "expected no nearby roof evidence before shells load")
 
-        local nearbyBuilding = Instance.new("Model")
-        nearbyBuilding.Name = "nearby_shell_building"
-        nearbyBuilding:SetAttribute("ArnisImportBuildingHeight", 20)
-        nearbyBuilding:SetAttribute("ArnisImportSourceId", "nearby_shell_building")
-        nearbyBuilding:SetAttribute("ArnisImportRoofShape", "flat")
-        nearbyBuilding:SetAttribute("ArnisChunkId", "0_0")
-        nearbyBuilding.Parent = buildingsFolder
+        local wallOnlyBuilding = Instance.new("Model")
+        wallOnlyBuilding.Name = "wall_only_shell_building"
+        wallOnlyBuilding:SetAttribute("ArnisImportBuildingHeight", 20)
+        wallOnlyBuilding:SetAttribute("ArnisImportSourceId", "wall_only_shell_building")
+        wallOnlyBuilding:SetAttribute("ArnisImportRoofShape", "flat")
+        wallOnlyBuilding:SetAttribute("ArnisChunkId", "0_0")
+        wallOnlyBuilding.Parent = buildingsFolder
 
-        local nearbyShell = Instance.new("Folder")
-        nearbyShell.Name = "Shell"
-        nearbyShell.Parent = nearbyBuilding
+        local wallOnlyShell = Instance.new("Folder")
+        wallOnlyShell.Name = "Shell"
+        wallOnlyShell.Parent = wallOnlyBuilding
+        makeAnchoredPart("wall_only_wall", Vector3.new(1, 16, 18), Vector3.new(120, 8, 128), wallOnlyShell)
 
-        makeAnchoredPart("west_wall", Vector3.new(1, 16, 18), Vector3.new(120, 8, 128), nearbyShell)
-        makeAnchoredPart("flat_roof", Vector3.new(18, 1, 18), Vector3.new(128, 18.5, 128), nearbyShell)
+        local roofOnlyBuilding = Instance.new("Model")
+        roofOnlyBuilding.Name = "roof_only_shell_building"
+        roofOnlyBuilding:SetAttribute("ArnisImportBuildingHeight", 20)
+        roofOnlyBuilding:SetAttribute("ArnisImportSourceId", "roof_only_shell_building")
+        roofOnlyBuilding:SetAttribute("ArnisImportRoofShape", "flat")
+        roofOnlyBuilding:SetAttribute("ArnisChunkId", "0_0")
+        roofOnlyBuilding.Parent = buildingsFolder
 
-        local roofClosureDeck =
-            makeAnchoredPart("flat_roof_closure", Vector3.new(4, 0.5, 4), Vector3.new(128, 17.5, 128), nearbyShell)
-        roofClosureDeck:SetAttribute("ArnisRoofClosureDeck", true)
+        local roofOnlyShell = Instance.new("Folder")
+        roofOnlyShell.Name = "Shell"
+        roofOnlyShell.Parent = roofOnlyBuilding
+        makeAnchoredPart("roof_only_roof", Vector3.new(18, 1, 18), Vector3.new(128, 18.5, 128), roofOnlyShell)
 
         local unregisteredChunk = Instance.new("Folder")
         unregisteredChunk.Name = "late_chunk"
@@ -103,7 +110,8 @@ return function()
         makeAnchoredPart("far_wall", Vector3.new(1, 16, 18), Vector3.new(520, 8, 520), distantShell)
         makeAnchoredPart("far_roof", Vector3.new(18, 1, 18), Vector3.new(528, 18.5, 520), distantShell)
 
-        nearbyBuilding:PivotTo(CFrame.new(128, 0, 128))
+        wallOnlyBuilding:PivotTo(CFrame.new(120, 0, 128))
+        roofOnlyBuilding:PivotTo(CFrame.new(136, 0, 128))
         lateBuilding:PivotTo(CFrame.new(128, 0, 128))
         distantBuilding:PivotTo(CFrame.new(520, 0, 520))
 
@@ -146,14 +154,83 @@ return function()
         )
 
         chunkFolder:SetAttribute("ArnisChunkId", "0_0")
+        local disjointEnvelopeSnapshot = StreamingService.GetStartupResidencySnapshot(spawnPoint, worldRootName)
+        Assert.falsy(
+            disjointEnvelopeSnapshot.ready,
+            "expected startup residency to stay gated when wall and roof evidence are split across unrelated buildings"
+        )
+        Assert.equal(
+            disjointEnvelopeSnapshot.nearbyBuildingModels,
+            2,
+            "expected the nearby wall-only and roof-only buildings to contribute aggregate evidence"
+        )
+        Assert.truthy(
+            disjointEnvelopeSnapshot.nearbyWallParts >= 1,
+            "expected aggregate nearby wall evidence from the wall-only shell building"
+        )
+        Assert.truthy(
+            disjointEnvelopeSnapshot.nearbyRoofParts >= 1,
+            "expected aggregate nearby roof evidence from the roof-only shell building"
+        )
+        Assert.equal(
+            disjointEnvelopeSnapshot.coherentEnvelopeCandidateCount,
+            0,
+            "expected disjoint nearby geometry to stay out of coherent envelope readiness"
+        )
+        Assert.equal(
+            disjointEnvelopeSnapshot.coherentEnvelopeReady,
+            false,
+            "expected disjoint nearby geometry not to satisfy coherent envelope readiness"
+        )
+
+        local nearbyBuilding = Instance.new("Model")
+        nearbyBuilding.Name = "nearby_shell_building"
+        nearbyBuilding:SetAttribute("ArnisImportBuildingHeight", 20)
+        nearbyBuilding:SetAttribute("ArnisImportSourceId", "nearby_shell_building")
+        nearbyBuilding:SetAttribute("ArnisImportRoofShape", "flat")
+        nearbyBuilding:SetAttribute("ArnisChunkId", "0_0")
+        nearbyBuilding.Parent = buildingsFolder
+
+        local nearbyShell = Instance.new("Folder")
+        nearbyShell.Name = "Shell"
+        nearbyShell.Parent = nearbyBuilding
+
+        makeAnchoredPart("west_wall", Vector3.new(1, 16, 18), Vector3.new(124, 8, 128), nearbyShell)
+        makeAnchoredPart("flat_roof", Vector3.new(18, 1, 18), Vector3.new(128, 18.5, 128), nearbyShell)
+
+        local roofClosureDeck =
+            makeAnchoredPart("flat_roof_closure", Vector3.new(4, 0.5, 4), Vector3.new(128, 17.5, 128), nearbyShell)
+        roofClosureDeck:SetAttribute("ArnisRoofClosureDeck", true)
+        nearbyBuilding:PivotTo(CFrame.new(128, 0, 128))
+
         local snapshot = StreamingService.GetStartupResidencySnapshot(spawnPoint, worldRootName)
 
         Assert.truthy(snapshot.ready, "expected startup residency to wait for the nearby structural envelope")
-        Assert.equal(snapshot.nearbyBuildingModels, 1, "expected one nearby building model")
-        Assert.truthy(snapshot.nearbyWallParts >= 1, "expected nearby shell wall evidence")
-        Assert.truthy(snapshot.collidableWallPartsNearby >= 1, "expected nearby collidable shell wall evidence")
-        Assert.equal(snapshot.nearbyRoofParts, 1, "expected closure decks to stay out of roof evidence")
-        Assert.truthy(snapshot.overheadRoofParts >= 1, "expected overhead roof evidence near the spawn point")
+        Assert.equal(snapshot.nearbyBuildingModels, 3, "expected three nearby building models in aggregate")
+        Assert.truthy(snapshot.nearbyWallParts >= 2, "expected aggregate nearby shell wall evidence")
+        Assert.truthy(
+            snapshot.collidableWallPartsNearby >= 2,
+            "expected aggregate nearby collidable shell wall evidence"
+        )
+        Assert.truthy(snapshot.nearbyRoofParts >= 2, "expected aggregate nearby roof evidence")
+        Assert.truthy(snapshot.overheadRoofParts >= 2, "expected aggregate overhead roof evidence near the spawn point")
+        Assert.equal(snapshot.coherentEnvelopeCandidateCount, 1, "expected one coherent nearby structural envelope")
+        Assert.equal(
+            snapshot.coherentEnvelopeSourceId,
+            "nearby_shell_building",
+            "expected the coherent envelope to come from the nearby shell building"
+        )
+        Assert.equal(snapshot.coherentEnvelopeNearbyBuildingModels, 1, "expected one coherent nearby building model")
+        Assert.truthy(snapshot.coherentEnvelopeNearbyWallParts >= 1, "expected coherent nearby shell wall evidence")
+        Assert.truthy(
+            snapshot.coherentEnvelopeCollidableWallPartsNearby >= 1,
+            "expected coherent nearby collidable shell wall evidence"
+        )
+        Assert.equal(snapshot.coherentEnvelopeNearbyRoofParts, 1, "expected closure decks to stay out of roof evidence")
+        Assert.truthy(
+            snapshot.coherentEnvelopeOverheadRoofParts >= 1,
+            "expected coherent overhead roof evidence near the spawn point"
+        )
     end, debug.traceback)
 
     worldRoot:Destroy()
