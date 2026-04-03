@@ -125,7 +125,7 @@ class AustinRuntimeContractTests(unittest.TestCase):
         self.assertIn('Workspace:SetAttribute("ArnisStreamingMovementDeltaStuds", 0)', self.streaming_text)
         self.assertIn('Workspace:SetAttribute("ArnisStreamingMovementLookaheadStuds", 0)', self.streaming_text)
         self.assertIn('Workspace:SetAttribute("ArnisStreamingLoadedChunkCount"', self.streaming_text)
-        self.assertIn('#ChunkLoader.ListLoadedChunks(streamingOptions.worldRootName)', self.streaming_text)
+        self.assertIn('#ChunkLoader.ListLoadedChunks(worldRootName)', self.streaming_text)
         self.assertIn('Workspace:SetAttribute("ArnisStreamingCandidateChunkCount", #candidateChunkEntries)', self.streaming_text)
         self.assertIn('Workspace:SetAttribute("ArnisStreamingDesiredChunkCount", desiredChunkCount)', self.streaming_text)
         self.assertIn('Workspace:SetAttribute("ArnisStreamingProcessedWorkItems", processedWorkItems)', self.streaming_text)

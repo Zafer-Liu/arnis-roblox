@@ -1305,3 +1305,30 @@ The compact historical archive index is:
   - the focused proof lane is trustworthy again for streaming scheduler work
   - the memory guardrail remains the authoritative admission stop line
   - ring byte budgets now behave like scheduler targets instead of silently starving in-ring work ahead of the real guardrail
+
+### 2026-04-02: Movement Lookahead Now Expands Scheduler Eligibility, Not Just Sort Order
+
+- I kept this slice on the real runtime scheduler instead of widening the harness again.
+- The root cause was concrete:
+  - movement lookahead already biased chunk sorting toward the predicted focal point
+  - but candidate discovery and ring/LOD eligibility still used only the current focal position
+  - that meant ahead-of-motion chunks just outside the current target radius could never become eligible, even when the bounded predicted focus placed them squarely inside the next streaming window
+- I fixed that in `StreamingService.lua` by:
+  - unioning candidate discovery across the current focal point and the bounded predicted focal point
+  - using the better of actual distance and predicted-focus distance when deciding chunk eligibility and ring membership
+  - leaving resident telemetry tied to the real player position and leaving the memory guardrail as the hard admission stop line
+- I added a new regression in `StreamingPriority.spec.lua` that proves:
+  - the anchor chunk imports first
+  - a chunk slightly outside the current focal radius but inside the lookahead-expanded window becomes eligible on the next movement update
+  - the prefetch reason remains `movement_lookahead`
+- Verification for this slice:
+  - local-safe red then green: isolated `StreamingPriority.spec.lua` on `tertiary`
+  - local-safe green: `python3 -m unittest scripts.tests.test_austin_runtime_contract -v`
+  - local-safe green: `git diff --check`
+  - remote `tertiary` green:
+    - `Running tests: StreamingPriority.spec`
+    - `PASS StreamingPriority.spec`
+    - `TestEZ tests complete. total=1 passed=1 failed=0`
+- Interpretation:
+  - movement lookahead is now a real residency/prefetch contract instead of just a tie-breaker inside the current radius
+  - this is a better planetary-streaming shape because the runtime can start pulling ahead-of-motion chunks before the camera/player reaches the old focal boundary

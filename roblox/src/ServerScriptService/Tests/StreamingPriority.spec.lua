@@ -288,6 +288,88 @@ return function()
         ChunkLoader.Clear()
         StreamingService.Stop()
 
+        local lookaheadResidencyManifest = {
+            schemaVersion = "0.4.0",
+            meta = manifest.meta,
+            chunkRefs = {
+                {
+                    id = "anchor_residency",
+                    originStuds = { x = 0, y = 0, z = 0 },
+                    shards = { "fake" },
+                    featureCount = 1,
+                    streamingCost = 1,
+                    estimatedMemoryCost = 16,
+                },
+                {
+                    id = "ahead_prefetch_only",
+                    originStuds = { x = 240, y = 0, z = 0 },
+                    shards = { "fake" },
+                    featureCount = 1,
+                    streamingCost = 1,
+                    estimatedMemoryCost = 16,
+                },
+            },
+            GetChunk = function(_, chunkId)
+                if chunkId == "ahead_prefetch_only" then
+                    return makeChunk(chunkId, 240)
+                end
+                return makeChunk(chunkId, 0)
+            end,
+        }
+        local lookaheadResidencyOptions = {
+            worldRootName = "StreamingPriorityLookaheadResidencyWorld",
+            config = {
+                StreamingEnabled = true,
+                StreamingTargetRadius = 200,
+                HighDetailRadius = 100,
+                ChunkSizeStuds = 100,
+                StreamingMaxWorkItemsPerUpdate = 1,
+                StreamingLookaheadSeconds = 1,
+                StreamingMaxLookaheadStuds = 200,
+                StreamingRings = {
+                    near = {
+                        MaxRadiusStuds = 100,
+                        EstimatedBudgetBytes = 32,
+                        MaxChunkCount = 2,
+                    },
+                    mid = {
+                        MaxRadiusStuds = 150,
+                        EstimatedBudgetBytes = 32,
+                        MaxChunkCount = 2,
+                    },
+                    far = {
+                        MaxRadiusStuds = 200,
+                        EstimatedBudgetBytes = 32,
+                        MaxChunkCount = 2,
+                    },
+                },
+                TerrainMode = "none",
+                RoadMode = "mesh",
+                BuildingMode = "shellMesh",
+                WaterMode = "mesh",
+                LanduseMode = "fill",
+            },
+        }
+
+        StreamingService.Start(lookaheadResidencyManifest, lookaheadResidencyOptions)
+        StreamingService.Update(Vector3.new(0, 0, 0))
+        Assert.equal(importOrder[1], "anchor_residency", "expected the anchor chunk to import first")
+        StreamingService.Update(Vector3.new(50, 0, 0))
+        Assert.equal(
+            importOrder[2],
+            "ahead_prefetch_only",
+            "expected movement lookahead to make ahead-of-motion chunks eligible even when they sit just outside the current focal radius"
+        )
+        Assert.equal(
+            Workspace:GetAttribute("ArnisStreamingLastPrefetchReason"),
+            "movement_lookahead",
+            "expected ahead-of-motion residency expansion to keep publishing movement-lookahead as the driving prefetch reason"
+        )
+
+        importOrder = {}
+        ChunkLoader.Clear()
+        StreamingService.Stop()
+
         local subplanKey = ChunkPriority.BuildPriorityKey(
             {
                 chunkId = "near_heavy",

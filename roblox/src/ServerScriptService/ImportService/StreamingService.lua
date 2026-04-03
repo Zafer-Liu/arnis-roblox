@@ -830,6 +830,41 @@ local function getCandidateChunkRefs(index, playerPos, targetRadius)
     return candidates
 end
 
+local function getSchedulerCandidateChunkRefs(index, playerPos, schedulerFocusPoint, targetRadius)
+    local primaryCandidates = getCandidateChunkRefs(index, playerPos, targetRadius)
+    if typeof(schedulerFocusPoint) ~= "Vector3" then
+        return primaryCandidates
+    end
+
+    local dx = schedulerFocusPoint.X - playerPos.X
+    local dz = schedulerFocusPoint.Z - playerPos.Z
+    if dx * dx + dz * dz < 1 then
+        return primaryCandidates
+    end
+
+    local mergedCandidates = table.clone(primaryCandidates)
+    local seenChunkIds = {}
+    for _, chunkEntry in ipairs(primaryCandidates) do
+        seenChunkIds[chunkEntry.ref.id] = true
+    end
+
+    for _, chunkEntry in ipairs(getCandidateChunkRefs(index, schedulerFocusPoint, targetRadius)) do
+        local chunkId = chunkEntry.ref.id
+        if not seenChunkIds[chunkId] then
+            seenChunkIds[chunkId] = true
+            mergedCandidates[#mergedCandidates + 1] = chunkEntry
+        end
+    end
+
+    return mergedCandidates
+end
+
+local function getChunkDistanceSqToPoint(chunkEntry, point)
+    local dx = point.X - chunkEntry.centerX
+    local dz = point.Z - chunkEntry.centerZ
+    return dx * dx + dz * dz
+end
+
 local function getMaterializedChunk(chunkEntry)
     if chunkEntry.materializedChunk then
         return chunkEntry.materializedChunk
@@ -1242,7 +1277,8 @@ function StreamingService.Update(focalPoint)
         local queuedWorkItemCount = 0
         local lastPrefetchReason = ""
         local lastEvictionReason = ""
-        local candidateChunkEntries = getCandidateChunkRefs(streamingChunkIndex, playerPos, targetExitRadius)
+        local candidateChunkEntries =
+            getSchedulerCandidateChunkRefs(streamingChunkIndex, playerPos, schedulerFocusPoint, targetExitRadius)
         local importWorkItems = {}
         ChunkPriority.SortChunkEntriesByPriority(
             candidateChunkEntries,
@@ -1254,14 +1290,23 @@ function StreamingService.Update(focalPoint)
 
         for _, chunkEntry in ipairs(candidateChunkEntries) do
             local chunkRef = chunkEntry.ref
-            local dx = playerPos.X - chunkEntry.centerX
-            local dz = playerPos.Z - chunkEntry.centerZ
-            local distSq = dx * dx + dz * dz
+            local actualDistSq = getChunkDistanceSqToPoint(chunkEntry, playerPos)
+            local schedulerDistSq = actualDistSq
+            if typeof(schedulerFocusPoint) == "Vector3" then
+                schedulerDistSq = math.min(actualDistSq, getChunkDistanceSqToPoint(chunkEntry, schedulerFocusPoint))
+            end
 
             local currentLod = loadedChunkLods[chunkRef.id]
             local targetLod =
-                chooseTargetLod(distSq, currentLod, highRadiusSq, highExitRadiusSq, targetRadiusSq, targetExitRadiusSq)
-            local ringName = getChunkRingName(distSq, resolvedRings)
+                chooseTargetLod(
+                    schedulerDistSq,
+                    currentLod,
+                    highRadiusSq,
+                    highExitRadiusSq,
+                    targetRadiusSq,
+                    targetExitRadiusSq
+                )
+            local ringName = getChunkRingName(schedulerDistSq, resolvedRings)
 
             if targetLod then
                 local ring = if ringName then resolvedRings[ringName] else nil
