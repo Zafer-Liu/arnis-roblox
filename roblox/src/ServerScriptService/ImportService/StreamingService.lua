@@ -2426,6 +2426,17 @@ function StreamingService.Update(focalPoint)
                 observedChunkImportMsById[observedCostKey] = previous * 0.7 + elapsedMs * 0.3
             end
             loadedChunkLods[chunkRef.id] = workItem.targetLod or loadedChunkLods[chunkRef.id]
+            local importedChunkEntry = ChunkLoader.GetChunkEntry(chunkRef.id, streamingOptions.worldRootName)
+            if importedChunkEntry ~= nil then
+                local immediateCameraFocusPos = resolveCurrentCameraFocusPosition()
+                updateChunkEntryLodGroups(
+                    importedChunkEntry,
+                    immediateCameraFocusPos,
+                    playerPos,
+                    highRadius,
+                    interiorRadius
+                )
+            end
             processedWorkItems += 1
         end
 

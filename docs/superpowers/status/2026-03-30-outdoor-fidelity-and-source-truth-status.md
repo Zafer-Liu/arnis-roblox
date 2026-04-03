@@ -2240,3 +2240,22 @@ The compact historical archive index is:
   - `python3 -m unittest scripts.tests.test_building_shell_mesh_readability_contract scripts.tests.test_play_render_truth -v`
   - `stylua --check roblox/src/ServerScriptService/ImportService/Builders/BuildingBuilder.lua roblox/src/ServerScriptService/Tests/PlayVisibleShellReadableCues.spec.lua`
   - `git diff --check`
+
+## 2026-04-03 18:11 CDT
+
+- Landed another local-safe bundled play-fidelity tranche on `main`:
+  - `BuildingBuilder.lua`
+    - the bounded `preferPlayVisibleShellWalls` shellMesh path now adds bounded window pane cues on top of beltlines, roofline cues, corner accents, and the street-facing door cue, so medium-cost explicit-wall shells stop reading like mostly blank slabs at eye level
+  - `StreamingService.lua`
+    - newly imported chunks now get their LOD visibility applied immediately after import succeeds instead of waiting until the end-of-update reconciliation pass, reducing intra-update visible lag for chunks that are already resident but freshly materialized
+  - `PlayVisibleShellReadableCues.spec.lua`
+    - expanded again so the dedicated explicit-wall shell readability lane now stays pinned for roofline, beltline, corner-accent, door-cue, and window-cue coverage together
+- Added focused local-safe coverage in:
+  - new `test_streaming_import_lod_refresh_contract.py`
+  - updated `test_building_shell_mesh_readability_contract.py`
+  - updated `test_play_render_truth.py`
+  - updated `test_austin_runtime_contract.py`
+- Verification:
+  - `python3 -m unittest scripts.tests.test_building_shell_mesh_readability_contract scripts.tests.test_play_render_truth scripts.tests.test_streaming_import_lod_refresh_contract scripts.tests.test_austin_runtime_contract -v`
+  - `stylua --check roblox/src/ServerScriptService/ImportService/Builders/BuildingBuilder.lua roblox/src/ServerScriptService/ImportService/StreamingService.lua roblox/src/ServerScriptService/Tests/PlayVisibleShellReadableCues.spec.lua`
+  - `git diff --check`

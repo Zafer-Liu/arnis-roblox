@@ -90,6 +90,10 @@ return function()
         (detailFolder:GetAttribute("ArnisMergedShellDoorCueCount") or 0) >= 1,
         "expected play-visible shell path to keep a bounded street-facing door cue"
     )
+    Assert.truthy(
+        (detailFolder:GetAttribute("ArnisMergedShellWindowPaneCueCount") or 0) >= 1,
+        "expected play-visible shell path to keep bounded window pane readability cues"
+    )
 
     worldRoot:Destroy()
 end

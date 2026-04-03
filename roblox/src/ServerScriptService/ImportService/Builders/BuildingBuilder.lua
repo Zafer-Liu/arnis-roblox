@@ -2341,7 +2341,8 @@ local function buildPlayVisibleShellReadableCues(detailFolder, worldPts, baseY, 
     local rooflineCueCount = buildMergedShellRooflineCues(detailFolder, worldPts, baseY, height)
     local cornerAccentCount = buildCornerAccents(detailFolder, worldPts, baseY, height)
     local doorCueCount = buildMergedShellDoorCue(detailFolder, worldPts, baseY, height)
-    return facadeBeltlineCount, rooflineCueCount, cornerAccentCount, doorCueCount
+    local windowPaneCueCount = buildMergedShellWindowPaneCues(detailFolder, worldPts, baseY, height)
+    return facadeBeltlineCount, rooflineCueCount, cornerAccentCount, doorCueCount, windowPaneCueCount
 end
 
 local function addCornerAccentsToAccumulator(acc, worldPts, baseY, height)
@@ -3137,12 +3138,13 @@ function BuildingBuilder.MeshBuildAll(parent, buildings, originStuds, chunk, con
                             string.format("inner%d", holeIndex)
                         )
                     end
-                    local playVisibleFacadeBeltlineCount, playVisibleRooflineCueCount, playVisibleCornerAccentCount, playVisibleDoorCueCount =
+                    local playVisibleFacadeBeltlineCount, playVisibleRooflineCueCount, playVisibleCornerAccentCount, playVisibleDoorCueCount, playVisibleWindowPaneCueCount =
                         buildPlayVisibleShellReadableCues(detailFolder, worldPts, baseY, height)
                     detailFolder:SetAttribute("ArnisFacadeBeltlineCount", playVisibleFacadeBeltlineCount)
                     detailFolder:SetAttribute("ArnisMergedShellRooflineCueCount", playVisibleRooflineCueCount)
                     detailFolder:SetAttribute("ArnisCornerAccentCount", playVisibleCornerAccentCount)
                     detailFolder:SetAttribute("ArnisMergedShellDoorCueCount", playVisibleDoorCueCount)
+                    detailFolder:SetAttribute("ArnisMergedShellWindowPaneCueCount", playVisibleWindowPaneCueCount)
                 else
                     -- Merge opaque walls into EditableMesh accumulators
                     local acc = getAccumulator(mat, color)

@@ -239,6 +239,7 @@ class AustinRuntimeContractTests(unittest.TestCase):
         self.assertIn("local immediateCameraFocusPos = resolveCurrentCameraFocusPosition()", self.streaming_text)
         self.assertIn("local function shouldForceMovementLodRefresh()", self.streaming_text)
         self.assertIn("lastLODUpdate = LOD_UPDATE_INTERVAL", self.streaming_text)
+        self.assertIn("local importedChunkEntry = ChunkLoader.GetChunkEntry(chunkRef.id, streamingOptions.worldRootName)", self.streaming_text)
 
     def test_streaming_residency_uses_chunk_footprint_distance_not_only_chunk_center(self) -> None:
         self.assertIn("function ChunkPriority.GetChunkFootprintBounds", self.chunk_priority_text)
