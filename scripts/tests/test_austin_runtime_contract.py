@@ -23,6 +23,7 @@ PREVIEW_BUILDER_PATH = ROOT / "roblox" / "src" / "ServerScriptService" / "Studio
 BUILDING_BUILDER_PATH = (
     ROOT / "roblox" / "src" / "ServerScriptService" / "ImportService" / "Builders" / "BuildingBuilder.lua"
 )
+SCENE_AUDIT_PATH = ROOT / "roblox" / "src" / "ServerScriptService" / "ImportService" / "SceneAudit.lua"
 WORLD_CONFIG_PATH = ROOT / "roblox" / "src" / "ReplicatedStorage" / "Shared" / "WorldConfig.lua"
 
 
@@ -54,6 +55,7 @@ class AustinRuntimeContractTests(unittest.TestCase):
         cls.minimap_service_text = MINIMAP_SERVICE_PATH.read_text(encoding="utf-8")
         cls.preview_builder_text = PREVIEW_BUILDER_PATH.read_text(encoding="utf-8")
         cls.building_builder_text = BUILDING_BUILDER_PATH.read_text(encoding="utf-8")
+        cls.scene_audit_text = SCENE_AUDIT_PATH.read_text(encoding="utf-8")
         cls.world_config_text = WORLD_CONFIG_PATH.read_text(encoding="utf-8")
 
     def test_bootstrap_guards_against_duplicate_runtime_execution(self) -> None:
@@ -174,20 +176,33 @@ class AustinRuntimeContractTests(unittest.TestCase):
         self.assertIn('Workspace:SetAttribute("ArnisStreamingLastPrefetchReason", "")', self.streaming_text)
         self.assertIn('Workspace:SetAttribute("ArnisStreamingLastEvictionReason", "")', self.streaming_text)
         self.assertIn("function StreamingService.GetStartupResidencySnapshot", self.streaming_text)
+        self.assertIn('model:GetAttribute("ArnisChunkId")', self.streaming_text)
+        self.assertIn('chunkEntryHasStartupOwnership(chunkEntry, chunkId)', self.streaming_text)
         self.assertIn("nearbyBuildingModels", self.streaming_text)
         self.assertIn("nearbyWallParts", self.streaming_text)
         self.assertIn("nearbyRoofParts", self.streaming_text)
+        self.assertIn("collidableWallPartsNearby", self.streaming_text)
         self.assertIn("overheadRoofParts", self.streaming_text)
         self.assertIn("local ready =", self.streaming_text)
         self.assertIn("and structureTelemetry.nearbyBuildingModels > 0", self.streaming_text)
         self.assertIn("and structureTelemetry.nearbyWallParts > 0", self.streaming_text)
+        self.assertIn("and structureTelemetry.collidableWallPartsNearby > 0", self.streaming_text)
         self.assertIn("and structureTelemetry.nearbyRoofParts > 0", self.streaming_text)
+
+    def test_streaming_lod_visibility_uses_group_anchor_not_only_chunk_center(self) -> None:
+        self.assertIn("local function computeLodGroupAnchor(group)", self.streaming_text)
+        self.assertIn('group:GetAttribute("ArnisLodGroupAnchor")', self.streaming_text)
+        self.assertIn('group:SetAttribute("ArnisLodGroupAnchor", computedAnchor)', self.streaming_text)
+        self.assertIn("getLodGroupAnchor(group, chunkCenter)", self.streaming_text)
+        self.assertIn("local detailVisible = (getLodGroupAnchor(group, chunkCenter) - camPos).Magnitude <= highDetailRadius", self.streaming_text)
+        self.assertIn("local interiorVisible = (getLodGroupAnchor(group, chunkCenter) - camPos).Magnitude <= interiorRadius", self.streaming_text)
 
     def test_streaming_service_requires_registered_chunks_for_startup_structure_telemetry(self) -> None:
         self.assertIn("for _, chunkId in ipairs(ChunkLoader.ListLoadedChunks(resolvedWorldRootName)) do", self.streaming_text)
         self.assertIn("local chunkEntry = ChunkLoader.GetChunkEntry(chunkId, resolvedWorldRootName)", self.streaming_text)
         self.assertIn("if not chunkEntryBelongsToWorldRoot(chunkEntry, resolvedWorldRootName) then", self.streaming_text)
         self.assertIn("local chunkFolder = chunkEntry.folder", self.streaming_text)
+        self.assertIn('if not chunkFolder or chunkFolder:GetAttribute("ArnisChunkId") ~= chunkId then', self.streaming_text)
         self.assertIn("local buildingsFolder = chunkFolder:FindFirstChild(\"Buildings\")", self.streaming_text)
 
     def test_world_config_declares_explicit_runtime_streaming_rings(self) -> None:
@@ -237,6 +252,9 @@ class AustinRuntimeContractTests(unittest.TestCase):
         self.assertIn("local registrationChunk = registrationChunksById and registrationChunksById[chunk.id] or nil", self.import_service_text)
         self.assertIn("perChunkOptions.registrationChunk = registrationChunk", self.import_service_text)
         self.assertIn("perChunkOptions.chunkSignature = ImportSignatures.GetChunkSignature(registrationChunk or chunk)", self.import_service_text)
+        self.assertIn("setImportAuditAttributes(layerFolder, chunk.id, options.importRunId)", self.import_service_text)
+        self.assertIn("setImportAuditAttributes(subplanFolder, chunk.id, options.importRunId)", self.import_service_text)
+        self.assertIn("setImportAuditAttributes(folder, chunk.id, options.importRunId)", self.import_service_text)
 
     def test_client_world_probe_publishes_nearby_building_and_overhead_roof_telemetry(self) -> None:
         self.assertIn('local payloadJson = HttpService:JSONEncode(payload)', self.world_probe_text)
@@ -358,6 +376,16 @@ class AustinRuntimeContractTests(unittest.TestCase):
         self.assertIn('local telemetryFamilies = Workspace:GetAttribute(WorldProbeTelemetryFlags.WORKSPACE_ATTR)', self.world_probe_text)
         self.assertIn("local telemetryFlags = WorldProbeTelemetryFlags.parseTelemetryFamilies(telemetryFamilies)", self.world_probe_text)
         self.assertIn("WorldProbeTelemetryFlags.annotateMarkerPayload(bootstrapPayload, telemetryFlags)", self.world_probe_text)
+        self.assertIn("sampleCount", self.world_probe_terrain_text)
+        self.assertIn("missingEdgeSampleCount", self.world_probe_terrain_text)
+        self.assertIn("edgeTerrainYRangeStuds", self.world_probe_terrain_text)
+        self.assertIn("centerEdgeMaxDeltaStuds", self.world_probe_terrain_text)
+        self.assertIn("sampleCount", self.world_probe_terrain_spec_text)
+        self.assertIn("missingEdgeSampleCount", self.world_probe_terrain_spec_text)
+        self.assertIn("edgeTerrainYRangeStuds", self.world_probe_terrain_spec_text)
+        self.assertIn("centerEdgeMaxDeltaStuds", self.world_probe_terrain_spec_text)
+        self.assertIn("localTerrain = nil", self.world_probe_text)
+        self.assertIn("localExperiencePayload.localTerrain = payload.localTerrain", self.world_probe_text)
         self.assertIn("WorldProbeTelemetryFlags.annotateMarkerPayload(compactPayload, telemetryFlags)", self.world_probe_text)
         self.assertIn("WorldProbeTelemetryFlags.annotateMarkerPayload(payload, telemetryFlags)", self.world_probe_text)
         self.assertIn(
@@ -381,13 +409,19 @@ class AustinRuntimeContractTests(unittest.TestCase):
         self.assertIn("sampleCount = sampleCount", self.world_probe_terrain_text)
         self.assertIn("missingSampleCount = missingSampleCount", self.world_probe_terrain_text)
         self.assertIn("missingEdgeSampleCount = missingEdgeSampleCount", self.world_probe_terrain_text)
+        self.assertIn("status = status", self.world_probe_terrain_text)
+        self.assertIn("sampleCount", self.world_probe_terrain_text)
         self.assertIn("centerTerrainY = roundTenths(centerTerrainY)", self.world_probe_terrain_text)
+        self.assertIn("edgeMeanTerrainY =", self.world_probe_terrain_text)
         self.assertIn("heightRangeStuds =", self.world_probe_terrain_text)
         self.assertIn("maxStepStuds =", self.world_probe_terrain_text)
         self.assertIn("meanAbsStepStuds =", self.world_probe_terrain_text)
         self.assertIn("edgeTerrainYRangeStuds =", self.world_probe_terrain_text)
+        self.assertIn("centerMinusEdgeMeanStuds =", self.world_probe_terrain_text)
         self.assertIn("centerEdgeMaxDeltaStuds =", self.world_probe_terrain_text)
         self.assertIn("WorldProbeTerrain.summarizeTerrainSamples", self.world_probe_terrain_spec_text)
+        self.assertIn("edgeMeanTerrainY", self.world_probe_terrain_spec_text)
+        self.assertIn("centerMinusEdgeMeanStuds", self.world_probe_terrain_spec_text)
         self.assertIn("edgeTerrainYRangeStuds", self.world_probe_terrain_spec_text)
         self.assertIn("missingEdgeSampleCount", self.world_probe_terrain_spec_text)
 
@@ -420,6 +454,8 @@ class AustinRuntimeContractTests(unittest.TestCase):
     def test_shaped_roof_closure_decks_are_marked_internal_support_not_visible_roof_truth(self) -> None:
         self.assertIn("local function applyRoofPartOptions(part, partOptions)", self.building_builder_text)
         self.assertIn("ArnisRoofClosureDeck = true", self.building_builder_text)
+        self.assertIn("ArnisShellWallEvidence", self.building_builder_text)
+        self.assertIn("ArnisShellWallEvidence", self.scene_audit_text)
         self.assertIn("part.Transparency = partOptions.transparency", self.building_builder_text)
 
 

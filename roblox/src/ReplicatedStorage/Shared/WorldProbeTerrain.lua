@@ -74,6 +74,8 @@ function WorldProbeTerrain.summarizeTerrainSamples(samples, options)
     local missingEdgeSampleCount = 0
     local edgeMinTerrainY = nil
     local edgeMaxTerrainY = nil
+    local edgeTotalTerrainY = 0
+    local edgeSampleCount = 0
     local centerEdgeMaxDeltaStuds = nil
     if type(samples) == "table" then
         local function sampleEdge(index)
@@ -94,6 +96,8 @@ function WorldProbeTerrain.summarizeTerrainSamples(samples, options)
             if edgeMaxTerrainY == nil or edgeHeight > edgeMaxTerrainY then
                 edgeMaxTerrainY = edgeHeight
             end
+            edgeTotalTerrainY += edgeHeight
+            edgeSampleCount += 1
             if type(centerTerrainY) == "number" then
                 local centerEdgeDelta = math.abs(centerTerrainY - edgeHeight)
                 if centerEdgeMaxDeltaStuds == nil or centerEdgeDelta > centerEdgeMaxDeltaStuds then
@@ -158,14 +162,27 @@ function WorldProbeTerrain.summarizeTerrainSamples(samples, options)
         status = "insufficient_samples"
     end
 
+    local edgeMeanTerrainY = if edgeSampleCount > 0 then edgeTotalTerrainY / edgeSampleCount else nil
+    local coverageRatio = if totalSlots > 0 then sampleCount / totalSlots else 0
+    local edgeSlotCount = edgeSampleCount + missingEdgeSampleCount
+    local edgeCoverageRatio = if edgeSlotCount > 0 then edgeSampleCount / edgeSlotCount else 0
+    local convergenceStatus = status
+    if convergenceStatus == "ok" and missingEdgeSampleCount > 0 then
+        convergenceStatus = "edge_incomplete"
+    end
+
     return {
         status = status,
+        convergenceStatus = convergenceStatus,
         samplePattern = samplePattern,
         sampleRadiusStuds = sampleRadiusStuds,
         sampleCount = sampleCount,
         missingSampleCount = missingSampleCount,
         missingEdgeSampleCount = missingEdgeSampleCount,
+        coverageRatio = roundTenths(coverageRatio),
+        edgeCoverageRatio = roundTenths(edgeCoverageRatio),
         centerTerrainY = roundTenths(centerTerrainY),
+        edgeMeanTerrainY = if status == "ok" then roundTenths(edgeMeanTerrainY) else nil,
         minTerrainY = roundTenths(minTerrainY),
         maxTerrainY = roundTenths(maxTerrainY),
         heightRangeStuds = if minTerrainY ~= nil and maxTerrainY ~= nil
@@ -175,6 +192,11 @@ function WorldProbeTerrain.summarizeTerrainSamples(samples, options)
         meanAbsStepStuds = if status == "ok" and stepCount > 0 then roundTenths(totalStep / stepCount) else nil,
         edgeTerrainYRangeStuds = if edgeMinTerrainY ~= nil and edgeMaxTerrainY ~= nil
             then roundTenths(edgeMaxTerrainY - edgeMinTerrainY)
+            else nil,
+        centerMinusEdgeMeanStuds = if status == "ok"
+                and centerTerrainY ~= nil
+                and edgeMeanTerrainY ~= nil
+            then roundTenths(centerTerrainY - edgeMeanTerrainY)
             else nil,
         centerEdgeMaxDeltaStuds = if status == "ok" then roundTenths(centerEdgeMaxDeltaStuds) else nil,
         materialKindCount = materialKindCount,

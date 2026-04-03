@@ -245,7 +245,17 @@ local function newSummary()
         chunksWithAmbientProps = 0,
         chunksWithWaterGeometry = 0,
         chunksWithRailGeometry = 0,
+        buildingVisibleWallCoverageRatio = 0,
+        buildingRoofCoverageRatio = 0,
+        buildingConvergenceStatus = "ok",
     }
+end
+
+local function roundTenths(value)
+    if type(value) ~= "number" then
+        return nil
+    end
+    return math.round(value * 10) / 10
 end
 
 local function countDescendants(root, predicate)
@@ -259,6 +269,36 @@ local function countDescendants(root, predicate)
 end
 
 local function summarizeBuildingStructure(building)
+    local function isVisibleShellWallPart(descendant)
+        if not descendant:IsA("BasePart") then
+            return false
+        end
+        if descendant.Transparency >= 0.99 then
+            return false
+        end
+        if string.find(descendant.Name, "_roof_closure", 1, true) ~= nil then
+            return false
+        end
+        if string.find(descendant.Name, "_roof", 1, true) ~= nil then
+            return false
+        end
+
+        local size = descendant.Size
+        local significantExtent = math.max(size.X, size.Y, size.Z) >= 2 and math.min(size.X, size.Y, size.Z) > 0
+        if not significantExtent then
+            return false
+        end
+
+        if descendant:GetAttribute("ArnisShellWallEvidence") == true then
+            return true
+        end
+
+        local lowerName = string.lower(descendant.Name)
+        return descendant:IsA("MeshPart")
+            or string.find(lowerName, "wall", 1, true) ~= nil
+            or string.find(lowerName, "corner", 1, true) ~= nil
+    end
+
     local summary = {
         shellParts = 0,
         shellMeshParts = 0,
@@ -281,16 +321,8 @@ local function summarizeBuildingStructure(building)
                     summary.roofClosureParts += 1
                 elseif string.find(descendant.Name, "_roof", 1, true) ~= nil then
                     summary.roofParts += 1
-                else
-                    local isVisible = descendant.Transparency < 0.99
-                    local lowerName = string.lower(descendant.Name)
-                    local looksLikeWall = descendant:IsA("MeshPart") or string.find(lowerName, "wall", 1, true) ~= nil
-                    local size = descendant.Size
-                    local significantExtent = math.max(size.X, size.Y, size.Z) >= 2
-                        and math.min(size.X, size.Y, size.Z) > 0
-                    if isVisible and looksLikeWall and significantExtent then
-                        summary.visibleShellWallParts += 1
-                    end
+                elseif isVisibleShellWallPart(descendant) then
+                    summary.visibleShellWallParts += 1
                 end
             end
         end
@@ -873,6 +905,28 @@ function SceneAudit.summarizeWorld(worldRoot)
         if chunkRailReceipts > 0 then
             scene.chunksWithRailGeometry += 1
         end
+    end
+
+    local visibleWallDenominator = scene.buildingModelsWithVisibleShellWalls
+        + scene.buildingModelsWithoutVisibleShellWalls
+    if visibleWallDenominator > 0 then
+        scene.buildingVisibleWallCoverageRatio =
+            roundTenths(scene.buildingModelsWithVisibleShellWalls / visibleWallDenominator)
+    end
+
+    local roofDenominator = scene.buildingModelsWithRoof + scene.buildingModelsWithoutRoof
+    if roofDenominator > 0 then
+        scene.buildingRoofCoverageRatio = roundTenths(scene.buildingModelsWithRoof / roofDenominator)
+    end
+
+    if scene.buildingModelsWithoutVisibleShellWalls > 0 and scene.buildingModelsWithoutRoof > 0 then
+        scene.buildingConvergenceStatus = "wall_and_roof_gaps"
+    elseif scene.buildingModelsWithoutVisibleShellWalls > 0 then
+        scene.buildingConvergenceStatus = "wall_gaps"
+    elseif scene.buildingModelsWithoutRoof > 0 then
+        scene.buildingConvergenceStatus = "roof_gaps"
+    else
+        scene.buildingConvergenceStatus = "ok"
     end
 
     table.sort(scene.chunkIds)

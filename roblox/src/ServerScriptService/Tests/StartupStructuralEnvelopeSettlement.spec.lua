@@ -26,10 +26,12 @@ return function()
     local chunkFolder = Instance.new("Folder")
     chunkFolder.Name = "0_0"
     chunkFolder.Parent = worldRoot
+    chunkFolder:SetAttribute("ArnisChunkId", "0_0")
 
     local buildingsFolder = Instance.new("Folder")
     buildingsFolder.Name = "Buildings"
     buildingsFolder.Parent = chunkFolder
+    buildingsFolder:SetAttribute("ArnisChunkId", "0_0")
 
     Workspace:SetAttribute("ArnisStreamingRingNearResidentChunkCount", 1)
     Workspace:SetAttribute("ArnisStreamingRingNearDesiredChunkCount", 1)
@@ -51,6 +53,7 @@ return function()
         nearbyBuilding:SetAttribute("ArnisImportBuildingHeight", 20)
         nearbyBuilding:SetAttribute("ArnisImportSourceId", "nearby_shell_building")
         nearbyBuilding:SetAttribute("ArnisImportRoofShape", "flat")
+        nearbyBuilding:SetAttribute("ArnisChunkId", "0_0")
         nearbyBuilding.Parent = buildingsFolder
 
         local nearbyShell = Instance.new("Folder")
@@ -77,6 +80,7 @@ return function()
         lateBuilding:SetAttribute("ArnisImportBuildingHeight", 20)
         lateBuilding:SetAttribute("ArnisImportSourceId", "late_shell_building")
         lateBuilding:SetAttribute("ArnisImportRoofShape", "flat")
+        lateBuilding:SetAttribute("ArnisChunkId", "late_chunk")
         lateBuilding.Parent = unregisteredBuildings
 
         local lateShell = Instance.new("Folder")
@@ -90,6 +94,7 @@ return function()
         distantBuilding:SetAttribute("ArnisImportBuildingHeight", 20)
         distantBuilding:SetAttribute("ArnisImportSourceId", "distant_shell_building")
         distantBuilding:SetAttribute("ArnisImportRoofShape", "flat")
+        distantBuilding:SetAttribute("ArnisChunkId", "0_0")
         distantBuilding.Parent = buildingsFolder
 
         local distantShell = Instance.new("Folder")
@@ -128,11 +133,25 @@ return function()
             originStuds = { x = 0, y = 0, z = 0 },
         })
 
+        chunkFolder:SetAttribute("ArnisChunkId", nil)
+        local unresolvedOwnedSnapshot = StreamingService.GetStartupResidencySnapshot(spawnPoint, worldRootName)
+        Assert.falsy(
+            unresolvedOwnedSnapshot.ready,
+            "expected startup residency to ignore nearby shell evidence when the registered chunk folder loses ownership"
+        )
+        Assert.equal(
+            unresolvedOwnedSnapshot.nearbyBuildingModels,
+            0,
+            "expected nearby buildings to stay hidden when the registered chunk folder loses ownership"
+        )
+
+        chunkFolder:SetAttribute("ArnisChunkId", "0_0")
         local snapshot = StreamingService.GetStartupResidencySnapshot(spawnPoint, worldRootName)
 
         Assert.truthy(snapshot.ready, "expected startup residency to wait for the nearby structural envelope")
         Assert.equal(snapshot.nearbyBuildingModels, 1, "expected one nearby building model")
         Assert.truthy(snapshot.nearbyWallParts >= 1, "expected nearby shell wall evidence")
+        Assert.truthy(snapshot.collidableWallPartsNearby >= 1, "expected nearby collidable shell wall evidence")
         Assert.equal(snapshot.nearbyRoofParts, 1, "expected closure decks to stay out of roof evidence")
         Assert.truthy(snapshot.overheadRoofParts >= 1, "expected overhead roof evidence near the spawn point")
     end, debug.traceback)

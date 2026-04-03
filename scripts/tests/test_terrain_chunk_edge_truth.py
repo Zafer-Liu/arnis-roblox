@@ -28,6 +28,17 @@ class TerrainChunkEdgeTruthTests(unittest.TestCase):
             source,
         )
 
+    def test_peak_surface_bias_scales_with_peak_coverage_instead_of_snapping_every_steep_voxel_to_the_max(self) -> None:
+        source = TERRAIN_BUILDER.read_text(encoding="utf-8")
+
+        self.assertIn("local peakSampleCount = 0", source)
+        self.assertIn("local peakSampleCoverage = peakSampleCount / sampleCount", source)
+        self.assertIn(
+            "local surfaceHeightBias = math.clamp(heightRange / TERRAIN_WRITE_RESOLUTION, 0, 1) * peakSampleCoverage",
+            source,
+        )
+        self.assertIn("peakSampleCoverage = peakSampleCoverage", source)
+
 
 if __name__ == "__main__":
     unittest.main()

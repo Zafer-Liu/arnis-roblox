@@ -895,10 +895,12 @@ function ImportService.ImportChunk(chunk, options)
     local function prepareLayerFolder(name, clearChildrenFirst)
         if selectiveLayers then
             local layerFolder = getOrCreateNamedFolder(chunkFolder, name)
+            setImportAuditAttributes(layerFolder, chunk.id, options.importRunId)
             local boundedSubplan = subplan and getSubplanBounds(subplan) ~= nil
             if boundedSubplan then
                 local targetName = subplan.id or getSubplanLayer(subplan)
                 local subplanFolder = getOrCreateNamedFolder(layerFolder, targetName)
+                setImportAuditAttributes(subplanFolder, chunk.id, options.importRunId)
                 if clearChildrenFirst then
                     if name == "Props" then
                         PropBuilder.ReleaseAll(subplanFolder)
@@ -918,6 +920,7 @@ function ImportService.ImportChunk(chunk, options)
         end
 
         local folder = createNamedFolder(chunkFolder, name)
+        setImportAuditAttributes(folder, chunk.id, options.importRunId)
         if clearChildrenFirst then
             if name == "Props" then
                 PropBuilder.ReleaseAll(folder)

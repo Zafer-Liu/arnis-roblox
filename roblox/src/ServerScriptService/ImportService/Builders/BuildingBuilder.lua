@@ -8,6 +8,10 @@ local GeoUtils = require(script.Parent.Parent.GeoUtils)
 local BuildingBuilder = {}
 local editableMeshSetVertexNormalSupported = nil
 
+local function markShellWallEvidence(part)
+    part:SetAttribute("ArnisShellWallEvidence", true)
+end
+
 BuildingBuilder._fillTerrainBlock = function(cf, size, material)
     Workspace.Terrain:FillBlock(cf, size, material)
 end
@@ -788,6 +792,7 @@ local function buildWallLoopParts(
         if reflectance then
             wall.Reflectance = reflectance
         end
+        markShellWallEvidence(wall)
         wall.Parent = shellFolder
 
         local post = Instance.new("Part")
@@ -804,6 +809,7 @@ local function buildWallLoopParts(
         if reflectance then
             post.Reflectance = reflectance
         end
+        markShellWallEvidence(post)
         post.Parent = shellFolder
     end
 end

@@ -313,6 +313,7 @@ local function sampleVoxelColumnProfile(plan, ix, globalIz)
     local sampleCount = 0
     local minHeight = math.huge
     local maxHeight = -math.huge
+    local peakSampleCount = 0
 
     for offsetXIndex = 1, #offsets do
         local sampleWorldX = voxelCenterX + offsets[offsetXIndex]
@@ -340,6 +341,9 @@ local function sampleVoxelColumnProfile(plan, ix, globalIz)
             end
             if sampleHeight > maxHeight then
                 maxHeight = sampleHeight
+                peakSampleCount = 1
+            elseif sampleHeight == maxHeight then
+                peakSampleCount += 1
             end
             materialByName[materialName] = sampleMaterial
             materialCounts[materialName] = (materialCounts[materialName] or 0) + 1
@@ -360,10 +364,11 @@ local function sampleVoxelColumnProfile(plan, ix, globalIz)
 
     local averageHeight = totalHeight / sampleCount
     local heightRange = maxHeight - minHeight
+    local peakSampleCoverage = peakSampleCount / sampleCount
     local normalizedPeakCoverage = if heightRange > 0
         then math.clamp((averageHeight - minHeight) / heightRange, 0, 1)
         else 1
-    local surfaceHeightBias = math.clamp(heightRange / TERRAIN_WRITE_RESOLUTION, 0, 1)
+    local surfaceHeightBias = math.clamp(heightRange / TERRAIN_WRITE_RESOLUTION, 0, 1) * peakSampleCoverage
     local surfaceHeight = averageHeight + (maxHeight - averageHeight) * surfaceHeightBias
     local surfaceFillDepth = if heightRange > 0
         then math.max(1, TERRAIN_THICKNESS * normalizedPeakCoverage)
@@ -372,6 +377,7 @@ local function sampleVoxelColumnProfile(plan, ix, globalIz)
     return {
         averageHeight = averageHeight,
         heightRange = heightRange,
+        peakSampleCoverage = peakSampleCoverage,
         surfaceHeight = surfaceHeight,
         surfaceFillDepth = surfaceFillDepth,
         dominantMaterialName = dominantMaterialName,

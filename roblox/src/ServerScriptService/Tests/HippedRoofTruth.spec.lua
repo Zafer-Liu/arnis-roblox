@@ -70,10 +70,18 @@ return function()
     Assert.truthy(building, "expected rectangular hipped building")
 
     local roofParts = {}
+    local roofMeshParts = {}
+    local roofClosureParts = {}
     local roofWedgeParts = {}
     for _, descendant in ipairs(building:GetDescendants()) do
         if descendant:IsA("BasePart") and string.find(descendant.Name, "_roof", 1, true) then
             roofParts[#roofParts + 1] = descendant
+            if string.find(descendant.Name, "_roof_closure", 1, true) then
+                roofClosureParts[#roofClosureParts + 1] = descendant
+            elseif string.find(descendant.Name, "_roof_mesh", 1, true) then
+                roofMeshParts[#roofMeshParts + 1] = descendant
+            end
+
             local specialMesh = descendant:FindFirstChildOfClass("SpecialMesh")
             if descendant:IsA("Part") and specialMesh then
                 roofWedgeParts[#roofWedgeParts + 1] = descendant
@@ -82,6 +90,11 @@ return function()
     end
 
     Assert.truthy(#roofParts >= 1, "expected hipped roof to emit visible roof geometry")
+    Assert.truthy(#roofMeshParts >= 1, "expected hipped roof to keep a visible roof mesh")
+    Assert.truthy(#roofClosureParts >= 1, "expected hipped roof to keep a transparent closure deck")
+    for _, closurePart in ipairs(roofClosureParts) do
+        Assert.equal(closurePart.Transparency, 1, "expected hipped roof closure deck to remain internal support")
+    end
     Assert.equal(
         #roofWedgeParts,
         0,

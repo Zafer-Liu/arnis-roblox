@@ -50,6 +50,8 @@ class PlayRenderTruthTests(unittest.TestCase):
             r"ImportSignatures\.[A-Za-z_]+\(",
             "expected StreamingService to derive signatures from the shared ImportSignatures helper",
         )
+        self.assertIn('model:GetAttribute("ArnisChunkId")', streaming_source)
+        self.assertIn('and structureTelemetry.collidableWallPartsNearby > 0', streaming_source)
 
     def test_roof_only_builder_uses_rooftop_base_metadata(self) -> None:
         source = BUILDING_BUILDER.read_text(encoding="utf-8")
@@ -119,9 +121,16 @@ class PlayRenderTruthTests(unittest.TestCase):
         self.assertIn("dominantMaterialName", source)
         self.assertIn("averageHeight = totalHeight / sampleCount", source)
         self.assertIn("heightRange = maxHeight - minHeight", source)
-        self.assertIn("local surfaceHeightBias = math.clamp(heightRange / TERRAIN_WRITE_RESOLUTION, 0, 1)", source)
+        self.assertIn("local peakSampleCount = 0", source)
+        self.assertIn("local peakSampleCoverage = peakSampleCount / sampleCount", source)
+        self.assertIn("local normalizedPeakCoverage =", source)
+        self.assertIn(
+            "local surfaceHeightBias = math.clamp(heightRange / TERRAIN_WRITE_RESOLUTION, 0, 1) * peakSampleCoverage",
+            source,
+        )
         self.assertIn("surfaceHeight = averageHeight + (maxHeight - averageHeight) * surfaceHeightBias", source)
         self.assertRegex(source, r"surfaceFillDepth = if heightRange > 0\s+then")
+        self.assertIn("normalizedPeakCoverage", source)
         self.assertIn("local worldBotY = worldSurfY - columnProfile.surfaceFillDepth", source)
         self.assertIn("local worldSurfY = origin.y + columnProfile.surfaceHeight", source)
 
@@ -173,6 +182,13 @@ class PlayRenderTruthTests(unittest.TestCase):
         self.assertNotIn('Instance.new("BloomEffect")', source)
         self.assertNotIn('Instance.new("SunRaysEffect")', source)
         self.assertNotIn('Instance.new("ColorCorrectionEffect")', source)
+
+    def test_runtime_import_threads_chunk_ownership_into_layer_folders(self) -> None:
+        source = IMPORT_SERVICE.read_text(encoding="utf-8")
+
+        self.assertIn("setImportAuditAttributes(layerFolder, chunk.id, options.importRunId)", source)
+        self.assertIn("setImportAuditAttributes(subplanFolder, chunk.id, options.importRunId)", source)
+        self.assertIn("setImportAuditAttributes(folder, chunk.id, options.importRunId)", source)
 
     def test_preview_hotspot_summary_threads_chunk_shape_context(self) -> None:
         import_service_source = IMPORT_SERVICE.read_text(encoding="utf-8")
@@ -240,11 +256,19 @@ class PlayRenderTruthTests(unittest.TestCase):
 
     def test_shell_mesh_simple_low_rise_buildings_keep_explicit_shell_walls_for_play_visibility(self) -> None:
         source = BUILDING_BUILDER.read_text(encoding="utf-8")
+        scene_audit_source = SCENE_AUDIT.read_text(encoding="utf-8")
 
         self.assertRegex(
             source,
             r"function\s+BuildingBuilder\.MeshBuildAll[\s\S]*if\s+preferSimpleShellDetail\s+then[\s\S]*buildWallLoopParts\(shellFolder,\s*bldgName,\s*worldPts,\s*baseY,\s*height,\s*mat,\s*color,\s*\"outer\"",
             "expected simple low-rise shellMesh buildings to keep explicit shell wall parts instead of only merged wall meshes",
+        )
+        self.assertIn('part:SetAttribute("ArnisShellWallEvidence", true)', source)
+        self.assertIn('ArnisShellWallEvidence', scene_audit_source)
+        self.assertRegex(
+            scene_audit_source,
+            r"ArnisShellWallEvidence[\s\S]*visibleShellWallParts",
+            "expected SceneAudit to count explicit shell wall evidence when classifying visible shell walls",
         )
 
     def test_scene_audit_surfaces_closure_only_roof_gaps_separately_from_generic_roofless_buildings(self) -> None:
@@ -252,11 +276,31 @@ class PlayRenderTruthTests(unittest.TestCase):
 
         self.assertIn("buildingModelsWithClosureOnlyRoofGap", source)
         self.assertIn("buildingClosureOnlyRoofGapDetails", source)
+        self.assertIn("buildingModelsWithVisibleShellWalls", source)
+        self.assertIn("buildingModelsWithoutVisibleShellWalls", source)
+        self.assertIn("buildingRoofCoverageByUsage", source)
+        self.assertIn("buildingRoofCoverageByShape", source)
         self.assertRegex(
             source,
             r"roofClosureParts\s*>\s*0[\s\S]*buildingModelsWithClosureOnlyRoofGap",
             "expected SceneAudit to classify closure-only shaped roofs as a dedicated roof gap instead of burying them in generic no-roof counts",
         )
+
+    def test_world_probe_surfaces_compact_structure_and_terrain_convergence_metrics(self) -> None:
+        world_probe_source = WORLD_PROBE.read_text(encoding="utf-8")
+        terrain_probe_source = WORLD_PROBE_TERRAIN.read_text(encoding="utf-8")
+
+        self.assertIn("localSupport = nil", world_probe_source)
+        self.assertIn("localTerrain = nil", world_probe_source)
+        self.assertIn("localEnclosure = nil", world_probe_source)
+        self.assertIn("localRoofCover = nil", world_probe_source)
+        self.assertIn("sampleCount", terrain_probe_source)
+        self.assertIn("coverageRatio", terrain_probe_source)
+        self.assertIn("edgeCoverageRatio", terrain_probe_source)
+        self.assertIn("convergenceStatus", terrain_probe_source)
+        self.assertIn("missingEdgeSampleCount", terrain_probe_source)
+        self.assertIn("edgeTerrainYRangeStuds", terrain_probe_source)
+        self.assertIn("centerEdgeMaxDeltaStuds", terrain_probe_source)
 
     def test_irregular_shaped_roofs_fall_back_to_visible_roof_geometry_not_only_closure_decks(self) -> None:
         source = BUILDING_BUILDER.read_text(encoding="utf-8")
@@ -297,6 +341,8 @@ class PlayRenderTruthTests(unittest.TestCase):
         self.assertIn("dominantMaterial", terrain_probe_source)
         self.assertIn("dominantMaterialSampleCount", terrain_probe_source)
         self.assertIn("nonGrassSampleCount", terrain_probe_source)
+        self.assertIn("sampleCount", terrain_probe_source)
+        self.assertIn("status = status", terrain_probe_source)
         self.assertIn("missingEdgeSampleCount", terrain_probe_source)
         self.assertIn("edgeTerrainYRangeStuds", terrain_probe_source)
         self.assertIn("centerEdgeMaxDeltaStuds", terrain_probe_source)

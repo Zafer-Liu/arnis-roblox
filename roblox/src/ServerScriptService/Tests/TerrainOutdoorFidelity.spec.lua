@@ -178,9 +178,14 @@ return function()
     Assert.equal(peakProfile.averageHeight, 4, "expected steep mixed voxels to retain average-height telemetry")
     Assert.equal(peakProfile.heightRange, 16, "expected steep mixed voxels to capture the local height spread")
     Assert.equal(
+        peakProfile.peakSampleCoverage,
+        0.25,
+        "expected steep mixed voxels to record how much of the supersample grid actually reaches the peak"
+    )
+    Assert.equal(
         peakProfile.surfaceHeight,
-        16,
-        "expected steep mixed voxels to render to the local peak instead of collapsing into a fake averaged plane"
+        7,
+        "expected isolated steep voxels to bias toward the peak without snapping the whole write voxel to a flat peak plane"
     )
     Assert.equal(
         peakProfile.surfaceFillDepth,
@@ -225,9 +230,18 @@ return function()
         3,
         "expected moderate mixed voxels to capture sub-threshold height spread"
     )
+    Assert.equal(
+        moderateProfile.peakSampleCoverage,
+        0.25,
+        "expected moderate mixed voxels to retain peak-coverage telemetry"
+    )
     Assert.truthy(
         moderateProfile.surfaceHeight > moderateProfile.averageHeight,
         "expected moderate mixed voxels to bias the surface above the simple average instead of flattening back to it"
+    )
+    Assert.truthy(
+        moderateProfile.surfaceHeight < 3,
+        "expected moderate mixed voxels not to snap all the way to the local maximum when the peak occupies only one quadrant"
     )
     Assert.truthy(
         moderateProfile.surfaceFillDepth < 8,

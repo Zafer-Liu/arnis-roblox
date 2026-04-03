@@ -85,10 +85,7 @@ return function()
     local roadsFolder = chunkFolder:FindFirstChild("Roads")
     Assert.truthy(roadsFolder, "expected roads folder")
     for _, child in ipairs(roadsFolder:GetChildren()) do
-        Assert.falsy(
-            child.Name == "BridgeSupport",
-            "expected terrain-following roads to avoid accidental bridge parts"
-        )
+        Assert.falsy(child.Name == "BridgeSupport", "expected terrain-following roads to avoid accidental bridge parts")
         Assert.falsy(
             string.find(child.Name, "Checker", 1, true) ~= nil,
             "expected play roads to preserve canonical imported truth instead of checker placeholders"
@@ -105,6 +102,17 @@ return function()
 
     local shellFolder = buildingModel:FindFirstChild("Shell")
     Assert.truthy(shellFolder, "expected shell folder for terrain alignment building")
+
+    local shellWallEvidenceCount = 0
+    for _, descendant in ipairs(shellFolder:GetDescendants()) do
+        if descendant:IsA("BasePart") and descendant:GetAttribute("ArnisShellWallEvidence") == true then
+            shellWallEvidenceCount += 1
+        end
+    end
+    Assert.truthy(
+        shellWallEvidenceCount >= 1,
+        "expected shellMesh buildings to tag explicit shell wall evidence for play visibility"
+    )
 
     local roofParts = {}
     for _, descendant in ipairs(shellFolder:GetDescendants()) do

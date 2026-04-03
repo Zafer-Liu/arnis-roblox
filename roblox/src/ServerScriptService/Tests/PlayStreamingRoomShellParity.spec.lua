@@ -98,9 +98,20 @@ return function()
         local summary = SceneAudit.summarizeWorld(worldRoot)
         local chunkFolder = worldRoot:FindFirstChild("0_0")
         Assert.truthy(chunkFolder, "expected chunk folder")
+        Assert.equal(
+            chunkFolder:GetAttribute("ArnisChunkId"),
+            "0_0",
+            "expected startup chunk folder to keep chunk ownership attribution"
+        )
 
-        local building = chunkFolder:FindFirstChild("Buildings") and chunkFolder.Buildings:FindFirstChild("roomed_shell_building")
+        local building = chunkFolder:FindFirstChild("Buildings")
+            and chunkFolder.Buildings:FindFirstChild("roomed_shell_building")
         Assert.truthy(building, "expected streamed building model")
+        Assert.equal(
+            building:GetAttribute("ArnisChunkId"),
+            "0_0",
+            "expected streamed building model to keep chunk ownership attribution"
+        )
 
         return {
             summary = summary,
@@ -119,6 +130,15 @@ return function()
 
         local startupState = summarizeChunkWorld()
         local startupMaterial, startupOccupancy = readVoxel(interiorSampleCenter)
+        local startupShellFolder = startupState.building:FindFirstChild("Shell")
+        local startupShellWallEvidence = 0
+        if startupShellFolder then
+            for _, descendant in ipairs(startupShellFolder:GetDescendants()) do
+                if descendant:IsA("BasePart") and descendant:GetAttribute("ArnisShellWallEvidence") == true then
+                    startupShellWallEvidence += 1
+                end
+            end
+        end
 
         Assert.truthy(
             ChunkLoader.GetChunkEntry("0_0", worldRootName) ~= nil,
@@ -133,6 +153,14 @@ return function()
             startupState.summary.buildingModelsWithoutVisibleShellWalls,
             0,
             "expected startup import to avoid visible-wall gaps for the roomed shell mesh building"
+        )
+        Assert.truthy(
+            startupShellWallEvidence >= 1,
+            "expected startup import to keep explicit shell wall evidence for the roomed shell mesh building"
+        )
+        Assert.truthy(
+            startupState.summary.buildingRoofPartCount >= 1,
+            "expected startup import to keep visible roof evidence for the roomed shell mesh building"
         )
         Assert.truthy(
             startupOccupancy <= 0.01,
@@ -152,6 +180,15 @@ return function()
 
         local streamedState = summarizeChunkWorld()
         local streamedMaterial, streamedOccupancy = readVoxel(interiorSampleCenter)
+        local streamedShellFolder = streamedState.building:FindFirstChild("Shell")
+        local streamedShellWallEvidence = 0
+        if streamedShellFolder then
+            for _, descendant in ipairs(streamedShellFolder:GetDescendants()) do
+                if descendant:IsA("BasePart") and descendant:GetAttribute("ArnisShellWallEvidence") == true then
+                    streamedShellWallEvidence += 1
+                end
+            end
+        end
 
         Assert.equal(
             streamedState.summary.buildingModelsWithVisibleShellWalls,
@@ -162,6 +199,16 @@ return function()
             streamedState.summary.buildingModelsWithoutVisibleShellWalls,
             startupState.summary.buildingModelsWithoutVisibleShellWalls,
             "expected streaming startup not to introduce new visible-wall gaps"
+        )
+        Assert.equal(
+            streamedShellWallEvidence,
+            startupShellWallEvidence,
+            "expected streaming startup to preserve explicit shell wall evidence for the roomed shell mesh building"
+        )
+        Assert.equal(
+            streamedState.summary.buildingRoofPartCount,
+            startupState.summary.buildingRoofPartCount,
+            "expected streaming startup to preserve visible roof evidence for the roomed shell mesh building"
         )
         Assert.truthy(
             streamedOccupancy <= 0.01,

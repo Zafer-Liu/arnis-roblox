@@ -1775,3 +1775,24 @@ The compact historical archive index is:
   - `python3 -m unittest scripts.tests.test_terrain_chunk_edge_truth scripts.tests.test_play_render_truth scripts.tests.test_austin_runtime_contract -v`
   - `stylua --check roblox/src/ServerScriptService/ImportService/Builders/BuildingBuilder.lua roblox/src/ServerScriptService/ImportService/Builders/TerrainBuilder.lua roblox/src/ServerScriptService/ImportService/StreamingService.lua roblox/src/ServerScriptService/BootstrapAustin.server.lua roblox/src/ServerScriptService/Tests/GabledIrregularFootprintTruth.spec.lua roblox/src/ServerScriptService/Tests/TerrainOutdoorFidelity.spec.lua roblox/src/ServerScriptService/Tests/StartupStructuralEnvelopeSettlement.spec.lua roblox/src/ReplicatedStorage/Shared/WorldProbeTerrain.lua roblox/src/StarterPlayer/StarterPlayerScripts/WorldProbe.client.lua roblox/src/ServerScriptService/ImportService/SceneAudit.lua roblox/src/ServerScriptService/Tests/WorldProbeTerrain.spec.lua roblox/src/ServerScriptService/Tests/ClosureOnlyRoofGapAudit.spec.lua`
   - `git diff --check`
+
+## 2026-04-03 12:23 CDT
+
+- Integrated a wider local-safe play-fidelity tranche on `main`:
+  - `StreamingService.lua`
+    - startup readiness now ignores structure evidence unless chunk ownership is explicit on the registered chunk folder, buildings folder, and building model
+    - LOD visibility now resolves per-group anchors instead of relying only on chunk-center distance, which should reduce play-only detail disappearance near chunk edges
+  - `BuildingBuilder.lua` / `SceneAudit.lua`
+    - explicit simple-shell wall parts keep `ArnisShellWallEvidence` so play/runtime audits can distinguish true wall evidence from closure-only roof support without broadening merged-wall truth
+  - `TerrainBuilder.lua` / `WorldProbeTerrain.lua`
+    - terrain peak bias now scales with peak coverage instead of snapping every steep mixed voxel to the max
+    - compact terrain convergence metrics now expose coverage and incomplete-edge status without adding log spam
+  - `SceneAudit.lua`
+    - compact building convergence metrics now summarize wall/roof coverage and expose whether the scene is missing walls, roofs, or both
+- Verification:
+  - `python3 -m unittest scripts.tests.test_terrain_chunk_edge_truth scripts.tests.test_play_render_truth scripts.tests.test_austin_runtime_contract -v`
+  - `stylua --check roblox/src/ReplicatedStorage/Shared/WorldProbeTerrain.lua roblox/src/ServerScriptService/ImportService/Builders/BuildingBuilder.lua roblox/src/ServerScriptService/ImportService/Builders/TerrainBuilder.lua roblox/src/ServerScriptService/ImportService/SceneAudit.lua roblox/src/ServerScriptService/ImportService/StreamingService.lua roblox/src/ServerScriptService/ImportService/init.lua roblox/src/ServerScriptService/Tests/HippedRoofTruth.spec.lua roblox/src/ServerScriptService/Tests/PlayStreamingRoomShellParity.spec.lua roblox/src/ServerScriptService/Tests/SceneAudit.spec.lua roblox/src/ServerScriptService/Tests/StartupStructuralEnvelopeSettlement.spec.lua roblox/src/ServerScriptService/Tests/TerrainAlignment.spec.lua roblox/src/ServerScriptService/Tests/TerrainOutdoorFidelity.spec.lua roblox/src/ServerScriptService/Tests/WorldProbeTerrain.spec.lua`
+  - `git diff --check`
+- Next `tertiary` proof should answer:
+  - whether per-group LOD anchors materially reduce play-only facade/detail disappearance near chunk edges
+  - whether peak-coverage terrain shaping reduces the false peak planes without introducing underfilled hilltops

@@ -416,11 +416,30 @@ return function()
     Assert.equal(summary.buildingFacadePartCount, 1, "expected one facade part")
     Assert.equal(summary.buildingModelsWithDirectShell, 5, "expected five buildings with direct shell geometry")
     Assert.equal(summary.buildingModelsMissingDirectShell, 1, "expected one building relying on merged geometry")
-    Assert.equal(summary.buildingModelsWithVisibleShellWalls, 2, "expected two buildings with visible shell wall evidence")
+    Assert.equal(
+        summary.buildingModelsWithVisibleShellWalls,
+        2,
+        "expected two buildings with visible shell wall evidence"
+    )
     Assert.equal(
         summary.buildingModelsWithoutVisibleShellWalls,
         3,
         "expected only wall-bearing buildings without visible shell wall evidence to count"
+    )
+    Assert.equal(
+        summary.buildingVisibleWallCoverageRatio,
+        0.4,
+        "expected compact wall coverage ratio to stay attributable without detail spam"
+    )
+    Assert.equal(
+        summary.buildingRoofCoverageRatio,
+        0.3,
+        "expected compact roof coverage ratio to summarize roof evidence succinctly"
+    )
+    Assert.equal(
+        summary.buildingConvergenceStatus,
+        "wall_and_roof_gaps",
+        "expected scene convergence status to flag both wall and roof gaps when present"
     )
     Assert.equal(#summary.buildingVisibleWallGapDetails, 3, "expected gap detail rows for all missing-wall buildings")
     Assert.equal(

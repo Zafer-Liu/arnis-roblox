@@ -636,6 +636,19 @@ local function chunkEntryBelongsToWorldRoot(chunkEntry, worldRootName)
     return parent ~= nil and expectedWorldRoot ~= nil and parent == expectedWorldRoot
 end
 
+local function chunkEntryHasStartupOwnership(chunkEntry, chunkId)
+    if type(chunkEntry) ~= "table" or type(chunkId) ~= "string" or chunkId == "" then
+        return false
+    end
+
+    local folder = chunkEntry.folder
+    if folder == nil or folder:GetAttribute("ArnisChunkId") ~= chunkId then
+        return false
+    end
+
+    return true
+end
+
 local function isChunkLoadedInWorldRoot(chunkId, worldRootName)
     local chunkEntry = ChunkLoader.GetChunkEntry(chunkId, worldRootName)
     return chunkEntry ~= nil and chunkEntryBelongsToWorldRoot(chunkEntry, worldRootName)
@@ -856,16 +869,25 @@ local function buildStartupStructureTelemetry(spawnPoint, worldRootName)
         if not chunkEntryBelongsToWorldRoot(chunkEntry, resolvedWorldRootName) then
             continue
         end
+        if not chunkEntryHasStartupOwnership(chunkEntry, chunkId) then
+            continue
+        end
 
         local chunkFolder = chunkEntry.folder
+        if not chunkFolder or chunkFolder:GetAttribute("ArnisChunkId") ~= chunkId then
+            continue
+        end
         local buildingsFolder = chunkFolder:FindFirstChild("Buildings")
-        if not buildingsFolder then
+        if not buildingsFolder or buildingsFolder:GetAttribute("ArnisChunkId") ~= chunkId then
             continue
         end
 
         local mergedMeshes = buildingsFolder:FindFirstChild("MergedMeshes")
         for _, model in ipairs(buildingsFolder:GetDescendants()) do
             if not model:IsA("Model") or model:GetAttribute("ArnisImportBuildingHeight") == nil then
+                continue
+            end
+            if model:GetAttribute("ArnisChunkId") ~= chunkId then
                 continue
             end
 
@@ -957,6 +979,7 @@ function StreamingService.GetStartupResidencySnapshot(spawnPoint, worldRootName)
         and schedulerState == "steady_state"
         and structureTelemetry.nearbyBuildingModels > 0
         and structureTelemetry.nearbyWallParts > 0
+        and structureTelemetry.collidableWallPartsNearby > 0
         and structureTelemetry.nearbyRoofParts > 0
 
     return {
@@ -1350,6 +1373,56 @@ local function setGroupVisible(group, visible)
     group:SetAttribute("ArnisLodVisible", visible)
 end
 
+local function computeLodGroupAnchor(group)
+    local minX, minY, minZ = nil, nil, nil
+    local maxX, maxY, maxZ = nil, nil, nil
+
+    for _, descendant in ipairs(group:GetDescendants()) do
+        if descendant:IsA("BasePart") then
+            local position = descendant.Position
+            if minX == nil or position.X < minX then
+                minX = position.X
+            end
+            if minY == nil or position.Y < minY then
+                minY = position.Y
+            end
+            if minZ == nil or position.Z < minZ then
+                minZ = position.Z
+            end
+            if maxX == nil or position.X > maxX then
+                maxX = position.X
+            end
+            if maxY == nil or position.Y > maxY then
+                maxY = position.Y
+            end
+            if maxZ == nil or position.Z > maxZ then
+                maxZ = position.Z
+            end
+        end
+    end
+
+    if minX == nil then
+        return nil
+    end
+
+    return Vector3.new((minX + maxX) * 0.5, (minY + maxY) * 0.5, (minZ + maxZ) * 0.5)
+end
+
+local function getLodGroupAnchor(group, fallbackPosition)
+    local cachedAnchor = group:GetAttribute("ArnisLodGroupAnchor")
+    if typeof(cachedAnchor) == "Vector3" then
+        return cachedAnchor
+    end
+
+    local computedAnchor = computeLodGroupAnchor(group)
+    if typeof(computedAnchor) == "Vector3" then
+        group:SetAttribute("ArnisLodGroupAnchor", computedAnchor)
+        return computedAnchor
+    end
+
+    return fallbackPosition
+end
+
 local function updateChunkEntryLodGroups(chunkEntry, camPos, highDetailRadius, interiorRadius)
     if not chunkEntry or not chunkEntry.lodGroups then
         return
@@ -1374,15 +1447,15 @@ local function updateChunkEntryLodGroups(chunkEntry, camPos, highDetailRadius, i
         return
     end
 
-    local detailVisible = (chunkCenter - camPos).Magnitude <= highDetailRadius
-    local interiorVisible = (chunkCenter - camPos).Magnitude <= interiorRadius
     for _, group in ipairs(chunkEntry.lodGroups.detail or {}) do
         if group:IsDescendantOf(Workspace) then
+            local detailVisible = (getLodGroupAnchor(group, chunkCenter) - camPos).Magnitude <= highDetailRadius
             setGroupVisible(group, detailVisible)
         end
     end
     for _, group in ipairs(chunkEntry.lodGroups.interior or {}) do
         if group:IsDescendantOf(Workspace) then
+            local interiorVisible = (getLodGroupAnchor(group, chunkCenter) - camPos).Magnitude <= interiorRadius
             setGroupVisible(group, interiorVisible)
         end
     end
