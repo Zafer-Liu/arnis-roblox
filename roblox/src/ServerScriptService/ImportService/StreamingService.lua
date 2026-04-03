@@ -203,6 +203,8 @@ local function resetStreamingResidencyTelemetry()
     Workspace:SetAttribute("ArnisStreamingRingFarMaxChunkCount", 0)
     Workspace:SetAttribute("ArnisStreamingQueuedEstimatedCost", 0)
     Workspace:SetAttribute("ArnisStreamingQueuedWorkItemCount", 0)
+    Workspace:SetAttribute("ArnisStreamingEvictedEstimatedCost", 0)
+    Workspace:SetAttribute("ArnisStreamingEvictedChunkCount", 0)
     Workspace:SetAttribute("ArnisStreamingLastPrefetchReason", "")
     Workspace:SetAttribute("ArnisStreamingLastEvictionReason", "")
 end
@@ -269,6 +271,8 @@ local function updateStreamingResidencyTelemetry(
     processedWorkItems,
     queuedEstimatedCost,
     queuedWorkItemCount,
+    evictedEstimatedCost,
+    evictedChunkCount,
     lastPrefetchReason,
     lastEvictionReason,
     schedulerState
@@ -361,6 +365,8 @@ local function updateStreamingResidencyTelemetry(
     )
     Workspace:SetAttribute("ArnisStreamingQueuedEstimatedCost", normalizeNonNegativeNumber(queuedEstimatedCost))
     Workspace:SetAttribute("ArnisStreamingQueuedWorkItemCount", normalizeNonNegativeNumber(queuedWorkItemCount))
+    Workspace:SetAttribute("ArnisStreamingEvictedEstimatedCost", normalizeNonNegativeNumber(evictedEstimatedCost))
+    Workspace:SetAttribute("ArnisStreamingEvictedChunkCount", normalizeNonNegativeNumber(evictedChunkCount))
     Workspace:SetAttribute("ArnisStreamingLastPrefetchReason", lastPrefetchReason or "")
     Workspace:SetAttribute("ArnisStreamingLastEvictionReason", lastEvictionReason or "")
 end
@@ -542,6 +548,20 @@ local function clearResidentEstimatedCostForChunk(chunkId)
     end
 end
 
+local function clearObservedImportCostForChunk(chunkId)
+    local prefix = chunkId .. "::"
+    local toRemove = {}
+    for observedKey, _ in pairs(observedChunkImportMsById) do
+        if observedKey == chunkId or string.sub(observedKey, 1, #prefix) == prefix then
+            toRemove[#toRemove + 1] = observedKey
+        end
+    end
+
+    for _, observedKey in ipairs(toRemove) do
+        observedChunkImportMsById[observedKey] = nil
+    end
+end
+
 local function clearResidentEstimatedCost(workItem)
     local residentKey = getResidentCostKey(workItem)
     if residentKey == workItem.chunkId then
@@ -620,6 +640,7 @@ local function pruneStaleResidentEstimatedCosts(worldRootName)
 
     for _, chunkId in ipairs(staleChunkIds) do
         clearResidentEstimatedCostForChunk(chunkId)
+        clearObservedImportCostForChunk(chunkId)
         loadedChunkLods[chunkId] = nil
         ImportService.ResetSubplanState(chunkId, worldRootName)
     end
@@ -644,6 +665,7 @@ local function reconcileLoadedChunksForStart(chunkRefs, worldRootName)
                 ChunkLoader.UnloadChunk(chunkId, nil, worldRootName)
                 ImportService.ResetSubplanState(chunkId, worldRootName)
                 clearResidentEstimatedCostForChunk(chunkId)
+                clearObservedImportCostForChunk(chunkId)
             end
         end
     end
@@ -651,6 +673,7 @@ local function reconcileLoadedChunksForStart(chunkRefs, worldRootName)
     for chunkId in pairs(chunkRefById) do
         if not isChunkLoadedInWorldRoot(chunkId, worldRootName) then
             ImportService.ResetSubplanState(chunkId, worldRootName)
+            clearObservedImportCostForChunk(chunkId)
         end
     end
 end
@@ -1275,6 +1298,8 @@ function StreamingService.Update(focalPoint)
         }
         local queuedEstimatedCost = 0
         local queuedWorkItemCount = 0
+        local evictedEstimatedCost = 0
+        local evictedChunkCount = 0
         local lastPrefetchReason = ""
         local lastEvictionReason = ""
         local candidateChunkEntries =
@@ -1320,10 +1345,16 @@ function StreamingService.Update(focalPoint)
                 -- work here purely for exceeding a ring's estimated-byte target.
                 if ring == nil or exceedsRingChunkLimit then
                     if currentLod ~= nil or ChunkLoader.GetChunkEntry(chunkRef.id, streamingOptions.worldRootName) ~= nil then
+                        local residentCost = getResidentEstimatedCostForChunkId(chunkRef.id)
+                        if residentCost <= 0 then
+                            residentCost = estimatedChunkCost
+                        end
                         ChunkLoader.UnloadChunk(chunkRef.id, nil, streamingOptions.worldRootName)
                         ImportService.ResetSubplanState(chunkRef.id, streamingOptions.worldRootName)
                         clearResidentEstimatedCostForChunk(chunkRef.id)
                         loadedChunkLods[chunkRef.id] = nil
+                        evictedEstimatedCost += residentCost
+                        evictedChunkCount += 1
                         lastEvictionReason = if ring == nil
                             then "outside_target_radius"
                             else ringName .. "_chunk_limit_exceeded"
@@ -1432,6 +1463,8 @@ function StreamingService.Update(focalPoint)
             processedWorkItems,
             queuedEstimatedCost,
             queuedWorkItemCount,
+            evictedEstimatedCost,
+            evictedChunkCount,
             lastPrefetchReason,
             lastEvictionReason,
             "planning"
@@ -1475,6 +1508,8 @@ function StreamingService.Update(focalPoint)
                     processedWorkItems,
                     queuedEstimatedCost,
                     queuedWorkItemCount,
+                    evictedEstimatedCost,
+                    evictedChunkCount,
                     lastPrefetchReason,
                     lastEvictionReason,
                     "guardrail_paused"
@@ -1542,11 +1577,23 @@ function StreamingService.Update(focalPoint)
 
         for chunkId, _ in pairs(loadedChunkLods) do
             if not desiredChunkIds[chunkId] then
+                local resolvedEvictionReason = "not_desired_for_ring_budget"
+                local chunkRef = streamingChunkRefsById and streamingChunkRefsById[chunkId] or nil
+                if chunkRef ~= nil then
+                    local centerX, centerZ = getChunkCenter(chunkRef, chunkSizeStuds)
+                    local dx = playerPos.X - centerX
+                    local dz = playerPos.Z - centerZ
+                    if dx * dx + dz * dz > targetExitRadiusSq then
+                        resolvedEvictionReason = "outside_target_radius"
+                    end
+                end
                 ChunkLoader.UnloadChunk(chunkId, nil, streamingOptions.worldRootName)
                 ImportService.ResetSubplanState(chunkId, streamingOptions.worldRootName)
+                evictedEstimatedCost += getResidentEstimatedCostForChunkId(chunkId)
+                evictedChunkCount += 1
                 clearResidentEstimatedCostForChunk(chunkId)
                 loadedChunkLods[chunkId] = nil
-                lastEvictionReason = "not_desired_for_ring_budget"
+                lastEvictionReason = resolvedEvictionReason
             end
         end
 
@@ -1563,6 +1610,8 @@ function StreamingService.Update(focalPoint)
             processedWorkItems,
             queuedEstimatedCost,
             queuedWorkItemCount,
+            evictedEstimatedCost,
+            evictedChunkCount,
             lastPrefetchReason,
             lastEvictionReason,
             if deferredAdmissions > 0 then "guardrail_paused" else "steady_state"

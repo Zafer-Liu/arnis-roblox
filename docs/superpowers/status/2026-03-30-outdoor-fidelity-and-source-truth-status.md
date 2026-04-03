@@ -1306,6 +1306,37 @@ The compact historical archive index is:
   - the memory guardrail remains the authoritative admission stop line
   - ring byte budgets now behave like scheduler targets instead of silently starving in-ring work ahead of the real guardrail
 
+### 2026-04-02: Streaming Service Now Publishes Eviction Telemetry And Resets Stale Recovery Timing State
+
+- I kept this slice on the streaming engine instead of widening the harness again.
+- The first gap was scheduler observability:
+  - the runtime already published queue depth, per-ring desired/resident counts, and last prefetch/eviction reasons
+  - but it did not expose how much estimated resident cost or how many chunks were actually shed in a given update
+  - I fixed that in `StreamingService.lua` by publishing:
+    - `ArnisStreamingEvictedEstimatedCost`
+    - `ArnisStreamingEvictedChunkCount`
+  - the first post-pause unload path also now preserves the concrete `outside_target_radius` eviction reason instead of collapsing back to a generic not-desired bucket
+- The second gap was a real stale-recovery scheduler bug exposed by the new isolated proof:
+  - same-session stale chunk recovery correctly cleared resident cost and completed subplan state
+  - but it still retained the chunk's observed per-subplan import timings
+  - that let the work-item sorter reshuffle sibling subplans on rebuild instead of restarting from the first sibling deterministically
+  - I fixed that by clearing observed import-cost history for stale/rebuilt chunks at the same time stale resident cost and subplan state are cleared
+- Regression coverage now proves:
+  - the runtime contract text includes the new eviction telemetry attributes
+  - same-session stale chunk recovery reimports both sibling subplans from the beginning after a destroyed chunk folder
+  - the isolated `StreamingPriority.spec.lua` proof stays green on `tertiary`
+- Verification for this slice:
+  - local-safe green: `python3 -m unittest scripts.tests.test_austin_runtime_contract -v`
+  - local-safe green: `git diff --check`
+  - remote `tertiary` green:
+    - `Running tests: StreamingPriority.spec`
+    - `PASS StreamingPriority.spec`
+    - `TestEZ tests complete. total=1 passed=1 failed=0`
+- Interpretation:
+  - per-update eviction pressure is now observable directly from the runtime state machine
+  - stale same-session recovery now behaves like a true fresh sibling-subplan restart instead of carrying hidden adaptive timing residue across a destroyed chunk
+  - this is a better foundation for bounded residency and forward-prefetch policy work on the Austin sample
+
 ### 2026-04-02: Movement Lookahead Now Expands Scheduler Eligibility, Not Just Sort Order
 
 - I kept this slice on the real runtime scheduler instead of widening the harness again.

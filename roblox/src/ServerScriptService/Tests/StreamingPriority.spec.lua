@@ -630,6 +630,21 @@ return function()
             ChunkLoader.GetChunkEntry("guardrail_anchor", guardrailOptions.worldRootName),
             "expected normal streaming unloads to clear resident pressure once the focal point moves away"
         )
+        Assert.equal(
+            Workspace:GetAttribute("ArnisStreamingLastEvictionReason"),
+            "outside_target_radius",
+            "expected the first post-pause unload to publish the concrete eviction reason"
+        )
+        Assert.equal(
+            Workspace:GetAttribute("ArnisStreamingEvictedChunkCount"),
+            1,
+            "expected eviction telemetry to count the chunk shed during the pressure-relief update"
+        )
+        Assert.equal(
+            Workspace:GetAttribute("ArnisStreamingEvictedEstimatedCost"),
+            90,
+            "expected eviction telemetry to publish the estimated cost shed during the pressure-relief update"
+        )
 
         StreamingService.Update(Vector3.new(1000, 0, 0))
         Assert.equal(
