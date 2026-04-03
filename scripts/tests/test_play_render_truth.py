@@ -7,6 +7,7 @@ import unittest
 
 ROOT = Path(__file__).resolve().parents[2]
 BUILDING_BUILDER = ROOT / "roblox" / "src" / "ServerScriptService" / "ImportService" / "Builders" / "BuildingBuilder.lua"
+SCENE_AUDIT = ROOT / "roblox" / "src" / "ServerScriptService" / "ImportService" / "SceneAudit.lua"
 ROOM_BUILDER = ROOT / "roblox" / "src" / "ServerScriptService" / "ImportService" / "Builders" / "RoomBuilder.lua"
 TERRAIN_BUILDER = ROOT / "roblox" / "src" / "ServerScriptService" / "ImportService" / "Builders" / "TerrainBuilder.lua"
 IMPORT_SERVICE = ROOT / "roblox" / "src" / "ServerScriptService" / "ImportService" / "init.lua"
@@ -113,6 +114,25 @@ class PlayRenderTruthTests(unittest.TestCase):
         self.assertIn("sampleVoxelColumnProfile = sampleVoxelColumnProfile", source)
         self.assertIn("dominantMaterialName", source)
         self.assertIn("averageHeight = totalHeight / sampleCount", source)
+        self.assertIn("heightRange = maxHeight - minHeight", source)
+        self.assertIn("surfaceHeight = if maxHeight - minHeight >= TERRAIN_WRITE_RESOLUTION then maxHeight else averageHeight", source)
+        self.assertIn("surfaceFillDepth = if heightRange >= TERRAIN_WRITE_RESOLUTION", source)
+        self.assertIn("local worldBotY = worldSurfY - columnProfile.surfaceFillDepth", source)
+        self.assertIn("local worldSurfY = origin.y + columnProfile.surfaceHeight", source)
+
+    def test_terrain_builder_supports_neighbor_aware_chunk_edge_sampling(self) -> None:
+        terrain_source = TERRAIN_BUILDER.read_text(encoding="utf-8")
+        import_service_source = IMPORT_SERVICE.read_text(encoding="utf-8")
+        streaming_source = STREAMING_SERVICE.read_text(encoding="utf-8")
+
+        self.assertIn("local function resolveNeighborHeightSample(plan, cellX, cellZ)", terrain_source)
+        self.assertIn("local function buildTerrainNeighborContextByChunkId(chunks)", import_service_source)
+        self.assertIn("terrainNeighborContext = terrainNeighborContextByChunkId[chunk.id]", import_service_source)
+        self.assertIn("perChunkOptions.terrainNeighbors = terrainNeighborContext.neighbors", import_service_source)
+        self.assertIn("perChunkOptions.terrainNeighborSignature = terrainNeighborContext.signature", import_service_source)
+        self.assertIn("local function buildStreamingTerrainNeighborContext(chunkRef)", streaming_source)
+        self.assertIn("importOptions.terrainNeighbors = terrainNeighborContext.neighbors", streaming_source)
+        self.assertIn("importOptions.terrainNeighborSignature = terrainNeighborContext.signature", streaming_source)
 
     def test_terrain_material_richness_flows_from_builder_to_preview_hotspot_summary(self) -> None:
         terrain_source = TERRAIN_BUILDER.read_text(encoding="utf-8")
@@ -213,6 +233,41 @@ class PlayRenderTruthTests(unittest.TestCase):
             "expected bounded corner accents to be limited to the simple-shell detail path",
         )
 
+    def test_shell_mesh_simple_low_rise_buildings_keep_explicit_shell_walls_for_play_visibility(self) -> None:
+        source = BUILDING_BUILDER.read_text(encoding="utf-8")
+
+        self.assertRegex(
+            source,
+            r"function\s+BuildingBuilder\.MeshBuildAll[\s\S]*if\s+preferSimpleShellDetail\s+then[\s\S]*buildWallLoopParts\(shellFolder,\s*bldgName,\s*worldPts,\s*baseY,\s*height,\s*mat,\s*color,\s*\"outer\"",
+            "expected simple low-rise shellMesh buildings to keep explicit shell wall parts instead of only merged wall meshes",
+        )
+
+    def test_scene_audit_surfaces_closure_only_roof_gaps_separately_from_generic_roofless_buildings(self) -> None:
+        source = SCENE_AUDIT.read_text(encoding="utf-8")
+
+        self.assertIn("buildingModelsWithClosureOnlyRoofGap", source)
+        self.assertIn("buildingClosureOnlyRoofGapDetails", source)
+        self.assertRegex(
+            source,
+            r"roofClosureParts\s*>\s*0[\s\S]*buildingModelsWithClosureOnlyRoofGap",
+            "expected SceneAudit to classify closure-only shaped roofs as a dedicated roof gap instead of burying them in generic no-roof counts",
+        )
+
+    def test_irregular_shaped_roofs_fall_back_to_visible_roof_geometry_not_only_closure_decks(self) -> None:
+        source = BUILDING_BUILDER.read_text(encoding="utf-8")
+
+        self.assertIn("local function buildFallbackFlatVisibleRoof(", source)
+        self.assertRegex(
+            source,
+            r'if roofShape == "gabled" or roofShape == "gambrel" then[\s\S]*if not rectangularFootprint then[\s\S]*buildFallbackFlatVisibleRoof\(',
+            "expected irregular gabled roofs to fall back to visible roof geometry instead of a transparent closure-only deck",
+        )
+        self.assertRegex(
+            source,
+            r'elseif roofShape == "pyramidal" or roofShape == "hipped" then[\s\S]*buildFallbackFlatVisibleRoof\(',
+            "expected irregular hipped roofs to keep visible roof evidence in fallback mode",
+        )
+
     def test_player_local_terrain_telemetry_carries_material_richness(self) -> None:
         world_probe_source = WORLD_PROBE.read_text(encoding="utf-8")
         terrain_probe_source = WORLD_PROBE_TERRAIN.read_text(encoding="utf-8")
@@ -222,6 +277,11 @@ class PlayRenderTruthTests(unittest.TestCase):
         self.assertIn("dominantMaterial", terrain_probe_source)
         self.assertIn("dominantMaterialSampleCount", terrain_probe_source)
         self.assertIn("nonGrassSampleCount", terrain_probe_source)
+        self.assertIn("missingEdgeSampleCount", terrain_probe_source)
+        self.assertIn("edgeTerrainYRangeStuds", terrain_probe_source)
+        self.assertIn("centerEdgeMaxDeltaStuds", terrain_probe_source)
+        self.assertIn("edgeIndices = LOCAL_TERRAIN_EDGE_INDICES", world_probe_source)
+        self.assertIn("LOCAL_TERRAIN_EDGE_INDICES = {", world_probe_source)
 
     def test_streaming_engine_uses_explicit_ring_budgets_not_only_distance_radii(self) -> None:
         streaming_source = STREAMING_SERVICE.read_text(encoding="utf-8")

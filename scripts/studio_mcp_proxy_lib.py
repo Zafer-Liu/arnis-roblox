@@ -64,6 +64,21 @@ def ensure_play_mode(
     return current_mode or requested_mode
 
 
+def run_code_in_existing_session(
+    client: Any,
+    command: str,
+    *,
+    allow_is_error: bool = True,
+    timeout_seconds: int | None = None,
+) -> Any:
+    return client.call_tool(
+        "run_code",
+        {"command": command},
+        allow_is_error=allow_is_error,
+        timeout_seconds=timeout_seconds,
+    )
+
+
 def run_code_in_play_session(
     client: Any,
     command: str,

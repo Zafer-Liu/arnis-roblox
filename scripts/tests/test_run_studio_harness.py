@@ -838,10 +838,12 @@ class RunStudioHarnessTests(unittest.TestCase):
         self.assertIn('if plugin_should_be_sandboxed_for_run "$plugin_name"; then', self.text)
         self.assertIn('if [[ -f "$ROBLOX_PLUGIN_DIR/$plugin_name" ]]; then', self.text)
 
-    def test_screenshot_capture_failure_is_best_effort_only(self) -> None:
-        self.assertIn('if screencapture -x "$target"; then', self.text)
-        self.assertIn('log "failed to capture Studio screenshot: $target"', self.text)
-        self.assertNotIn('screencapture -x "$target"\n  log "captured Studio screenshot: $target"', self.text)
+    def test_screenshot_capture_uses_shared_ui_control_helper_and_is_best_effort_only(self) -> None:
+        self.assertIn('capture-screenshot --target "$target"', self.text)
+        self.assertIn('capture_metadata_target="${target%.png}.capture.json"', self.text)
+        self.assertIn('log "captured Studio screenshot: $target method=$capture_method metadata=$capture_metadata_target"', self.text)
+        self.assertIn('log "failed to capture Studio screenshot: $target method=$capture_method metadata=$capture_metadata_target"', self.text)
+        self.assertNotIn('if screencapture -x "$target"; then', self.text)
 
     def test_harness_defaults_to_clean_preview_without_edit_mode_runall(self) -> None:
         self.assertIn("--edit-tests", self.text)
@@ -973,8 +975,9 @@ class RunStudioHarnessTests(unittest.TestCase):
         self.assertIn("local SceneAudit = require(ServerScriptService.ImportService.SceneAudit)", body)
         self.assertIn("local CanonicalWorldContract = require(ServerScriptService.ImportService.CanonicalWorldContract)", body)
         self.assertIn("local function resolvePlayWorldRoot()", body)
+        self.assertIn("if firstSample.generatedExists then", body)
         self.assertIn("local firstScene = SceneAudit.summarizeWorld(resolvePlayWorldRoot())", body)
-        self.assertIn('emitSceneMarkers(\n    "ARNIS_SCENE_PLAY",\n    "play",', body)
+        self.assertIn('emitSceneMarkers(\n        "ARNIS_SCENE_PLAY",\n        "play",', body)
         self.assertIn('worldIdentity = CanonicalWorldContract.resolveCanonicalManifestFamily("play")', body)
         self.assertIn('chunkEnvelopeKind = "runtime_resident"', body)
 
@@ -1020,9 +1023,10 @@ class RunStudioHarnessTests(unittest.TestCase):
     def test_play_action_path_emits_runtime_load_radius_from_runaustin(self) -> None:
         self.assertIn("local RunAustin = require(ServerScriptService.ImportService.RunAustin)", self.text)
         self.assertIn('local runtimeLoadRadius = RunAustin.LOAD_RADIUS', self.text)
-        self.assertIn('emitSceneMarkers(\n    "ARNIS_SCENE_PLAY",\n    "play",', self.text)
+        self.assertIn("if firstSample.generatedExists then", self.text)
+        self.assertIn('emitSceneMarkers(\n        "ARNIS_SCENE_PLAY",\n        "play",', self.text)
         self.assertIn("runtimeLoadRadius,", self.text)
-        self.assertNotIn('emitSceneMarkers(\n    "ARNIS_SCENE_PLAY",\n    "play",\n    firstSample.canonicalWorldRootName or firstSample.austinWorldRootName or "GeneratedWorld_Austin",\n    1024,', self.text)
+        self.assertNotIn('emitSceneMarkers(\n        "ARNIS_SCENE_PLAY",\n        "play",\n        firstSample.canonicalWorldRootName or firstSample.austinWorldRootName or "GeneratedWorld_Austin",\n        1024,', self.text)
 
     def test_play_probe_captures_ordered_bootstrap_state_trace(self) -> None:
         self.assertIn('payload.bootstrapStateTrace = Workspace:GetAttribute("ArnisAustinBootstrapStateTrace")', self.text)
@@ -1132,18 +1136,31 @@ class RunStudioHarnessTests(unittest.TestCase):
         self.assertIn('log "skipping redundant play MCP probe after successful authoritative play proof"', play_block)
         self.assertIn('run_probe_best_effort "play" 8', play_block)
 
-    def test_play_focused_harness_bypasses_authoritative_mcp_play_probe(self) -> None:
+    def test_play_focused_harness_runs_authoritative_mcp_play_probe_after_play_entry(self) -> None:
         play_block = self.text.split("elif [[ $DO_PLAY -eq 1 ]]; then", 1)[1]
         self.assertIn("elif should_skip_edit_mode_actions_for_play; then", play_block)
+        focused_branch_start = play_block.index("elif should_skip_edit_mode_actions_for_play; then")
+        focused_branch_end = play_block.index("elif run_play_probe_via_mcp; then", focused_branch_start)
+        focused_branch = play_block[focused_branch_start:focused_branch_end]
+        self.assertIn('if run_play_probe_via_mcp; then', focused_branch)
+        self.assertIn("play_probe_completed_via_mcp=1", focused_branch)
         self.assertLess(
-            play_block.index("elif should_skip_edit_mode_actions_for_play; then"),
-            play_block.index("elif run_play_probe_via_mcp; then"),
+            focused_branch.index('wait_for_log_pattern "\\\\[BootstrapAustin\\\\] Starting Austin, TX import|\\\\[RunAustin\\\\]|\\\\[BootstrapAustin\\\\] Done\\\\." "$PATTERN_WAIT_SECONDS"'),
+            focused_branch.index('if run_play_probe_via_mcp; then'),
         )
 
     def test_play_probe_keeps_play_session_alive_until_harness_capture(self) -> None:
-        self.assertIn("play_probe_succeeded = False", self.text)
-        self.assertIn("play_probe_succeeded = True", self.text)
-        self.assertIn("if not play_probe_succeeded:", self.text)
+        play_probe_block = re.search(
+            r"run_play_probe_via_mcp\(\) \{\n(?P<body>.*?)\n\}\n\nlog_effective_play_camera_state",
+            self.text,
+            re.DOTALL,
+        )
+        self.assertIsNotNone(play_probe_block, "run_play_probe_via_mcp function not found")
+        body = play_probe_block.group("body")
+        self.assertIn("play_probe_succeeded = False", body)
+        self.assertIn("play_probe_succeeded = True", body)
+        self.assertIn("client.close()", body)
+        self.assertNotIn("if not play_probe_succeeded:", body)
 
     def test_play_probe_executes_inside_existing_play_session_without_auto_stop_tool(self) -> None:
         play_probe_block = re.search(
@@ -1153,12 +1170,13 @@ class RunStudioHarnessTests(unittest.TestCase):
         )
         self.assertIsNotNone(play_probe_block, "run_play_probe_via_mcp function not found")
         body = play_probe_block.group("body")
-        self.assertIn("from studio_mcp_proxy_lib import build_mcp_client, run_code_in_play_session", body)
-        self.assertIn("result = run_code_in_play_session(", body)
-        self.assertIn('requested_mode="start_play"', body)
+        self.assertIn("from studio_mcp_proxy_lib import build_mcp_client, run_code_in_existing_session", body)
+        self.assertIn("result = run_code_in_existing_session(", body)
+        self.assertNotIn('requested_mode="start_play"', body)
         self.assertNotIn('"run_script_in_play_mode"', body)
+        self.assertNotIn('client.call_tool("start_stop_play"', body)
 
-    def test_play_probe_requires_ready_mcp_helper_before_authoritative_probe(self) -> None:
+    def test_play_probe_allows_play_focused_direct_transport_without_mcp_ready_gate(self) -> None:
         play_probe_block = re.search(
             r"run_play_probe_via_mcp\(\) \{\n(?P<body>.*?)\n\}\n\nlog_effective_play_camera_state",
             self.text,
@@ -1166,7 +1184,24 @@ class RunStudioHarnessTests(unittest.TestCase):
         )
         self.assertIsNotNone(play_probe_block, "run_play_probe_via_mcp function not found")
         body = play_probe_block.group("body")
-        self.assertIn('if [[ -z "$MCP_BINARY" || ! -x "$MCP_BINARY" || $MCP_READY -ne 1 ]]; then', body)
+        self.assertIn('if [[ -z "$MCP_BINARY" || ! -x "$MCP_BINARY" ]]; then', body)
+        self.assertIn('if [[ $MCP_READY -ne 1 && ! should_skip_edit_mode_actions_for_play ]]; then', body)
+
+    def test_play_probe_does_not_skip_when_proxy_is_unavailable(self) -> None:
+        play_probe_block = re.search(
+            r"run_play_probe_via_mcp\(\) \{\n(?P<body>.*?)\n\}\n\nlog_effective_play_camera_state",
+            self.text,
+            re.DOTALL,
+        )
+        self.assertIsNotNone(play_probe_block, "run_play_probe_via_mcp function not found")
+        body = play_probe_block.group("body")
+        self.assertNotIn('print("[harness-mcp] phase=play skip=proxy-unavailable")', body)
+
+    def test_local_direct_mcp_client_exists_for_proxyless_play_probe(self) -> None:
+        direct_lib_path = ROOT / "scripts" / "studio_mcp_direct_lib.py"
+        self.assertTrue(direct_lib_path.exists(), "expected local studio_mcp_direct_lib.py")
+        direct_lib_text = direct_lib_path.read_text(encoding="utf-8")
+        self.assertIn("class JsonRpcStdioClient", direct_lib_text)
 
     def test_play_probe_logs_structured_mcp_errors_before_cleanup(self) -> None:
         play_probe_block = re.search(
@@ -1177,6 +1212,40 @@ class RunStudioHarnessTests(unittest.TestCase):
         self.assertIsNotNone(play_probe_block, "run_play_probe_via_mcp function not found")
         body = play_probe_block.group("body")
         self.assertIn('print(f"[harness-mcp] phase=play error={exc!r}")', body)
+
+    def test_play_probe_rejects_edit_context_false_positive_before_claiming_success(self) -> None:
+        play_probe_block = re.search(
+            r"run_play_probe_via_mcp\(\) \{\n(?P<body>.*?)\n\}\n\nlog_effective_play_camera_state",
+            self.text,
+            re.DOTALL,
+        )
+        self.assertIsNotNone(play_probe_block, "run_play_probe_via_mcp function not found")
+        body = play_probe_block.group("body")
+        self.assertIn('if line.startswith("[OUTPUT] ARNIS_MCP_PLAY "):', body)
+        self.assertIn('if play_payload.get("generatedExists") is False:', body)
+        self.assertIn("run_code resolved against edit context instead of the live play session", body)
+
+    def test_play_probe_only_emits_scene_markers_when_a_live_world_root_exists(self) -> None:
+        play_probe_block = re.search(
+            r"run_play_probe_via_mcp\(\) \{\n(?P<body>.*?)\n\}\n\nlog_effective_play_camera_state",
+            self.text,
+            re.DOTALL,
+        )
+        self.assertIsNotNone(play_probe_block, "run_play_probe_via_mcp function not found")
+        body = play_probe_block.group("body")
+        self.assertIn("if firstSample.generatedExists then", body)
+        self.assertIn('emitSceneMarkers(\n        "ARNIS_SCENE_PLAY",', body)
+        self.assertIn('print("ARNIS_MCP_PLAY " .. HttpService:JSONEncode(firstSample))', body)
+
+    def test_play_probe_logs_validated_live_play_marker_before_scene_audit_is_trusted(self) -> None:
+        play_probe_block = re.search(
+            r"run_play_probe_via_mcp\(\) \{\n(?P<body>.*?)\n\}\n\nlog_effective_play_camera_state",
+            self.text,
+            re.DOTALL,
+        )
+        self.assertIsNotNone(play_probe_block, "run_play_probe_via_mcp function not found")
+        body = play_probe_block.group("body")
+        self.assertIn('print("ARNIS_MCP_PLAY_SCENE_VALIDATED " + json.dumps(', body)
 
     def test_play_probe_propagates_requested_telemetry_families_to_workspace(self) -> None:
         play_probe_block = re.search(
@@ -1407,12 +1476,19 @@ class RunStudioHarnessTests(unittest.TestCase):
         self.assertIn('manifest_scene_index_args=(--manifest "$manifest_path")', self.text)
         self.assertIn('"${manifest_scene_index_args[@]}"', self.text)
 
+    def test_scene_fidelity_audits_can_run_from_seeded_manifest_summary_without_raw_outputs(self) -> None:
+        self.assertIn('if [[ -f "$manifest_summary_path" ]]; then', self.text)
+        self.assertIn('log "using precomputed manifest scene index: $manifest_summary_path"', self.text)
+        self.assertIn('scene fidelity audit unavailable; missing manifest summary and source manifest inputs', self.text)
+
     def test_scene_fidelity_audits_emit_edit_play_parity_when_both_reports_exist(self) -> None:
         self.assertIn('local parity_script="$ROOT_DIR/scripts/scene_parity_audit.py"', self.text)
         self.assertIn('if rg -q "ARNIS_SCENE_EDIT " "$audit_log"; then', self.text)
         self.assertIn('if rg -q "ARNIS_SCENE_PLAY " "$audit_log"; then', self.text)
+        self.assertIn('if validate_play_bootstrap_trace "$audit_log"; then', self.text)
+        self.assertIn('log "skipping scene fidelity play artifact because authoritative runtime bootstrap validation did not succeed"', self.text)
         self.assertNotIn('if rg -q "^ARNIS_SCENE_EDIT " "$audit_log"; then', self.text)
-        self.assertNotIn('if rg -q "^ARNIS_SCENE_PLAY " "$audit_log"; then', self.text)
+        self.assertNotIn('if rg -q "ARNIS_SCENE_PLAY " "$audit_log" && rg -q "ARNIS_MCP_PLAY_SCENE_VALIDATED " "$audit_log"; then', self.text)
         self.assertIn('if [[ -f "$edit_json" && -f "$play_json" && -f "$parity_script" ]]; then', self.text)
         self.assertIn('log "writing scene parity artifact"', self.text)
         self.assertIn('python3 "$parity_script" \\', self.text)

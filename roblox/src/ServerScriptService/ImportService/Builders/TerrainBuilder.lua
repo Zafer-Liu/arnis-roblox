@@ -20,17 +20,11 @@ function TerrainBuilder.Clear(chunk, plan)
     local cellSize = if resolvedPlan then resolvedPlan.cellSize else terrainGrid.cellSizeStuds
     local origin = if resolvedPlan then resolvedPlan.origin else chunk.originStuds
 
-    local footprintWidth = if resolvedPlan
-        then resolvedPlan.totalWidth
-        else terrainGrid.width * cellSize
-    local footprintDepth = if resolvedPlan
-        then resolvedPlan.totalDepth
-        else terrainGrid.depth * cellSize
+    local footprintWidth = if resolvedPlan then resolvedPlan.totalWidth else terrainGrid.width * cellSize
+    local footprintDepth = if resolvedPlan then resolvedPlan.totalDepth else terrainGrid.depth * cellSize
 
-    local clearSize =
-        Vector3.new(footprintWidth, TerrainBuilder.DEFAULT_CLEAR_HEIGHT, footprintDepth)
-    local clearCFrame =
-        CFrame.new(origin.x + footprintWidth * 0.5, origin.y, origin.z + footprintDepth * 0.5)
+    local clearSize = Vector3.new(footprintWidth, TerrainBuilder.DEFAULT_CLEAR_HEIGHT, footprintDepth)
+    local clearCFrame = CFrame.new(origin.x + footprintWidth * 0.5, origin.y, origin.z + footprintDepth * 0.5)
     TerrainBuilder._fillBlock(terrain, clearCFrame, clearSize, Enum.Material.Air)
 end
 
@@ -96,7 +90,8 @@ local function summarizeTerrainMaterials(cellMaterials, gridW, gridD)
 end
 
 local function buildSubsampleOffsets(writeResolution, requestedSampleResolution)
-    local normalizedRequestedResolution = math.max(1, math.min(writeResolution, requestedSampleResolution or writeResolution))
+    local normalizedRequestedResolution =
+        math.max(1, math.min(writeResolution, requestedSampleResolution or writeResolution))
     local samplesPerAxis = math.max(1, math.floor(writeResolution / normalizedRequestedResolution + 0.5))
     local step = writeResolution / samplesPerAxis
     local startOffset = -writeResolution * 0.5 + step * 0.5
@@ -105,6 +100,205 @@ local function buildSubsampleOffsets(writeResolution, requestedSampleResolution)
         offsets[index] = startOffset + (index - 1) * step
     end
     return offsets
+end
+
+local function clampIndex(value, minimum, maximum)
+    if value < minimum then
+        return minimum
+    end
+    if value > maximum then
+        return maximum
+    end
+    return value
+end
+
+local function sampleTerrainGridHeight(terrainGrid, cellX, cellZ)
+    if type(terrainGrid) ~= "table" then
+        return nil
+    end
+
+    local width = terrainGrid.width
+    local depth = terrainGrid.depth
+    local heights = terrainGrid.heights
+    if type(width) ~= "number" or type(depth) ~= "number" or type(heights) ~= "table" then
+        return nil
+    end
+    if width < 1 or depth < 1 then
+        return nil
+    end
+
+    local resolvedCellX = clampIndex(cellX, 0, width - 1)
+    local resolvedCellZ = clampIndex(cellZ, 0, depth - 1)
+    return heights[resolvedCellZ * width + resolvedCellX + 1] or 0
+end
+
+local function mapNeighborIndex(localIndex, localCount, neighborCount)
+    if type(neighborCount) ~= "number" or neighborCount < 1 then
+        return 0
+    end
+
+    if type(localCount) ~= "number" or localCount <= 1 or neighborCount <= 1 then
+        return 0
+    end
+
+    local clampedIndex = clampIndex(localIndex, 0, localCount - 1)
+    local normalized = clampedIndex / math.max(localCount - 1, 1)
+    return clampIndex(math.floor(normalized * (neighborCount - 1) + 0.5), 0, neighborCount - 1)
+end
+
+local function resolveOffsetNeighborIndex(cellIndex, localCount, neighborCount, isPositiveDirection)
+    if type(neighborCount) ~= "number" or neighborCount < 1 then
+        return 0
+    end
+    if type(cellIndex) ~= "number" then
+        return 0
+    end
+
+    local resolvedIndex
+    if isPositiveDirection then
+        if type(localCount) ~= "number" or localCount < 0 then
+            return 0
+        end
+        resolvedIndex = cellIndex - localCount
+    else
+        resolvedIndex = neighborCount + cellIndex
+    end
+
+    return clampIndex(resolvedIndex, 0, neighborCount - 1)
+end
+
+local function resolveNeighborHeightSample(plan, cellX, cellZ)
+    local localHeight = sampleTerrainGridHeight(plan.terrainGrid, cellX, cellZ)
+    if cellX >= 0 and cellX < plan.gridW and cellZ >= 0 and cellZ < plan.gridD then
+        return localHeight or 0
+    end
+
+    local terrainNeighbors = plan.terrainNeighbors
+    if type(terrainNeighbors) ~= "table" then
+        return localHeight or 0
+    end
+
+    local function sampleEdgeNeighbor(direction)
+        local descriptor = terrainNeighbors[direction]
+        local neighborTerrain = descriptor and descriptor.terrain or nil
+        if type(neighborTerrain) ~= "table" then
+            return nil
+        end
+
+        if direction == "west" then
+            return sampleTerrainGridHeight(
+                neighborTerrain,
+                resolveOffsetNeighborIndex(cellX, plan.gridW, neighborTerrain.width or 0, false),
+                mapNeighborIndex(cellZ, plan.gridD, neighborTerrain.depth or 0)
+            )
+        end
+        if direction == "east" then
+            return sampleTerrainGridHeight(
+                neighborTerrain,
+                resolveOffsetNeighborIndex(cellX, plan.gridW, neighborTerrain.width or 0, true),
+                mapNeighborIndex(cellZ, plan.gridD, neighborTerrain.depth or 0)
+            )
+        end
+        if direction == "north" then
+            return sampleTerrainGridHeight(
+                neighborTerrain,
+                mapNeighborIndex(cellX, plan.gridW, neighborTerrain.width or 0),
+                resolveOffsetNeighborIndex(cellZ, plan.gridD, neighborTerrain.depth or 0, false)
+            )
+        end
+        if direction == "south" then
+            return sampleTerrainGridHeight(
+                neighborTerrain,
+                mapNeighborIndex(cellX, plan.gridW, neighborTerrain.width or 0),
+                resolveOffsetNeighborIndex(cellZ, plan.gridD, neighborTerrain.depth or 0, true)
+            )
+        end
+
+        return nil
+    end
+
+    local function sampleCornerNeighbor(direction)
+        local descriptor = terrainNeighbors[direction]
+        local neighborTerrain = descriptor and descriptor.terrain or nil
+        if type(neighborTerrain) ~= "table" then
+            return nil
+        end
+
+        if direction == "northWest" then
+            return sampleTerrainGridHeight(
+                neighborTerrain,
+                resolveOffsetNeighborIndex(cellX, plan.gridW, neighborTerrain.width or 0, false),
+                resolveOffsetNeighborIndex(cellZ, plan.gridD, neighborTerrain.depth or 0, false)
+            )
+        end
+        if direction == "northEast" then
+            return sampleTerrainGridHeight(
+                neighborTerrain,
+                resolveOffsetNeighborIndex(cellX, plan.gridW, neighborTerrain.width or 0, true),
+                resolveOffsetNeighborIndex(cellZ, plan.gridD, neighborTerrain.depth or 0, false)
+            )
+        end
+        if direction == "southWest" then
+            return sampleTerrainGridHeight(
+                neighborTerrain,
+                resolveOffsetNeighborIndex(cellX, plan.gridW, neighborTerrain.width or 0, false),
+                resolveOffsetNeighborIndex(cellZ, plan.gridD, neighborTerrain.depth or 0, true)
+            )
+        end
+        if direction == "southEast" then
+            return sampleTerrainGridHeight(
+                neighborTerrain,
+                resolveOffsetNeighborIndex(cellX, plan.gridW, neighborTerrain.width or 0, true),
+                resolveOffsetNeighborIndex(cellZ, plan.gridD, neighborTerrain.depth or 0, true)
+            )
+        end
+
+        return nil
+    end
+
+    if cellX < 0 then
+        local cornerSample = nil
+        if cellZ < 0 then
+            cornerSample = sampleCornerNeighbor("northWest")
+        elseif cellZ >= plan.gridD then
+            cornerSample = sampleCornerNeighbor("southWest")
+        end
+        if cornerSample ~= nil then
+            return cornerSample
+        end
+        local edgeSample = sampleEdgeNeighbor("west")
+        if edgeSample ~= nil then
+            return edgeSample
+        end
+    elseif cellX >= plan.gridW then
+        local cornerSample = nil
+        if cellZ < 0 then
+            cornerSample = sampleCornerNeighbor("northEast")
+        elseif cellZ >= plan.gridD then
+            cornerSample = sampleCornerNeighbor("southEast")
+        end
+        if cornerSample ~= nil then
+            return cornerSample
+        end
+        local edgeSample = sampleEdgeNeighbor("east")
+        if edgeSample ~= nil then
+            return edgeSample
+        end
+    end
+
+    if cellZ < 0 then
+        local edgeSample = sampleEdgeNeighbor("north")
+        if edgeSample ~= nil then
+            return edgeSample
+        end
+    elseif cellZ >= plan.gridD then
+        local edgeSample = sampleEdgeNeighbor("south")
+        if edgeSample ~= nil then
+            return edgeSample
+        end
+    end
+
+    return localHeight or 0
 end
 
 local function sampleVoxelColumnProfile(plan, ix, globalIz)
@@ -117,26 +311,36 @@ local function sampleVoxelColumnProfile(plan, ix, globalIz)
     local dominantMaterialSampleCount = -1
     local totalHeight = 0
     local sampleCount = 0
+    local minHeight = math.huge
+    local maxHeight = -math.huge
 
     for offsetXIndex = 1, #offsets do
         local sampleWorldX = voxelCenterX + offsets[offsetXIndex]
-        local sampleCellX =
-            math.max(0, math.min(plan.gridW - 1, math.floor((sampleWorldX - plan.origin.x) / plan.cellSize)))
+        local rawSampleCellX = math.floor((sampleWorldX - plan.origin.x) / plan.cellSize)
+        local sampleCellX = rawSampleCellX
+        local materialCellX = clampIndex(rawSampleCellX, 0, plan.gridW - 1)
         local sampleCellOriginX = plan.origin.x + sampleCellX * plan.cellSize
         local fracX = math.clamp((sampleWorldX - sampleCellOriginX) / plan.cellSize, 0, 1)
 
         for offsetZIndex = 1, #offsets do
             local sampleWorldZ = voxelCenterZ + offsets[offsetZIndex]
-            local sampleCellZ =
-                math.max(0, math.min(plan.gridD - 1, math.floor((sampleWorldZ - plan.origin.z) / plan.cellSize)))
+            local rawSampleCellZ = math.floor((sampleWorldZ - plan.origin.z) / plan.cellSize)
+            local sampleCellZ = rawSampleCellZ
+            local materialCellZ = clampIndex(rawSampleCellZ, 0, plan.gridD - 1)
             local sampleCellOriginZ = plan.origin.z + sampleCellZ * plan.cellSize
             local fracZ = math.clamp((sampleWorldZ - sampleCellOriginZ) / plan.cellSize, 0, 1)
             local sampleHeight = plan.sampleInterpolatedHeight(sampleCellX, sampleCellZ, fracX, fracZ)
-            local sampleMaterial = plan.cellMaterials[sampleCellZ + 1][sampleCellX + 1]
+            local sampleMaterial = plan.cellMaterials[materialCellZ + 1][materialCellX + 1]
             local materialName = sampleMaterial.Name
 
             totalHeight += sampleHeight
             sampleCount += 1
+            if sampleHeight < minHeight then
+                minHeight = sampleHeight
+            end
+            if sampleHeight > maxHeight then
+                maxHeight = sampleHeight
+            end
             materialByName[materialName] = sampleMaterial
             materialCounts[materialName] = (materialCounts[materialName] or 0) + 1
 
@@ -154,8 +358,21 @@ local function sampleVoxelColumnProfile(plan, ix, globalIz)
         end
     end
 
+    local averageHeight = totalHeight / sampleCount
+    local heightRange = maxHeight - minHeight
+    local normalizedPeakCoverage = if heightRange > 0
+        then math.clamp((averageHeight - minHeight) / heightRange, 0, 1)
+        else 1
+    local surfaceHeight = if maxHeight - minHeight >= TERRAIN_WRITE_RESOLUTION then maxHeight else averageHeight
+    local surfaceFillDepth = if heightRange >= TERRAIN_WRITE_RESOLUTION
+        then math.max(1, TERRAIN_THICKNESS * normalizedPeakCoverage)
+        else TERRAIN_THICKNESS
+
     return {
-        averageHeight = totalHeight / sampleCount,
+        averageHeight = averageHeight,
+        heightRange = heightRange,
+        surfaceHeight = surfaceHeight,
+        surfaceFillDepth = surfaceFillDepth,
         dominantMaterialName = dominantMaterialName,
         material = materialByName[dominantMaterialName],
         materialSampleCount = dominantMaterialSampleCount,
@@ -163,7 +380,7 @@ local function sampleVoxelColumnProfile(plan, ix, globalIz)
     }
 end
 
-local function buildChunkPlan(chunk)
+local function buildChunkPlan(chunk, options)
     local terrainGrid = chunk.terrain
     if not terrainGrid then
         return nil
@@ -176,6 +393,11 @@ local function buildChunkPlan(chunk)
     local gridW = terrainGrid.width
     local gridD = terrainGrid.depth
     local heights = terrainGrid.heights
+    local terrainNeighbors = if type(options) == "table" then options.terrainNeighbors else nil
+    local terrainNeighborSignature = if type(options) == "table"
+            and type(options.terrainNeighborSignature) == "string"
+        then options.terrainNeighborSignature
+        else "none"
 
     local minH = 0
     local maxH = 0
@@ -208,32 +430,23 @@ local function buildChunkPlan(chunk)
     local dimX = (rMaxX - rMinX) / TERRAIN_WRITE_RESOLUTION
     local dimY = (rMaxY - rMinY) / TERRAIN_WRITE_RESOLUTION
     local dimZ = (rMaxZ - rMinZ) / TERRAIN_WRITE_RESOLUTION
+    local plan
 
     local function sampleInterpolatedHeight(cellX, cellZ, fracX, fracZ)
-        local function getH(cx, cz)
-            cx = math.max(0, math.min(gridW - 1, cx))
-            cz = math.max(0, math.min(gridD - 1, cz))
-            return heights[cz * gridW + cx + 1] or 0
-        end
-
-        local h00 = getH(cellX, cellZ)
-        local h10 = getH(cellX + 1, cellZ)
-        local h01 = getH(cellX, cellZ + 1)
-        local h11 = getH(cellX + 1, cellZ + 1)
+        local h00 = resolveNeighborHeightSample(plan, cellX, cellZ)
+        local h10 = resolveNeighborHeightSample(plan, cellX + 1, cellZ)
+        local h01 = resolveNeighborHeightSample(plan, cellX, cellZ + 1)
+        local h11 = resolveNeighborHeightSample(plan, cellX + 1, cellZ + 1)
         local h0 = h00 + (h10 - h00) * fracX
         local h1 = h01 + (h11 - h01) * fracX
         return h0 + (h1 - h0) * fracZ
     end
 
     local function computeSlope(cx, cz)
-        local function getH(x, z)
-            x = math.max(0, math.min(gridW - 1, x))
-            z = math.max(0, math.min(gridD - 1, z))
-            return heights[z * gridW + x + 1] or 0
-        end
-
-        local dhdx = (getH(cx + 1, cz) - getH(cx - 1, cz)) / (2 * cellSize)
-        local dhdz = (getH(cx, cz + 1) - getH(cx, cz - 1)) / (2 * cellSize)
+        local dhdx = (resolveNeighborHeightSample(plan, cx + 1, cz) - resolveNeighborHeightSample(plan, cx - 1, cz))
+            / (2 * cellSize)
+        local dhdz = (resolveNeighborHeightSample(plan, cx, cz + 1) - resolveNeighborHeightSample(plan, cx, cz - 1))
+            / (2 * cellSize)
         return math.sqrt(dhdx * dhdx + dhdz * dhdz)
     end
 
@@ -290,13 +503,15 @@ local function buildChunkPlan(chunk)
     local terrainStats = summarizeTerrainMaterials(cellMaterials, gridW, gridD)
     local voxelSubsampleOffsets = buildSubsampleOffsets(TERRAIN_WRITE_RESOLUTION, REQUESTED_SAMPLE_RESOLUTION)
 
-    return {
+    plan = {
         terrainGrid = terrainGrid,
         origin = origin,
         cellSize = cellSize,
         totalWidth = totalWidth,
         totalDepth = totalDepth,
         heights = heights,
+        terrainNeighbors = terrainNeighbors,
+        terrainNeighborSignature = terrainNeighborSignature,
         gridW = gridW,
         gridD = gridD,
         rMinX = rMinX,
@@ -317,23 +532,29 @@ local function buildChunkPlan(chunk)
         sampleInterpolatedHeight = sampleInterpolatedHeight,
         sampleVoxelColumnProfile = sampleVoxelColumnProfile,
     }
+    return plan
 end
 
-function TerrainBuilder.PrepareChunk(chunk)
+function TerrainBuilder.PrepareChunk(chunk, options)
     if not chunk or not chunk.terrain then
         return nil
     end
 
+    local terrainNeighborSignature = if type(options) == "table"
+            and type(options.terrainNeighborSignature) == "string"
+        then options.terrainNeighborSignature
+        else "none"
     local cachedPlan = rawget(chunk, BUILD_PLAN_CACHE_KEY)
     if
         cachedPlan ~= nil
         and cachedPlan.terrainGrid == chunk.terrain
         and cachedPlan.origin == chunk.originStuds
+        and cachedPlan.terrainNeighborSignature == terrainNeighborSignature
     then
         return cachedPlan
     end
 
-    local plan = buildChunkPlan(chunk)
+    local plan = buildChunkPlan(chunk, options)
     rawset(chunk, BUILD_PLAN_CACHE_KEY, plan)
     return plan
 end
@@ -413,37 +634,25 @@ function TerrainBuilder.Build(_parent, chunk, preparedPlan)
                 local localIz = globalIz - izBase + 1 -- 1-indexed within strip
                 local columnProfile = sampleVoxelColumnProfile(plan, ix, globalIz)
                 local mat = columnProfile.material
-                local worldSurfY = origin.y + columnProfile.averageHeight
-                        local worldBotY = worldSurfY - TERRAIN_THICKNESS
+                local worldSurfY = origin.y + columnProfile.surfaceHeight
+                local worldBotY = worldSurfY - columnProfile.surfaceFillDepth
 
-                local vy0 = math.max(
-                    1,
-                    math.floor((worldBotY - rMinY) / TERRAIN_WRITE_RESOLUTION) + 1
-                )
-                local vy1 = math.min(
-                    dimY,
-                    math.ceil((worldSurfY - rMinY) / TERRAIN_WRITE_RESOLUTION)
-                )
+                local vy0 = math.max(1, math.floor((worldBotY - rMinY) / TERRAIN_WRITE_RESOLUTION) + 1)
+                local vy1 = math.min(dimY, math.ceil((worldSurfY - rMinY) / TERRAIN_WRITE_RESOLUTION))
 
                 for iy = vy0, vy1 do
                     local voxelCenterY = rMinY + (iy - 0.5) * TERRAIN_WRITE_RESOLUTION
                     local occupancy = 1
 
                     if iy == vy0 then
-                        local bottomOccupancy = math.clamp(
-                            0.5 + (voxelCenterY - worldBotY) / TERRAIN_WRITE_RESOLUTION,
-                            0,
-                            1
-                        )
+                        local bottomOccupancy =
+                            math.clamp(0.5 + (voxelCenterY - worldBotY) / TERRAIN_WRITE_RESOLUTION, 0, 1)
                         occupancy = math.min(occupancy, bottomOccupancy)
                     end
 
                     if iy == vy1 then
-                        local topOccupancy = math.clamp(
-                            0.5 + (worldSurfY - voxelCenterY) / TERRAIN_WRITE_RESOLUTION,
-                            0,
-                            1
-                        )
+                        local topOccupancy =
+                            math.clamp(0.5 + (worldSurfY - voxelCenterY) / TERRAIN_WRITE_RESOLUTION, 0, 1)
                         occupancy = math.min(occupancy, topOccupancy)
                     end
 
@@ -458,8 +667,7 @@ function TerrainBuilder.Build(_parent, chunk, preparedPlan)
         -- Write this strip to Roblox terrain.
         local zWorldMin = rMinZ + (izBase - 1) * TERRAIN_WRITE_RESOLUTION
         local zWorldMax = rMinZ + izEnd * TERRAIN_WRITE_RESOLUTION
-        local stripRegion =
-            Region3.new(Vector3.new(rMinX, rMinY, zWorldMin), Vector3.new(rMaxX, rMaxY, zWorldMax))
+        local stripRegion = Region3.new(Vector3.new(rMinX, rMinY, zWorldMin), Vector3.new(rMaxX, rMaxY, zWorldMax))
         terrain:WriteVoxels(stripRegion, TERRAIN_WRITE_RESOLUTION, stripMat, stripOcc)
 
         izBase = izEnd + 1
@@ -467,6 +675,7 @@ function TerrainBuilder.Build(_parent, chunk, preparedPlan)
 end
 
 TerrainBuilder._buildSubsampleOffsets = buildSubsampleOffsets
+TerrainBuilder._resolveNeighborHeightSample = resolveNeighborHeightSample
 TerrainBuilder._sampleVoxelColumnProfile = sampleVoxelColumnProfile
 
 function TerrainBuilder.ImprintRoads(roads, originStuds, _chunk)
@@ -481,11 +690,7 @@ function TerrainBuilder.ImprintRoads(roads, originStuds, _chunk)
             local width = road.width or (road.road and road.road.widthStuds) or 10
             local material = road.material or Enum.Material.Asphalt
             for _, segment in ipairs(road.segments) do
-                if
-                    segment.mode == "ground"
-                    and typeof(segment.p1) == "Vector3"
-                    and typeof(segment.p2) == "Vector3"
-                then
+                if segment.mode == "ground" and typeof(segment.p1) == "Vector3" and typeof(segment.p2) == "Vector3" then
                     target[#target + 1] = {
                         p1 = segment.p1,
                         p2 = segment.p2,
@@ -526,10 +731,8 @@ function TerrainBuilder.ImprintRoads(roads, originStuds, _chunk)
                 continue
             end
 
-            local worldP1 =
-                Vector3.new(p1.x + originStuds.x, p1.y + originStuds.y, p1.z + originStuds.z)
-            local worldP2 =
-                Vector3.new(p2.x + originStuds.x, p2.y + originStuds.y, p2.z + originStuds.z)
+            local worldP1 = Vector3.new(p1.x + originStuds.x, p1.y + originStuds.y, p1.z + originStuds.z)
+            local worldP2 = Vector3.new(p2.x + originStuds.x, p2.y + originStuds.y, p2.z + originStuds.z)
             local segLen = (worldP2 - worldP1).Magnitude
             if segLen >= 0.1 then
                 target[#target + 1] = {
@@ -573,10 +776,7 @@ function TerrainBuilder.ImprintRoads(roads, originStuds, _chunk)
             return nil
         end
 
-        if
-            math.abs(active.p2.X - nextSegment.p1.X) > 1e-6
-            or math.abs(active.p2.Z - nextSegment.p1.Z) > 1e-6
-        then
+        if math.abs(active.p2.X - nextSegment.p1.X) > 1e-6 or math.abs(active.p2.Z - nextSegment.p1.Z) > 1e-6 then
             return nil
         end
 

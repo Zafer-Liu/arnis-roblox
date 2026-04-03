@@ -29,6 +29,7 @@ local LOCAL_TERRAIN_NEIGHBOR_PAIRS = {
     { 3, 4 },
     { 3, 5 },
 }
+local LOCAL_TERRAIN_EDGE_INDICES = { 1, 2, 4, 5 }
 local LOCAL_TERRAIN_OFFSETS = {
     Vector3.new(-LOCAL_TERRAIN_SAMPLE_RADIUS, 0, 0),
     Vector3.new(0, 0, -LOCAL_TERRAIN_SAMPLE_RADIUS),
@@ -186,7 +187,9 @@ local function sampleGroundSupport(rootPart, worldRoot)
         supportSurfaceRole = supportSurfaceRole,
         supportY = supportY,
         terrainY = terrainY,
-        supportMinusTerrainYStuds = if supportY ~= nil and terrainY ~= nil then roundTenths(supportY - terrainY) else nil,
+        supportMinusTerrainYStuds = if supportY ~= nil and terrainY ~= nil
+            then roundTenths(supportY - terrainY)
+            else nil,
         supportSourceIds = if supportSourceId ~= nil then { supportSourceId } else {},
     }
 end
@@ -237,6 +240,7 @@ local function sampleLocalTerrain(rootPart, worldRoot)
         samplePattern = LOCAL_TERRAIN_SAMPLE_PATTERN,
         sampleRadiusStuds = LOCAL_TERRAIN_SAMPLE_RADIUS,
         neighborPairs = LOCAL_TERRAIN_NEIGHBOR_PAIRS,
+        edgeIndices = LOCAL_TERRAIN_EDGE_INDICES,
     })
 end
 
@@ -331,12 +335,21 @@ local function summarizeWorld(rootPart, worldRoot, worldRootName, telemetryFlags
                 local isRoofPart = string.find(nameLower, "roof", 1, true) ~= nil and not isRoofClosureDeck
 
                 if descendant:IsA("MeshPart") and shellFolder and descendant:IsDescendantOf(shellFolder) then
-                    if horizontalPartDistance <= NEARBY_BUILDING_RADIUS and not isRoofPart and not isRoofClosureDeck then
+                    if
+                        horizontalPartDistance <= NEARBY_BUILDING_RADIUS
+                        and not isRoofPart
+                        and not isRoofClosureDeck
+                    then
                         nearbyMergedBuildingMeshParts += 1
                     end
                 end
 
-                if shellFolder and descendant:IsDescendantOf(shellFolder) and not isRoofPart and not isRoofClosureDeck then
+                if
+                    shellFolder
+                    and descendant:IsDescendantOf(shellFolder)
+                    and not isRoofPart
+                    and not isRoofClosureDeck
+                then
                     local isNearbyShellWall, nearestShellWallDistanceStuds =
                         WorldProbeGeometry.isNearbyShellWall(descendant, rootPosition, NEARBY_WALL_RADIUS)
                     if isNearbyShellWall then
@@ -344,7 +357,10 @@ local function summarizeWorld(rootPart, worldRoot, worldRootName, telemetryFlags
                         if descendant.CanCollide then
                             collidableWallPartsNearby += 1
                         end
-                        if nearestWallDistanceStuds == nil or nearestShellWallDistanceStuds < nearestWallDistanceStuds then
+                        if
+                            nearestWallDistanceStuds == nil
+                            or nearestShellWallDistanceStuds < nearestWallDistanceStuds
+                        then
                             nearestWallDistanceStuds = nearestShellWallDistanceStuds
                         end
                     end

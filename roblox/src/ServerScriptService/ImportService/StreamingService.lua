@@ -11,12 +11,14 @@ local MemoryGuardrail = require(script.Parent.MemoryGuardrail)
 local SubplanRollout = require(script.Parent.SubplanRollout)
 local DefaultWorldConfig = require(ReplicatedStorage.Shared.WorldConfig)
 local Logger = require(ReplicatedStorage.Shared.Logger)
+local WorldProbeGeometry = require(ReplicatedStorage.Shared.WorldProbeGeometry)
 
 local StreamingService = {}
 
 local streamingManifest = nil
 local streamingChunkRefs = nil
 local streamingChunkRefsById = nil
+local streamingChunkRefsByOrigin = nil
 local streamingOptions = nil
 local streamingChunkIndex = nil
 local streamingResolvedRings = nil
@@ -52,6 +54,10 @@ local HOST_PROBE_AVAILABLE_ATTR = "ArnisStreamingHostProbeAvailableBytes"
 local HOST_PROBE_PRESSURE_ATTR = "ArnisStreamingHostProbePressureLevel"
 local DEFAULT_WORLD_ROOT_NAME = "GeneratedWorld"
 local STREAMING_RING_ORDER = { "near", "mid", "far" }
+local STARTUP_NEARBY_BUILDING_RADIUS = 260
+local STARTUP_NEARBY_WALL_RADIUS = 180
+local STARTUP_OVERHEAD_ROOF_RADIUS = 220
+local STARTUP_OVERHEAD_MIN_DELTA_Y = 12
 
 local function normalizePositiveNumber(value)
     if type(value) ~= "number" then
@@ -85,6 +91,19 @@ local function buildChunkRefById(chunkRefs)
         end
     end
     return byId
+end
+
+local function makeChunkOriginKey(x, z)
+    return ("%s:%s"):format(tostring(x or 0), tostring(z or 0))
+end
+
+local function buildChunkRefByOrigin(chunkRefs)
+    local byOrigin = {}
+    for _, chunkRef in ipairs(chunkRefs or {}) do
+        local origin = chunkRef.originStuds or {}
+        byOrigin[makeChunkOriginKey(origin.x or 0, origin.z or 0)] = chunkRef
+    end
+    return byOrigin
 end
 
 local function resolveStreamingRings(config)
@@ -293,8 +312,8 @@ local function updateStreamingResidencyTelemetry(
     local ringBudgets = resolvedRings or {}
     local ringDesiredStats = desiredRingStats or {}
     local worldRootName = if type(streamingOptions) == "table"
-        and type(streamingOptions.worldRootName) == "string"
-        and streamingOptions.worldRootName ~= ""
+            and type(streamingOptions.worldRootName) == "string"
+            and streamingOptions.worldRootName ~= ""
         then streamingOptions.worldRootName
         else DEFAULT_WORLD_ROOT_NAME
     Workspace:SetAttribute("ArnisStreamingLoadedChunkCount", #ChunkLoader.ListLoadedChunks(worldRootName))
@@ -406,11 +425,8 @@ local function resolveSchedulerFocusPoint(playerPos, config)
         return movementForward, predictedFocalPoint, movementDeltaStuds, movementLookaheadStuds
     end
 
-    local horizontalDelta = Vector3.new(
-        playerPos.X - streamingLastFocalPoint.X,
-        0,
-        playerPos.Z - streamingLastFocalPoint.Z
-    )
+    local horizontalDelta =
+        Vector3.new(playerPos.X - streamingLastFocalPoint.X, 0, playerPos.Z - streamingLastFocalPoint.Z)
     movementDeltaStuds = horizontalDelta.Magnitude
     if movementDeltaStuds < 1 then
         return movementForward, predictedFocalPoint, movementDeltaStuds, movementLookaheadStuds
@@ -787,6 +803,178 @@ getChunkCenter = function(chunkRef, chunkSizeStuds)
     return originData.x + halfSize, originData.z + halfSize
 end
 
+local function resolveWorldRootName(worldRootName)
+    if type(worldRootName) == "string" and worldRootName ~= "" then
+        return worldRootName
+    end
+
+    if type(streamingOptions) == "table" then
+        local configuredWorldRootName = streamingOptions.worldRootName
+        if type(configuredWorldRootName) == "string" and configuredWorldRootName ~= "" then
+            return configuredWorldRootName
+        end
+    end
+
+    return DEFAULT_WORLD_ROOT_NAME
+end
+
+local function isRoofClosureDeckPart(part)
+    if part == nil then
+        return false
+    end
+
+    if part:GetAttribute("ArnisRoofClosureDeck") == true then
+        return true
+    end
+
+    return string.find(string.lower(part.Name), "roof_closure", 1, true) ~= nil
+end
+
+local function buildStartupStructureTelemetry(spawnPoint, worldRootName)
+    local structureTelemetry = {
+        nearbyBuildingModels = 0,
+        nearbyMergedBuildingMeshParts = 0,
+        nearbyWallParts = 0,
+        nearbyRoofParts = 0,
+        overheadRoofParts = 0,
+        collidableWallPartsNearby = 0,
+        nearestWallDistanceStuds = nil,
+    }
+
+    if typeof(spawnPoint) ~= "Vector3" then
+        return structureTelemetry
+    end
+
+    local worldRoot = Workspace:FindFirstChild(resolveWorldRootName(worldRootName))
+    if not worldRoot then
+        return structureTelemetry
+    end
+
+    local resolvedWorldRootName = worldRoot.Name
+    for _, chunkId in ipairs(ChunkLoader.ListLoadedChunks(resolvedWorldRootName)) do
+        local chunkEntry = ChunkLoader.GetChunkEntry(chunkId, resolvedWorldRootName)
+        if not chunkEntryBelongsToWorldRoot(chunkEntry, resolvedWorldRootName) then
+            continue
+        end
+
+        local chunkFolder = chunkEntry.folder
+        local buildingsFolder = chunkFolder:FindFirstChild("Buildings")
+        if not buildingsFolder then
+            continue
+        end
+
+        local mergedMeshes = buildingsFolder:FindFirstChild("MergedMeshes")
+        for _, model in ipairs(buildingsFolder:GetDescendants()) do
+            if not model:IsA("Model") or model:GetAttribute("ArnisImportBuildingHeight") == nil then
+                continue
+            end
+
+            local sourceId = model:GetAttribute("ArnisImportSourceId")
+            if type(sourceId) ~= "string" or sourceId == "" then
+                continue
+            end
+
+            local pivotPosition = model:GetPivot().Position
+            local offset = pivotPosition - spawnPoint
+            local horizontalDistance = Vector2.new(offset.X, offset.Z).Magnitude
+            if horizontalDistance > STARTUP_NEARBY_BUILDING_RADIUS then
+                continue
+            end
+
+            structureTelemetry.nearbyBuildingModels += 1
+
+            local shellFolder = model:FindFirstChild("Shell")
+            if not shellFolder then
+                continue
+            end
+
+            for _, descendant in ipairs(shellFolder:GetDescendants()) do
+                if not descendant:IsA("BasePart") then
+                    continue
+                end
+
+                local partOffset = descendant.Position - spawnPoint
+                local horizontalPartDistance = Vector2.new(partOffset.X, partOffset.Z).Magnitude
+                local nameLower = string.lower(descendant.Name)
+                local roofClosureDeck = isRoofClosureDeckPart(descendant)
+                local roofPart = string.find(nameLower, "roof", 1, true) ~= nil and not roofClosureDeck
+
+                if descendant:IsA("MeshPart") and mergedMeshes and descendant:IsDescendantOf(mergedMeshes) then
+                    if
+                        horizontalPartDistance <= STARTUP_NEARBY_BUILDING_RADIUS
+                        and not roofPart
+                        and not roofClosureDeck
+                    then
+                        structureTelemetry.nearbyMergedBuildingMeshParts += 1
+                    end
+                end
+
+                if roofPart then
+                    structureTelemetry.nearbyRoofParts += 1
+                    if
+                        horizontalPartDistance <= STARTUP_OVERHEAD_ROOF_RADIUS
+                        and partOffset.Y >= STARTUP_OVERHEAD_MIN_DELTA_Y
+                    then
+                        structureTelemetry.overheadRoofParts += 1
+                    end
+                    continue
+                end
+
+                if roofClosureDeck then
+                    continue
+                end
+
+                local isNearbyShellWall, nearestShellWallDistanceStuds =
+                    WorldProbeGeometry.isNearbyShellWall(descendant, spawnPoint, STARTUP_NEARBY_WALL_RADIUS)
+                if isNearbyShellWall then
+                    structureTelemetry.nearbyWallParts += 1
+                    if descendant.CanCollide then
+                        structureTelemetry.collidableWallPartsNearby += 1
+                    end
+                    if
+                        structureTelemetry.nearestWallDistanceStuds == nil
+                        or nearestShellWallDistanceStuds < structureTelemetry.nearestWallDistanceStuds
+                    then
+                        structureTelemetry.nearestWallDistanceStuds = nearestShellWallDistanceStuds
+                    end
+                end
+            end
+        end
+    end
+
+    return structureTelemetry
+end
+
+function StreamingService.GetStartupResidencySnapshot(spawnPoint, worldRootName)
+    local nearResident = tonumber(Workspace:GetAttribute("ArnisStreamingRingNearResidentChunkCount")) or 0
+    local nearDesired = tonumber(Workspace:GetAttribute("ArnisStreamingRingNearDesiredChunkCount")) or 0
+    local queuedWorkItems = tonumber(Workspace:GetAttribute("ArnisStreamingQueuedWorkItemCount")) or 0
+    local schedulerState = Workspace:GetAttribute("ArnisStreamingSchedulerState")
+    local structureTelemetry = buildStartupStructureTelemetry(spawnPoint, worldRootName)
+    local requiredNearChunks = math.max(1, nearDesired)
+    local ready = nearResident >= requiredNearChunks
+        and queuedWorkItems <= 0
+        and schedulerState == "steady_state"
+        and structureTelemetry.nearbyBuildingModels > 0
+        and structureTelemetry.nearbyWallParts > 0
+        and structureTelemetry.nearbyRoofParts > 0
+
+    return {
+        nearResidentChunkCount = nearResident,
+        nearDesiredChunkCount = nearDesired,
+        queuedWorkItemCount = queuedWorkItems,
+        schedulerState = schedulerState,
+        nearbyBuildingModels = structureTelemetry.nearbyBuildingModels,
+        nearbyMergedBuildingMeshParts = structureTelemetry.nearbyMergedBuildingMeshParts,
+        nearbyWallParts = structureTelemetry.nearbyWallParts,
+        nearbyRoofParts = structureTelemetry.nearbyRoofParts,
+        overheadRoofParts = structureTelemetry.overheadRoofParts,
+        collidableWallPartsNearby = structureTelemetry.collidableWallPartsNearby,
+        nearestWallDistanceStuds = structureTelemetry.nearestWallDistanceStuds,
+        ready = ready,
+    }
+end
+
 local function getIndexCoord(value, cellSize)
     return math.floor(value / cellSize)
 end
@@ -894,9 +1082,85 @@ local function getMaterializedChunk(chunkEntry)
     end
 
     local chunkRef = chunkEntry.ref
-    local chunk = if streamingManifest.GetChunk then streamingManifest:GetChunk(chunkRef.id) else chunkRef
+    local chunk = if streamingManifest and type(streamingManifest.GetChunk) == "function"
+        then streamingManifest:GetChunk(chunkRef.id)
+        else chunkRef
     chunkEntry.materializedChunk = chunk
     return chunk
+end
+
+local function describeStreamingTerrainNeighborChunk(chunkRef)
+    if type(chunkRef) ~= "table" then
+        return nil
+    end
+
+    local chunk = if streamingManifest and type(streamingManifest.GetChunk) == "function"
+        then streamingManifest:GetChunk(chunkRef.id)
+        else chunkRef
+    local terrain = chunk and chunk.terrain or nil
+    if type(chunk) ~= "table" or type(terrain) ~= "table" or type(terrain.heights) ~= "table" then
+        return nil
+    end
+
+    return {
+        id = chunk.id or chunkRef.id,
+        terrain = terrain,
+    }
+end
+
+local function buildStreamingTerrainNeighborContext(chunkRef)
+    if type(chunkRef) ~= "table" then
+        return nil
+    end
+
+    local chunkSizeStuds = if type(streamingOptions) == "table"
+            and type(streamingOptions.config) == "table"
+            and type(streamingOptions.config.ChunkSizeStuds) == "number"
+        then streamingOptions.config.ChunkSizeStuds
+        elseif
+            streamingManifest
+            and streamingManifest.meta
+            and type(streamingManifest.meta.chunkSizeStuds) == "number"
+        then streamingManifest.meta.chunkSizeStuds
+        else DefaultWorldConfig.ChunkSizeStuds or 256
+    local origin = chunkRef.originStuds or {}
+    local originX = origin.x or 0
+    local originZ = origin.z or 0
+
+    local function resolveNeighbor(offsetX, offsetZ)
+        local neighborRef = streamingChunkRefsByOrigin
+                and streamingChunkRefsByOrigin[makeChunkOriginKey(
+                    originX + offsetX * chunkSizeStuds,
+                    originZ + offsetZ * chunkSizeStuds
+                )]
+            or nil
+        return describeStreamingTerrainNeighborChunk(neighborRef)
+    end
+
+    local neighbors = {
+        west = resolveNeighbor(-1, 0),
+        east = resolveNeighbor(1, 0),
+        north = resolveNeighbor(0, -1),
+        south = resolveNeighbor(0, 1),
+        northWest = resolveNeighbor(-1, -1),
+        northEast = resolveNeighbor(1, -1),
+        southWest = resolveNeighbor(-1, 1),
+        southEast = resolveNeighbor(1, 1),
+    }
+
+    return {
+        neighbors = neighbors,
+        signature = table.concat({
+            "west=" .. tostring(neighbors.west and neighbors.west.id or "none"),
+            "east=" .. tostring(neighbors.east and neighbors.east.id or "none"),
+            "north=" .. tostring(neighbors.north and neighbors.north.id or "none"),
+            "south=" .. tostring(neighbors.south and neighbors.south.id or "none"),
+            "northWest=" .. tostring(neighbors.northWest and neighbors.northWest.id or "none"),
+            "northEast=" .. tostring(neighbors.northEast and neighbors.northEast.id or "none"),
+            "southWest=" .. tostring(neighbors.southWest and neighbors.southWest.id or "none"),
+            "southEast=" .. tostring(neighbors.southEast and neighbors.southEast.id or "none"),
+        }, ","),
+    }
 end
 
 local function appendStreamingWorkItems(workItems, chunkEntry, chunkOptions, config, targetLod)
@@ -1160,6 +1424,7 @@ function StreamingService.Start(manifest, options)
     streamingManifest = manifest
     streamingChunkRefs = manifest and (manifest.chunkRefs or manifest.chunks) or nil
     streamingChunkRefsById = buildChunkRefById(streamingChunkRefs)
+    streamingChunkRefsByOrigin = buildChunkRefByOrigin(streamingChunkRefs)
     streamingOptions = table.clone(options or {})
     streamingOptions.worldRootName = worldRootName
     local config = streamingOptions.config or DefaultWorldConfig
@@ -1236,6 +1501,7 @@ function StreamingService.Stop()
     streamingSubplanRollout = nil
     streamingMemoryGuardrail = nil
     streamingChunkRefsById = nil
+    streamingChunkRefsByOrigin = nil
     streamingResolvedRings = nil
     table.clear(observedChunkImportMsById)
     table.clear(streamingResidentEstimatedCostById)
@@ -1322,15 +1588,14 @@ function StreamingService.Update(focalPoint)
             end
 
             local currentLod = loadedChunkLods[chunkRef.id]
-            local targetLod =
-                chooseTargetLod(
-                    schedulerDistSq,
-                    currentLod,
-                    highRadiusSq,
-                    highExitRadiusSq,
-                    targetRadiusSq,
-                    targetExitRadiusSq
-                )
+            local targetLod = chooseTargetLod(
+                schedulerDistSq,
+                currentLod,
+                highRadiusSq,
+                highExitRadiusSq,
+                targetRadiusSq,
+                targetExitRadiusSq
+            )
             local ringName = getChunkRingName(schedulerDistSq, resolvedRings)
 
             if targetLod then
@@ -1344,7 +1609,10 @@ function StreamingService.Update(focalPoint)
                 -- The hard admission stop line is the memory guardrail, so do not filter in-ring
                 -- work here purely for exceeding a ring's estimated-byte target.
                 if ring == nil or exceedsRingChunkLimit then
-                    if currentLod ~= nil or ChunkLoader.GetChunkEntry(chunkRef.id, streamingOptions.worldRootName) ~= nil then
+                    if
+                        currentLod ~= nil
+                        or ChunkLoader.GetChunkEntry(chunkRef.id, streamingOptions.worldRootName) ~= nil
+                    then
                         local residentCost = getResidentEstimatedCostForChunkId(chunkRef.id)
                         if residentCost <= 0 then
                             residentCost = estimatedChunkCost
@@ -1520,6 +1788,7 @@ function StreamingService.Update(focalPoint)
             local chunkEntry = workItem.chunkEntry
             local chunkRef = chunkEntry.ref
             local chunk = getMaterializedChunk(chunkEntry)
+            local terrainNeighborContext = buildStreamingTerrainNeighborContext(chunkRef)
             local importStartedAt = os.clock()
             if streamingMemoryGuardrail then
                 streamingMemoryGuardrail:AdmitInFlightBytes(workItemCost)
@@ -1530,10 +1799,18 @@ function StreamingService.Update(focalPoint)
                     local subplanOptions = table.clone(workItem.chunkOptions)
                     subplanOptions.registrationChunk = chunkRef
                     subplanOptions.chunkSignature = ImportSignatures.GetChunkSignature(chunkRef)
+                    if terrainNeighborContext ~= nil then
+                        subplanOptions.terrainNeighbors = terrainNeighborContext.neighbors
+                        subplanOptions.terrainNeighborSignature = terrainNeighborContext.signature
+                    end
                     return ImportService.ImportChunkSubplan(chunk, workItem.subplan, subplanOptions)
                 else
                     local importOptions = table.clone(workItem.chunkOptions)
                     importOptions.chunkSignature = ImportSignatures.GetChunkSignature(chunkRef)
+                    if terrainNeighborContext ~= nil then
+                        importOptions.terrainNeighbors = terrainNeighborContext.neighbors
+                        importOptions.terrainNeighborSignature = terrainNeighborContext.signature
+                    end
                     return ImportService.ImportChunk(chunk, importOptions)
                 end
             end, debug.traceback)

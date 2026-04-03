@@ -11,6 +11,7 @@ from scripts.studio_mcp_proxy_lib import (
     ProbeError,
     build_mcp_client,
     ensure_play_mode,
+    run_code_in_existing_session,
     run_code_in_play_session,
 )
 
@@ -162,6 +163,21 @@ class StudioMcpProxyLibTests(unittest.TestCase):
         self.assertEqual(tool_names, ["get_studio_mode", "run_script_in_play_mode"])
         self.assertEqual(client.calls[-1][1], {"code": "print('hello')", "mode": "start_play", "timeout": 77})
         self.assertEqual(client.calls[-1][3], 77)
+
+    def test_run_code_in_existing_session_uses_run_code_without_session_transition(self) -> None:
+        client = FakeClient(initial_mode="start_play")
+
+        result = run_code_in_existing_session(
+            client,
+            "print('hello')",
+            timeout_seconds=77,
+        )
+
+        self.assertEqual(result["content"][0]["text"], "ok")
+        self.assertEqual(
+            client.calls,
+            [("run_code", {"command": "print('hello')"}, True, 77)],
+        )
 
     def test_run_code_in_play_session_stops_and_retries_when_previous_play_session_is_stuck(self) -> None:
         client = FakeClient(

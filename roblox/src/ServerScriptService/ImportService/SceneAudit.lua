@@ -2,6 +2,7 @@ local CollectionService = game:GetService("CollectionService")
 
 local SceneAudit = {}
 local MAX_BUILDING_VISIBLE_WALL_GAP_DETAILS = 16
+local MAX_BUILDING_CLOSURE_ONLY_ROOF_GAP_DETAILS = 16
 
 local function normalizeBucketValue(value, fallback)
     if type(value) == "string" and value ~= "" then
@@ -184,6 +185,7 @@ local function newSummary()
         buildingModelsWithDirectRoof = 0,
         buildingModelsWithMergedRoofOnly = 0,
         buildingModelsWithNoRoofEvidence = 0,
+        buildingModelsWithClosureOnlyRoofGap = 0,
         buildingModelsWithRoof = 0,
         buildingModelsWithoutRoof = 0,
         buildingRoofCoverageByUsage = {},
@@ -194,6 +196,7 @@ local function newSummary()
         buildingModelsMissingDirectShell = 0,
         buildingModelsWithVisibleShellWalls = 0,
         buildingModelsWithoutVisibleShellWalls = 0,
+        buildingClosureOnlyRoofGapDetails = {},
         buildingVisibleWallGapDetails = {},
         mergedBuildingMeshPartCount = 0,
         roadTaggedPartCount = 0,
@@ -283,7 +286,8 @@ local function summarizeBuildingStructure(building)
                     local lowerName = string.lower(descendant.Name)
                     local looksLikeWall = descendant:IsA("MeshPart") or string.find(lowerName, "wall", 1, true) ~= nil
                     local size = descendant.Size
-                    local significantExtent = math.max(size.X, size.Y, size.Z) >= 2 and math.min(size.X, size.Y, size.Z) > 0
+                    local significantExtent = math.max(size.X, size.Y, size.Z) >= 2
+                        and math.min(size.X, size.Y, size.Z) > 0
                     if isVisible and looksLikeWall and significantExtent then
                         summary.visibleShellWallParts += 1
                     end
@@ -366,12 +370,7 @@ local function summarizeRoadFolder(roadsFolder)
                 local sourceCount = roadDescendant:GetAttribute("ArnisRoadSourceCount")
                 local sourceIds = roadDescendant:GetAttribute("ArnisRoadSourceIds")
                 incrementRoadSurfaceBucket(summary.roadSurfacePartCountByKind, kindBucket, sourceCount, sourceIds)
-                incrementRoadSurfaceBucket(
-                    summary.roadSurfacePartCountBySubkind,
-                    subkindBucket,
-                    sourceCount,
-                    sourceIds
-                )
+                incrementRoadSurfaceBucket(summary.roadSurfacePartCountBySubkind, subkindBucket, sourceCount, sourceIds)
             end
 
             if detailFolder and roadDescendant:IsDescendantOf(detailFolder) then
@@ -685,6 +684,22 @@ function SceneAudit.summarizeWorld(worldRoot)
                         scene.buildingModelsWithRoofClosureDeck += 1
                         incrementRoofClosureBucket(scene.buildingRoofCoverageByUsage, usageBucket)
                         incrementRoofClosureBucket(scene.buildingRoofCoverageByShape, roofShapeBucket)
+                    end
+                    if roofClosureParts > 0 and evidenceKind == "none" then
+                        scene.buildingModelsWithClosureOnlyRoofGap += 1
+                        local pivot = building:GetPivot()
+                        appendBoundedDetail(scene.buildingClosureOnlyRoofGapDetails, {
+                            sourceId = buildingSourceId,
+                            name = building.Name,
+                            usage = usageBucket,
+                            roofShape = roofShapeBucket,
+                            shellParts = shellParts,
+                            shellMeshParts = shellMeshParts,
+                            roofParts = roofParts,
+                            roofClosureParts = roofClosureParts,
+                            x = math.round(pivot.Position.X * 10) / 10,
+                            z = math.round(pivot.Position.Z * 10) / 10,
+                        }, MAX_BUILDING_CLOSURE_ONLY_ROOF_GAP_DETAILS)
                     end
                     if evidenceKind == "direct" then
                         scene.buildingModelsWithDirectRoof += 1

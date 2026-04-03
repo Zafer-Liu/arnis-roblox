@@ -98,11 +98,54 @@ class RunStudioHarnessRemoteTests(unittest.TestCase):
 
     def test_fetches_remote_logs_and_screenshots_back_locally(self) -> None:
         self.assertIn('LOCAL_ARTIFACT_DIR="${ARNIS_REMOTE_STUDIO_ARTIFACT_DIR:-/tmp/arnis-remote-studio}"', self.text)
+        self.assertIn("sync_remote_artifacts()", self.text)
         self.assertIn('remote_latest_log="$(ssh "$REMOTE_HOST" ', self.text)
         self.assertIn('rsync -a "$REMOTE_HOST:$remote_latest_log" "$LOCAL_ARTIFACT_DIR/"', self.text)
         self.assertIn('/tmp/arnis-studio-harness-edit.png', self.text)
         self.assertIn('/tmp/arnis-studio-harness-play.png', self.text)
         self.assertIn('/tmp/arnis-preview-plugin-state.json', self.text)
+
+    def test_clears_volatile_remote_tmp_artifacts_before_each_run(self) -> None:
+        self.assertIn("reset_remote_proof_artifacts()", self.text)
+        self.assertIn('/tmp/arnis-scene-fidelity-edit.json', self.text)
+        self.assertIn('/tmp/arnis-scene-fidelity-play.json', self.text)
+        self.assertIn('/tmp/arnis-scene-parity.json', self.text)
+        self.assertIn('/tmp/arnis-studio-harness-play.png', self.text)
+        self.assertIn('rm -f "$artifact_path"', self.text)
+        self.assertIn('reset_remote_proof_artifacts', self.text)
+
+    def test_proof_first_wrapper_mirrors_remote_output_and_starts_early_sync_after_authoritative_signal(self) -> None:
+        self.assertIn('REMOTE_SESSION_OUTPUT_LOG="$(mktemp -t arnis-remote-harness-output)"', self.text)
+        self.assertIn('ssh "$REMOTE_HOST" \'bash -s\' -- "$SYNC_STAGE" "$REMOTE_ARNIS_DIR" "$REMOTE_VSYNC_DIR" "$REMOTE_VSYNC_TARGET_DIR" "${HARNESS_ARGS[@]}"', self.text)
+        self.assertIn('> >(tee "$REMOTE_SESSION_OUTPUT_LOG") 2>&1', self.text)
+        self.assertIn("remote_proof_signal_detected()", self.text)
+        self.assertIn('play bootstrap trace verdict \\(authoritative client bootstrap marker\\): valid', self.text)
+        self.assertIn('if [[ $proof_signal_seen -eq 0 ]] && remote_proof_signal_detected; then', self.text)
+        self.assertIn('sync_remote_artifacts || true', self.text)
+
+    def test_proof_first_wrapper_bounds_cleanup_tail_after_main_flow_completion(self) -> None:
+        self.assertIn('PROOF_SYNC_TAIL_TIMEOUT_SECONDS="${ARNIS_REMOTE_STUDIO_TAIL_TIMEOUT_SECONDS:-20}"', self.text)
+        self.assertIn("remote_completion_signal_detected()", self.text)
+        self.assertIn('main harness flow complete; exiting', self.text)
+        self.assertIn('completion_signal_seen_at=0', self.text)
+        self.assertIn('if [[ $completion_signal_seen_at -eq 0 ]] && remote_completion_signal_detected; then', self.text)
+        self.assertIn('if (( now_epoch - completion_signal_seen_at >= PROOF_SYNC_TAIL_TIMEOUT_SECONDS )); then', self.text)
+        self.assertIn('echo "[remote-harness] bounded remote cleanup tail exceeded ${PROOF_SYNC_TAIL_TIMEOUT_SECONDS}s after proof completion; stopping wrapper wait" >&2', self.text)
+        self.assertIn('kill -TERM "$remote_ssh_pid" >/dev/null 2>&1 || true', self.text)
+
+    def test_seeds_manifest_summary_and_fetches_scene_audit_artifacts(self) -> None:
+        self.assertIn('LOCAL_MANIFEST_SUMMARY_PATH="$LOCAL_ARNIS_DIR/rust/out/austin-manifest.scene-index.json"', self.text)
+        self.assertIn('REMOTE_MANIFEST_SUMMARY_PATH="$REMOTE_ARNIS_DIR/rust/out/austin-manifest.scene-index.json"', self.text)
+        self.assertIn('sync_optional_file "$LOCAL_MANIFEST_SUMMARY_PATH" "$REMOTE_MANIFEST_SUMMARY_PATH"', self.text)
+        self.assertIn('seed_remote_optional_file_from_base "$REMOTE_ARNIS_BASE/rust/out/austin-manifest.scene-index.json" "$REMOTE_MANIFEST_SUMMARY_PATH"', self.text)
+        self.assertIn('/tmp/arnis-studio-harness-edit.capture.json', self.text)
+        self.assertIn('/tmp/arnis-studio-harness-play.capture.json', self.text)
+        self.assertIn('/tmp/arnis-scene-fidelity-edit.json', self.text)
+        self.assertIn('/tmp/arnis-scene-fidelity-edit.html', self.text)
+        self.assertIn('/tmp/arnis-scene-fidelity-play.json', self.text)
+        self.assertIn('/tmp/arnis-scene-fidelity-play.html', self.text)
+        self.assertIn('/tmp/arnis-scene-parity.json', self.text)
+        self.assertIn('/tmp/arnis-scene-parity.html', self.text)
 
     def test_supports_remote_profile_host_and_root_flags(self) -> None:
         self.assertIn('--remote-profile PROFILE', self.text)

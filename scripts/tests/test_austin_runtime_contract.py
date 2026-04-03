@@ -15,6 +15,7 @@ WORLD_PROBE_PATH = ROOT / "roblox" / "src" / "StarterPlayer" / "StarterPlayerScr
 WORLD_PROBE_SUPPORT_PATH = ROOT / "roblox" / "src" / "ReplicatedStorage" / "Shared" / "WorldProbeSupport.lua"
 WORLD_PROBE_FLAGS_PATH = ROOT / "roblox" / "src" / "ReplicatedStorage" / "Shared" / "WorldProbeTelemetryFlags.lua"
 WORLD_PROBE_TERRAIN_PATH = ROOT / "roblox" / "src" / "ReplicatedStorage" / "Shared" / "WorldProbeTerrain.lua"
+WORLD_PROBE_TERRAIN_SPEC_PATH = ROOT / "roblox" / "src" / "ServerScriptService" / "Tests" / "WorldProbeTerrain.spec.lua"
 WORLD_PROBE_FLAGS_SPEC_PATH = ROOT / "roblox" / "src" / "ServerScriptService" / "Tests" / "WorldProbeTelemetryFlags.spec.lua"
 WORLD_STATE_APPLIER_PATH = ROOT / "roblox" / "src" / "ServerScriptService" / "ImportService" / "WorldStateApplier.lua"
 MINIMAP_SERVICE_PATH = ROOT / "roblox" / "src" / "ServerScriptService" / "ImportService" / "MinimapService.lua"
@@ -38,6 +39,11 @@ class AustinRuntimeContractTests(unittest.TestCase):
             WORLD_PROBE_SUPPORT_PATH.read_text(encoding="utf-8") if WORLD_PROBE_SUPPORT_PATH.exists() else ""
         )
         cls.world_probe_flags_text = WORLD_PROBE_FLAGS_PATH.read_text(encoding="utf-8") if WORLD_PROBE_FLAGS_PATH.exists() else ""
+        cls.world_probe_terrain_spec_text = (
+            WORLD_PROBE_TERRAIN_SPEC_PATH.read_text(encoding="utf-8")
+            if WORLD_PROBE_TERRAIN_SPEC_PATH.exists()
+            else ""
+        )
         cls.world_probe_flags_spec_text = (
             WORLD_PROBE_FLAGS_SPEC_PATH.read_text(encoding="utf-8") if WORLD_PROBE_FLAGS_SPEC_PATH.exists() else ""
         )
@@ -106,6 +112,19 @@ class AustinRuntimeContractTests(unittest.TestCase):
         self.assertIn("spawn.CFrame = CFrame.new(spawnPoint.X, spawnCenterY, spawnPoint.Z)", self.bootstrap_text)
         self.assertIn("spawnCFrame = CFrame.lookAt(Vector3.new(spawnPoint.X, spawnSurfaceY, spawnPoint.Z), lookTarget)", self.bootstrap_text)
 
+    def test_bootstrap_waits_for_near_ring_streaming_settlement_before_gameplay_ready(self) -> None:
+        self.assertIn('local STARTUP_STREAMING_TIMEOUT_SECONDS = 10', self.bootstrap_text)
+        self.assertIn("local function waitForStartupStreamingReady(spawnPoint)", self.bootstrap_text)
+        self.assertIn(
+            'local startupResidency = StreamingService.GetStartupResidencySnapshot(spawnPoint, "GeneratedWorld_Austin")',
+            self.bootstrap_text,
+        )
+        self.assertIn("startupResidency.ready", self.bootstrap_text)
+        self.assertIn("StreamingService.Update(spawnPoint)", self.bootstrap_text)
+        self.assertIn("local streamingStartupReady = waitForStartupStreamingReady(spawnPoint)", self.bootstrap_text)
+        self.assertIn("if not streamingStartupReady then", self.bootstrap_text)
+        self.assertIn('warn("[BootstrapAustin] Startup streaming did not settle the near ring before gameplay readiness.")', self.bootstrap_text)
+
     def test_run_austin_publishes_runtime_world_root_telemetry(self) -> None:
         self.assertIn('setPerfAttribute("WorldRootName", "GeneratedWorld_Austin")', self.run_austin_text)
         self.assertIn('setPerfAttribute("WorldRootChildCount", #worldRoot:GetChildren())', self.run_austin_text)
@@ -154,6 +173,22 @@ class AustinRuntimeContractTests(unittest.TestCase):
         self.assertIn('Workspace:SetAttribute("ArnisStreamingSchedulerState", "idle")', self.streaming_text)
         self.assertIn('Workspace:SetAttribute("ArnisStreamingLastPrefetchReason", "")', self.streaming_text)
         self.assertIn('Workspace:SetAttribute("ArnisStreamingLastEvictionReason", "")', self.streaming_text)
+        self.assertIn("function StreamingService.GetStartupResidencySnapshot", self.streaming_text)
+        self.assertIn("nearbyBuildingModels", self.streaming_text)
+        self.assertIn("nearbyWallParts", self.streaming_text)
+        self.assertIn("nearbyRoofParts", self.streaming_text)
+        self.assertIn("overheadRoofParts", self.streaming_text)
+        self.assertIn("local ready =", self.streaming_text)
+        self.assertIn("and structureTelemetry.nearbyBuildingModels > 0", self.streaming_text)
+        self.assertIn("and structureTelemetry.nearbyWallParts > 0", self.streaming_text)
+        self.assertIn("and structureTelemetry.nearbyRoofParts > 0", self.streaming_text)
+
+    def test_streaming_service_requires_registered_chunks_for_startup_structure_telemetry(self) -> None:
+        self.assertIn("for _, chunkId in ipairs(ChunkLoader.ListLoadedChunks(resolvedWorldRootName)) do", self.streaming_text)
+        self.assertIn("local chunkEntry = ChunkLoader.GetChunkEntry(chunkId, resolvedWorldRootName)", self.streaming_text)
+        self.assertIn("if not chunkEntryBelongsToWorldRoot(chunkEntry, resolvedWorldRootName) then", self.streaming_text)
+        self.assertIn("local chunkFolder = chunkEntry.folder", self.streaming_text)
+        self.assertIn("local buildingsFolder = chunkFolder:FindFirstChild(\"Buildings\")", self.streaming_text)
 
     def test_world_config_declares_explicit_runtime_streaming_rings(self) -> None:
         self.assertIn("StreamingRings = {", self.world_config_text)
@@ -248,6 +283,19 @@ class AustinRuntimeContractTests(unittest.TestCase):
         self.assertIn('setBootstrapState("minimap_ready")', self.bootstrap_text)
         self.assertIn('setBootstrapState("gameplay_ready")', self.bootstrap_text)
 
+    def test_bootstrap_emits_authoritative_play_scene_marker_from_live_runtime(self) -> None:
+        self.assertIn("local SceneAudit = require(script.Parent.ImportService.SceneAudit)", self.bootstrap_text)
+        self.assertIn("local CanonicalWorldContract = require(script.Parent.ImportService.CanonicalWorldContract)", self.bootstrap_text)
+        self.assertIn("local SceneMarkerEmitter = require(script.Parent.ImportService.SceneMarkerEmitter)", self.bootstrap_text)
+        self.assertIn("task.defer(function()", self.bootstrap_text)
+        self.assertRegex(
+            self.bootstrap_text,
+            r'SceneMarkerEmitter\.emitSceneMarkers\(\s*"ARNIS_SCENE_PLAY",\s*"play",',
+        )
+        self.assertIn('worldIdentity = CanonicalWorldContract.resolveCanonicalManifestFamily("play")', self.bootstrap_text)
+        self.assertIn('chunkEnvelopeKind = "runtime_resident"', self.bootstrap_text)
+        self.assertIn('local sceneSummary = SceneAudit.summarizeWorld(worldRoot)', self.bootstrap_text)
+
     def test_preview_and_play_share_one_resolved_world_config_contract(self) -> None:
         self.assertIn(
             "local StreamingRuntimeConfig = require(ReplicatedStorage.Shared.StreamingRuntimeConfig)",
@@ -293,9 +341,9 @@ class AustinRuntimeContractTests(unittest.TestCase):
         self.assertIn('local shellFolder = model:FindFirstChild("Shell")', self.world_probe_text)
         self.assertIn("local isRoofClosureDeck = descendant:GetAttribute(\"ArnisRoofClosureDeck\") == true", self.world_probe_text)
         self.assertIn("if descendant:IsA(\"MeshPart\") and shellFolder and descendant:IsDescendantOf(shellFolder)", self.world_probe_text)
-        self.assertIn(
-            "if shellFolder and descendant:IsDescendantOf(shellFolder) and not isRoofPart and not isRoofClosureDeck then",
+        self.assertRegex(
             self.world_probe_text,
+            r"if\s+shellFolder\s+and\s+descendant:IsDescendantOf\(shellFolder\)\s+and\s+not\s+isRoofPart\s+and\s+not\s+isRoofClosureDeck\s+then",
         )
         self.assertIn("WorldProbeSupport.shouldIgnoreGroundHit", self.world_probe_text)
         self.assertIn("WorldProbeSupport.classifySupportSurfaceRole", self.world_probe_text)
@@ -332,10 +380,16 @@ class AustinRuntimeContractTests(unittest.TestCase):
         self.assertIn("sampleRadiusStuds = sampleRadiusStuds", self.world_probe_terrain_text)
         self.assertIn("sampleCount = sampleCount", self.world_probe_terrain_text)
         self.assertIn("missingSampleCount = missingSampleCount", self.world_probe_terrain_text)
+        self.assertIn("missingEdgeSampleCount = missingEdgeSampleCount", self.world_probe_terrain_text)
         self.assertIn("centerTerrainY = roundTenths(centerTerrainY)", self.world_probe_terrain_text)
         self.assertIn("heightRangeStuds =", self.world_probe_terrain_text)
         self.assertIn("maxStepStuds =", self.world_probe_terrain_text)
         self.assertIn("meanAbsStepStuds =", self.world_probe_terrain_text)
+        self.assertIn("edgeTerrainYRangeStuds =", self.world_probe_terrain_text)
+        self.assertIn("centerEdgeMaxDeltaStuds =", self.world_probe_terrain_text)
+        self.assertIn("WorldProbeTerrain.summarizeTerrainSamples", self.world_probe_terrain_spec_text)
+        self.assertIn("edgeTerrainYRangeStuds", self.world_probe_terrain_spec_text)
+        self.assertIn("missingEdgeSampleCount", self.world_probe_terrain_spec_text)
 
     def test_client_world_probe_emits_dedicated_local_experience_marker(self) -> None:
         self.assertIn('print("ARNIS_CLIENT_LOCAL_EXPERIENCE " .. localExperiencePayloadJson)', self.world_probe_text)

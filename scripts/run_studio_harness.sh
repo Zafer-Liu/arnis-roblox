@@ -2837,15 +2837,41 @@ capture_studio_screenshot() {
   else
     target="${target}-${phase}.png"
   fi
+  local capture_metadata_target="${target%.png}.capture.json"
+  local capture_method="unknown"
+  local capture_result=""
 
   activate_studio
   sleep 1
-  if screencapture -x "$target"; then
-    log "captured Studio screenshot: $target"
+  if capture_result="$(python3 "$STUDIO_UI_CONTROL" capture-screenshot --target "$target")"; then
+    capture_method="$(
+      CAPTURE_RESULT_JSON="$capture_result" python3 - <<'PY'
+import json
+import os
+
+payload = json.loads(os.environ.get("CAPTURE_RESULT_JSON", "{}") or "{}")
+print(payload.get("capture_method", "unknown"))
+PY
+    )"
+    log "captured Studio screenshot: $target method=$capture_method metadata=$capture_metadata_target"
     return 0
   fi
 
-  log "failed to capture Studio screenshot: $target"
+  if [[ -f "$capture_metadata_target" ]]; then
+    capture_method="$(
+      CAPTURE_METADATA_PATH="$capture_metadata_target" python3 - <<'PY'
+import json
+import os
+from pathlib import Path
+
+metadata_path = Path(os.environ["CAPTURE_METADATA_PATH"])
+payload = json.loads(metadata_path.read_text(encoding="utf-8"))
+print(payload.get("capture_method", "unknown"))
+PY
+    )"
+  fi
+
+  log "failed to capture Studio screenshot: $target method=$capture_method metadata=$capture_metadata_target"
   return 0
 }
 
@@ -3646,7 +3672,10 @@ PY
 }
 
 run_play_probe_via_mcp() {
-  if [[ -z "$MCP_BINARY" || ! -x "$MCP_BINARY" || $MCP_READY -ne 1 ]]; then
+  if [[ -z "$MCP_BINARY" || ! -x "$MCP_BINARY" ]]; then
+    return 1
+  fi
+  if [[ $MCP_READY -ne 1 && ! should_skip_edit_mode_actions_for_play ]]; then
     return 1
   fi
 
@@ -3667,19 +3696,9 @@ import sys
 from pathlib import Path
 
 root = Path(os.environ["HARNESS_ROOT_DIR"])
-vsync_root = Path(os.environ["HARNESS_VSYNC_REPO_DIR"])
 sys.path.insert(0, str(root / 'scripts'))
-from studio_mcp_proxy_lib import build_mcp_client, run_code_in_play_session
-proxy_requested = os.environ.get("HARNESS_USE_MCP_PROXY", "").strip().lower() in {"1", "true", "yes", "on"}
-proxy_url = os.environ.get("MCP_PROXY_URL", "").strip()
-use_proxy = proxy_requested and bool(proxy_url)
-JsonRpcStdioClient = None
-if proxy_requested and not proxy_url:
-    print("[harness-mcp] phase=play skip=proxy-unavailable")
-    raise SystemExit(0)
-if not use_proxy:
-    sys.path.insert(0, str(vsync_root / 'scripts' / 'dev'))
-    from studio_mcp_direct_lib import JsonRpcStdioClient
+from studio_mcp_proxy_lib import build_mcp_client, run_code_in_existing_session
+from studio_mcp_direct_lib import JsonRpcStdioClient
 
 wait_seconds = max(5, int(os.environ.get("MCP_PLAY_WAIT", "25")))
 wall_clock_timeout = max(wait_seconds + 45, 90)
@@ -3817,18 +3836,20 @@ end
 Workspace:SetAttribute("ArnisTelemetryFamilies", requested_telemetry_families)
 task.wait(__WAIT_SECONDS__)
 local firstSample = sample()
-local firstScene = SceneAudit.summarizeWorld(resolvePlayWorldRoot())
-emitSceneMarkers(
-    "ARNIS_SCENE_PLAY",
-    "play",
-    firstSample.canonicalWorldRootName or firstSample.austinWorldRootName or "GeneratedWorld_Austin",
-    runtimeLoadRadius,
-    firstScene,
-    {
-        worldIdentity = CanonicalWorldContract.resolveCanonicalManifestFamily("play"),
-        chunkEnvelopeKind = "runtime_resident",
-    }
-)
+if firstSample.generatedExists then
+    local firstScene = SceneAudit.summarizeWorld(resolvePlayWorldRoot())
+    emitSceneMarkers(
+        "ARNIS_SCENE_PLAY",
+        "play",
+        firstSample.canonicalWorldRootName or firstSample.austinWorldRootName or "GeneratedWorld_Austin",
+        runtimeLoadRadius,
+        firstScene,
+        {
+            worldIdentity = CanonicalWorldContract.resolveCanonicalManifestFamily("play"),
+            chunkEnvelopeKind = "runtime_resident",
+        }
+    )
+end
 print("ARNIS_MCP_PLAY " .. HttpService:JSONEncode(firstSample))
 task.wait(2)
 local lateSample = sample()
@@ -3836,13 +3857,13 @@ print("ARNIS_MCP_PLAY_LATE " .. HttpService:JSONEncode(lateSample))
 """).strip()
 luau = luau.replace("__WAIT_SECONDS__", str(wait_seconds))
 play_probe_succeeded = False
+validated_play_payload = None
 
 try:
     client.initialize()
-    result = run_code_in_play_session(
+    result = run_code_in_existing_session(
         client,
         luau,
-        requested_mode="start_play",
         allow_is_error=True,
         timeout_seconds=max(wait_seconds + 35, 70),
     )
@@ -3859,17 +3880,21 @@ try:
     joined = "\n".join(text_fragments)
     if "Failed to run script in play mode" in joined or "Previous call to start play session has not been completed" in joined:
         raise RuntimeError(joined)
+    for line in joined.splitlines():
+        if line.startswith("[OUTPUT] ARNIS_MCP_PLAY "):
+            play_payload = json.loads(line.split("ARNIS_MCP_PLAY ", 1)[1])
+            if play_payload.get("generatedExists") is False:
+                raise RuntimeError("run_code resolved against edit context instead of the live play session")
+            validated_play_payload = play_payload
+    if validated_play_payload is None:
+        raise RuntimeError("run_code did not emit an authoritative ARNIS_MCP_PLAY payload")
+    print("ARNIS_MCP_PLAY_SCENE_VALIDATED " + json.dumps(validated_play_payload, separators=(",", ":")))
     play_probe_succeeded = True
 except Exception as exc:
     print(f"[harness-mcp] phase=play error={exc!r}")
     raise
 finally:
     signal.alarm(0)
-    if not play_probe_succeeded:
-        try:
-            client.call_tool("start_stop_play", {"mode": "stop"}, allow_is_error=True)
-        except Exception:
-            pass
     client.close()
 PY
   ) &
@@ -4250,7 +4275,7 @@ summarize_log() {
   log_effective_play_world_state "$summary_source"
   log_effective_play_local_experience_state "$summary_source"
   log "summary from $(basename "$ACTIVE_LOG")"
-  grep -E "TestEZ tests complete|PASS |FAIL |Tests failed|BootstrapAustin|RunAustin|AustinPreviewBuilder|ArnisRoblox|VertigoSync|RunAll|Austin anchor|anchor resolved|ARNIS_CLIENT_BOOTSTRAP|ARNIS_CLIENT_WORLD_COMPACT|ARNIS_CLIENT_WORLD|ARNIS_CLIENT_LOCAL_EXPERIENCE|ARNIS_CLIENT_CAMERA|ARNIS_CLIENT_MINIMAP|ARNIS_MCP_PLAY|ARNIS_MCP_PLAY_LATE|ARNIS_MCP_EDIT|ARNIS_SCENE_EDIT|ARNIS_SCENE_PLAY|\\[harness-mcp\\]" "$summary_source" | tail -n 260 || true
+  grep -E "TestEZ tests complete|PASS |FAIL |Tests failed|BootstrapAustin|RunAustin|AustinPreviewBuilder|ArnisRoblox|VertigoSync|RunAll|Austin anchor|anchor resolved|ARNIS_CLIENT_BOOTSTRAP|ARNIS_CLIENT_WORLD_COMPACT|ARNIS_CLIENT_WORLD|ARNIS_CLIENT_LOCAL_EXPERIENCE|ARNIS_CLIENT_CAMERA|ARNIS_CLIENT_MINIMAP|ARNIS_MCP_PLAY|ARNIS_MCP_PLAY_LATE|ARNIS_MCP_PLAY_SCENE_VALIDATED|ARNIS_MCP_EDIT|ARNIS_SCENE_EDIT|ARNIS_SCENE_PLAY|\\[harness-mcp\\]" "$summary_source" | tail -n 260 || true
 }
 
 run_scene_fidelity_audits() {
@@ -4266,12 +4291,17 @@ run_scene_fidelity_audits() {
     log "scene fidelity audit unavailable; missing manifest or script"
     return 0
   fi
+  if [[ -f "$manifest_summary_path" ]]; then
+    log "using precomputed manifest scene index: $manifest_summary_path"
+  fi
   if [[ -f "$manifest_sqlite_path" ]]; then
     manifest_scene_index_args=(--manifest-sqlite "$manifest_sqlite_path")
   elif [[ -f "$manifest_path" ]]; then
     manifest_scene_index_args=(--manifest "$manifest_path")
+  elif [[ -f "$manifest_summary_path" ]]; then
+    manifest_scene_index_args=()
   else
-    log "scene fidelity audit unavailable; missing manifest or script"
+    log "scene fidelity audit unavailable; missing manifest summary and source manifest inputs"
     return 0
   fi
   mkdir -p "$scene_audit_dir"
@@ -4286,6 +4316,8 @@ run_scene_fidelity_audits() {
   local refresh_manifest_summary=0
   if [[ ! -f "$manifest_summary_path" ]]; then
     refresh_manifest_summary=1
+  elif [[ ${#manifest_scene_index_args[@]} -eq 0 ]]; then
+    refresh_manifest_summary=0
   elif [[ -f "$manifest_sqlite_path" && "$manifest_sqlite_path" -nt "$manifest_summary_path" ]]; then
     refresh_manifest_summary=1
   elif [[ -f "$manifest_path" && "$manifest_path" -nt "$manifest_summary_path" ]]; then
@@ -4330,6 +4362,10 @@ PY
   fi
 
   if [[ $refresh_manifest_summary -eq 1 ]]; then
+    if [[ ${#manifest_scene_index_args[@]} -eq 0 ]]; then
+      log "scene fidelity audit unavailable; missing manifest summary and source manifest inputs"
+      return 0
+    fi
     log "refreshing manifest scene index"
     cargo run --quiet --manifest-path "$ROOT_DIR/rust/Cargo.toml" -p arbx_cli -- scene-index \
       "${manifest_scene_index_args[@]}" \
@@ -4351,17 +4387,21 @@ PY
   fi
 
   if rg -q "ARNIS_SCENE_PLAY " "$audit_log"; then
-    log "writing scene fidelity play artifact"
-    cargo run --quiet --manifest-path "$ROOT_DIR/rust/Cargo.toml" -p arbx_cli -- scene-audit \
-      --manifest-summary "$manifest_summary_path" \
-      --log "$audit_log" \
-      --marker ARNIS_SCENE_PLAY \
-      --json-out "$play_json"
-    python3 "$audit_script" \
-      --report-json "$play_json" \
-      --log "$audit_log" \
-      --json-out "$play_json" \
-      --html-out "$play_html"
+    if validate_play_bootstrap_trace "$audit_log"; then
+      log "writing scene fidelity play artifact"
+      cargo run --quiet --manifest-path "$ROOT_DIR/rust/Cargo.toml" -p arbx_cli -- scene-audit \
+        --manifest-summary "$manifest_summary_path" \
+        --log "$audit_log" \
+        --marker ARNIS_SCENE_PLAY \
+        --json-out "$play_json"
+      python3 "$audit_script" \
+        --report-json "$play_json" \
+        --log "$audit_log" \
+        --json-out "$play_json" \
+        --html-out "$play_html"
+    else
+      log "skipping scene fidelity play artifact because authoritative runtime bootstrap validation did not succeed"
+    fi
   fi
 
   if [[ -f "$edit_json" && -f "$play_json" && -f "$parity_script" ]]; then
@@ -4825,6 +4865,9 @@ elif [[ $DO_PLAY -eq 1 ]]; then
       sleep "$PLAY_WAIT_SECONDS"
     else
       log "play-mode Austin markers not observed before timeout; continuing"
+    fi
+    if run_play_probe_via_mcp; then
+      play_probe_completed_via_mcp=1
     fi
   elif run_play_probe_via_mcp; then
     log "stopping Vertigo Sync server before Play to avoid duplicate bootstrap materialization"

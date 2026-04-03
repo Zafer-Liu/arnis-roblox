@@ -2,7 +2,9 @@ from __future__ import annotations
 
 import importlib.util
 import io
+import json
 import subprocess
+import tempfile
 from pathlib import Path
 from contextlib import redirect_stdout
 import unittest
@@ -23,6 +25,89 @@ def load_module():
 
 
 class StudioUiControlTests(unittest.TestCase):
+    def test_capture_screenshot_prefers_window_capture_then_falls_back_to_display(self) -> None:
+        mod = load_module()
+        with tempfile.TemporaryDirectory() as tmpdir:
+            target_path = Path(tmpdir) / "studio.png"
+            commands: list[list[str]] = []
+
+            def fake_run_capture_command(command: list[str]) -> subprocess.CompletedProcess[str]:
+                commands.append(command)
+                if "-l" in command:
+                    return subprocess.CompletedProcess(command, 1, "", "could not create image from display")
+                target_path.write_bytes(b"png")
+                return subprocess.CompletedProcess(command, 0, "", "")
+
+            with (
+                mock.patch.object(
+                    mod,
+                    "capture_session_snapshot",
+                    return_value=(0, {"state": "playing", "front_window": "place.rbxlx - Roblox Studio", "window_count": 1}),
+                ),
+                mock.patch.object(mod, "capture_process_count", return_value=1),
+                mock.patch.object(
+                    mod,
+                    "resolve_front_window_capture_target",
+                    return_value=(
+                        0,
+                        {
+                            "window_id": 321,
+                            "owner_name": "RobloxStudio",
+                            "window_name": "place.rbxlx - Roblox Studio",
+                            "bounds": {"X": 10, "Y": 20, "Width": 1440, "Height": 900},
+                        },
+                        "",
+                    ),
+                ),
+                mock.patch.object(mod, "run_capture_command", side_effect=fake_run_capture_command),
+            ):
+                exit_code = mod.capture_screenshot(str(target_path))
+
+            self.assertEqual(exit_code, 0)
+            self.assertEqual(commands[0], ["screencapture", "-x", "-l", "321", str(target_path)])
+            self.assertEqual(commands[1], ["screencapture", "-x", str(target_path)])
+            metadata = json.loads(target_path.with_suffix(".capture.json").read_text(encoding="utf-8"))
+            self.assertTrue(metadata["success"])
+            self.assertEqual(metadata["capture_method"], "display")
+            self.assertEqual(metadata["attempts"][0]["method"], "window")
+            self.assertEqual(metadata["attempts"][0]["stderr"], "could not create image from display")
+            self.assertEqual(metadata["attempts"][1]["method"], "display")
+            self.assertEqual(metadata["session_status"]["status"], "ready_play")
+            self.assertEqual(metadata["window_lookup_error"], "")
+
+    def test_capture_screenshot_records_failure_metadata_when_display_capture_fails(self) -> None:
+        mod = load_module()
+        with tempfile.TemporaryDirectory() as tmpdir:
+            target_path = Path(tmpdir) / "studio.png"
+            command = ["screencapture", "-x", str(target_path)]
+            with (
+                mock.patch.object(
+                    mod,
+                    "capture_session_snapshot",
+                    return_value=(0, {"state": "editor_ready", "front_window": "place.rbxlx - Roblox Studio", "window_count": 1}),
+                ),
+                mock.patch.object(mod, "capture_process_count", return_value=1),
+                mock.patch.object(
+                    mod,
+                    "resolve_front_window_capture_target",
+                    return_value=(1, {}, "Execution error: Error: JXA lookup failed"),
+                ),
+                mock.patch.object(
+                    mod,
+                    "run_capture_command",
+                    return_value=subprocess.CompletedProcess(command, 1, "", "could not create image from display"),
+                ),
+            ):
+                exit_code = mod.capture_screenshot(str(target_path))
+
+            self.assertEqual(exit_code, 1)
+            metadata = json.loads(target_path.with_suffix(".capture.json").read_text(encoding="utf-8"))
+            self.assertFalse(metadata["success"])
+            self.assertEqual(metadata["capture_method"], "failed")
+            self.assertEqual(metadata["attempts"], [{"method": "display", "command": command, "returncode": 1, "stderr": "could not create image from display"}])
+            self.assertEqual(metadata["session_status"]["status"], "ready_edit")
+            self.assertEqual(metadata["window_lookup_error"], "Execution error: Error: JXA lookup failed")
+
     def test_infer_state_label_uses_enabled_stop_item_for_playing(self) -> None:
         mod = load_module()
         state = mod.infer_state_label(
@@ -187,6 +272,65 @@ class StudioUiControlTests(unittest.TestCase):
         self.assertEqual(exit_code, 124)
         self.assertEqual(output, "")
         self.assertEqual(run_mock.call_args.kwargs["timeout"], mod.OSASCRIPT_TIMEOUT_SECONDS)
+
+    def test_capture_session_snapshot_falls_back_to_fast_probe_after_full_timeout(self) -> None:
+        mod = load_module()
+        fast_payload = {
+            "front_window": "Roblox Studio",
+            "window_count": 1,
+            "menu_count": 0,
+            "has_file_menu": False,
+            "has_plugins_menu": False,
+            "has_test_menu": False,
+            "has_start_test_session_menu_item": False,
+            "has_start_test_session_menu_item_enabled": False,
+            "has_play_menu_item": False,
+            "has_play_menu_item_enabled": False,
+            "has_stop_menu_item": False,
+            "has_stop_menu_item_enabled": False,
+            "window_names": ["Roblox Studio"],
+            "button_names": [],
+            "state": "start_page",
+        }
+        with (
+            mock.patch.object(mod, "capture_state_snapshot", return_value=(124, {})),
+            mock.patch.object(mod, "capture_fast_session_snapshot", return_value=(0, fast_payload), create=True),
+        ):
+            exit_code, payload = mod.capture_session_snapshot()
+        self.assertEqual(exit_code, 0)
+        self.assertEqual(payload["state"], "start_page")
+        self.assertEqual(payload["front_window"], "Roblox Studio")
+
+    def test_get_session_status_value_uses_fast_probe_when_full_snapshot_times_out(self) -> None:
+        mod = load_module()
+        fast_payload = {
+            "front_window": "Roblox Studio",
+            "window_count": 1,
+            "menu_count": 0,
+            "has_file_menu": False,
+            "has_plugins_menu": False,
+            "has_test_menu": False,
+            "has_start_test_session_menu_item": False,
+            "has_start_test_session_menu_item_enabled": False,
+            "has_play_menu_item": False,
+            "has_play_menu_item_enabled": False,
+            "has_stop_menu_item": False,
+            "has_stop_menu_item_enabled": False,
+            "window_names": ["Roblox Studio"],
+            "button_names": [],
+            "state": "start_page",
+        }
+        with (
+            mock.patch.object(mod, "capture_state_snapshot", return_value=(124, {})),
+            mock.patch.object(mod, "capture_fast_session_snapshot", return_value=(0, fast_payload), create=True),
+            mock.patch.object(mod, "capture_process_count", return_value=1),
+            io.StringIO() as buffer,
+            redirect_stdout(buffer),
+        ):
+            exit_code = mod.get_session_status_value("ready_for_harness")
+            output = buffer.getvalue().strip()
+        self.assertEqual(exit_code, 0)
+        self.assertEqual(output, "true")
 
     def test_dismiss_startup_dialogs_checks_continue_for_lighting_migration(self) -> None:
         mod = load_module()

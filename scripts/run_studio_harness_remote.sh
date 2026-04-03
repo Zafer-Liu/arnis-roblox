@@ -90,27 +90,103 @@ sync_repo_snapshot() {
   rm -f "$manifest"
 }
 
+ensure_remote_parent_dir() {
+  local remote_path="$1"
+  ssh "$REMOTE_HOST" 'bash -s' -- "$remote_path" <<'SH'
+set -euo pipefail
+expand_remote_path() {
+  case "$1" in
+    __REMOTE_HOME__/*)
+      printf '%s\n' "$HOME/${1#__REMOTE_HOME__/}"
+      ;;
+    *)
+      printf '%s\n' "$1"
+      ;;
+  esac
+}
+
+remote_path="$(expand_remote_path "$1")"
+mkdir -p "$(dirname "$remote_path")"
+SH
+}
+
+sync_optional_file() {
+  local local_path="$1"
+  local remote_path="$2"
+  local rsync_remote_path=""
+  if [[ ! -f "$local_path" ]]; then
+    return 0
+  fi
+  ensure_remote_parent_dir "$remote_path"
+  rsync_remote_path="$(render_rsync_remote_path "$remote_path")"
+  rsync -a "$local_path" "$REMOTE_HOST:$rsync_remote_path"
+}
+
+seed_remote_optional_file_from_base() {
+  local remote_source_path="$1"
+  local remote_dest_path="$2"
+  ssh "$REMOTE_HOST" 'bash -s' -- "$remote_source_path" "$remote_dest_path" <<'SH'
+set -euo pipefail
+expand_remote_path() {
+  case "$1" in
+    __REMOTE_HOME__/*)
+      printf '%s\n' "$HOME/${1#__REMOTE_HOME__/}"
+      ;;
+    *)
+      printf '%s\n' "$1"
+      ;;
+  esac
+}
+
+remote_source_path="$(expand_remote_path "$1")"
+remote_dest_path="$(expand_remote_path "$2")"
+if [[ ! -f "$remote_source_path" || -f "$remote_dest_path" ]]; then
+  exit 0
+fi
+mkdir -p "$(dirname "$remote_dest_path")"
+cp "$remote_source_path" "$remote_dest_path"
+SH
+}
+
 REMOTE_HOST="$(resolve_profile_value ARNIS_REMOTE_STUDIO_HOST "$REMOTE_PROFILE" "")"
 REMOTE_ROOT="$(resolve_profile_value ARNIS_REMOTE_STUDIO_ROOT "$REMOTE_PROFILE" "$DEFAULT_REMOTE_ROOT")"
 REMOTE_ARNIS_BASE="$(resolve_profile_value ARNIS_REMOTE_STUDIO_BASE_ARNIS "$REMOTE_PROFILE" "$DEFAULT_REMOTE_ARNIS_BASE")"
 REMOTE_VSYNC_BASE="$(resolve_profile_value ARNIS_REMOTE_STUDIO_BASE_VSYNC "$REMOTE_PROFILE" "$DEFAULT_REMOTE_VSYNC_BASE")"
 REMOTE_VSYNC_TARGET_DIR="$(resolve_profile_value ARNIS_REMOTE_STUDIO_VSYNC_TARGET_DIR "$REMOTE_PROFILE" "$REMOTE_VSYNC_BASE/target")"
 LOCAL_ARTIFACT_DIR="${ARNIS_REMOTE_STUDIO_ARTIFACT_DIR:-/tmp/arnis-remote-studio}"
+LOCAL_MANIFEST_SUMMARY_PATH="$LOCAL_ARNIS_DIR/rust/out/austin-manifest.scene-index.json"
+PROOF_SYNC_TAIL_TIMEOUT_SECONDS="${ARNIS_REMOTE_STUDIO_TAIL_TIMEOUT_SECONDS:-20}"
+REMOTE_SESSION_OUTPUT_LOG="$(mktemp -t arnis-remote-harness-output)"
 SYNC_STAGE=1
 
 REMOTE_ARNIS_DIR="$REMOTE_ROOT/arnis-roblox"
 REMOTE_VSYNC_DIR="$REMOTE_ROOT/vertigo-sync"
+REMOTE_MANIFEST_SUMMARY_PATH="$REMOTE_ARNIS_DIR/rust/out/austin-manifest.scene-index.json"
 REMOTE_HARNESS_PGID_FILE="$REMOTE_ARNIS_DIR/.arnis-remote-harness.pgid"
 REMOTE_HARNESS_LOCK_DIR="$REMOTE_ARNIS_DIR/.arnis-studio-harness.lock"
 RSYNC_REMOTE_ARNIS_DIR="$(render_rsync_remote_path "$REMOTE_ARNIS_DIR")"
 RSYNC_REMOTE_VSYNC_DIR="$(render_rsync_remote_path "$REMOTE_VSYNC_DIR")"
 REMOTE_HARNESS_ACTIVE=0
+REMOTE_VOLATILE_ARTIFACTS=(
+  /tmp/arnis-studio-harness-edit.png
+  /tmp/arnis-studio-harness-edit.capture.json
+  /tmp/arnis-studio-harness-play.png
+  /tmp/arnis-studio-harness-play.capture.json
+  /tmp/arnis-scene-fidelity-edit.json
+  /tmp/arnis-scene-fidelity-edit.html
+  /tmp/arnis-scene-fidelity-play.json
+  /tmp/arnis-scene-fidelity-play.html
+  /tmp/arnis-scene-parity.json
+  /tmp/arnis-scene-parity.html
+  /tmp/arnis-preview-plugin-state.json
+  /tmp/arnis-preview-telemetry-summary.txt
+)
 
-cleanup_remote_harness() {
-  local exit_code="${1:-$?}"
-  trap - EXIT INT TERM
-  if [[ $REMOTE_HARNESS_ACTIVE -eq 1 ]]; then
-    ssh "$REMOTE_HOST" 'bash -s' -- "$REMOTE_ARNIS_DIR" "$REMOTE_VSYNC_TARGET_DIR" "$REMOTE_HARNESS_PGID_FILE" "$REMOTE_HARNESS_LOCK_DIR" <<'SH' >/dev/null 2>&1 || true
+stop_remote_harness_if_active() {
+  if [[ $REMOTE_HARNESS_ACTIVE -ne 1 ]]; then
+    return 0
+  fi
+  ssh "$REMOTE_HOST" 'bash -s' -- "$REMOTE_ARNIS_DIR" "$REMOTE_VSYNC_TARGET_DIR" "$REMOTE_HARNESS_PGID_FILE" "$REMOTE_HARNESS_LOCK_DIR" <<'SH' >/dev/null 2>&1 || true
 set -euo pipefail
 expand_remote_path() {
   case "$1" in
@@ -138,8 +214,58 @@ if [[ -f "$remote_harness_pgid_file" ]]; then
 fi
 rm -rf "$remote_harness_lock_dir"
 SH
-  fi
+}
+
+cleanup_remote_harness() {
+  local exit_code="${1:-$?}"
+  trap - EXIT INT TERM
+  stop_remote_harness_if_active
+  rm -f "$REMOTE_SESSION_OUTPUT_LOG"
   exit "$exit_code"
+}
+
+reset_local_artifacts() {
+  local artifact_path=""
+  for artifact_path in "${REMOTE_VOLATILE_ARTIFACTS[@]}"; do
+    rm -f "$LOCAL_ARTIFACT_DIR/$(basename "$artifact_path")"
+  done
+}
+
+reset_remote_proof_artifacts() {
+  ssh "$REMOTE_HOST" 'bash -s' -- "${REMOTE_VOLATILE_ARTIFACTS[@]}" <<'SH'
+set -euo pipefail
+artifact_path=""
+for artifact_path in "$@"; do
+  rm -f "$artifact_path"
+done
+SH
+}
+
+sync_remote_artifacts() {
+  local remote_latest_log=""
+  remote_latest_log="$(ssh "$REMOTE_HOST" 'latest=$(ls -1t "$HOME"/Library/Logs/Roblox/*_Studio_*_last.log 2>/dev/null | head -n 1 || true); printf "%s" "$latest"')"
+  if [[ -n "$remote_latest_log" ]]; then
+    rsync -a "$REMOTE_HOST:$remote_latest_log" "$LOCAL_ARTIFACT_DIR/"
+  fi
+
+  local remote_artifact=""
+  for remote_artifact in "${REMOTE_VOLATILE_ARTIFACTS[@]}"; do
+    rsync -a "$REMOTE_HOST:$remote_artifact" "$LOCAL_ARTIFACT_DIR/" >/dev/null 2>&1 || true
+  done
+}
+
+remote_proof_signal_detected() {
+  if [[ ! -f "$REMOTE_SESSION_OUTPUT_LOG" ]]; then
+    return 1
+  fi
+  rg -q 'play bootstrap trace verdict \(authoritative client bootstrap marker\): valid' "$REMOTE_SESSION_OUTPUT_LOG"
+}
+
+remote_completion_signal_detected() {
+  if [[ ! -f "$REMOTE_SESSION_OUTPUT_LOG" ]]; then
+    return 1
+  fi
+  rg -q 'main harness flow complete; exiting' "$REMOTE_SESSION_OUTPUT_LOG"
 }
 
 trap 'cleanup_remote_harness' EXIT INT TERM
@@ -234,6 +360,7 @@ if [[ ! -d "$LOCAL_VSYNC_DIR" ]]; then
 fi
 
 mkdir -p "$LOCAL_ARTIFACT_DIR"
+reset_local_artifacts
 
 ssh "$REMOTE_HOST" 'bash -s' -- "$REMOTE_ROOT" "$REMOTE_ARNIS_BASE" "$REMOTE_VSYNC_BASE" <<'SH'
 set -euo pipefail
@@ -289,10 +416,13 @@ SH
 if [[ $SYNC_STAGE -eq 1 ]]; then
   sync_repo_snapshot "$LOCAL_ARNIS_DIR" "$REMOTE_ARNIS_DIR" "$RSYNC_REMOTE_ARNIS_DIR"
   sync_repo_snapshot "$LOCAL_VSYNC_DIR" "$REMOTE_VSYNC_DIR" "$RSYNC_REMOTE_VSYNC_DIR"
+  sync_optional_file "$LOCAL_MANIFEST_SUMMARY_PATH" "$REMOTE_MANIFEST_SUMMARY_PATH"
+  seed_remote_optional_file_from_base "$REMOTE_ARNIS_BASE/rust/out/austin-manifest.scene-index.json" "$REMOTE_MANIFEST_SUMMARY_PATH"
 fi
+reset_remote_proof_artifacts
 
 REMOTE_HARNESS_ACTIVE=1
-ssh "$REMOTE_HOST" 'bash -s' -- "$SYNC_STAGE" "$REMOTE_ARNIS_DIR" "$REMOTE_VSYNC_DIR" "$REMOTE_VSYNC_TARGET_DIR" "${HARNESS_ARGS[@]}" <<'SH'
+ssh "$REMOTE_HOST" 'bash -s' -- "$SYNC_STAGE" "$REMOTE_ARNIS_DIR" "$REMOTE_VSYNC_DIR" "$REMOTE_VSYNC_TARGET_DIR" "${HARNESS_ARGS[@]}" > >(tee "$REMOTE_SESSION_OUTPUT_LOG") 2>&1 <<'SH' &
 set -euo pipefail
 expand_remote_path() {
   case "$1" in
@@ -375,20 +505,53 @@ printf '%s\n' "$remote_harness_pgid" > "$remote_harness_pgid_file"
 wait "$remote_harness_pid"
 rm -f "$remote_harness_pgid_file"
 SH
-REMOTE_HARNESS_ACTIVE=0
+remote_ssh_pid=$!
+proof_signal_seen=0
+completion_signal_seen_at=0
+wrapper_wait_bounded=0
 
-remote_latest_log="$(ssh "$REMOTE_HOST" 'latest=$(ls -1t "$HOME"/Library/Logs/Roblox/*_Studio_*_last.log 2>/dev/null | head -n 1 || true); printf "%s" "$latest"')"
-if [[ -n "$remote_latest_log" ]]; then
-  rsync -a "$REMOTE_HOST:$remote_latest_log" "$LOCAL_ARTIFACT_DIR/"
+while kill -0 "$remote_ssh_pid" >/dev/null 2>&1; do
+  if [[ $proof_signal_seen -eq 0 ]] && remote_proof_signal_detected; then
+    proof_signal_seen=1
+    sync_remote_artifacts || true
+  fi
+
+  if [[ $completion_signal_seen_at -eq 0 ]] && remote_completion_signal_detected; then
+    completion_signal_seen_at="$(date +%s)"
+    sync_remote_artifacts || true
+  fi
+
+  if [[ $completion_signal_seen_at -ne 0 ]]; then
+    now_epoch="$(date +%s)"
+    if (( now_epoch - completion_signal_seen_at >= PROOF_SYNC_TAIL_TIMEOUT_SECONDS )); then
+      echo "[remote-harness] bounded remote cleanup tail exceeded ${PROOF_SYNC_TAIL_TIMEOUT_SECONDS}s after proof completion; stopping wrapper wait" >&2
+      kill -TERM "$remote_ssh_pid" >/dev/null 2>&1 || true
+      wrapper_wait_bounded=1
+      break
+    fi
+  fi
+
+  sleep 1
+done
+
+remote_exit_code=0
+if wait "$remote_ssh_pid"; then
+  remote_exit_code=0
+else
+  remote_exit_code=$?
 fi
 
-for remote_artifact in \
-  /tmp/arnis-studio-harness-edit.png \
-  /tmp/arnis-studio-harness-play.png \
-  /tmp/arnis-preview-plugin-state.json \
-  /tmp/arnis-preview-telemetry-summary.txt; do
-  rsync -a "$REMOTE_HOST:$remote_artifact" "$LOCAL_ARTIFACT_DIR/" >/dev/null 2>&1 || true
-done
+if [[ $wrapper_wait_bounded -eq 1 ]]; then
+  stop_remote_harness_if_active
+  remote_exit_code=0
+fi
+
+REMOTE_HARNESS_ACTIVE=0
+sync_remote_artifacts
+
+if [[ $remote_exit_code -ne 0 ]]; then
+  exit "$remote_exit_code"
+fi
 
 echo "[remote-harness] remote host: $REMOTE_HOST"
 echo "[remote-harness] remote profile: $REMOTE_PROFILE"

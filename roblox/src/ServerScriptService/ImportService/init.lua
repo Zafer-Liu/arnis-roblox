@@ -91,6 +91,103 @@ local function getChunkCenterXZ(chunk, manifest)
     return ox + chunkSize * 0.5, oz + chunkSize * 0.5
 end
 
+local function makeChunkOriginKey(x, z)
+    return ("%s:%s"):format(tostring(x or 0), tostring(z or 0))
+end
+
+local function resolveTerrainChunkSpanStuds(chunk)
+    local terrain = chunk and chunk.terrain
+    if type(terrain) ~= "table" then
+        return nil
+    end
+
+    local cellSize = terrain.cellSizeStuds
+    local width = terrain.width
+    local depth = terrain.depth
+    if type(cellSize) ~= "number" or type(width) ~= "number" or type(depth) ~= "number" then
+        return nil
+    end
+
+    local spanX = cellSize * width
+    local spanZ = cellSize * depth
+    if spanX <= 0 or spanZ <= 0 or math.abs(spanX - spanZ) > 0.001 then
+        return nil
+    end
+
+    return spanX
+end
+
+local function describeTerrainNeighborChunk(chunk)
+    local terrain = chunk and chunk.terrain
+    if type(chunk) ~= "table" or type(terrain) ~= "table" or type(terrain.heights) ~= "table" then
+        return nil
+    end
+
+    return {
+        id = chunk.id,
+        terrain = terrain,
+    }
+end
+
+local function buildTerrainNeighborContextByChunkId(chunks)
+    local contexts = {}
+    local chunksByOrigin = {}
+
+    for _, chunk in ipairs(chunks or {}) do
+        local origin = chunk.originStuds or {}
+        chunksByOrigin[makeChunkOriginKey(origin.x or 0, origin.z or 0)] = chunk
+    end
+
+    for _, chunk in ipairs(chunks or {}) do
+        if type(chunk) ~= "table" or type(chunk.id) ~= "string" or chunk.id == "" then
+            continue
+        end
+
+        local chunkSpanStuds = resolveTerrainChunkSpanStuds(chunk)
+        if chunkSpanStuds == nil then
+            continue
+        end
+
+        local origin = chunk.originStuds or {}
+        local originX = origin.x or 0
+        local originZ = origin.z or 0
+        local function resolveNeighbor(offsetX, offsetZ)
+            local neighborChunk = chunksByOrigin[makeChunkOriginKey(
+                originX + offsetX * chunkSpanStuds,
+                originZ + offsetZ * chunkSpanStuds
+            )]
+            return describeTerrainNeighborChunk(neighborChunk)
+        end
+
+        local neighbors = {
+            west = resolveNeighbor(-1, 0),
+            east = resolveNeighbor(1, 0),
+            north = resolveNeighbor(0, -1),
+            south = resolveNeighbor(0, 1),
+            northWest = resolveNeighbor(-1, -1),
+            northEast = resolveNeighbor(1, -1),
+            southWest = resolveNeighbor(-1, 1),
+            southEast = resolveNeighbor(1, 1),
+        }
+
+        contexts[chunk.id] = {
+            neighbors = neighbors,
+            signature = table.concat({
+                "west=" .. tostring(neighbors.west and neighbors.west.id or "none"),
+                "east=" .. tostring(neighbors.east and neighbors.east.id or "none"),
+                "north=" .. tostring(neighbors.north and neighbors.north.id or "none"),
+                "south=" .. tostring(neighbors.south and neighbors.south.id or "none"),
+                "northWest=" .. tostring(neighbors.northWest and neighbors.northWest.id or "none"),
+                "northEast=" .. tostring(neighbors.northEast and neighbors.northEast.id or "none"),
+                "southWest=" .. tostring(neighbors.southWest and neighbors.southWest.id or "none"),
+                "southEast=" .. tostring(neighbors.southEast and neighbors.southEast.id or "none"),
+            }, ","),
+        }
+    end
+
+    return contexts
+end
+
 local function makePacingController(options)
     local frameBudgetSeconds = normalizePositiveNumber(options.frameBudgetSeconds)
     local nonBlocking = options.nonBlocking == true and frameBudgetSeconds ~= nil
@@ -651,6 +748,8 @@ function ImportService.ImportChunk(chunk, options)
         configSignature = options.configSignature,
         layerSignatures = options.layerSignatures,
         layers = layers,
+        terrainNeighbors = options.terrainNeighbors,
+        terrainNeighborSignature = options.terrainNeighborSignature,
     })
     local prepared = plan.prepared or {}
     local selectiveLayers = plan.selectiveLayers
@@ -892,7 +991,11 @@ function ImportService.ImportChunk(chunk, options)
     maybeYield()
 
     if plan.actionSet.terrain then
-        local terrainPlan = prepared.terrain or TerrainBuilder.PrepareChunk(chunk)
+        local terrainPlan = prepared.terrain
+            or TerrainBuilder.PrepareChunk(chunk, {
+                terrainNeighbors = options.terrainNeighbors,
+                terrainNeighborSignature = options.terrainNeighborSignature,
+            })
         if selectiveLayers then
             TerrainBuilder.Clear(chunk, terrainPlan)
         end
@@ -1392,6 +1495,7 @@ function ImportService.ImportManifest(manifest, options)
     local registrationChunksById = options.registrationChunksById
 
     local chunkOptions = makeImportChunkOptions(options, config)
+    local terrainNeighborContextByChunkId = buildTerrainNeighborContextByChunkId(validated.chunks)
     if chunkOptions.configSignature == nil then
         chunkOptions.configSignature = ImportSignatures.GetConfigSignature(config)
     end
@@ -1402,8 +1506,13 @@ function ImportService.ImportManifest(manifest, options)
     for chunkIndex, chunk in ipairs(chunksToImport) do
         local perChunkOptions = table.clone(chunkOptions)
         local registrationChunk = registrationChunksById and registrationChunksById[chunk.id] or nil
+        local terrainNeighborContext = terrainNeighborContextByChunkId[chunk.id]
         perChunkOptions.registrationChunk = registrationChunk
         perChunkOptions.chunkSignature = ImportSignatures.GetChunkSignature(registrationChunk or chunk)
+        if terrainNeighborContext ~= nil then
+            perChunkOptions.terrainNeighbors = terrainNeighborContext.neighbors
+            perChunkOptions.terrainNeighborSignature = terrainNeighborContext.signature
+        end
         local chunkFolder, artifactCount = ImportService.ImportChunk(chunk, perChunkOptions)
 
         stats.chunksImported += 1

@@ -4,9 +4,11 @@ import json
 import os
 import subprocess
 import sys
+from pathlib import Path
 
 APP_ID = "com.Roblox.RobloxStudio"
 APP_NAME = "RobloxStudio"
+WINDOW_OWNER_NAMES = (APP_NAME, "Roblox Studio")
 STARTUP_DISMISS_BUTTONS = [
     "Ignore",
     "Don't Recover",
@@ -22,6 +24,26 @@ OSASCRIPT_TIMEOUT_SECONDS = max(
     1,
     int(float(os.environ.get("ARNIS_STUDIO_UI_CONTROL_TIMEOUT_SECONDS", "5") or "5")),
 )
+
+
+def empty_snapshot_payload() -> dict:
+    return {
+        "state": "not_running",
+        "front_window": "",
+        "window_count": 0,
+        "menu_count": 0,
+        "has_file_menu": False,
+        "has_plugins_menu": False,
+        "has_test_menu": False,
+        "has_start_test_session_menu_item": False,
+        "has_start_test_session_menu_item_enabled": False,
+        "has_play_menu_item": False,
+        "has_play_menu_item_enabled": False,
+        "has_stop_menu_item": False,
+        "has_stop_menu_item_enabled": False,
+        "window_names": [],
+        "button_names": [],
+    }
 
 
 def normalize_window_name(front_window: str) -> str:
@@ -181,26 +203,46 @@ def capture_osascript(script: str) -> tuple[int, str]:
     return result.returncode, result.stdout.strip()
 
 
+def capture_jxa(script: str) -> tuple[int, str, str]:
+    try:
+        result = subprocess.run(
+            ["osascript", "-l", "JavaScript", "-e", script],
+            check=False,
+            capture_output=True,
+            text=True,
+            timeout=OSASCRIPT_TIMEOUT_SECONDS,
+        )
+    except subprocess.TimeoutExpired:
+        return 124, "", "timed out"
+    return result.returncode, result.stdout.strip(), result.stderr.strip()
+
+
+def parse_snapshot_output(output: str, *, include_window_names: bool = True) -> dict:
+    parts = output.split("||")
+    payload = {
+        "front_window": parts[0] if len(parts) > 0 else "",
+        "window_count": int(parts[1]) if len(parts) > 1 and parts[1].isdigit() else 0,
+        "menu_count": int(parts[2]) if len(parts) > 2 and parts[2].isdigit() else 0,
+        "has_file_menu": parts[3].lower() == "true" if len(parts) > 3 else False,
+        "has_plugins_menu": parts[4].lower() == "true" if len(parts) > 4 else False,
+        "has_test_menu": parts[5].lower() == "true" if len(parts) > 5 else False,
+        "has_start_test_session_menu_item": parts[6].lower() == "true" if len(parts) > 6 else False,
+        "has_start_test_session_menu_item_enabled": parts[7].lower() == "true" if len(parts) > 7 else False,
+        "has_play_menu_item": parts[8].lower() == "true" if len(parts) > 8 else False,
+        "has_play_menu_item_enabled": parts[9].lower() == "true" if len(parts) > 9 else False,
+        "has_stop_menu_item": parts[10].lower() == "true" if len(parts) > 10 else False,
+        "has_stop_menu_item_enabled": parts[11].lower() == "true" if len(parts) > 11 else False,
+        "window_names": [item for item in parts[12].split(";;") if item] if include_window_names and len(parts) > 12 else [],
+        "button_names": [item for item in parts[13].split(";;") if item] if len(parts) > 13 else [],
+    }
+    payload["state"] = infer_state_label(payload)
+    return payload
+
+
 def capture_state_snapshot() -> tuple[int, dict]:
     pid_count = capture_process_count()
     if pid_count <= 0:
-        return 0, {
-            "state": "not_running",
-            "front_window": "",
-            "window_count": 0,
-            "menu_count": 0,
-            "has_file_menu": False,
-            "has_plugins_menu": False,
-            "has_test_menu": False,
-            "has_start_test_session_menu_item": False,
-            "has_start_test_session_menu_item_enabled": False,
-            "has_play_menu_item": False,
-            "has_play_menu_item_enabled": False,
-            "has_stop_menu_item": False,
-            "has_stop_menu_item_enabled": False,
-            "window_names": [],
-            "button_names": [],
-        }
+        return 0, empty_snapshot_payload()
 
     code, output = capture_osascript(
         f"""
@@ -335,25 +377,124 @@ end tell
     if code != 0:
         return code, {}
 
-    parts = output.split("||")
-    payload = {
-        "front_window": parts[0] if len(parts) > 0 else "",
-        "window_count": int(parts[1]) if len(parts) > 1 and parts[1].isdigit() else 0,
-        "menu_count": int(parts[2]) if len(parts) > 2 and parts[2].isdigit() else 0,
-        "has_file_menu": parts[3].lower() == "true" if len(parts) > 3 else False,
-        "has_plugins_menu": parts[4].lower() == "true" if len(parts) > 4 else False,
-        "has_test_menu": parts[5].lower() == "true" if len(parts) > 5 else False,
-        "has_start_test_session_menu_item": parts[6].lower() == "true" if len(parts) > 6 else False,
-        "has_start_test_session_menu_item_enabled": parts[7].lower() == "true" if len(parts) > 7 else False,
-        "has_play_menu_item": parts[8].lower() == "true" if len(parts) > 8 else False,
-        "has_play_menu_item_enabled": parts[9].lower() == "true" if len(parts) > 9 else False,
-        "has_stop_menu_item": parts[10].lower() == "true" if len(parts) > 10 else False,
-        "has_stop_menu_item_enabled": parts[11].lower() == "true" if len(parts) > 11 else False,
-        "window_names": [item for item in parts[12].split(";;") if item] if len(parts) > 12 else [],
-        "button_names": [item for item in parts[13].split(";;") if item] if len(parts) > 13 else [],
-    }
-    payload["state"] = infer_state_label(payload)
-    return 0, payload
+    return 0, parse_snapshot_output(output)
+
+
+def capture_fast_session_snapshot() -> tuple[int, dict]:
+    pid_count = capture_process_count()
+    if pid_count <= 0:
+        return 0, empty_snapshot_payload()
+
+    code, output = capture_osascript(
+        f"""
+tell application id "{APP_ID}"
+  activate
+end tell
+delay 0.15
+tell application "System Events"
+  tell process "{APP_NAME}"
+    set windowCount to count of windows
+    set frontWindowName to ""
+    set buttonNames to {{}}
+    if windowCount > 0 then
+      try
+        set frontWindowName to name of front window
+      end try
+      if frontWindowName is "" then
+        try
+          set focusedWindow to value of attribute "AXFocusedWindow"
+          set frontWindowName to title of focusedWindow
+        end try
+      end if
+      try
+        repeat with b in buttons of front window
+          try
+            set end of buttonNames to (name of b as text)
+          end try
+        end repeat
+      end try
+      try
+        repeat with s in sheets of front window
+          try
+            repeat with b in buttons of s
+              try
+                set end of buttonNames to (name of b as text)
+              end try
+            end repeat
+          end try
+        end repeat
+      end try
+    end if
+
+    set hasFileMenu to false
+    set hasPluginsMenu to false
+    set hasTestMenu to false
+    try
+      set hasFileMenu to exists menu bar item "File" of menu bar 1
+    end try
+    try
+      set hasPluginsMenu to exists menu bar item "Plugins" of menu bar 1
+    end try
+    try
+      set hasTestMenu to exists menu bar item "Test" of menu bar 1
+    end try
+
+    set hasStopMenuItem to false
+    set hasStopMenuItemEnabled to false
+    set hasStartTestSessionMenuItem to false
+    set hasStartTestSessionMenuItemEnabled to false
+    set hasPlayMenuItem to false
+    set hasPlayMenuItemEnabled to false
+    if hasTestMenu then
+      try
+        set hasStartTestSessionMenuItem to exists menu item "Start Test Session" of menu 1 of menu bar item "Test" of menu bar 1
+      end try
+      if hasStartTestSessionMenuItem then
+        try
+          set hasStartTestSessionMenuItemEnabled to enabled of menu item "Start Test Session" of menu 1 of menu bar item "Test" of menu bar 1
+        end try
+      end if
+      try
+        set hasPlayMenuItem to exists menu item "Play" of menu 1 of menu bar item "Test" of menu bar 1
+      end try
+      if hasPlayMenuItem then
+        try
+          set hasPlayMenuItemEnabled to enabled of menu item "Play" of menu 1 of menu bar item "Test" of menu bar 1
+        end try
+      end if
+      try
+        set hasStopMenuItem to exists menu item "Stop" of menu 1 of menu bar item "Test" of menu bar 1
+      end try
+      if hasStopMenuItem then
+        try
+          set hasStopMenuItemEnabled to enabled of menu item "Stop" of menu 1 of menu bar item "Test" of menu bar 1
+        end try
+      end if
+    end if
+
+    set AppleScript's text item delimiters to ";;"
+    set buttonNamesText to ""
+    try
+      set buttonNamesText to buttonNames as text
+    end try
+    set AppleScript's text item delimiters to ""
+
+    return frontWindowName & "||" & (windowCount as text) & "||0||" & (hasFileMenu as text) & "||" & (hasPluginsMenu as text) & "||" & (hasTestMenu as text) & "||" & (hasStartTestSessionMenuItem as text) & "||" & (hasStartTestSessionMenuItemEnabled as text) & "||" & (hasPlayMenuItem as text) & "||" & (hasPlayMenuItemEnabled as text) & "||" & (hasStopMenuItem as text) & "||" & (hasStopMenuItemEnabled as text) & "||||" & buttonNamesText
+  end tell
+end tell
+"""
+    )
+    if code != 0:
+        return code, {}
+
+    return 0, parse_snapshot_output(output, include_window_names=False)
+
+
+def capture_session_snapshot() -> tuple[int, dict]:
+    code, payload = capture_fast_session_snapshot()
+    if code == 0:
+        return code, payload
+    return capture_state_snapshot()
 
 
 def activate() -> int:
@@ -526,7 +667,7 @@ def get_state() -> int:
 
 
 def get_session_status() -> int:
-    code, payload = capture_state_snapshot()
+    code, payload = capture_session_snapshot()
     if code != 0:
         return code
     pid_count = capture_process_count()
@@ -547,7 +688,7 @@ def get_state_value(field: str) -> int:
 
 
 def get_session_status_value(field: str) -> int:
-    code, payload = capture_state_snapshot()
+    code, payload = capture_session_snapshot()
     if code != 0:
         return code
     pid_count = capture_process_count()
@@ -587,6 +728,142 @@ def stop_test_session() -> int:
     return click_menu("Test", "Stop")
 
 
+def build_capture_metadata_path(target: str) -> Path:
+    target_path = Path(target)
+    if target_path.suffix:
+        return target_path.with_suffix(".capture.json")
+    return target_path.with_name(target_path.name + ".capture.json")
+
+
+def resolve_front_window_capture_target(front_window: str) -> tuple[int, dict, str]:
+    owner_names_json = json.dumps(list(WINDOW_OWNER_NAMES))
+    preferred_name_json = json.dumps(front_window or "")
+    code, output, error_text = capture_jxa(
+        f"""
+ObjC.import("CoreGraphics");
+const ownerNames = {owner_names_json};
+const preferredWindowName = {preferred_name_json};
+const windows = ObjC.deepUnwrap($.CGWindowListCopyWindowInfo($.kCGWindowListOptionOnScreenOnly, $.kCGNullWindowID)) || [];
+let selected = null;
+for (const windowInfo of windows) {{
+  const ownerName = String(windowInfo.kCGWindowOwnerName || "");
+  const windowName = String(windowInfo.kCGWindowName || "");
+  const layer = Number(windowInfo.kCGWindowLayer || 0);
+  const bounds = windowInfo.kCGWindowBounds || {{}};
+  const width = Number(bounds.Width || 0);
+  const height = Number(bounds.Height || 0);
+  if (!ownerNames.includes(ownerName)) {{
+    continue;
+  }}
+  if (layer !== 0 || width <= 0 || height <= 0) {{
+    continue;
+  }}
+  if (preferredWindowName && windowName === preferredWindowName) {{
+    selected = windowInfo;
+    break;
+  }}
+  if (!selected) {{
+    selected = windowInfo;
+  }}
+}}
+if (!selected) {{
+  console.log(JSON.stringify({{}}));
+}} else {{
+  console.log(
+    JSON.stringify({{
+      window_id: Number(selected.kCGWindowNumber || 0),
+      owner_name: String(selected.kCGWindowOwnerName || ""),
+      window_name: String(selected.kCGWindowName || ""),
+      bounds: selected.kCGWindowBounds || {{}},
+    }})
+  );
+}}
+"""
+    )
+    if code != 0:
+        return code, {}, error_text
+    if not output:
+        return 0, {}, error_text
+    try:
+        payload = json.loads(output)
+    except json.JSONDecodeError:
+        return 1, {}, "invalid JXA JSON payload"
+    return 0, payload if isinstance(payload, dict) else {}, error_text
+
+
+def run_capture_command(command: list[str]) -> subprocess.CompletedProcess[str]:
+    return subprocess.run(
+        command,
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+
+
+def capture_screenshot(target: str) -> int:
+    metadata_path = build_capture_metadata_path(target)
+    code, payload = capture_session_snapshot()
+    if code != 0:
+        payload = empty_snapshot_payload()
+    pid_count = capture_process_count()
+    session_status = classify_session_status(payload, pid_count)
+    window_lookup_code, window_target, window_lookup_error = resolve_front_window_capture_target(
+        str(payload.get("front_window") or "")
+    )
+
+    attempts = []
+    capture_method = "failed"
+    success = False
+
+    commands: list[tuple[str, list[str]]] = []
+    window_id = int(window_target.get("window_id") or 0)
+    if window_id > 0:
+        commands.append(("window", ["screencapture", "-x", "-l", str(window_id), target]))
+    commands.append(("display", ["screencapture", "-x", target]))
+
+    for method, command in commands:
+        result = run_capture_command(command)
+        attempts.append(
+            {
+                "method": method,
+                "command": command,
+                "returncode": result.returncode,
+                "stderr": result.stderr.strip(),
+            }
+        )
+        if result.returncode == 0:
+            capture_method = method
+            success = True
+            break
+
+    metadata = {
+        "success": success,
+        "target": target,
+        "target_exists": Path(target).exists(),
+        "capture_method": capture_method,
+        "metadata_version": 1,
+        "attempts": attempts,
+        "window_lookup_code": window_lookup_code,
+        "window_lookup_error": window_lookup_error,
+        "window_target": window_target,
+        "ui_snapshot": payload,
+        "session_status": session_status,
+    }
+    metadata_path.write_text(json.dumps(metadata, indent=2, sort_keys=True), encoding="utf-8")
+    print(
+        json.dumps(
+            {
+                "success": success,
+                "target": target,
+                "metadata_path": str(metadata_path),
+                "capture_method": capture_method,
+            },
+            separators=(",", ":"),
+        )
+    )
+    return 0 if success else 1
+
+
 def main() -> int:
     parser = argparse.ArgumentParser()
     sub = parser.add_subparsers(dest="command", required=True)
@@ -602,6 +879,8 @@ def main() -> int:
     sub.add_parser("get-state")
     sub.add_parser("get-session-status")
     sub.add_parser("dump-ui")
+    screenshot = sub.add_parser("capture-screenshot")
+    screenshot.add_argument("--target", required=True)
     state_value = sub.add_parser("get-state-value")
     state_value.add_argument("field", choices=["state", "front_window", "window_count"])
     session_value = sub.add_parser("get-session-status-value")
@@ -649,6 +928,8 @@ def main() -> int:
         return get_session_status()
     if args.command == "dump-ui":
         return dump_ui()
+    if args.command == "capture-screenshot":
+        return capture_screenshot(args.target)
     if args.command == "get-state-value":
         return get_state_value(args.field)
     if args.command == "get-session-status-value":

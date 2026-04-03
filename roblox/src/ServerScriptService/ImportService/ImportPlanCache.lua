@@ -89,6 +89,9 @@ function ImportPlanCache.GetOrCreatePlan(chunk, options)
     local layerSignatureKey = stringifyMap(options.layerSignatures)
     local requestedLayerKey = stringifyMap(layers)
     local presenceKey = derivePresenceSignature(chunk)
+    local terrainNeighborSignature = if type(options.terrainNeighborSignature) == "string"
+        then options.terrainNeighborSignature
+        else "none"
     local selectiveLayers = layers ~= nil
 
     local key = table.concat({
@@ -96,6 +99,7 @@ function ImportPlanCache.GetOrCreatePlan(chunk, options)
         "config=" .. configSignature,
         "layerSig=" .. layerSignatureKey,
         "layers=" .. requestedLayerKey,
+        "terrainNeighbors=" .. terrainNeighborSignature,
         "selective=" .. tostring(selectiveLayers),
     }, "|")
 
@@ -171,21 +175,17 @@ function ImportPlanCache.GetOrCreatePlan(chunk, options)
 
     local prepared = {}
     if actionSet.terrain then
-        prepared.terrain = TerrainBuilder.PrepareChunk(chunk)
+        prepared.terrain = TerrainBuilder.PrepareChunk(chunk, {
+            terrainNeighbors = options.terrainNeighbors,
+            terrainNeighborSignature = terrainNeighborSignature,
+        })
     end
     if actionSet.roads or actionSet.roadImprint then
-        prepared.roads = RoadChunkPlan.build(
-            chunk.roads or {},
-            chunk.originStuds or { x = 0, y = 0, z = 0 },
-            chunk
-        )
+        prepared.roads = RoadChunkPlan.build(chunk.roads or {}, chunk.originStuds or { x = 0, y = 0, z = 0 }, chunk)
     end
     if actionSet.landuse then
-        prepared.landuse = LanduseBuilder.PlanAll(
-            chunk.landuse or {},
-            chunk.originStuds or { x = 0, y = 0, z = 0 },
-            chunk
-        )
+        prepared.landuse =
+            LanduseBuilder.PlanAll(chunk.landuse or {}, chunk.originStuds or { x = 0, y = 0, z = 0 }, chunk)
     end
 
     cached = freezePlan({

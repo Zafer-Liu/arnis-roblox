@@ -1230,6 +1230,31 @@ local function buildFallbackFlatClosureRoof(
     )
 end
 
+local function buildFallbackFlatVisibleRoof(
+    bldgName,
+    footprint,
+    holeLoops,
+    topY,
+    wallColor,
+    wallMat,
+    parent,
+    roofColor,
+    roofMat
+)
+    buildFlatRoofFromFootprint(
+        bldgName,
+        footprint,
+        holeLoops,
+        topY,
+        wallColor,
+        wallMat,
+        parent,
+        roofColor,
+        roofMat,
+        bldgName .. "_roof"
+    )
+end
+
 local function getBuildingHeight(building)
     -- Schema 0.4.0: building.height is already in studs at correct scale.
     -- No conversion needed.
@@ -1455,7 +1480,7 @@ local function buildRoof(building, footprint, bounds, baseY, height, color, mat,
 
     if roofShape == "gabled" or roofShape == "gambrel" then
         if not rectangularFootprint then
-            buildFallbackFlatClosureRoof(
+            buildFallbackFlatVisibleRoof(
                 bldgName,
                 footprint,
                 bounds.holeWorldLoops,
@@ -1530,7 +1555,7 @@ local function buildRoof(building, footprint, bounds, baseY, height, color, mat,
             buildRoofClosureDeck(bldgName, footprint, bounds.holeWorldLoops, baseY + height, rc, rm, parent)
             return
         end
-        buildFallbackFlatClosureRoof(
+        buildFallbackFlatVisibleRoof(
             bldgName,
             footprint,
             bounds.holeWorldLoops,
@@ -1558,7 +1583,7 @@ local function buildRoof(building, footprint, bounds, baseY, height, color, mat,
         return
     elseif roofShape == "skillion" then
         if not rectangularFootprint then
-            buildFallbackFlatClosureRoof(
+            buildFallbackFlatVisibleRoof(
                 bldgName,
                 footprint,
                 bounds.holeWorldLoops,
@@ -1591,7 +1616,7 @@ local function buildRoof(building, footprint, bounds, baseY, height, color, mat,
         return
     elseif roofShape == "mansard" then
         if not rectangularFootprint then
-            buildFallbackFlatClosureRoof(
+            buildFallbackFlatVisibleRoof(
                 bldgName,
                 footprint,
                 bounds.holeWorldLoops,
@@ -2477,9 +2502,13 @@ function BuildingBuilder.FallbackBuild(parent, building, originStuds, chunk, win
     -- Keep sparse low-rise shells legible with a cheap perimeter cue at street level.
     buildFoundation(detailFolder, worldPts, baseY)
     if preferSimpleShellDetail then
-        detailFolder:SetAttribute("ArnisFacadeBeltlineCount", buildFacadeBeltlines(detailFolder, worldPts, baseY, height))
+        detailFolder:SetAttribute(
+            "ArnisFacadeBeltlineCount",
+            buildFacadeBeltlines(detailFolder, worldPts, baseY, height)
+        )
         detailFolder:SetAttribute("ArnisCornerAccentCount", buildCornerAccents(detailFolder, worldPts, baseY, height))
-        local doorCueCount, windowPaneCount = buildSimpleShellOpenings(detailFolder, worldPts, baseY, height, windowBudget)
+        local doorCueCount, windowPaneCount =
+            buildSimpleShellOpenings(detailFolder, worldPts, baseY, height, windowBudget)
         detailFolder:SetAttribute("ArnisSimpleShellDoorCueCount", doorCueCount)
         detailFolder:SetAttribute("ArnisSimpleShellWindowPaneCount", windowPaneCount)
     end
@@ -2755,15 +2784,37 @@ function BuildingBuilder.MeshBuildAll(parent, buildings, originStuds, chunk, con
                 )
                 recordBuildingDetailPhase(buildStats, "roofBuildMs", (os.clock() - roofBuildStartedAt) * 1000)
             else
-                -- Merge opaque walls into EditableMesh accumulators
-                local acc = getAccumulator(mat, color)
-                addWallLoopToAccumulator(acc, worldPts, baseY, height)
-                for _, holeLoop in ipairs(footprintData.holeWorldLoops) do
-                    local liftedHoleLoop = table.create(#holeLoop)
-                    for pointIndex, point in ipairs(holeLoop) do
-                        liftedHoleLoop[pointIndex] = Vector3.new(point.X, baseY, point.Z)
+                if preferSimpleShellDetail then
+                    -- Low-rise simple shells keep explicit wall parts in play so
+                    -- shell visibility does not depend on merged mesh behavior.
+                    buildWallLoopParts(shellFolder, bldgName, worldPts, baseY, height, mat, color, "outer")
+                    for holeIndex, holeLoop in ipairs(footprintData.holeWorldLoops) do
+                        local liftedHoleLoop = table.create(#holeLoop)
+                        for pointIndex, point in ipairs(holeLoop) do
+                            liftedHoleLoop[pointIndex] = Vector3.new(point.X, baseY, point.Z)
+                        end
+                        buildWallLoopParts(
+                            shellFolder,
+                            bldgName,
+                            liftedHoleLoop,
+                            baseY,
+                            height,
+                            mat,
+                            color,
+                            string.format("inner%d", holeIndex)
+                        )
                     end
-                    addWallLoopToAccumulator(acc, liftedHoleLoop, baseY, height)
+                else
+                    -- Merge opaque walls into EditableMesh accumulators
+                    local acc = getAccumulator(mat, color)
+                    addWallLoopToAccumulator(acc, worldPts, baseY, height)
+                    for _, holeLoop in ipairs(footprintData.holeWorldLoops) do
+                        local liftedHoleLoop = table.create(#holeLoop)
+                        for pointIndex, point in ipairs(holeLoop) do
+                            liftedHoleLoop[pointIndex] = Vector3.new(point.X, baseY, point.Z)
+                        end
+                        addWallLoopToAccumulator(acc, liftedHoleLoop, baseY, height)
+                    end
                 end
 
                 -- Roofs stay explicit even in shellMesh mode so visible roof truth
@@ -2909,7 +2960,10 @@ function BuildingBuilder.MeshBuildAll(parent, buildings, originStuds, chunk, con
                     detailFolder:SetAttribute("ArnisSimpleShellDoorCueCount", doorCueCount)
                     detailFolder:SetAttribute("ArnisSimpleShellWindowPaneCount", windowPaneCount)
                 end
-                detailFolder:SetAttribute("ArnisCorniceCount", addCorniceToAccumulator(detailAcc, worldPts, baseY + height))
+                detailFolder:SetAttribute(
+                    "ArnisCorniceCount",
+                    addCorniceToAccumulator(detailAcc, worldPts, baseY + height)
+                )
 
                 if not preferSimpleShellDetail then
                     buildAwning(detailFolder, building, baseY, worldPts)
@@ -2937,11 +2991,7 @@ function BuildingBuilder.MeshBuildAll(parent, buildings, originStuds, chunk, con
             if not preferSimpleShellDetail then
                 local rooftopDetailStartedAt = os.clock()
                 buildRooftopEquipment(detailFolder, building, baseY, height, worldPts)
-                recordBuildingDetailPhase(
-                    buildStats,
-                    "rooftopDetailMs",
-                    (os.clock() - rooftopDetailStartedAt) * 1000
-                )
+                recordBuildingDetailPhase(buildStats, "rooftopDetailMs", (os.clock() - rooftopDetailStartedAt) * 1000)
             end
         end
 

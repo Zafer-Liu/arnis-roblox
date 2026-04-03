@@ -102,6 +102,13 @@ For every meaningful code change:
   - preview telemetry artifacts and scene fidelity/parity audits
   - remote artifact sync back to the local machine through `scripts/run_studio_harness_remote.sh`
 - When you need a visual proof on a remote Studio machine, use the harness screenshot/artifact path first. Do not treat raw SSH `screencapture` as the authoritative capture lane when the harness can capture and sync the image itself.
+- Preferred screenshot workflow:
+  - local proof: `scripts/run_studio_harness.sh --play --screenshot --artifact-dir /tmp/arnis-studio-harness`
+  - remote proof: `scripts/run_studio_harness_remote.sh --host <alias> --play --screenshot --artifact-dir /tmp/arnis-remote-studio`
+  - edit-only screenshot: add `--edit-only`
+  - isolated repro: add `--spec-filter <SpecName>`
+- Screenshot artifacts now include a sibling `*.capture.json` sidecar with the capture method, stderr, and window/session diagnostics. Treat that sidecar as the first source of truth when a screenshot is missing or blank.
+- For remote runs, prefer the wrapper-managed artifact directory and synced outputs over manual SSH inspection. The wrapper already pulls back the Studio log, scene-fidelity artifacts, screenshots, and screenshot diagnostics when they exist.
 
 ## Rust-specific guardrails
 

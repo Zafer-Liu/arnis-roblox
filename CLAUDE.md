@@ -41,6 +41,12 @@ Kodex should read `AGENTS.md` first.
   - MCP probes, bootstrap/play telemetry, preview telemetry capture, and scene fidelity/parity audits
   - remote fetch of logs, screenshots, and preview/plugin-state artifacts
 - If you need to inspect what Studio rendered on a remote host, prefer the harness screenshot artifact path first. Do not default to raw remote `screencapture` when the harness can capture and return the phase-specific image.
+- Use these as the default invocation shapes:
+  - `scripts/run_studio_harness.sh --play --screenshot --artifact-dir /tmp/arnis-studio-harness`
+  - `scripts/run_studio_harness_remote.sh --host <alias> --play --screenshot --artifact-dir /tmp/arnis-remote-studio`
+  - add `--edit-only` for edit-mode proof
+  - add `--spec-filter <SpecName>` for isolated Luau repros
+- When screenshot capture fails, inspect the sibling `*.capture.json` artifact before doing anything else. It records the capture method, stderr, and window/session diagnostics and is the repo’s authoritative failure breadcrumb for remote display issues.
 
 ## Immediate tasks Kodex can safely take on
 

@@ -103,6 +103,53 @@ The compact historical archive index is:
 
 ## Status Notes
 
+### 2026-04-03: Play-Probe False Positives No Longer Generate Bogus Play Scene Audits
+
+- Continued the `tertiary`-only play-focused Austin proof lane after the earlier seeded-manifest-summary fix.
+- Root-cause update:
+  - the current remaining play-scene blocker is not staged manifest input anymore
+  - the staged clone still picked up the precomputed manifest summary successfully:
+    - `using precomputed manifest scene index: /Users/adpena/.codex-remote-studio/arnis-roblox/rust/out/austin-manifest.scene-index.json`
+  - the live failure remains the current MCP server contract: `run_code` still resolves against edit context instead of the live play DataModel during this proof lane
+- Hardened the harness so this failure is now honest and non-misleading:
+  - `run_play_probe_via_mcp()` now emits `ARNIS_SCENE_PLAY` only when the sampled world root actually exists
+  - the harness now logs `ARNIS_MCP_PLAY_SCENE_VALIDATED` only after the returned MCP payload passes live-play validation
+  - offline play scene-audit generation now requires both `ARNIS_SCENE_PLAY` and `ARNIS_MCP_PLAY_SCENE_VALIDATED`; raw scene lines alone are no longer enough to produce `/tmp/arnis-scene-fidelity-play.*`
+- Remote `tertiary` proof on 2026-04-03 from the staged wrapper lane confirmed the new behavior:
+  - Austin still reached authoritative client `gameplay_ready`
+  - the MCP play probe still failed with:
+    - `RuntimeError('run_code resolved against edit context instead of the live play session')`
+  - the patched harness no longer emitted `ARNIS_SCENE_PLAY` in that false-positive run, and the play scene-audit write path stayed dark instead of generating a misleading play report
+- Residual remote issues are unchanged:
+  - screenshot capture still fails with `could not create image from display`
+  - wrapper cleanup still tends to hang after `quit_studio requesting graceful quit`, so the successful proof signal was captured before interrupting the late quit tail
+- Local-safe verification passed on 2026-04-03:
+  - `python3 -m unittest scripts.tests.test_run_studio_harness scripts.tests.test_run_studio_harness_remote scripts.tests.test_studio_mcp_proxy_lib -v`
+  - `bash -n scripts/run_studio_harness.sh scripts/run_studio_harness_remote.sh`
+  - `git diff --check`
+- Next follow-up is no longer "seed the manifest summary"; it is to establish a real live-play scene-audit lane on `tertiary` that does not depend on the current edit-context `run_code` limitation.
+
+### 2026-04-03: Session-Status Probes Now Use A Lightweight UI Snapshot Fallback
+
+- Investigated the current `tertiary` play-focused Austin proof lane after the `e9bc6977` fresh-template handoff fix.
+- Root-cause update:
+  - the current live blocker is no longer the older Austin bootstrap question alone
+  - remote evidence from the active `/Volumes/APDataStore/arnis-roblox-proof` run on `e9bc6977` showed Studio could sit with only `State: Qt::ApplicationActive` plus repeated `http://localhost:44755/request` `HttpError: ConnectFail` noise while short bounded `studio_ui_control.py get-session-status` / `get-state` probes timed out
+  - this narrowed the failure boundary to the UI-control/session-status lane itself: the full accessibility snapshot was too heavy/unreliable to remain the only source for harness session classification on this remote surface
+- Implemented a minimal bounded fix in `scripts/studio_ui_control.py`:
+  - added `capture_fast_session_snapshot()` with a lighter front-window/menu/status probe instead of the full all-windows/all-buttons dump
+  - added `capture_session_snapshot()` so `get-session-status` and `get-session-status-value` can fall back to the lighter probe when the full snapshot times out
+  - kept the heavier `get-state` / `dump-ui` path intact for richer debugging surfaces
+- Added unit coverage in `scripts/tests/test_studio_ui_control.py` to prove:
+  - session snapshot falls back to the fast probe after a full-snapshot timeout
+  - `get_session_status_value("ready_for_harness")` still succeeds from the fast probe in the timeout scenario
+- Local-safe verification passed on 2026-04-03:
+  - `python3 -m unittest scripts.tests.test_studio_ui_control.StudioUiControlTests.test_capture_session_snapshot_falls_back_to_fast_probe_after_full_timeout scripts.tests.test_studio_ui_control.StudioUiControlTests.test_get_session_status_value_uses_fast_probe_when_full_snapshot_times_out -v`
+  - `python3 -m unittest scripts.tests.test_run_studio_harness scripts.tests.test_studio_ui_control -v`
+  - `python3 -m py_compile scripts/studio_ui_control.py scripts/tests/test_studio_ui_control.py`
+  - `git diff --check`
+- Next proof step is a fresh `tertiary` rerun of the play-focused Austin screenshot lane from this patched main checkout to confirm the harness now escapes the session-status stall and either reaches Austin/play or exposes the next blocker explicitly.
+
 ### 2026-04-02: Runtime Streaming Contract Now Publishes Scheduler State And Ring Budgets
 
 - Strengthened the shared runtime streaming contract in `StreamingService.lua` so the scheduler publishes its own plan, not just its outcome.
@@ -1443,3 +1490,288 @@ The compact historical archive index is:
 - Follow-up:
   - rerun the Austin play proof through the harness screenshot path after this lands on `main`
   - use the returned `...-play.png` and scene-audit artifacts to pin the real false-surface / missing-wall Austin parity bug
+
+### 2026-04-03: Remote Wrapper Now Seeds Scene Index Inputs For Staged Proof Runs
+
+- I stayed on harness DX rather than widening runtime behavior because the current remote blocker had narrowed to staged-proof ergonomics:
+  - the remote play flow on `tertiary` was already reaching `PlaySoloSuccess` and Austin `gameplay_ready`
+  - but staged clones under `~/.codex-remote-studio/arnis-roblox` had no ignored `rust/out` artifacts, so `run_scene_fidelity_audits()` could only log `scene fidelity audit unavailable`
+  - the wrapper also only synced back logs, screenshot attempts, and preview/plugin artifacts, not scene-audit outputs
+- I tightened that in two places:
+  - `scripts/run_studio_harness.sh` now accepts a precomputed `rust/out/austin-manifest.scene-index.json` as sufficient audit input and only requires raw manifest/sqlite outputs when it actually needs to regenerate the summary
+  - `scripts/run_studio_harness_remote.sh` now seeds that summary into the staged clone from either:
+    - the local workspace, when `rust/out/austin-manifest.scene-index.json` exists locally
+    - or the configured remote base clone, when the staged sync is clean but the operator-owned remote proof clone already has the summary
+  - the remote wrapper now also syncs `/tmp/arnis-scene-fidelity-*.json`, `/tmp/arnis-scene-fidelity-*.html`, and `/tmp/arnis-scene-parity.*` back into the local artifact directory when those artifacts exist
+- Regression coverage added:
+  - `scripts.tests.test_run_studio_harness.RunStudioHarnessTests.test_scene_fidelity_audits_can_run_from_seeded_manifest_summary_without_raw_outputs`
+  - `scripts.tests.test_run_studio_harness_remote.RunStudioHarnessRemoteTests.test_seeds_manifest_summary_and_fetches_scene_audit_artifacts`
+- Verification for this slice:
+  - local-safe red then green:
+    - `python3 -m unittest scripts.tests.test_run_studio_harness.RunStudioHarnessTests.test_scene_fidelity_audits_can_run_from_seeded_manifest_summary_without_raw_outputs -v`
+    - `python3 -m unittest scripts.tests.test_run_studio_harness_remote.RunStudioHarnessRemoteTests.test_seeds_manifest_summary_and_fetches_scene_audit_artifacts -v`
+  - local-safe green:
+    - `python3 -m unittest scripts.tests.test_run_studio_harness scripts.tests.test_run_studio_harness_remote -v`
+    - `bash -n scripts/run_studio_harness.sh scripts/run_studio_harness_remote.sh`
+    - `git diff --check`
+  - remote `tertiary` proof with no local `rust/out` summary:
+    - invoked wrapper with `ARNIS_REMOTE_STUDIO_BASE_ARNIS=/Volumes/APDataStore/arnis-roblox-proof` so the staged clone could borrow the existing remote scene index
+    - observed `[harness] using precomputed manifest scene index: /Users/adpena/.codex-remote-studio/arnis-roblox/rust/out/austin-manifest.scene-index.json`
+    - observed Austin play proof still reaching `gameplay_ready` with valid client bootstrap/world/minimap/local-experience verdicts
+- Remaining gap after this slice:
+  - screenshot capture on `tertiary` still fails at the machine/display layer with `could not create image from display`
+  - this specific play-focused proof did not leave `/tmp/arnis-scene-fidelity-*.json` artifacts behind, so the next audit gap is no longer missing staged manifest inputs; it is whether the selected play lane is emitting `ARNIS_SCENE_PLAY` markers/artifacts at all
+
+### 2026-04-03: Proof-First Remote Sync Now Clears Stale Volatile Artifacts
+
+- I stayed on remote-wrapper DX because the next confusing proof symptom was no longer inside Austin runtime behavior:
+  - a fresh proof-first `tertiary` run synced `arnis-scene-fidelity-play.{json,html}` back locally even though the current run had only reported the MCP false-positive path and no validated live play scene marker
+  - inspecting the synced files showed they predated the current run by hours, so the wrapper was telling the truth about the latest log but could still carry forward stale `/tmp` proof outputs
+- I fixed that in `scripts/run_studio_harness_remote.sh` by:
+  - defining the volatile proof-artifact set once
+  - clearing that set inside the chosen local artifact directory before each run
+  - clearing the same set on `tertiary` before launching the remote harness so proof-first sync starts from an empty remote `/tmp` surface
+  - continuing to mirror remote output, sync early after authoritative proof, and bound the late quit tail after `main harness flow complete; exiting`
+- Regression coverage added:
+  - `scripts.tests.test_run_studio_harness_remote.RunStudioHarnessRemoteTests.test_clears_volatile_remote_tmp_artifacts_before_each_run`
+- Verification for this slice:
+  - local-safe red then green:
+    - `python3 -m unittest scripts.tests.test_run_studio_harness_remote.RunStudioHarnessRemoteTests.test_clears_volatile_remote_tmp_artifacts_before_each_run -v`
+  - local-safe green:
+    - `python3 -m unittest scripts.tests.test_run_studio_harness_remote -v`
+    - `bash -n scripts/run_studio_harness.sh scripts/run_studio_harness_remote.sh`
+    - `git diff --check`
+  - remote `tertiary` proof:
+    - `ARNIS_REMOTE_STUDIO_ARTIFACT_DIR=/tmp/arnis-remote-studio-cleanproof ARNIS_REMOTE_STUDIO_BASE_ARNIS=/Volumes/APDataStore/arnis-roblox-proof bash scripts/run_studio_harness_remote.sh --remote-host tertiary -- --takeover --hard-restart --skip-edit-tests --play-wait 30 --pattern-wait 150 --screenshot /tmp/arnis-studio-harness.png`
+    - remote stale `/tmp/arnis-scene-fidelity-play.*` and `/tmp/arnis-scene-parity.*` files were gone before the harness body started
+    - the run still reached `play bootstrap trace verdict (authoritative client bootstrap marker): valid`
+    - the run still hit the honest MCP failure `RuntimeError('run_code resolved against edit context instead of the live play session')`
+    - screenshot capture still failed with `could not create image from display`
+    - the wrapper still bounded the late quit tail after completion instead of hanging on cleanup
+    - the fresh local artifact directory contained only the current Studio log, with no carried-over play scene-fidelity or parity artifacts
+- Interpretation:
+  - proof-first sync is now materially trustworthy for negative evidence as well as positive artifacts
+  - the next real blocker is back where it belongs: a true live-play scene-audit lane on `tertiary`, not stale wrapper carryover
+
+### 2026-04-03: Live Play Scene Audit Now Comes From The Runtime, Not Remote MCP
+
+- I stopped pushing on the remote MCP boundary because the failure was stable and specific:
+  - Austin still reached authoritative client `gameplay_ready` on `tertiary`
+  - but the follow-on `run_code` proof step still resolved against edit context and kept emitting `generatedExists=false`
+  - that meant the harness had a real play session and a false MCP session at the same time, which is the wrong place to anchor production proof
+- I changed the contract instead of chasing that transport:
+  - added `roblox/src/ServerScriptService/ImportService/SceneMarkerEmitter.lua` so Roblox-side runtime code can emit the full `ARNIS_SCENE_*` marker family without going through the harness-embedded Luau helper
+  - updated `BootstrapAustin.server.lua` to emit `ARNIS_SCENE_PLAY` from the live Austin runtime after `gameplay_ready` using `SceneAudit.summarizeWorld(...)` plus canonical play metadata
+  - updated `scripts/run_studio_harness.sh` so play scene-fidelity artifacts now build from:
+    - the runtime-emitted `ARNIS_SCENE_PLAY` marker
+    - the authoritative client bootstrap trace validation
+  - the harness no longer requires `ARNIS_MCP_PLAY_SCENE_VALIDATED` before it can write `arnis-scene-fidelity-play.*`
+- Regression coverage added:
+  - `scripts.tests.test_austin_runtime_contract.AustinRuntimeContractTests.test_bootstrap_emits_authoritative_play_scene_marker_from_live_runtime`
+  - updated `scripts.tests.test_run_studio_harness.RunStudioHarnessTests.test_scene_fidelity_audits_emit_edit_play_parity_when_both_reports_exist`
+- Verification for this slice:
+  - local-safe red then green:
+    - `python3 -m unittest scripts.tests.test_austin_runtime_contract.AustinRuntimeContractTests.test_bootstrap_emits_authoritative_play_scene_marker_from_live_runtime -v`
+    - `python3 -m unittest scripts.tests.test_run_studio_harness.RunStudioHarnessTests.test_scene_fidelity_audits_emit_edit_play_parity_when_both_reports_exist -v`
+  - local-safe green:
+    - `python3 -m unittest scripts.tests.test_run_studio_harness scripts.tests.test_austin_runtime_contract -v`
+    - `bash -n scripts/run_studio_harness.sh`
+    - `git diff --check`
+  - remote `tertiary` proof:
+    - `ARNIS_REMOTE_STUDIO_ARTIFACT_DIR=/tmp/arnis-remote-studio-runtimeplay ARNIS_REMOTE_STUDIO_BASE_ARNIS=/Volumes/APDataStore/arnis-roblox-proof bash scripts/run_studio_harness_remote.sh --remote-host tertiary -- --takeover --hard-restart --skip-edit-tests --play-wait 30 --pattern-wait 150 --screenshot /tmp/arnis-studio-harness.png`
+    - the run still hit the known MCP failure: `RuntimeError('run_code resolved against edit context instead of the live play session')`
+    - the same run emitted runtime `ARNIS_SCENE_PLAY` markers from `BootstrapAustin`
+    - the harness logged `play bootstrap trace verdict (authoritative client bootstrap marker): valid`
+    - the harness logged `writing scene fidelity play artifact`
+    - the synced local artifact directory contained:
+      - `/tmp/arnis-remote-studio-runtimeplay/0.715.0.7151115_20260403T145828Z_Studio_2b93a_last.log`
+      - `/tmp/arnis-remote-studio-runtimeplay/arnis-scene-fidelity-play.json`
+      - `/tmp/arnis-remote-studio-runtimeplay/arnis-scene-fidelity-play.html`
+- Remaining gaps after this slice:
+  - screenshot capture on `tertiary` still fails with `could not create image from display`
+  - the remote quit path still needs bounded wrapper cleanup instead of a clean Studio-side shutdown
+  - MCP may still become a useful SDK/agentic surface later, but it is no longer on the critical path for trustworthy live-play proof
+
+### 2026-04-03: Remote Screenshot Failures Now Sync Back As Explicit Capture Diagnostics
+
+- I pushed on the last confusing part of the `tertiary` proof loop: screenshot capture was still failing, but the old lane only gave a one-line harness log and no structured evidence about what Studio session the failure happened in.
+- I changed the screenshot contract instead of inventing another wrapper path:
+  - added `capture-screenshot --target ...` to `scripts/studio_ui_control.py`
+  - the helper now captures the current Studio UI/session snapshot, tries window-targeted capture first when a front-window target can be resolved, falls back to display capture, and always writes a sibling `*.capture.json` file
+  - updated `scripts/run_studio_harness.sh` to use that helper instead of raw `screencapture`
+  - updated `scripts/run_studio_harness_remote.sh` so proof-first sync also brings back `arnis-studio-harness-*.capture.json`
+  - tightened the sidecar format after remote proof to include `window_lookup_error` text, not just a numeric `window_lookup_code`
+- Regression coverage added:
+  - `scripts.tests.test_studio_ui_control.StudioUiControlTests.test_capture_screenshot_prefers_window_capture_then_falls_back_to_display`
+  - `scripts.tests.test_studio_ui_control.StudioUiControlTests.test_capture_screenshot_records_failure_metadata_when_display_capture_fails`
+  - updated `scripts.tests.test_run_studio_harness.RunStudioHarnessTests.test_screenshot_capture_uses_shared_ui_control_helper_and_is_best_effort_only`
+  - updated `scripts.tests.test_run_studio_harness_remote.RunStudioHarnessRemoteTests.test_seeds_manifest_summary_and_fetches_scene_audit_artifacts`
+- Verification for this slice:
+  - local-safe red then green:
+    - `python3 -m unittest scripts.tests.test_studio_ui_control.StudioUiControlTests.test_capture_screenshot_prefers_window_capture_then_falls_back_to_display -v`
+    - `python3 -m unittest scripts.tests.test_studio_ui_control.StudioUiControlTests.test_capture_screenshot_records_failure_metadata_when_display_capture_fails -v`
+  - local-safe green:
+    - `python3 -m unittest scripts.tests.test_studio_ui_control scripts.tests.test_run_studio_harness scripts.tests.test_run_studio_harness_remote -v`
+    - `bash -n scripts/run_studio_harness.sh scripts/run_studio_harness_remote.sh`
+    - `git diff --check`
+  - remote `tertiary` proof:
+    - `ARNIS_REMOTE_STUDIO_ARTIFACT_DIR=/tmp/arnis-remote-studio-screenshot ARNIS_REMOTE_STUDIO_BASE_ARNIS=/Volumes/APDataStore/arnis-roblox-proof bash scripts/run_studio_harness_remote.sh --remote-host tertiary -- --takeover --hard-restart --skip-edit-tests --play-wait 30 --pattern-wait 150 --screenshot /tmp/arnis-studio-harness.png`
+    - the run again reached authoritative live proof:
+      - runtime `ARNIS_SCENE_PLAY` emitted
+      - `ARNIS_CLIENT_BOOTSTRAP ... bootstrapState=gameplay_ready`
+      - harness logged `play bootstrap trace verdict (authoritative client bootstrap marker): valid`
+      - harness logged `writing scene fidelity play artifact`
+    - the synced local artifact directory now contained:
+      - `/tmp/arnis-remote-studio-screenshot/0.715.0.7151115_20260403T151340Z_Studio_1577b_last.log`
+      - `/tmp/arnis-remote-studio-screenshot/arnis-scene-fidelity-play.json`
+      - `/tmp/arnis-remote-studio-screenshot/arnis-scene-fidelity-play.html`
+      - `/tmp/arnis-remote-studio-screenshot/arnis-studio-harness-play.capture.json`
+    - that sidecar proved the failure is now explicit and trustworthy:
+      - `capture_method="failed"`
+      - display attempt stderr was `could not create image from display`
+      - session status at failure was `ready_play` with one live Studio window
+      - window lookup also failed, which is now recorded in structured metadata instead of disappearing behind a generic screenshot failure
+- Interpretation:
+  - the remote display lane is still blocked at the machine/window-server level, but it is no longer a black box
+  - productive proof work can move on without screenshot babysitting because failed capture attempts now sync back with enough context to distinguish infrastructure failure from Austin/runtime failure
+
+## 2026-04-03 play-mode terrain seam + startup settlement hardening
+
+- The newest product-facing symptom report narrowed the likely play-mode regressions:
+  - terrain in play looked chunk-bounded, with false vertical planes around peaks
+  - some walls/roofs appeared only after walking through or past them
+  - edit mode still looked materially better than play mode
+- I treated this as two separate runtime truths instead of one vague “renderer is broken” complaint:
+  - terrain seam continuity was broken by chunk-local edge sampling in `TerrainBuilder`
+  - bootstrap was still allowed to declare `gameplay_ready` after only one streaming update, which is too weak for near-field building/roof residency in play
+- Implementation landed:
+  - `TerrainBuilder` now has neighbor-aware edge sampling through `resolveNeighborHeightSample(...)`
+  - the same seam context now feeds both interpolated terrain heights and slope-derived material classification, so chunk-border voxels stop clamping back into the local chunk at shared edges
+  - `ImportService.ImportManifest(...)` now builds `buildTerrainNeighborContextByChunkId(...)` and threads that context into per-chunk terrain planning
+  - `StreamingService` now derives the same terrain neighbor context for streamed chunk admissions so startup import and play-time streaming stay on one terrain seam contract
+  - `BootstrapAustin.server.lua` now waits on near-ring startup streaming settlement before releasing the player and declaring `gameplay_ready`; it warns loudly on timeout instead of silently treating one update as enough
+- Coverage added:
+  - `scripts.tests.test_play_render_truth.PlayRenderTruthTests.test_terrain_builder_supports_neighbor_aware_chunk_edge_sampling`
+  - `scripts.tests.test_austin_runtime_contract.AustinRuntimeContractTests.test_bootstrap_waits_for_near_ring_streaming_settlement_before_gameplay_ready`
+  - `roblox/src/ServerScriptService/Tests/TerrainOutdoorFidelity.spec.lua` now includes a seam-focused neighbor sampling assertion
+- Docs updated:
+  - `AGENTS.md` and `CLAUDE.md` now include the default harness/screenshot invocation shapes and the `*.capture.json` sidecar guidance
+- Local-safe verification for this slice:
+  - `python3 -m unittest scripts.tests.test_play_render_truth scripts.tests.test_austin_runtime_contract -v`
+  - `git diff --check`
+- Important limitation:
+  - I did not run Studio locally
+  - the next proof step still belongs on `tertiary`, where we should verify whether the terrain seam fix removes the chunk-wall artifacts and whether the bootstrap wait materially reduces late wall/roof visibility in play
+
+### 2026-04-03 remote `tertiary` check after terrain seam + startup settlement patch
+
+- Remote proof command:
+  - `ARNIS_REMOTE_STUDIO_ARTIFACT_DIR=/tmp/arnis-remote-studio-terrainfix bash scripts/run_studio_harness_remote.sh --remote-host tertiary -- --takeover --hard-restart --skip-edit-tests --play-wait 30 --pattern-wait 150 --screenshot /tmp/arnis-studio-harness.png`
+- The wrapper’s local profile alias was not configured on this machine, so I used explicit `--remote-host tertiary`.
+- The run reached authoritative play proof in the remote Studio log:
+  - `ARNIS_SCENE_PLAY` emitted
+  - `ARNIS_CLIENT_BOOTSTRAP ... bootstrapState=gameplay_ready`
+  - `ARNIS_CLIENT_WORLD_COMPACT` emitted at multiple readiness phases
+- The most useful product-facing signal from this run:
+  - at `streaming_ready`, the client still reported `nearbyBuildingModels=0`, `nearbyWallParts=0`, `nearbyRoofParts=0`
+  - by `gameplay_ready`, the client reported `nearbyBuildingModels=7`, `nearbyWallParts=4`, `collidableWallPartsNearby=4`, `nearbyRoofParts=14`, `overheadRoofParts=4`
+  - this is consistent with the new bootstrap wait improving what is actually present before gameplay is declared ready
+- Additional extracted truth from the remote log:
+  - latest `ARNIS_SCENE_PLAY` contained `buildingVisibleWallGapDetails=[]`
+  - latest `ARNIS_CLIENT_LOCAL_EXPERIENCE` still had `playerLocalTelemetryEnabled=false`, so this run did not yet provide terrain roughness diagnostics for the false-plane report
+- Screenshot status remains unchanged infrastructure-wise:
+  - remote `/tmp/arnis-studio-harness-play.capture.json` existed
+  - it still reported `capture_method="failed"`
+  - `window_lookup_error="execution error: Error: TypeError: {} is not iterable (-2700)"`
+- Remaining gap from this proof:
+  - the harness tail did not sync a final local artifact bundle before I cut the lingering remote session
+  - a direct remote check showed `/tmp/arnis-scene-fidelity-play.json` had not been written yet for this run, so structured play-audit artifact generation still trails the proof marker path on `tertiary`
+
+## 2026-04-03 play-mode fidelity tranche: terrain edge truth, startup structural settlement, and closure-only roof audits
+
+- This tranche focused on converting three vague play-mode complaints into concrete runtime contracts:
+  - terrain seams that still looked chunk-bounded in play
+  - startup readiness that could still advance before nearby walls/roofs were really present
+  - shaped-roof buildings that could degrade into closure-only roof evidence without showing up as a specific audit failure
+- Implementation landed:
+  - `TerrainBuilder.lua`
+    - sub-4-stud terrain edge subsamples now keep raw neighbor-aware cell coordinates for height interpolation instead of clamping back into the local chunk before interpolation
+    - this tightens the seam fix so border voxels actually consult adjacent chunk heights during high-resolution sampling
+  - `WorldProbeTerrain.lua` and `WorldProbe.client.lua`
+    - local terrain summaries now include `missingEdgeSampleCount`, `edgeTerrainYRangeStuds`, and `centerEdgeMaxDeltaStuds`
+    - the player-local terrain cross sample now marks the explicit edge indices so seam cliffs and missing edge hits become measurable instead of anecdotal
+  - `StreamingService.lua` and `BootstrapAustin.server.lua`
+    - startup readiness now uses `StreamingService.GetStartupResidencySnapshot(...)`
+    - that snapshot combines near-ring residency telemetry with a bounded nearby building/wall/roof scan around spawn
+    - `BootstrapAustin` now waits on that combined structural envelope before moving past `streaming_ready`
+  - `SceneAudit.lua`
+    - closure-only shaped-roof cases now increment `buildingModelsWithClosureOnlyRoofGap`
+    - those cases also emit `buildingClosureOnlyRoofGapDetails`, so they no longer disappear into the generic no-roof bucket without explanation
+- Coverage added:
+  - `scripts/tests/test_terrain_chunk_edge_truth.py`
+  - `roblox/src/ServerScriptService/Tests/StartupStructuralEnvelopeSettlement.spec.lua`
+  - `roblox/src/ServerScriptService/Tests/ClosureOnlyRoofGapAudit.spec.lua`
+  - `roblox/src/ServerScriptService/Tests/WorldProbeTerrain.spec.lua`
+  - `scripts/tests/test_play_render_truth.py`
+  - `scripts/tests/test_austin_runtime_contract.py`
+- Local-safe verification for the tranche:
+  - `python3 -m unittest scripts.tests.test_terrain_chunk_edge_truth scripts.tests.test_play_render_truth scripts.tests.test_austin_runtime_contract -v`
+  - `stylua --check roblox/src/ReplicatedStorage/Shared/WorldProbeTerrain.lua roblox/src/StarterPlayer/StarterPlayerScripts/WorldProbe.client.lua roblox/src/ServerScriptService/ImportService/Builders/TerrainBuilder.lua roblox/src/ServerScriptService/ImportService/SceneAudit.lua roblox/src/ServerScriptService/ImportService/StreamingService.lua roblox/src/ServerScriptService/BootstrapAustin.server.lua roblox/src/ServerScriptService/Tests/WorldProbeTerrain.spec.lua roblox/src/ServerScriptService/Tests/ClosureOnlyRoofGapAudit.spec.lua roblox/src/ServerScriptService/Tests/StartupStructuralEnvelopeSettlement.spec.lua`
+  - `git diff --check`
+- Remote `tertiary` follow-up from this exact tranche did not yet yield a new authoritative comparison run:
+  - command attempted:
+    - `ARNIS_REMOTE_STUDIO_ARTIFACT_DIR=/tmp/arnis-remote-studio-playfidelity ARNIS_TELEMETRY_FAMILIES=terrain,structures,player_local bash scripts/run_studio_harness_remote.sh --remote-host tertiary -- --takeover --hard-restart --skip-edit-tests --play-wait 35 --pattern-wait 180`
+  - the wrapper rebuilt and opened the clean play place, but the run then sat in a long remote tail/open-place state without syncing proof artifacts or producing a new log with `ARNIS_CLIENT_*` / `ARNIS_SCENE_PLAY` markers
+  - the latest new remote Studio log for that attempt (`0.715.0.7151115_20260403T161430Z_Studio_8be9d_last.log`) only showed repeated localhost connection-refused chatter and no new Austin bootstrap/play markers
+  - I terminated the lingering local wrapper/SSH tail after confirming there was no new proof signal yet
+- Updated understanding after this slice:
+  - the code-side play fidelity contracts are materially better and locally verified
+  - the next remote proof run should reuse this tranche and specifically confirm:
+    - whether `player_local` terrain edge metrics now show nontrivial seam deltas around the reported false planes
+    - whether `streaming_ready` is now structurally closer to the old `gameplay_ready` envelope
+    - whether closure-only roof cases appear explicitly in play audit output instead of hiding inside generic roofless counts
+
+## 2026-04-03 17:32 CDT
+
+- Closed two product-facing play-fidelity gaps locally:
+  - `BuildingBuilder.lua`
+    - irregular shaped-roof fallbacks (`gabled`, `gambrel`, `hipped`, `pyramidal`, `skillion`, `mansard`) now emit visible flat roof geometry instead of invisible closure-only decks
+    - updated `GabledIrregularFootprintTruth.spec.lua` so irregular gabled shells now require visible roof evidence and reject closure-only fallback
+  - `TerrainBuilder.lua`
+    - supersampled terrain columns now keep `averageHeight` for telemetry but also compute `heightRange` and `surfaceHeight`
+    - steep mixed-height 4x4 write voxels now render to the local peak (`surfaceHeight`) instead of collapsing to an averaged fake plane, which is the current code-side mitigation for the reported play-mode terrain peak boxes/false planes
+- Verification:
+  - `python3 -m unittest scripts.tests.test_terrain_chunk_edge_truth scripts.tests.test_play_render_truth scripts.tests.test_austin_runtime_contract -v`
+  - `stylua --check roblox/src/ServerScriptService/ImportService/Builders/BuildingBuilder.lua roblox/src/ServerScriptService/ImportService/Builders/TerrainBuilder.lua roblox/src/ReplicatedStorage/Shared/WorldProbeTerrain.lua roblox/src/StarterPlayer/StarterPlayerScripts/WorldProbe.client.lua roblox/src/ServerScriptService/ImportService/SceneAudit.lua roblox/src/ServerScriptService/ImportService/StreamingService.lua roblox/src/ServerScriptService/BootstrapAustin.server.lua roblox/src/ServerScriptService/Tests/GabledIrregularFootprintTruth.spec.lua roblox/src/ServerScriptService/Tests/TerrainOutdoorFidelity.spec.lua roblox/src/ServerScriptService/Tests/WorldProbeTerrain.spec.lua roblox/src/ServerScriptService/Tests/ClosureOnlyRoofGapAudit.spec.lua roblox/src/ServerScriptService/Tests/StartupStructuralEnvelopeSettlement.spec.lua`
+  - `git diff --check`
+- Next remote proof on `tertiary` should answer two concrete questions:
+  - whether the terrain false planes/peak boxes are materially reduced with `surfaceHeight` bias on steep mixed voxels
+  - whether the newly visible irregular roof fallback materially improves play-mode roof coverage near spawn and during movement
+
+## 2026-04-03 18:04 CDT
+
+- Another local-safe play-fidelity tranche is in:
+  - `StreamingService.lua`
+    - startup structural telemetry now walks only registered loaded chunks via `ChunkLoader.ListLoadedChunks(...)` / `ChunkLoader.GetChunkEntry(...)`
+    - this closes the gap where nearby shell geometry inside the world root but outside registered residency could make startup look ready too early
+  - `TerrainBuilder.lua`
+    - steep mixed-height terrain voxels now compute `surfaceFillDepth` in addition to `surfaceHeight`
+    - the renderer keeps the local peak for steep voxels but shrinks the filled depth to the elevated coverage ratio, which is the current mitigation for the reported terrain peak boxes / false planes
+- Verification:
+  - `python3 -m unittest scripts.tests.test_terrain_chunk_edge_truth scripts.tests.test_play_render_truth scripts.tests.test_austin_runtime_contract -v`
+  - `stylua --check roblox/src/ServerScriptService/ImportService/Builders/BuildingBuilder.lua roblox/src/ServerScriptService/ImportService/Builders/TerrainBuilder.lua roblox/src/ServerScriptService/ImportService/StreamingService.lua roblox/src/ServerScriptService/BootstrapAustin.server.lua roblox/src/ServerScriptService/Tests/GabledIrregularFootprintTruth.spec.lua roblox/src/ServerScriptService/Tests/TerrainOutdoorFidelity.spec.lua roblox/src/ServerScriptService/Tests/StartupStructuralEnvelopeSettlement.spec.lua roblox/src/ReplicatedStorage/Shared/WorldProbeTerrain.lua roblox/src/StarterPlayer/StarterPlayerScripts/WorldProbe.client.lua roblox/src/ServerScriptService/ImportService/SceneAudit.lua roblox/src/ServerScriptService/Tests/WorldProbeTerrain.spec.lua roblox/src/ServerScriptService/Tests/ClosureOnlyRoofGapAudit.spec.lua`
+  - `git diff --check`
+- Process note:
+  - a worker attempted a local Studio harness command despite the standing machine constraint
+  - all workers were shut down, local `rbx-studio-mcp` processes were killed, and this branch continued local-safe only
+
+## 2026-04-03 18:19 CDT
+
+- Added a building-shell play-fidelity mitigation in `BuildingBuilder.lua`:
+  - simple low-rise opaque buildings that still qualify for `preferSimpleShellDetail` now keep explicit shell wall parts even under `shellMesh` mode
+  - only the simple-shell subset changes; larger opaque buildings still use merged wall meshes
+  - intent: reduce renderer/streaming brittleness for the exact “simple geometry is janky or late in play” slice without throwing away the broader mesh path
+- Verification:
+  - `python3 -m unittest scripts.tests.test_terrain_chunk_edge_truth scripts.tests.test_play_render_truth scripts.tests.test_austin_runtime_contract -v`
+  - `stylua --check roblox/src/ServerScriptService/ImportService/Builders/BuildingBuilder.lua roblox/src/ServerScriptService/ImportService/Builders/TerrainBuilder.lua roblox/src/ServerScriptService/ImportService/StreamingService.lua roblox/src/ServerScriptService/BootstrapAustin.server.lua roblox/src/ServerScriptService/Tests/GabledIrregularFootprintTruth.spec.lua roblox/src/ServerScriptService/Tests/TerrainOutdoorFidelity.spec.lua roblox/src/ServerScriptService/Tests/StartupStructuralEnvelopeSettlement.spec.lua roblox/src/ReplicatedStorage/Shared/WorldProbeTerrain.lua roblox/src/StarterPlayer/StarterPlayerScripts/WorldProbe.client.lua roblox/src/ServerScriptService/ImportService/SceneAudit.lua roblox/src/ServerScriptService/Tests/WorldProbeTerrain.spec.lua roblox/src/ServerScriptService/Tests/ClosureOnlyRoofGapAudit.spec.lua`
+  - `git diff --check`

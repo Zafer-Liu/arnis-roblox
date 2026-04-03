@@ -1,12 +1,14 @@
 return function()
     local Workspace = game:GetService("Workspace")
+
     local ImportService = require(script.Parent.Parent.ImportService)
+    local SceneAudit = require(script.Parent.Parent.ImportService.SceneAudit)
     local Assert = require(script.Parent.Assert)
 
     local manifest = {
         schemaVersion = "0.4.0",
         meta = {
-            worldName = "GabledIrregularFootprintTruth",
+            worldName = "ClosureOnlyRoofGapAudit",
             generator = "test",
             source = "unit",
             metersPerStud = 0.3,
@@ -28,7 +30,7 @@ return function()
                 rails = {},
                 buildings = {
                     {
-                        id = "l_shape_gabled",
+                        id = "closure_only_gabled",
                         footprint = {
                             { x = 0, z = 0 },
                             { x = 32, z = 0 },
@@ -52,7 +54,7 @@ return function()
         },
     }
 
-    local worldRootName = "GeneratedWorld_GabledIrregularFootprintTruth"
+    local worldRootName = "GeneratedWorld_ClosureOnlyRoofGapAudit"
     ImportService.ImportManifest(manifest, {
         clearFirst = true,
         worldRootName = worldRootName,
@@ -66,40 +68,24 @@ return function()
     })
 
     local worldRoot = Workspace:FindFirstChild(worldRootName)
-    Assert.truthy(worldRoot, "expected irregular gabled roof truth world root")
+    Assert.truthy(worldRoot, "expected closure-only roof audit world root")
 
-    local building = worldRoot:FindFirstChild("0_0"):FindFirstChild("Buildings"):FindFirstChild("l_shape_gabled")
-    Assert.truthy(building, "expected irregular gabled building")
-    local shellFolder = building:FindFirstChild("Shell")
-    Assert.truthy(shellFolder, "expected shell folder for irregular gabled building")
-    local hasClosureDeck = false
-    local visibleRoofCount = 0
-    for _, descendant in ipairs(shellFolder:GetDescendants()) do
-        if descendant:IsA("BasePart") and string.find(descendant.Name, "l_shape_gabled_roof_closure", 1, true) then
-            hasClosureDeck = true
-        elseif descendant:IsA("BasePart") and string.find(descendant.Name, "l_shape_gabled_roof", 1, true) then
-            visibleRoofCount += 1
-        end
-    end
-    Assert.falsy(hasClosureDeck, "expected irregular gabled fallback roof to avoid closure-only support geometry")
-    Assert.truthy(visibleRoofCount >= 1, "expected irregular gabled fallback roof to emit visible roof geometry")
-
-    local function countRoofHits(center)
-        local hits = Workspace:GetPartBoundsInBox(CFrame.new(center), Vector3.new(4, 4, 4))
-        local count = 0
-        for _, part in ipairs(hits) do
-            if part:IsDescendantOf(building) and string.find(part.Name, "_roof", 1, true) then
-                count += 1
-            end
-        end
-        return count
-    end
-
-    Assert.truthy(countRoofHits(Vector3.new(8, 19, 8)) >= 1, "expected occupied footprint to remain roofed")
+    local summary = SceneAudit.summarizeWorld(worldRoot)
     Assert.equal(
-        countRoofHits(Vector3.new(24, 19, 24)),
-        0,
-        "expected irregular gabled footprint to avoid roofing the empty L-shape corner"
+        summary.buildingModelsWithClosureOnlyRoofGap,
+        1,
+        "expected closure-only shaped roof fallback to be surfaced as a dedicated roof gap"
+    )
+    Assert.equal(
+        summary.buildingModelsWithNoRoofEvidence,
+        1,
+        "expected closure-only shaped roof fallback to remain visible in legacy no-roof counts"
+    )
+    Assert.equal(#summary.buildingClosureOnlyRoofGapDetails, 1, "expected one closure-only roof gap detail row")
+    Assert.equal(
+        summary.buildingClosureOnlyRoofGapDetails[1].sourceId,
+        "closure_only_gabled",
+        "expected closure-only roof gap detail to preserve the building source id"
     )
 
     worldRoot:Destroy()

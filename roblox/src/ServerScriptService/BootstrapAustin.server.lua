@@ -18,7 +18,10 @@ local RunService = game:GetService("RunService")
 
 local AustinSpawn = require(script.Parent.ImportService.AustinSpawn)
 local BootstrapStateMachine = require(script.Parent.ImportService.BootstrapStateMachine)
+local CanonicalWorldContract = require(script.Parent.ImportService.CanonicalWorldContract)
 local RunAustin = require(script.Parent.ImportService.RunAustin)
+local SceneAudit = require(script.Parent.ImportService.SceneAudit)
+local SceneMarkerEmitter = require(script.Parent.ImportService.SceneMarkerEmitter)
 local StreamingService = require(script.Parent.ImportService.StreamingService)
 local SubplanRollout = require(script.Parent.ImportService.SubplanRollout)
 local WorldStateApplier = require(script.Parent.ImportService.WorldStateApplier)
@@ -30,6 +33,8 @@ local BOOTSTRAP_DUPLICATE_COUNT_ATTR = BootstrapStateMachine.DUPLICATE_COUNT_ATT
 local BOOTSTRAP_ENTRY_COUNT_ATTR = BootstrapStateMachine.ENTRY_COUNT_ATTR
 local BOOTSTRAP_LAST_SCRIPT_PATH_ATTR = BootstrapStateMachine.LAST_SCRIPT_PATH_ATTR
 local BOOTSTRAP_ATTEMPT_ID_ATTR = "ArnisAustinBootstrapAttemptId"
+local STARTUP_STREAMING_TIMEOUT_SECONDS = 10
+local STARTUP_STREAMING_POLL_INTERVAL_SECONDS = 0.1
 
 if not RunService:IsStudio() then
     warn("[BootstrapAustin] Refusing to auto-import Austin outside Studio.")
@@ -201,6 +206,25 @@ local function removeCharacterUntilImportReady(player, character)
     end)
 end
 
+local function waitForStartupStreamingReady(spawnPoint)
+    if typeof(spawnPoint) ~= "Vector3" then
+        return true
+    end
+
+    local deadline = os.clock() + STARTUP_STREAMING_TIMEOUT_SECONDS
+    while os.clock() < deadline do
+        StreamingService.Update(spawnPoint)
+        local startupResidency = StreamingService.GetStartupResidencySnapshot(spawnPoint, "GeneratedWorld_Austin")
+        if startupResidency.ready then
+            return true
+        end
+        task.wait(STARTUP_STREAMING_POLL_INTERVAL_SECONDS)
+    end
+
+    StreamingService.Update(spawnPoint)
+    return StreamingService.GetStartupResidencySnapshot(spawnPoint, "GeneratedWorld_Austin").ready
+end
+
 local function onPlayer(player)
     player.CharacterAdded:Connect(function(character)
         if importReady and spawnCFrame then
@@ -304,17 +328,6 @@ WorldStateApplier.Apply(manifestSource, runtimeWorldConfig, {
     hideLoadingScreen = true,
 })
 
-importReady = true
-Players.CharacterAutoLoads = true
-
-for _, player in ipairs(Players:GetPlayers()) do
-    if player.Character then
-        moveCharacterToSpawn(player.Character)
-    else
-        player:LoadCharacter()
-    end
-end
-
 if runtimeWorldConfig.StreamingEnabled then
     local rolloutDescription = SubplanRollout.Describe(runtimeWorldConfig)
     print(
@@ -333,11 +346,25 @@ if runtimeWorldConfig.StreamingEnabled then
         frameBudgetSeconds = runtimeWorldConfig.StreamingImportFrameBudgetSeconds,
         preferredLookVector = lookTarget - Vector3.new(spawnPoint.X, spawnSurfaceY, spawnPoint.Z),
     })
-    StreamingService.Update(spawnPoint)
+    local streamingStartupReady = waitForStartupStreamingReady(spawnPoint)
+    if not streamingStartupReady then
+        warn("[BootstrapAustin] Startup streaming did not settle the near ring before gameplay readiness.")
+    end
     setBootstrapState("streaming_ready")
     print("[BootstrapAustin] StreamingService started.")
 else
     setBootstrapState("streaming_ready")
+end
+
+importReady = true
+Players.CharacterAutoLoads = true
+
+for _, player in ipairs(Players:GetPlayers()) do
+    if player.Character then
+        moveCharacterToSpawn(player.Character)
+    else
+        player:LoadCharacter()
+    end
 end
 
 if runtimeWorldConfig.EnableMinimap ~= false and Workspace:GetAttribute("ArnisMinimapEnabled") ~= true then
@@ -349,3 +376,21 @@ holdingPad:Destroy()
 
 print("[BootstrapAustin] Spawn and shared world state configured.")
 setBootstrapState("gameplay_ready")
+
+task.defer(function()
+    if not worldRoot or worldRoot.Parent ~= Workspace then
+        return
+    end
+    local sceneSummary = SceneAudit.summarizeWorld(worldRoot)
+    SceneMarkerEmitter.emitSceneMarkers(
+        "ARNIS_SCENE_PLAY",
+        "play",
+        worldRoot.Name,
+        RunAustin.LOAD_RADIUS,
+        sceneSummary,
+        {
+            worldIdentity = CanonicalWorldContract.resolveCanonicalManifestFamily("play"),
+            chunkEnvelopeKind = "runtime_resident",
+        }
+    )
+end)

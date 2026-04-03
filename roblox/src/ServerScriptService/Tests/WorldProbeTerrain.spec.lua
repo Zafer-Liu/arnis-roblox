@@ -1,6 +1,6 @@
 return function()
-    local ReplicatedStorage = game:GetService("ReplicatedStorage")
     local Assert = require(script.Parent.Assert)
+    local ReplicatedStorage = game:GetService("ReplicatedStorage")
     local WorldProbeTerrain = require(ReplicatedStorage.Shared.WorldProbeTerrain)
 
     local flatSummary = WorldProbeTerrain.summarizeTerrainSamples({
@@ -19,6 +19,7 @@ return function()
             { 3, 4 },
             { 3, 5 },
         },
+        edgeIndices = { 1, 2, 4, 5 },
     })
     Assert.equal(flatSummary.status, "ok", "expected flat terrain summary to be valid")
     Assert.equal(flatSummary.sampleCount, 5, "expected all flat terrain samples to count")
@@ -48,6 +49,7 @@ return function()
             { 3, 4 },
             { 3, 5 },
         },
+        edgeIndices = { 1, 2, 4, 5 },
     })
     Assert.equal(steppedSummary.status, "ok", "expected stepped terrain summary to remain valid")
     Assert.equal(steppedSummary.centerTerrainY, 12, "expected center terrain height to round to tenths")
@@ -77,6 +79,7 @@ return function()
             { 3, 4 },
             { 3, 5 },
         },
+        edgeIndices = { 1, 2, 4, 5 },
     })
     Assert.equal(
         sparseSummary.status,
@@ -89,5 +92,71 @@ return function()
     Assert.equal(sparseSummary.meanAbsStepStuds, nil, "expected sparse terrain summary not to invent mean step")
     Assert.equal(sparseSummary.materialKindCount, 1, "expected sparse terrain summary to keep real material hits")
     Assert.equal(sparseSummary.dominantMaterial, "Sand", "expected sparse terrain summary to keep the sampled material")
-    Assert.equal(sparseSummary.nonGrassSampleCount, 1, "expected sparse terrain summary to count non-grass material hits")
+    Assert.equal(
+        sparseSummary.nonGrassSampleCount,
+        1,
+        "expected sparse terrain summary to count non-grass material hits"
+    )
+
+    local fullSummary = WorldProbeTerrain.summarizeTerrainSamples({
+        { terrainY = 8.0, terrainMaterial = "Grass" },
+        { terrainY = 12.0, terrainMaterial = "Grass" },
+        { terrainY = 10.0, terrainMaterial = "Grass" },
+        { terrainY = 14.0, terrainMaterial = "Rock" },
+        { terrainY = 6.0, terrainMaterial = "Grass" },
+    }, {
+        centerIndex = 3,
+        samplePattern = "cross_5",
+        sampleRadiusStuds = 12,
+        neighborPairs = {
+            { 3, 1 },
+            { 3, 2 },
+            { 3, 4 },
+            { 3, 5 },
+        },
+        edgeIndices = { 1, 2, 4, 5 },
+    })
+
+    Assert.equal(fullSummary.missingEdgeSampleCount, 0, "expected full edge coverage to report no missing edge samples")
+    Assert.equal(fullSummary.edgeTerrainYRangeStuds, 8, "expected edge range to capture the perimeter cliff")
+    Assert.equal(
+        fullSummary.centerEdgeMaxDeltaStuds,
+        4,
+        "expected center-to-edge delta to stay visible for seam checks"
+    )
+
+    local sparseEdgeSummary = WorldProbeTerrain.summarizeTerrainSamples({
+        { terrainY = 10.0, terrainMaterial = "Grass" },
+        { terrainY = nil, terrainMaterial = "Grass" },
+        { terrainY = 12.0, terrainMaterial = "Grass" },
+        { terrainY = 8.0, terrainMaterial = "Rock" },
+        { terrainY = 14.0, terrainMaterial = "Grass" },
+    }, {
+        centerIndex = 3,
+        samplePattern = "cross_5",
+        sampleRadiusStuds = 12,
+        neighborPairs = {
+            { 3, 1 },
+            { 3, 2 },
+            { 3, 4 },
+            { 3, 5 },
+        },
+        edgeIndices = { 1, 2, 4, 5 },
+    })
+
+    Assert.equal(
+        sparseEdgeSummary.missingEdgeSampleCount,
+        1,
+        "expected one missing edge sample to be reported explicitly"
+    )
+    Assert.equal(
+        sparseEdgeSummary.edgeTerrainYRangeStuds,
+        6,
+        "expected sparse edge coverage to preserve the sampled edge spread"
+    )
+    Assert.equal(
+        sparseEdgeSummary.centerEdgeMaxDeltaStuds,
+        4,
+        "expected sparse edge coverage to keep center-edge cliff visibility"
+    )
 end
