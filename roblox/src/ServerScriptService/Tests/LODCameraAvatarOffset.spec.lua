@@ -142,6 +142,20 @@ return function()
         )
 
         rootPart.CFrame = CFrame.new(750, originalRootCFrame.Position.Y, 750)
+        camera.CFrame = CFrame.new(16, 20, 16)
+        StreamingService.Update(Vector3.new(750, 0, 750))
+        Assert.equal(
+            getPrimaryLodGroup("detail"):GetAttribute("ArnisLodVisible"),
+            true,
+            "expected immediate streaming refresh to honor nearby camera detail visibility even when avatar focus moved away"
+        )
+        Assert.equal(
+            getPrimaryLodGroup("interior"):GetAttribute("ArnisLodVisible"),
+            false,
+            "expected immediate streaming refresh to keep interiors gated when only the camera is nearby"
+        )
+
+        camera.CFrame = CFrame.new(5000, 100, 5000)
         task.wait(2.2)
 
         Assert.equal(

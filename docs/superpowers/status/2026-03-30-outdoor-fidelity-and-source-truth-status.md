@@ -1975,3 +1975,16 @@ The compact historical archive index is:
   - `python3 -m unittest scripts.tests.test_play_render_truth scripts.tests.test_austin_runtime_contract -v`
   - `stylua --check roblox/src/ServerScriptService/ImportService/StreamingService.lua roblox/src/ServerScriptService/ImportService/ChunkPriority.lua roblox/src/ServerScriptService/ImportService/Builders/TerrainBuilder.lua roblox/src/ServerScriptService/Tests/HighDetailWholeChunkPriority.spec.lua roblox/src/ServerScriptService/Tests/TerrainPlanReuse.spec.lua`
   - `git diff --check`
+
+## 2026-04-03 14:16 CDT
+
+- Landed another local-safe play-fidelity tranche on `main`:
+  - `StreamingService.lua`
+    - the immediate post-streaming LOD refresh now uses the current camera position as a secondary focus instead of waiting for the slower 2-second camera-aware LOD cadence, so chunks admitted while the camera is near but the avatar has moved no longer stay visually stale until the next delayed pass
+- Added focused local-safe coverage in:
+  - updated `LODCameraAvatarOffset.spec.lua`
+  - updated `test_austin_runtime_contract.py`
+- Verification:
+  - `python3 -m unittest scripts.tests.test_play_render_truth scripts.tests.test_austin_runtime_contract -v`
+  - `stylua --check roblox/src/ServerScriptService/ImportService/StreamingService.lua roblox/src/ServerScriptService/ImportService/ChunkPriority.lua roblox/src/ServerScriptService/ImportService/Builders/TerrainBuilder.lua roblox/src/ServerScriptService/Tests/LODCameraAvatarOffset.spec.lua roblox/src/ServerScriptService/Tests/HighDetailWholeChunkPriority.spec.lua roblox/src/ServerScriptService/Tests/TerrainPlanReuse.spec.lua`
+  - `git diff --check`

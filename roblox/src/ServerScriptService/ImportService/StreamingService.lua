@@ -1792,6 +1792,15 @@ local function resolveLivePlayerRootFocusPosition()
     return nil
 end
 
+local function resolveCurrentCameraFocusPosition()
+    local camera = Workspace.CurrentCamera
+    if camera then
+        return camera.CFrame.Position
+    end
+
+    return nil
+end
+
 -- Toggle visibility of LOD-tagged detail and interior parts based on camera plus live avatar/root focus.
 -- Runs at LOD_UPDATE_INTERVAL cadence — cheap: iterates CollectionService lists,
 -- not the full workspace tree.
@@ -2306,9 +2315,10 @@ function StreamingService.Update(focalPoint)
             if deferredAdmissions > 0 then "guardrail_paused" else "steady_state"
         )
 
+        local immediateCameraFocusPos = resolveCurrentCameraFocusPosition()
         for _, chunkId in ipairs(ChunkLoader.ListLoadedChunks(streamingOptions.worldRootName)) do
             local chunkEntry = ChunkLoader.GetChunkEntry(chunkId, streamingOptions.worldRootName)
-            updateChunkEntryLodGroups(chunkEntry, playerPos, nil, highRadius, interiorRadius)
+            updateChunkEntryLodGroups(chunkEntry, playerPos, immediateCameraFocusPos, highRadius, interiorRadius)
         end
 
         streamingLastFocalPoint = playerPos
