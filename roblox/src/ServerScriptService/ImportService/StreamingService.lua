@@ -871,16 +871,25 @@ local function isStartupReadableFacadeCuePart(part)
         or name == "CornerAccent"
 end
 
+local function isStartupRoofCuePart(part)
+    if part == nil or not part:IsA("BasePart") then
+        return false
+    end
+
+    local name = part.Name
+    return name == "MergedShellRooflineCue" or name == "MergedShellPerimeterCue"
+end
+
 local function isStartupEnvelopeReady(envelopeTelemetry)
     local hasDirectWallEnvelope = envelopeTelemetry.nearbyWallParts > 0
         and envelopeTelemetry.collidableWallPartsNearby > 0
     local hasMergedReadableEnvelope = envelopeTelemetry.nearbyMergedBuildingMeshParts > 0
         and envelopeTelemetry.nearbyReadableFacadeCueParts > 0
+    local hasRoofEnvelope = envelopeTelemetry.nearbyRoofParts > 0 and envelopeTelemetry.overheadRoofParts > 0
     return type(envelopeTelemetry) == "table"
         and envelopeTelemetry.nearbyBuildingModels > 0
         and (hasDirectWallEnvelope or hasMergedReadableEnvelope)
-        and envelopeTelemetry.nearbyRoofParts > 0
-        and envelopeTelemetry.overheadRoofParts > 0
+        and hasRoofEnvelope
 end
 
 local function selectStartupEnvelopeTelemetry(candidateTelemetryBySourceId)
@@ -1091,6 +1100,35 @@ local function buildStartupStructureTelemetry(spawnPoint, worldRootName)
 
                     structureTelemetry.nearbyReadableFacadeCueParts += 1
                     envelopeTelemetry.nearbyReadableFacadeCueParts += 1
+                end
+            end
+
+            local detailFolder = model:FindFirstChild("Detail")
+            if detailFolder then
+                for _, descendant in ipairs(detailFolder:GetDescendants()) do
+                    if
+                        not descendant:IsA("BasePart")
+                        or descendant.Transparency >= 0.99
+                        or not isStartupRoofCuePart(descendant)
+                    then
+                        continue
+                    end
+
+                    local partOffset = descendant.Position - spawnPoint
+                    local horizontalPartDistance = Vector2.new(partOffset.X, partOffset.Z).Magnitude
+                    if horizontalPartDistance > STARTUP_NEARBY_BUILDING_RADIUS then
+                        continue
+                    end
+
+                    structureTelemetry.nearbyRoofParts += 1
+                    envelopeTelemetry.nearbyRoofParts += 1
+                    if
+                        horizontalPartDistance <= STARTUP_OVERHEAD_ROOF_RADIUS
+                        and partOffset.Y >= STARTUP_OVERHEAD_MIN_DELTA_Y
+                    then
+                        structureTelemetry.overheadRoofParts += 1
+                        envelopeTelemetry.overheadRoofParts += 1
+                    end
                 end
             end
         end

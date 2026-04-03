@@ -222,12 +222,17 @@ class PlayRenderTruthTests(unittest.TestCase):
 
         self.assertIn("local function isStartupReadableFacadeCuePart(part)", source)
         self.assertIn('or name == "MergedShellWindowPaneCue"', source)
+        self.assertIn("local function isStartupRoofCuePart(part)", source)
+        self.assertIn('name == "MergedShellRooflineCue"', source)
+        self.assertIn('or name == "MergedShellPerimeterCue"', source)
         self.assertIn("nearbyReadableFacadeCueParts", source)
         self.assertIn("coherentEnvelopeNearbyReadableFacadeCueParts", source)
         self.assertIn("local hasDirectWallEnvelope =", source)
         self.assertIn("local hasMergedReadableEnvelope =", source)
         self.assertIn("envelopeTelemetry.nearbyMergedBuildingMeshParts > 0", source)
         self.assertIn("and envelopeTelemetry.nearbyReadableFacadeCueParts > 0", source)
+        self.assertIn("local hasRoofEnvelope = envelopeTelemetry.nearbyRoofParts > 0", source)
+        self.assertIn("and envelopeTelemetry.overheadRoofParts > 0", source)
 
     def test_scene_audit_treats_merged_shell_readable_cues_as_visible_wall_evidence(self) -> None:
         source = SCENE_AUDIT.read_text(encoding="utf-8")

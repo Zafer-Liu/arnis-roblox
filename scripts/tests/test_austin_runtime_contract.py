@@ -206,9 +206,12 @@ class AustinRuntimeContractTests(unittest.TestCase):
         self.assertIn("coherentEnvelopeReady", self.streaming_text)
         self.assertIn("local function isStartupEnvelopeReady(envelopeTelemetry)", self.streaming_text)
         self.assertIn('or name == "MergedShellWindowPaneCue"', self.streaming_text)
+        self.assertIn('name == "MergedShellRooflineCue"', self.streaming_text)
+        self.assertIn('or name == "MergedShellPerimeterCue"', self.streaming_text)
         self.assertIn("local function selectStartupEnvelopeTelemetry(candidateTelemetryBySourceId)", self.streaming_text)
         self.assertIn("local function countStartupEnvelopeCandidates(candidateTelemetryBySourceId)", self.streaming_text)
         self.assertIn("local coherentEnvelopeReady = isStartupEnvelopeReady({", self.streaming_text)
+        self.assertIn("local hasRoofEnvelope = envelopeTelemetry.nearbyRoofParts > 0", self.streaming_text)
         self.assertIn("and coherentEnvelopeReady", self.streaming_text)
 
     def test_streaming_lod_visibility_uses_group_footprint_not_only_chunk_center(self) -> None:
