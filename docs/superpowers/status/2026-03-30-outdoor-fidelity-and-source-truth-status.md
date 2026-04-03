@@ -1825,3 +1825,17 @@ The compact historical archive index is:
   - whether coherent spawn-envelope readiness reduces the “looks empty until I walk through it” play-start behavior
   - whether the bounded shell-wall fallback materially improves wall presence for medium-complexity shellMesh buildings
   - whether the revised mixed-voxel shaping reduces both flat false planes and underfilled hilltops
+
+## 2026-04-03 13:05 CDT
+
+- Extended shellMesh play-visible wall fallback to bounded courtyard buildings:
+  - `BuildingBuilder.lua`
+    - one-hole/courtyard shellMesh buildings can now stay on the explicit shell-wall path when they remain low-rise and bounded, instead of dropping straight to the merged wall path
+  - `ShellMeshCourtyardTruth.spec.lua`
+    - added direct Luau coverage for a shellMesh courtyard building so wall evidence, roof presence, and an open interior void are all locked together
+  - `test_play_render_truth.py` / `test_austin_runtime_contract.py`
+    - updated source-contract coverage for the new bounded-hole fallback rules
+- Verification:
+  - `python3 -m unittest scripts.tests.test_terrain_chunk_edge_truth scripts.tests.test_play_render_truth scripts.tests.test_austin_runtime_contract -v`
+  - `stylua --check roblox/src/ServerScriptService/ImportService/Builders/BuildingBuilder.lua roblox/src/ServerScriptService/Tests/ShellMeshCourtyardTruth.spec.lua`
+  - `git diff --check`

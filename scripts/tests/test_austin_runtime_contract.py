@@ -139,6 +139,9 @@ class AustinRuntimeContractTests(unittest.TestCase):
         self.assertIn("PLAY_VISIBLE_SHELL_ROOF_SHAPES", self.building_builder_text)
         self.assertIn("levels > 6 or height > 34", self.building_builder_text)
         self.assertIn("return footprintPointCount <= 10", self.building_builder_text)
+        self.assertIn("if boundedHoleLoopCount > 1 then", self.building_builder_text)
+        self.assertIn("if boundedHoleLoopCount == 1 then", self.building_builder_text)
+        self.assertIn("return levels <= 5 and height <= 28 and footprintPointCount <= 12", self.building_builder_text)
         self.assertIn("preferPlayVisibleShellWalls", self.building_builder_text)
         self.assertIn("if preferPlayVisibleShellWalls then", self.building_builder_text)
 

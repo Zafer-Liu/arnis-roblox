@@ -1793,7 +1793,8 @@ local function shouldPreferPlayVisibleShellWalls(building, footprintPointCount, 
         return true
     end
 
-    if (holeLoopCount or 0) > 0 then
+    local boundedHoleLoopCount = holeLoopCount or 0
+    if boundedHoleLoopCount > 1 then
         return false
     end
 
@@ -1805,6 +1806,10 @@ local function shouldPreferPlayVisibleShellWalls(building, footprintPointCount, 
     local levels = tonumber(building.levels) or math.max(1, math.floor(height / 5))
     if levels > 6 or height > 34 then
         return false
+    end
+
+    if boundedHoleLoopCount == 1 then
+        return levels <= 5 and height <= 28 and footprintPointCount <= 12
     end
 
     return footprintPointCount <= 10

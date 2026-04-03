@@ -21,6 +21,9 @@ BOOTSTRAP_AUSTIN = ROOT / "roblox" / "src" / "ServerScriptService" / "BootstrapA
 GABLED_IRREGULAR_FOOTPRINT_TRUTH = (
     ROOT / "roblox" / "src" / "ServerScriptService" / "Tests" / "GabledIrregularFootprintTruth.spec.lua"
 )
+SHELLMESH_COURTYARD_TRUTH = (
+    ROOT / "roblox" / "src" / "ServerScriptService" / "Tests" / "ShellMeshCourtyardTruth.spec.lua"
+)
 
 
 class PlayRenderTruthTests(unittest.TestCase):
@@ -299,6 +302,16 @@ class PlayRenderTruthTests(unittest.TestCase):
             r"if\s+preferPlayVisibleShellWalls\s+then[\s\S]*buildWallLoopParts\(shellFolder,\s*bldgName,\s*worldPts,\s*baseY,\s*height,\s*mat,\s*color,\s*\"outer\"",
             "expected bounded shellMesh fallback to keep explicit shell wall parts for medium-complexity buildings",
         )
+        self.assertIn("if boundedHoleLoopCount == 1 then", source)
+        self.assertIn("return levels <= 5 and height <= 28 and footprintPointCount <= 12", source)
+
+    def test_shell_mesh_courtyard_truth_spec_exercises_bounded_hole_support(self) -> None:
+        spec_source = SHELLMESH_COURTYARD_TRUTH.read_text(encoding="utf-8")
+
+        self.assertIn('BuildingMode = "shellMesh"', spec_source)
+        self.assertIn("holes = {", spec_source)
+        self.assertIn('shellWallEvidenceCount >= 8', spec_source)
+        self.assertIn("expected shellMesh courtyard void to remain open", spec_source)
 
     def test_scene_audit_surfaces_closure_only_roof_gaps_separately_from_generic_roofless_buildings(self) -> None:
         source = SCENE_AUDIT.read_text(encoding="utf-8")
