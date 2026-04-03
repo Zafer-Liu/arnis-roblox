@@ -1,0 +1,18 @@
+[package]
+name = "arbx_planetary_store"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+arbx_geo = { path = "../arbx_geo" }
+arbx_roblox_export = { path = "../arbx_roblox_export" }
+serde.workspace = true
+serde_json.workspace = true
+rusqlite.workspace = true
+
+[dev-dependencies]
+tempfile = "3.10"
+
+[lib]
+path = "src/lib.rs"

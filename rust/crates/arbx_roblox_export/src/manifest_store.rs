@@ -4,13 +4,14 @@ use std::path::Path;
 
 use arbx_geo::{BoundingBox, Vec3};
 use rusqlite::{params, Connection, OptionalExtension};
+use serde::Serialize;
 
 use crate::manifest::ChunkManifest;
 use crate::subplans::ChunkRef;
 
 pub type ManifestStoreResult<T> = Result<T, Box<dyn std::error::Error + Send + Sync>>;
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Serialize)]
 pub struct StoredManifestMeta {
     pub schema_version: String,
     pub world_name: String,
@@ -23,7 +24,7 @@ pub struct StoredManifestMeta {
     pub notes: Vec<String>,
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Serialize)]
 pub struct StoredChunkRecord {
     pub chunk_id: String,
     pub origin_studs: Vec3,
@@ -35,7 +36,7 @@ pub struct StoredChunkRecord {
     pub chunk_json: String,
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Serialize)]
 pub struct StoredManifestSubset {
     pub meta: StoredManifestMeta,
     pub chunks: Vec<StoredChunkRecord>,

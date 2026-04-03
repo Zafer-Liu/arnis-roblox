@@ -12,6 +12,10 @@ use arbx_pipeline::{
     write_source_truth_pack_sqlite, write_source_truth_pack_summary, ElevationEnrichmentStage,
     NormalizeStage, PipelineContext, SourceTruthPack, TriangulateStage, ValidateStage,
 };
+use arbx_planetary_store::{
+    ingest_manifest_sqlite, init_planetary_store, read_scene_chunk_subset,
+    summarize_planetary_store,
+};
 use arbx_roblox_export::{
     build_sample_multi_chunk, export_to_chunks, read_manifest_sqlite_all, write_manifest_sqlite,
     write_runtime_lua_shards_from_sqlite, ChunkManifest, ExportConfig, RuntimeLuaShardsOptions,
@@ -48,6 +52,7 @@ COMMANDS:
   scene-index Build a compact per-chunk scene-audit summary
   scene-audit Compare Studio scene markers against manifest truth
   emit-runtime-lua Emit bounded runtime Lua shards directly from a manifest SQLite store
+  planetary-store Manage the canonical planetary SQLite store
   config     Emit a default world configuration JSON
   explain    Print the full pipeline architecture for agents
 
@@ -111,6 +116,11 @@ EXAMPLES:
 
   # Get pipeline info (for AI agents)
   arbx_cli explain
+
+  # Initialize and ingest into the canonical planetary store
+  arbx_cli planetary-store init --store out/planetary.sqlite
+  arbx_cli planetary-store ingest-manifest --store out/planetary.sqlite --manifest-sqlite out/austin.sqlite --scene austin
+  arbx_cli planetary-store subset --store out/planetary.sqlite --scene austin --bbox-studs 0,0,512,512
 
 OUTPUT FORMAT:
   Schema 0.4.0 JSON manifest with:
@@ -1762,8 +1772,7 @@ fn cmd_emit_runtime_lua(args: &[String]) -> Result<(), String> {
         match args[i].as_str() {
             "--manifest-sqlite" => {
                 manifest_sqlite = Some(PathBuf::from(
-                    args.get(i + 1)
-                        .ok_or("--manifest-sqlite requires a path")?,
+                    args.get(i + 1).ok_or("--manifest-sqlite requires a path")?,
                 ));
                 i += 2;
             }
@@ -1808,8 +1817,7 @@ fn cmd_emit_runtime_lua(args: &[String]) -> Result<(), String> {
         }
     }
 
-    let manifest_sqlite =
-        manifest_sqlite.ok_or("--manifest-sqlite is required".to_string())?;
+    let manifest_sqlite = manifest_sqlite.ok_or("--manifest-sqlite is required".to_string())?;
     let output_dir = output_dir.ok_or("--output-dir is required".to_string())?;
     if chunks_per_shard == 0 {
         return Err("--chunks-per-shard must be at least 1".to_string());
@@ -1834,6 +1842,172 @@ fn cmd_emit_runtime_lua(args: &[String]) -> Result<(), String> {
         stats.shard_dir.display()
     );
     Ok(())
+}
+
+fn cmd_planetary_store(args: &[String]) -> Result<(), String> {
+    let Some(subcommand) = args.first().map(String::as_str) else {
+        return Err(
+            "planetary-store requires a subcommand: init | ingest-manifest | summary".to_string(),
+        );
+    };
+
+    match subcommand {
+        "init" => {
+            let mut store_path: Option<PathBuf> = None;
+            let mut i = 1;
+            while i < args.len() {
+                match args[i].as_str() {
+                    "--store" => {
+                        let value = args.get(i + 1).ok_or("--store requires a path")?;
+                        store_path = Some(PathBuf::from(value));
+                        i += 2;
+                    }
+                    other => {
+                        return Err(format!("unknown argument to planetary-store init: {other}"))
+                    }
+                }
+            }
+            let store_path = store_path.ok_or("planetary-store init requires --store PATH")?;
+            init_planetary_store(&store_path)
+                .map_err(|err| format!("planetary-store init failed: {err}"))?;
+            println!("Initialized planetary store {}", store_path.display());
+            Ok(())
+        }
+        "ingest-manifest" => {
+            let mut store_path: Option<PathBuf> = None;
+            let mut manifest_sqlite_path: Option<PathBuf> = None;
+            let mut scene_id: Option<String> = None;
+            let mut i = 1;
+            while i < args.len() {
+                match args[i].as_str() {
+                    "--store" => {
+                        let value = args.get(i + 1).ok_or("--store requires a path")?;
+                        store_path = Some(PathBuf::from(value));
+                        i += 2;
+                    }
+                    "--manifest-sqlite" => {
+                        let value = args.get(i + 1).ok_or("--manifest-sqlite requires a path")?;
+                        manifest_sqlite_path = Some(PathBuf::from(value));
+                        i += 2;
+                    }
+                    "--scene" => {
+                        let value = args.get(i + 1).ok_or("--scene requires a scene id")?;
+                        scene_id = Some(value.clone());
+                        i += 2;
+                    }
+                    other => {
+                        return Err(format!(
+                            "unknown argument to planetary-store ingest-manifest: {other}"
+                        ))
+                    }
+                }
+            }
+            let store_path =
+                store_path.ok_or("planetary-store ingest-manifest requires --store PATH")?;
+            let manifest_sqlite_path = manifest_sqlite_path
+                .ok_or("planetary-store ingest-manifest requires --manifest-sqlite PATH")?;
+            let summary =
+                ingest_manifest_sqlite(&store_path, &manifest_sqlite_path, scene_id.as_deref())
+                    .map_err(|err| format!("planetary-store ingest-manifest failed: {err}"))?;
+            println!(
+                "Ingested scene {} ({}) with {} chunks and {} features into {}",
+                summary.scene_id,
+                summary.world_name,
+                summary.chunk_count,
+                summary.total_features,
+                store_path.display()
+            );
+            Ok(())
+        }
+        "summary" => {
+            let mut store_path: Option<PathBuf> = None;
+            let mut i = 1;
+            while i < args.len() {
+                match args[i].as_str() {
+                    "--store" => {
+                        let value = args.get(i + 1).ok_or("--store requires a path")?;
+                        store_path = Some(PathBuf::from(value));
+                        i += 2;
+                    }
+                    other => {
+                        return Err(format!(
+                            "unknown argument to planetary-store summary: {other}"
+                        ))
+                    }
+                }
+            }
+            let store_path = store_path.ok_or("planetary-store summary requires --store PATH")?;
+            let summary = summarize_planetary_store(&store_path)
+                .map_err(|err| format!("planetary-store summary failed: {err}"))?;
+            println!(
+                "Planetary store {}: {} scenes, {} chunks, {} features",
+                store_path.display(),
+                summary.scene_count,
+                summary.chunk_count,
+                summary.total_features
+            );
+            Ok(())
+        }
+        "subset" => {
+            let mut store_path: Option<PathBuf> = None;
+            let mut scene_id: Option<String> = None;
+            let mut bbox_studs: Option<(f64, f64, f64, f64)> = None;
+            let mut i = 1;
+            while i < args.len() {
+                match args[i].as_str() {
+                    "--store" => {
+                        let value = args.get(i + 1).ok_or("--store requires a path")?;
+                        store_path = Some(PathBuf::from(value));
+                        i += 2;
+                    }
+                    "--scene" => {
+                        let value = args.get(i + 1).ok_or("--scene requires a scene id")?;
+                        scene_id = Some(value.clone());
+                        i += 2;
+                    }
+                    "--bbox-studs" => {
+                        let value = args
+                            .get(i + 1)
+                            .ok_or("--bbox-studs requires MIN_X,MIN_Z,MAX_X,MAX_Z")?;
+                        let parts: Vec<f64> = value
+                            .split(',')
+                            .map(|part| {
+                                part.trim().parse::<f64>().map_err(|_| {
+                                    format!("invalid number in --bbox-studs: {}", part)
+                                })
+                            })
+                            .collect::<Result<Vec<f64>, String>>()?;
+                        if parts.len() != 4 {
+                            return Err(
+                                "--bbox-studs requires four comma-separated numbers".to_string()
+                            );
+                        }
+                        bbox_studs = Some((parts[0], parts[1], parts[2], parts[3]));
+                        i += 2;
+                    }
+                    other => {
+                        return Err(format!(
+                            "unknown argument to planetary-store subset: {other}"
+                        ))
+                    }
+                }
+            }
+            let store_path = store_path.ok_or("planetary-store subset requires --store PATH")?;
+            let scene_id = scene_id.ok_or("planetary-store subset requires --scene ID")?;
+            let (min_x, min_z, max_x, max_z) = bbox_studs
+                .ok_or("planetary-store subset requires --bbox-studs MIN_X,MIN_Z,MAX_X,MAX_Z")?;
+            let subset =
+                read_scene_chunk_subset(&store_path, &scene_id, min_x, min_z, max_x, max_z)
+                    .map_err(|err| format!("planetary-store subset failed: {err}"))?;
+            println!(
+                "{}",
+                serde_json::to_string_pretty(&subset)
+                    .map_err(|err| format!("subset json failed: {err}"))?
+            );
+            Ok(())
+        }
+        other => Err(format!("unknown planetary-store subcommand: {other}")),
+    }
 }
 
 fn explain_text() -> String {
@@ -1924,6 +2098,7 @@ fn main() {
         "scene-index" => cmd_scene_index(&args[1..]),
         "scene-audit" => cmd_scene_audit(&args[1..]),
         "emit-runtime-lua" => cmd_emit_runtime_lua(&args[1..]),
+        "planetary-store" => cmd_planetary_store(&args[1..]),
         "explain" => {
             cmd_explain();
             Ok(())
@@ -2710,5 +2885,76 @@ mod tests {
             shard_sizes.iter().all(|size| *size <= 1200),
             "expected every runtime shard module to respect --max-bytes; saw sizes {shard_sizes:?}"
         );
+    }
+
+    #[test]
+    fn planetary_store_init_and_summary_work() {
+        let tempdir = tempfile::tempdir().unwrap();
+        let store_path = tempdir.path().join("planetary.sqlite");
+
+        cmd_planetary_store(&[
+            "init".to_string(),
+            "--store".to_string(),
+            store_path.display().to_string(),
+        ])
+        .unwrap();
+
+        cmd_planetary_store(&[
+            "summary".to_string(),
+            "--store".to_string(),
+            store_path.display().to_string(),
+        ])
+        .unwrap();
+    }
+
+    #[test]
+    fn planetary_store_ingests_manifest_sqlite() {
+        let tempdir = tempfile::tempdir().unwrap();
+        let store_path = tempdir.path().join("planetary.sqlite");
+        let manifest_path = tempdir.path().join("sample.sqlite");
+        let manifest = build_sample_multi_chunk(2, 1);
+        write_manifest_sqlite(&manifest, &manifest_path).unwrap();
+
+        cmd_planetary_store(&[
+            "ingest-manifest".to_string(),
+            "--store".to_string(),
+            store_path.display().to_string(),
+            "--manifest-sqlite".to_string(),
+            manifest_path.display().to_string(),
+            "--scene".to_string(),
+            "austin".to_string(),
+        ])
+        .unwrap();
+    }
+
+    #[test]
+    fn planetary_store_subset_works() {
+        let tempdir = tempfile::tempdir().unwrap();
+        let store_path = tempdir.path().join("planetary.sqlite");
+        let manifest_path = tempdir.path().join("sample.sqlite");
+        let manifest = build_sample_multi_chunk(3, 1);
+        write_manifest_sqlite(&manifest, &manifest_path).unwrap();
+
+        cmd_planetary_store(&[
+            "ingest-manifest".to_string(),
+            "--store".to_string(),
+            store_path.display().to_string(),
+            "--manifest-sqlite".to_string(),
+            manifest_path.display().to_string(),
+            "--scene".to_string(),
+            "austin".to_string(),
+        ])
+        .unwrap();
+
+        cmd_planetary_store(&[
+            "subset".to_string(),
+            "--store".to_string(),
+            store_path.display().to_string(),
+            "--scene".to_string(),
+            "austin".to_string(),
+            "--bbox-studs".to_string(),
+            "200,0,500,200".to_string(),
+        ])
+        .unwrap();
     }
 }

@@ -2292,3 +2292,23 @@ The compact historical archive index is:
   - `python3 -m unittest scripts.tests.test_terrain_column_occupancy_shaping_truth scripts.tests.test_terrain_sparse_peak_surface_damping_truth scripts.tests.test_play_render_truth -v`
   - `stylua --check roblox/src/ServerScriptService/ImportService/Builders/TerrainBuilder.lua roblox/src/ServerScriptService/Tests/TerrainOutdoorFidelity.spec.lua`
   - `git diff --check`
+
+## 2026-04-03 18:30 CDT
+
+- Landed the first real planetary backbone implementation slice on `main`:
+  - new Rust crate `arbx_planetary_store`
+    - initializes a canonical SQLite planetary store
+    - ingests existing manifest SQLite stores as named scenes
+    - summarizes total scene/chunk/feature counts
+    - reads scene-local chunk subsets by stud-space bounding box, which is the first concrete retrieval primitive needed for realtime planetary streaming
+  - `arbx_cli`
+    - added `planetary-store init`
+    - added `planetary-store ingest-manifest`
+    - added `planetary-store summary`
+    - added `planetary-store subset --bbox-studs ...`
+  - `arbx_roblox_export::manifest_store`
+    - promoted stored manifest structs to `Serialize` so the planetary subset path can emit machine-readable JSON cleanly
+- Verification:
+  - `cargo test -p arbx_planetary_store -p arbx_cli planetary_store --quiet`
+  - `cargo test -p arbx_planetary_store --quiet`
+  - `git diff --check rust/Cargo.toml rust/crates/arbx_planetary_store/Cargo.toml rust/crates/arbx_planetary_store/src/lib.rs rust/crates/arbx_cli/Cargo.toml rust/crates/arbx_cli/src/main.rs rust/crates/arbx_roblox_export/src/manifest_store.rs`

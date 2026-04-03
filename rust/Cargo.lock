@@ -56,6 +56,7 @@ version = "0.1.0"
 dependencies = [
  "arbx_geo",
  "arbx_pipeline",
+ "arbx_planetary_store",
  "arbx_roblox_export",
  "rayon",
  "serde_json",
@@ -78,6 +79,18 @@ dependencies = [
  "rusqlite",
  "serde",
  "serde_json",
+]
+
+[[package]]
+name = "arbx_planetary_store"
+version = "0.1.0"
+dependencies = [
+ "arbx_geo",
+ "arbx_roblox_export",
+ "rusqlite",
+ "serde",
+ "serde_json",
+ "tempfile",
 ]
 
 [[package]]

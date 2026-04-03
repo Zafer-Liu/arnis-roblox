@@ -5,6 +5,7 @@ edition.workspace = true
 license.workspace = true
 
 [dependencies]
+arbx_planetary_store = { path = "../arbx_planetary_store" }
 arbx_roblox_export = { path = "../arbx_roblox_export" }
 arbx_pipeline = { path = "../arbx_pipeline" }
 arbx_geo = { path = "../arbx_geo" }

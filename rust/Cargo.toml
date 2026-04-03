@@ -2,6 +2,7 @@
 members = [
     "crates/arbx_geo",
     "crates/arbx_pipeline",
+    "crates/arbx_planetary_store",
     "crates/arbx_roblox_export",
     "crates/arbx_cli",
 ]

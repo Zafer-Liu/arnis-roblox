@@ -55,14 +55,15 @@ The pipeline is complete and demo-ready. All builders are production-quality:
 6. Builders are in `roblox/src/ServerScriptService/ImportService/Builders/`.
 7. Gameplay is in `roblox/src/StarterPlayer/StarterPlayerScripts/`.
 
-## Execution defaults
+## Non-Negotiable Execution Policy
 
-- Default to multi-hour autonomous execution behavior when the user asks to push through substantial work.
+- Default to multi-hour autonomous execution behavior whenever substantial work remains.
 - Work in long uninterrupted bursts and batch multiple related product slices into each turn instead of stopping after one neat local checkpoint.
 - Keep changes internally bounded and reviewable, but do not stop reporting back after every small fix if the broader bundled burndown is still progressing.
 - Use minimal worker orchestration; prefer a few well-bounded workers over large swarms.
 - Proactively clean stale Codex and `rbx-studio-mcp` processes when they create file-descriptor pressure or destabilize the session.
-- Only stop for a real blocker, an explicit safety constraint, or when remote proof on `tertiary` is the next required step.
+- Do not stop for convenience. Only stop for a real blocker, an explicit safety constraint, or when remote proof on `tertiary` is the next required step.
+- Do not emit tranche summaries after every small fix. Keep going until a substantial bundled burndown is complete.
 
 ## Change discipline
 
