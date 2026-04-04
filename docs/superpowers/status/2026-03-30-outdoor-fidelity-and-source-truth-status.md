@@ -2642,3 +2642,16 @@ The compact historical archive index is:
   - `cargo test -p arbx_planetary_store planetary_store_ -- --nocapture`
   - `cargo test -p arbx_cli planetary_store_ -- --nocapture`
   - `git diff --check`
+
+## 2026-04-03 22:39 CDT
+
+- Extended the planetary backbone again on `main`:
+  - `arbx_cli`
+    - added `planetary-store delivery-bundle`, a single execution lane that can build or consume a delivery plan, optionally persist that plan, write a manifest subset, and emit runtime Lua shards from the exact same chosen chunk set
+    - the bundle command returns one structured result summarizing the plan plus any emitted manifest/runtime outputs
+  - the planetary orchestration surface now has a full selector -> plan -> hydrate/inspect -> fetch/export -> bundled execute loop
+- Verification:
+  - `cargo fmt --all`
+  - `cargo test -p arbx_planetary_store planetary_store_ -- --nocapture`
+  - `cargo test -p arbx_cli planetary_store_ -- --nocapture`
+  - `git diff --check`
