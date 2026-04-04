@@ -72,7 +72,8 @@ function RunAustin.getRuntimeManifestCandidates()
     return CanonicalWorldContract.resolveCanonicalMaterializationCandidates("play")
 end
 
-function RunAustin.loadManifestSource()
+function RunAustin.loadManifestSource(options)
+    options = options or {}
     local materializationFamily = CanonicalWorldContract.resolveCanonicalMaterializationFamily("play")
     print(
         ("[RunAustin] Loading canonical manifest source %s via %s"):format(
@@ -81,7 +82,11 @@ function RunAustin.loadManifestSource()
         )
     )
     local manifestSource, resolvedManifestName =
-        CanonicalWorldContract.loadCanonicalManifestSource("play", RunAustin.MANIFEST_WAIT_TIMEOUT_SECONDS)
+        CanonicalWorldContract.loadCanonicalManifestSource("play", RunAustin.MANIFEST_WAIT_TIMEOUT_SECONDS, {
+            routeCatalogName = options.routeCatalogName,
+            routeLane = options.routeLane,
+            routeStepIndex = options.routeStepIndex,
+        })
     return manifestSource, resolvedManifestName
 end
 
@@ -95,7 +100,7 @@ function RunAustin.run(options)
     reportPhase(options, "loading_manifest")
     print(("[RunAustin] Starting run for manifest %s"):format(RunAustin.getManifestName()))
     local success, manifestOrErr, resolvedManifestName = pcall(function()
-        return RunAustin.loadManifestSource()
+        return RunAustin.loadManifestSource(options)
     end)
 
     if not success then

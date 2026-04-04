@@ -73,4 +73,42 @@ return function()
     Assert.equal(exportRadius, nil, "expected export requests to inherit full-bake radius semantics")
     Assert.equal(#exportIds, 3, "expected export requests to select all chunk ids")
     Assert.equal(selectionCalls[3], "full", "expected export requests to use nil radius selection")
+
+    local routeSelectionCalls = {}
+    local routeHandle = {}
+
+    function routeHandle:LoadLaneSummary(stepIndex, laneName)
+        routeSelectionCalls[#routeSelectionCalls + 1] = ("lane:%s:%s"):format(tostring(stepIndex), tostring(laneName))
+        return {
+            chunk_ids = { "1_0", "2_0" },
+        }
+    end
+
+    function routeHandle:GetChunkIdsWithinRadius(_focusPoint, radius)
+        routeSelectionCalls[#routeSelectionCalls + 1] = if radius == nil then "full" else tostring(radius)
+        return { "0_0" }
+    end
+
+    local routeRequest = AustinPreviewRequest.Normalize({
+        mode = "preview",
+        routeCatalogName = "PlanetaryRouteBundle.route-catalog",
+        routeLane = "active",
+        routeStepIndex = 2,
+    })
+    Assert.equal(
+        routeRequest.routeCatalogName,
+        "PlanetaryRouteBundle.route-catalog",
+        "expected route catalog name to normalize through preview requests"
+    )
+    Assert.equal(routeRequest.routeLane, "active", "expected route lane to normalize through preview requests")
+    Assert.equal(routeRequest.routeStepIndex, 2, "expected route step index to normalize through preview requests")
+
+    local routeChunkIds, routeRadius = AustinPreviewRequest.SelectChunkIds(routeHandle, nil, routeRequest, 1500)
+    Assert.equal(routeRadius, nil, "expected route lane selection to bypass radius-based preview selection")
+    Assert.equal(#routeChunkIds, 2, "expected route lane selection to use route catalog chunk ids")
+    Assert.equal(
+        routeSelectionCalls[1],
+        "lane:2:active",
+        "expected route lane selection to prefer route-catalog lane summaries over radius selection"
+    )
 end

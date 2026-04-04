@@ -46,15 +46,23 @@ function CanonicalWorldContract.resolveCanonicalMaterializationFamily(policyMode
 end
 
 function CanonicalWorldContract.loadCanonicalManifestSource(policyMode, timeoutSeconds, options)
+    if type(options) == "table" and type(options.routeCatalogName) == "string" then
+        local routeLane = options.routeLane or "active"
+        local routeStepIndex = options.routeStepIndex or 0
+        local routeCatalogHandle =
+            ManifestLoader.LoadNamedRouteCatalogHandle(options.routeCatalogName, timeoutSeconds, options)
+        local manifestSource =
+            routeCatalogHandle:LoadLaneRuntimeHandle(routeStepIndex, routeLane, timeoutSeconds, options)
+        return manifestSource,
+            options.routeCatalogName,
+            CanonicalWorldContract.resolveCanonicalManifestFamily(policyMode)
+    end
+
     local candidates = CanonicalWorldContract.resolveCanonicalMaterializationCandidates(policyMode)
     local lastError = nil
     for _, manifestIndexName in ipairs(candidates) do
-        local ok, handle = pcall(
-            ManifestLoader.LoadNamedShardedSampleHandle,
-            manifestIndexName,
-            timeoutSeconds,
-            options
-        )
+        local ok, handle =
+            pcall(ManifestLoader.LoadNamedShardedSampleHandle, manifestIndexName, timeoutSeconds, options)
         if ok then
             return handle, manifestIndexName, CanonicalWorldContract.resolveCanonicalManifestFamily(policyMode)
         end

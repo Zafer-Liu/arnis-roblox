@@ -2,6 +2,7 @@ return function()
     local Assert = require(script.Parent.Assert)
     local AustinSpawn = require(script.Parent.Parent.ImportService.AustinSpawn)
     local CanonicalWorldContract = require(script.Parent.Parent.ImportService.CanonicalWorldContract)
+    local ManifestLoader = require(script.Parent.Parent.ImportService.ManifestLoader)
 
     local function makeManifestSource()
         return {
@@ -138,4 +139,75 @@ return function()
         2,
         "expected canonical bounded envelopes to re-resolve chunk selection for each build on handle-backed manifests"
     )
+
+    local originalLoadNamedRouteCatalogHandle = ManifestLoader.LoadNamedRouteCatalogHandle
+    local routeCatalogCalls = {}
+    local laneHandle = {
+        chunkRefs = {
+            {
+                id = "0_0",
+                originStuds = { x = 0, y = 0, z = 0 },
+            },
+        },
+        GetChunkIdsWithinRadius = function()
+            return { "0_0" }
+        end,
+        GetChunk = function(_self, chunkId)
+            return {
+                id = chunkId,
+                originStuds = { x = 0, y = 0, z = 0 },
+                roads = {},
+                buildings = {},
+                props = {},
+            }
+        end,
+    }
+    ManifestLoader.LoadNamedRouteCatalogHandle = function(name, timeoutSeconds, options)
+        routeCatalogCalls[#routeCatalogCalls + 1] = {
+            name = name,
+            timeoutSeconds = timeoutSeconds,
+            routeLane = options and options.routeLane or nil,
+            routeStepIndex = options and options.routeStepIndex or nil,
+        }
+        return {
+            LoadLaneRuntimeHandle = function(_self, stepIndex, laneName)
+                routeCatalogCalls[#routeCatalogCalls + 1] = {
+                    laneName = laneName,
+                    stepIndex = stepIndex,
+                }
+                return laneHandle
+            end,
+        }
+    end
+
+    local routeManifestSource, resolvedRouteName = CanonicalWorldContract.loadCanonicalManifestSource("preview", 0, {
+        routeCatalogName = "PlanetaryRouteBundle.route-catalog",
+        routeLane = "active",
+        routeStepIndex = 2,
+    })
+    Assert.equal(
+        routeManifestSource,
+        laneHandle,
+        "expected canonical world contract to return the selected route lane runtime handle"
+    )
+    Assert.equal(
+        resolvedRouteName,
+        "PlanetaryRouteBundle.route-catalog",
+        "expected route catalog loads to report the resolved route catalog name"
+    )
+    Assert.equal(routeCatalogCalls[1].name, "PlanetaryRouteBundle.route-catalog", "expected route catalog load name")
+    Assert.equal(routeCatalogCalls[1].routeLane, "active", "expected route lane to flow into route catalog loading")
+    Assert.equal(routeCatalogCalls[1].routeStepIndex, 2, "expected route step index to flow into route catalog loading")
+    Assert.equal(
+        routeCatalogCalls[2].laneName,
+        "active",
+        "expected canonical world contract to request the desired route lane"
+    )
+    Assert.equal(
+        routeCatalogCalls[2].stepIndex,
+        2,
+        "expected canonical world contract to request the desired route step"
+    )
+
+    ManifestLoader.LoadNamedRouteCatalogHandle = originalLoadNamedRouteCatalogHandle
 end

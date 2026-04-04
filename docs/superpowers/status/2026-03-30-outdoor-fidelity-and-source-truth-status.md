@@ -2969,6 +2969,21 @@ The compact historical archive index is:
   - `stylua --check roblox/src/ServerScriptService/ImportService/ManifestLoader.lua roblox/src/ServerScriptService/Tests/ManifestSubplans.spec.lua`
   - `git diff --check`
 
+## 2026-04-04 09:51 CDT
+
+- Extended the runtime-facing planetary lane again on `main`:
+  - `CanonicalWorldContract`
+    - canonical manifest-source loading can now resolve a named route catalog and return a selected route lane runtime handle instead of only manifest-index families
+  - `AustinPreviewBuilder` and `RunAustin`
+    - preview/full-bake/runtime manifest loading now forward `routeCatalogName`, `routeLane`, and `routeStepIndex` into the canonical world contract
+  - `AustinPreviewRequest`
+    - preview request normalization now carries route catalog metadata
+    - route-lane preview selection can bypass radius selection when a handle exposes route lane summaries
+- Verification:
+  - `stylua roblox/src/ServerScriptService/StudioPreview/AustinPreviewRequest.lua roblox/src/ServerScriptService/ImportService/CanonicalWorldContract.lua roblox/src/ServerScriptService/StudioPreview/AustinPreviewBuilder.lua roblox/src/ServerScriptService/ImportService/RunAustin.lua roblox/src/ServerScriptService/Tests/AustinPreviewRequest.spec.lua roblox/src/ServerScriptService/Tests/CanonicalWorldContract.spec.lua roblox/src/ServerScriptService/Tests/RunAustinManifestSelection.spec.lua`
+  - `python3 -m unittest discover -s scripts/tests -p 'test_manifest_loader_route_catalog_contract.py' -v`
+  - `git diff --check`
+
 ## 2026-04-04 09:37 CDT
 
 - Extended the runtime consumption path on `main`:

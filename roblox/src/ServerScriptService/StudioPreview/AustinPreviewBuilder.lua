@@ -271,7 +271,7 @@ local function shouldCancelBuild(buildToken)
     return false
 end
 
-local function loadPreviewManifestSource(timeTravelActive)
+local function loadPreviewManifestSource(timeTravelActive, normalizedRequest)
     if RunService:IsStudio() and not timeTravelActive then
         local currentHash = getCurrentSyncHash()
         if cachedPreviewManifestHandle ~= nil and cachedPreviewManifestHash == currentHash then
@@ -284,6 +284,9 @@ local function loadPreviewManifestSource(timeTravelActive)
 
     local previewManifest = CanonicalWorldContract.loadCanonicalManifestSource("preview", nil, {
         freshRequire = timeTravelActive,
+        routeCatalogName = normalizedRequest and normalizedRequest.routeCatalogName or nil,
+        routeLane = normalizedRequest and normalizedRequest.routeLane or nil,
+        routeStepIndex = normalizedRequest and normalizedRequest.routeStepIndex or nil,
     })
 
     if RunService:IsStudio() and not timeTravelActive then
@@ -297,7 +300,7 @@ local function loadPreviewManifestSource(timeTravelActive)
     return previewManifest
 end
 
-local function loadFullManifestSource(timeTravelActive)
+local function loadFullManifestSource(timeTravelActive, normalizedRequest)
     if not RunService:IsStudio() then
         return nil
     end
@@ -315,6 +318,9 @@ local function loadFullManifestSource(timeTravelActive)
     local fullOk, fullManifest = pcall(function()
         local manifestHandle = CanonicalWorldContract.loadCanonicalManifestSource("full_bake", nil, {
             freshRequire = timeTravelActive,
+            routeCatalogName = normalizedRequest and normalizedRequest.routeCatalogName or nil,
+            routeLane = normalizedRequest and normalizedRequest.routeLane or nil,
+            routeStepIndex = normalizedRequest and normalizedRequest.routeStepIndex or nil,
         })
         return manifestHandle
     end)
@@ -337,7 +343,7 @@ local function loadManifestSource(request)
     local normalizedRequest = AustinPreviewRequest.Normalize(request)
     local timeTravelActive = isTimeTravelHardPauseActive()
     if normalizedRequest.mode == AustinPreviewRequest.MODE_FULL_BAKE then
-        local fullManifest = loadFullManifestSource(timeTravelActive)
+        local fullManifest = loadFullManifestSource(timeTravelActive, normalizedRequest)
         if fullManifest ~= nil then
             return fullManifest
         end
@@ -346,7 +352,7 @@ local function loadManifestSource(request)
         )
     end
 
-    return loadPreviewManifestSource(timeTravelActive)
+    return loadPreviewManifestSource(timeTravelActive, normalizedRequest)
 end
 
 function applyPreviewWorldState(manifestSource, stateEpoch)
