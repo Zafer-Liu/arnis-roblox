@@ -3085,6 +3085,18 @@ The compact historical archive index is:
   - `python3 -m unittest scripts.tests.test_run_studio_harness -v`
   - `git diff --check`
 
+## 2026-04-04 10:19 CDT
+
+- Extended the canonical source-truth lane again on `main`:
+  - `CanonicalWorldContract`
+    - canonical and route-driven manifest sources now carry authoritative source metadata directly on the handle
+    - bounded envelopes now preserve source kind/name and route selection metadata instead of forcing callers to reconstruct it from side channels
+  - Luau contract specs now lock that source metadata on both canonical and route-driven handles
+- Verification:
+  - `stylua roblox/src/ServerScriptService/ImportService/CanonicalWorldContract.lua roblox/src/ServerScriptService/Tests/CanonicalWorldContract.spec.lua roblox/src/ServerScriptService/Tests/CanonicalWorldParity.spec.lua`
+  - `python3 -m unittest scripts.tests.test_austin_runtime_contract -v`
+  - `git diff --check`
+
 ## 2026-04-04 10:16 CDT
 
 - Extended the audit presentation lane again on `main`:

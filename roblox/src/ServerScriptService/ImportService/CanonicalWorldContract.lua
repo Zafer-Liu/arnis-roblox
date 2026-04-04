@@ -45,7 +45,18 @@ function CanonicalWorldContract.resolveCanonicalMaterializationFamily(policyMode
     return CanonicalWorldContract.resolveCanonicalMaterializationCandidates(policyMode)[1]
 end
 
+local function annotateManifestSource(manifestSource, metadata)
+    if type(manifestSource) ~= "table" or type(metadata) ~= "table" then
+        return manifestSource
+    end
+    for key, value in pairs(metadata) do
+        manifestSource[key] = value
+    end
+    return manifestSource
+end
+
 function CanonicalWorldContract.loadCanonicalManifestSource(policyMode, timeoutSeconds, options)
+    local canonicalFamily = CanonicalWorldContract.resolveCanonicalManifestFamily(policyMode)
     if type(options) == "table" and type(options.routeCatalogName) == "string" then
         local routeLane = options.routeLane or "active"
         local routeStepIndex = options.routeStepIndex or 0
@@ -53,9 +64,15 @@ function CanonicalWorldContract.loadCanonicalManifestSource(policyMode, timeoutS
             ManifestLoader.LoadNamedRouteCatalogHandle(options.routeCatalogName, timeoutSeconds, options)
         local manifestSource =
             routeCatalogHandle:LoadLaneRuntimeHandle(routeStepIndex, routeLane, timeoutSeconds, options)
-        return manifestSource,
-            options.routeCatalogName,
-            CanonicalWorldContract.resolveCanonicalManifestFamily(policyMode)
+        annotateManifestSource(manifestSource, {
+            manifestSourceKind = "route_catalog",
+            manifestSourceName = options.routeCatalogName,
+            manifestFamily = canonicalFamily,
+            routeCatalogName = options.routeCatalogName,
+            routeLane = routeLane,
+            routeStepIndex = routeStepIndex,
+        })
+        return manifestSource, options.routeCatalogName, canonicalFamily
     end
 
     local candidates = CanonicalWorldContract.resolveCanonicalMaterializationCandidates(policyMode)
@@ -64,7 +81,12 @@ function CanonicalWorldContract.loadCanonicalManifestSource(policyMode, timeoutS
         local ok, handle =
             pcall(ManifestLoader.LoadNamedShardedSampleHandle, manifestIndexName, timeoutSeconds, options)
         if ok then
-            return handle, manifestIndexName, CanonicalWorldContract.resolveCanonicalManifestFamily(policyMode)
+            annotateManifestSource(handle, {
+                manifestSourceKind = "canonical_manifest",
+                manifestSourceName = manifestIndexName,
+                manifestFamily = canonicalFamily,
+            })
+            return handle, manifestIndexName, canonicalFamily
         end
         lastError = handle
     end
@@ -90,6 +112,11 @@ function CanonicalWorldContract.resolveBoundedEnvelope(manifestSource, loadRadiu
 
     return {
         manifestFamily = CanonicalWorldContract.resolveCanonicalManifestFamily(),
+        manifestSourceKind = manifestSource.manifestSourceKind or "canonical_manifest",
+        manifestSourceName = manifestSource.manifestSourceName,
+        routeCatalogName = manifestSource.routeCatalogName,
+        routeLane = manifestSource.routeLane,
+        routeStepIndex = manifestSource.routeStepIndex,
         anchor = anchor,
         focusPoint = anchor.focusPoint,
         spawnPoint = anchor.spawnPoint,

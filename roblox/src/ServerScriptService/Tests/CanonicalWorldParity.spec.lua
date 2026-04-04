@@ -89,6 +89,26 @@ return function()
         CanonicalWorldContract.resolveCanonicalMaterializationFamily("preview"),
         "expected preview loading to use the canonical preview materialization"
     )
+    Assert.equal(
+        previewHandle.manifestSourceKind,
+        "canonical_manifest",
+        "expected preview handle to carry canonical source kind"
+    )
+    Assert.equal(
+        canonicalHandle.manifestSourceKind,
+        "canonical_manifest",
+        "expected full-bake handle to carry canonical source kind"
+    )
+    Assert.equal(
+        previewHandle.manifestSourceName,
+        previewMaterializationFamily,
+        "expected preview handle to carry resolved source name"
+    )
+    Assert.equal(
+        canonicalHandle.manifestSourceName,
+        canonicalMaterializationFamily,
+        "expected full-bake handle to carry resolved source name"
+    )
     Assert.near(
         previewEnvelope.focusPoint.X,
         canonicalEnvelope.focusPoint.X,
