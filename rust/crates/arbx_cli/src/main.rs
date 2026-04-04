@@ -35,9 +35,30 @@ use arbx_roblox_export::{
     StoredManifestSubset,
 };
 use rayon::prelude::*;
+use serde::Serialize;
 use serde_json::{json, Value};
 
 const SCENE_INDEX_VERSION: u64 = 2;
+
+#[derive(Debug, Serialize)]
+struct DeliveryBundleRuntimeResult {
+    chunk_count: usize,
+    fragment_count: usize,
+    shard_count: usize,
+    index_path: String,
+    shard_dir: String,
+}
+
+#[derive(Debug, Serialize)]
+struct DeliveryBundleResult {
+    plan: arbx_planetary_store::PlanetaryDeliveryPlan,
+    out: Option<String>,
+    plan_out: Option<String>,
+    summary_out: Option<String>,
+    window_out: Option<String>,
+    manifest_out: Option<String>,
+    runtime: Option<DeliveryBundleRuntimeResult>,
+}
 
 fn srtm_tile_name(lat: f64, lon: f64) -> String {
     let lat_i = lat.floor() as i32;
@@ -1941,6 +1962,21 @@ fn write_delivery_plan_json(
     }
     fs::write(out_path, format!("{plan_json}\n"))
         .map_err(|err| format!("delivery-plan write failed: {err}"))?;
+    Ok(())
+}
+
+fn write_json_file<T: serde::Serialize>(
+    value: &T,
+    out_path: &Path,
+    label: &str,
+) -> Result<(), String> {
+    let payload =
+        serde_json::to_string_pretty(value).map_err(|err| format!("{label} json failed: {err}"))?;
+    if let Some(parent) = out_path.parent() {
+        fs::create_dir_all(parent).map_err(|err| format!("{label} create dir failed: {err}"))?;
+    }
+    fs::write(out_path, format!("{payload}\n"))
+        .map_err(|err| format!("{label} write failed: {err}"))?;
     Ok(())
 }
 
@@ -3943,7 +3979,10 @@ fn cmd_planetary_store(args: &[String]) -> Result<(), String> {
             let mut tile: Option<(u8, u32, u32)> = None;
             let mut radius_studs: Option<f64> = None;
             let mut plan_path: Option<PathBuf> = None;
+            let mut out_path: Option<PathBuf> = None;
             let mut plan_out: Option<PathBuf> = None;
+            let mut summary_out: Option<PathBuf> = None;
+            let mut window_out: Option<PathBuf> = None;
             let mut manifest_out: Option<PathBuf> = None;
             let mut output_dir: Option<PathBuf> = None;
             let mut index_name = "PlanetaryManifestIndex".to_string();
@@ -4054,9 +4093,24 @@ fn cmd_planetary_store(args: &[String]) -> Result<(), String> {
                         plan_path = Some(PathBuf::from(value));
                         i += 2;
                     }
+                    "--out" => {
+                        let value = args.get(i + 1).ok_or("--out requires a path")?;
+                        out_path = Some(PathBuf::from(value));
+                        i += 2;
+                    }
                     "--plan-out" => {
                         let value = args.get(i + 1).ok_or("--plan-out requires a path")?;
                         plan_out = Some(PathBuf::from(value));
+                        i += 2;
+                    }
+                    "--summary-out" => {
+                        let value = args.get(i + 1).ok_or("--summary-out requires a path")?;
+                        summary_out = Some(PathBuf::from(value));
+                        i += 2;
+                    }
+                    "--window-out" => {
+                        let value = args.get(i + 1).ok_or("--window-out requires a path")?;
+                        window_out = Some(PathBuf::from(value));
                         i += 2;
                     }
                     "--manifest-out" => {
@@ -4230,6 +4284,21 @@ fn cmd_planetary_store(args: &[String]) -> Result<(), String> {
                 write_delivery_plan_json(&plan, plan_out)?;
             }
 
+            let summary =
+                read_scene_chunk_summary_by_chunk_ids(&store_path, &plan.scene_id, &plan.chunk_ids)
+                    .map_err(|err| {
+                        format!("planetary-store delivery-bundle summary failed: {err}")
+                    })?;
+            if let Some(summary_out) = summary_out.as_ref() {
+                write_json_file(&summary, summary_out, "delivery-bundle summary")?;
+            }
+
+            let window = build_delivery_window_from_plan(&store_path, &plan)
+                .map_err(|err| format!("planetary-store delivery-bundle window failed: {err}"))?;
+            if let Some(window_out) = window_out.as_ref() {
+                write_json_file(&window, window_out, "delivery-bundle window")?;
+            }
+
             let subset = read_scene_manifest_subset_by_chunk_ids(
                 &store_path,
                 &plan.scene_id,
@@ -4237,24 +4306,19 @@ fn cmd_planetary_store(args: &[String]) -> Result<(), String> {
             )
             .map_err(|err| format!("planetary-store delivery-bundle subset failed: {err}"))?;
 
-            let mut result = json!({
-                "plan": plan,
-                "planOut": plan_out.as_ref().map(|path| path.display().to_string()),
-                "manifestOut": manifest_out.as_ref().map(|path| path.display().to_string()),
-                "runtime": null
-            });
+            let mut result = DeliveryBundleResult {
+                plan,
+                out: out_path.as_ref().map(|path| path.display().to_string()),
+                plan_out: plan_out.as_ref().map(|path| path.display().to_string()),
+                summary_out: summary_out.as_ref().map(|path| path.display().to_string()),
+                window_out: window_out.as_ref().map(|path| path.display().to_string()),
+                manifest_out: manifest_out.as_ref().map(|path| path.display().to_string()),
+                runtime: None,
+            };
 
             if let Some(manifest_out) = manifest_out.as_ref() {
                 let manifest = build_manifest_value_from_stored_subset(subset.clone())?;
-                let manifest_json = serde_json::to_string_pretty(&manifest)
-                    .map_err(|err| format!("delivery-bundle manifest json failed: {err}"))?;
-                if let Some(parent) = manifest_out.parent() {
-                    fs::create_dir_all(parent).map_err(|err| {
-                        format!("delivery-bundle manifest create dir failed: {err}")
-                    })?;
-                }
-                fs::write(manifest_out, format!("{manifest_json}\n"))
-                    .map_err(|err| format!("delivery-bundle manifest write failed: {err}"))?;
+                write_json_file(&manifest, manifest_out, "delivery-bundle manifest")?;
             }
 
             if let Some(output_dir) = output_dir {
@@ -4269,20 +4333,25 @@ fn cmd_planetary_store(args: &[String]) -> Result<(), String> {
                     },
                 )
                 .map_err(|err| format!("planetary-store delivery-bundle runtime failed: {err}"))?;
-                result["runtime"] = json!({
-                    "chunkCount": stats.chunk_count,
-                    "fragmentCount": stats.fragment_count,
-                    "shardCount": stats.shard_count,
-                    "indexPath": stats.index_path.display().to_string(),
-                    "shardDir": stats.shard_dir.display().to_string()
+                result.runtime = Some(DeliveryBundleRuntimeResult {
+                    chunk_count: stats.chunk_count,
+                    fragment_count: stats.fragment_count,
+                    shard_count: stats.shard_count,
+                    index_path: stats.index_path.display().to_string(),
+                    shard_dir: stats.shard_dir.display().to_string(),
                 });
             }
 
-            println!(
-                "{}",
-                serde_json::to_string_pretty(&result)
-                    .map_err(|err| format!("delivery-bundle json failed: {err}"))?
-            );
+            if let Some(out_path) = out_path.as_ref() {
+                write_json_file(&result, out_path, "delivery-bundle")?;
+                println!("Wrote delivery bundle {}", out_path.display());
+            } else {
+                println!(
+                    "{}",
+                    serde_json::to_string_pretty(&result)
+                        .map_err(|err| format!("delivery-bundle json failed: {err}"))?
+                );
+            }
             Ok(())
         }
         other => Err(format!("unknown planetary-store subcommand: {other}")),
@@ -6121,7 +6190,10 @@ mod tests {
         let tempdir = tempfile::tempdir().unwrap();
         let store_path = tempdir.path().join("planetary.sqlite");
         let manifest_path = tempdir.path().join("sample.sqlite");
+        let bundle_path = tempdir.path().join("delivery-bundle.json");
         let plan_path = tempdir.path().join("delivery-plan.json");
+        let summary_path = tempdir.path().join("delivery-summary.json");
+        let window_path = tempdir.path().join("delivery-window.json");
         let subset_path = tempdir.path().join("subset.json");
         let output_dir = tempdir.path().join("runtime");
         let manifest = build_sample_multi_chunk(3, 1);
@@ -6147,8 +6219,14 @@ mod tests {
             format!("{},{}", center.lat, center.lon),
             "--radius-studs".to_string(),
             "300".to_string(),
+            "--out".to_string(),
+            bundle_path.display().to_string(),
             "--plan-out".to_string(),
             plan_path.display().to_string(),
+            "--summary-out".to_string(),
+            summary_path.display().to_string(),
+            "--window-out".to_string(),
+            window_path.display().to_string(),
             "--manifest-out".to_string(),
             subset_path.display().to_string(),
             "--output-dir".to_string(),
@@ -6160,7 +6238,10 @@ mod tests {
         ])
         .unwrap();
 
+        assert!(bundle_path.exists());
         assert!(plan_path.exists());
+        assert!(summary_path.exists());
+        assert!(window_path.exists());
         assert!(subset_path.exists());
         assert!(output_dir.join("PlanetaryIndex.lua").exists());
     }

@@ -2655,3 +2655,16 @@ The compact historical archive index is:
   - `cargo test -p arbx_planetary_store planetary_store_ -- --nocapture`
   - `cargo test -p arbx_cli planetary_store_ -- --nocapture`
   - `git diff --check`
+
+## 2026-04-03 22:55 CDT
+
+- Extended the planetary backbone again on `main`:
+  - `arbx_cli`
+    - `delivery-bundle` now supports durable result persistence via `--out`, plus optional hydrated `--summary-out` and `--window-out` artifacts alongside `--plan-out`, `--manifest-out`, and runtime shard output
+    - the bundle result is now a stable structured execution artifact rather than stdout-only glue
+  - the planetary execution lane can now produce persisted plan, summary, window, manifest, runtime, and bundle-result artifacts from one selected chunk set
+- Verification:
+  - `cargo fmt --all`
+  - `cargo test -p arbx_planetary_store planetary_store_ -- --nocapture`
+  - `cargo test -p arbx_cli planetary_store_ -- --nocapture`
+  - `git diff --check`

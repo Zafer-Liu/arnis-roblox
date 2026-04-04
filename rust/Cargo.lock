@@ -59,6 +59,7 @@ dependencies = [
  "arbx_planetary_store",
  "arbx_roblox_export",
  "rayon",
+ "serde",
  "serde_json",
  "tempfile",
 ]
