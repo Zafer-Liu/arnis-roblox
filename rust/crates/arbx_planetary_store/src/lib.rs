@@ -160,6 +160,47 @@ fn bbox_area_degrees(bbox: arbx_geo::BoundingBox) -> f64 {
     bbox.width_degrees() * bbox.height_degrees()
 }
 
+fn tile_x_to_lon(x: u32, zoom: u8) -> f64 {
+    x as f64 / 2f64.powi(zoom as i32) * 360.0 - 180.0
+}
+
+fn tile_y_to_lat(y: u32, zoom: u8) -> f64 {
+    let n = std::f64::consts::PI - (2.0 * std::f64::consts::PI * y as f64) / 2f64.powi(zoom as i32);
+    n.sinh().atan().to_degrees()
+}
+
+fn slippy_tile_bbox(zoom: u8, x: u32, y: u32) -> arbx_geo::BoundingBox {
+    let min_lon = tile_x_to_lon(x, zoom);
+    let max_lon = tile_x_to_lon(x + 1, zoom);
+    let max_lat = tile_y_to_lat(y, zoom);
+    let min_lat = tile_y_to_lat(y + 1, zoom);
+    arbx_geo::BoundingBox::new(min_lat, min_lon, max_lat, max_lon)
+}
+
+fn project_geo_bbox_to_local_bounds(
+    bbox: arbx_geo::BoundingBox,
+    center: LatLon,
+    meters_per_stud: f64,
+) -> (f64, f64, f64, f64) {
+    let corners = [
+        Mercator::project(LatLon::new(bbox.min.lat, bbox.min.lon), center, meters_per_stud),
+        Mercator::project(LatLon::new(bbox.min.lat, bbox.max.lon), center, meters_per_stud),
+        Mercator::project(LatLon::new(bbox.max.lat, bbox.min.lon), center, meters_per_stud),
+        Mercator::project(LatLon::new(bbox.max.lat, bbox.max.lon), center, meters_per_stud),
+    ];
+    let mut min_x = f64::INFINITY;
+    let mut min_z = f64::INFINITY;
+    let mut max_x = f64::NEG_INFINITY;
+    let mut max_z = f64::NEG_INFINITY;
+    for corner in corners {
+        min_x = min_x.min(corner.x);
+        min_z = min_z.min(corner.z);
+        max_x = max_x.max(corner.x);
+        max_z = max_z.max(corner.z);
+    }
+    (min_x, min_z, max_x, max_z)
+}
+
 fn ensure_parent_dir(path: &Path) -> PlanetaryStoreResult<()> {
     if let Some(parent) = path.parent() {
         fs::create_dir_all(parent)?;
@@ -915,6 +956,22 @@ pub fn find_scenes_covering_geo_point(
         .collect())
 }
 
+pub fn find_scenes_covering_tile(
+    path: &Path,
+    zoom: u8,
+    x: u32,
+    y: u32,
+) -> PlanetaryStoreResult<Vec<PlanetarySceneCatalogEntry>> {
+    let bbox = slippy_tile_bbox(zoom, x, y);
+    find_scenes_intersecting_geo_bbox(
+        path,
+        bbox.min.lat,
+        bbox.min.lon,
+        bbox.max.lat,
+        bbox.max.lon,
+    )
+}
+
 pub fn build_delivery_window_around_geo_point(
     path: &Path,
     lat: f64,
@@ -999,6 +1056,51 @@ pub fn read_scene_manifest_subset_around_geo_point(
     .map(|chunk| chunk.chunk_id)
     .collect::<Vec<_>>();
     read_scene_manifest_subset_by_chunk_ids(path, scene_id, &chunk_ids)
+}
+
+pub fn read_scene_chunk_summary_for_tile(
+    path: &Path,
+    scene_id: &str,
+    zoom: u8,
+    x: u32,
+    y: u32,
+    limit: Option<usize>,
+    require_buildings: bool,
+    require_terrain: bool,
+) -> PlanetaryStoreResult<Vec<PlanetaryChunkSummary>> {
+    let connection = open_store(path)?;
+    let meta = read_scene_meta(&connection, scene_id)?;
+    let tile_bbox = slippy_tile_bbox(zoom, x, y);
+    let (min_x, min_z, max_x, max_z) =
+        project_geo_bbox_to_local_bounds(tile_bbox, meta.bbox.center(), meta.meters_per_stud);
+    drop(connection);
+    read_scene_chunk_summary_subset(
+        path,
+        scene_id,
+        min_x,
+        min_z,
+        max_x,
+        max_z,
+        limit,
+        require_buildings,
+        require_terrain,
+    )
+}
+
+pub fn read_scene_manifest_subset_for_tile(
+    path: &Path,
+    scene_id: &str,
+    zoom: u8,
+    x: u32,
+    y: u32,
+) -> PlanetaryStoreResult<arbx_roblox_export::StoredManifestSubset> {
+    let connection = open_store(path)?;
+    let meta = read_scene_meta(&connection, scene_id)?;
+    let tile_bbox = slippy_tile_bbox(zoom, x, y);
+    let (min_x, min_z, max_x, max_z) =
+        project_geo_bbox_to_local_bounds(tile_bbox, meta.bbox.center(), meta.meters_per_stud);
+    drop(connection);
+    read_scene_manifest_subset(path, scene_id, min_x, min_z, max_x, max_z)
 }
 
 pub fn scene_exists(path: &Path, scene_id: &str) -> PlanetaryStoreResult<bool> {
@@ -1843,5 +1945,75 @@ mod tests {
         .unwrap();
         assert_eq!(window.scene.scene_id, "sample_austin");
         assert_eq!(window.chunks.len(), 1);
+    }
+
+    #[test]
+    fn planetary_store_finds_scenes_covering_tile() {
+        let dir = tempdir().unwrap();
+        let manifest_path = dir.path().join("sample.sqlite");
+        let store_path = dir.path().join("planetary.sqlite");
+
+        let mut manifest = build_sample_multi_chunk(1, 1);
+        manifest.meta.bbox = arbx_geo::BoundingBox::new(30.0, -98.0, 30.5, -97.5);
+        let center = manifest.meta.bbox.center();
+        write_manifest_sqlite(&manifest, &manifest_path).unwrap();
+        ingest_manifest_sqlite(&store_path, &manifest_path, Some("austin")).unwrap();
+
+        let zoom = 10u8;
+        let x = (((center.lon + 180.0) / 360.0) * 2f64.powi(zoom as i32)).floor() as u32;
+        let lat_rad = center.lat.to_radians();
+        let y = ((1.0 - ((lat_rad.tan() + 1.0 / lat_rad.cos()).ln() / std::f64::consts::PI)) / 2.0
+            * 2f64.powi(zoom as i32))
+            .floor() as u32;
+
+        let scenes = find_scenes_covering_tile(&store_path, zoom, x, y).unwrap();
+        assert_eq!(scenes.len(), 1);
+        assert_eq!(scenes[0].scene_id, "austin");
+    }
+
+    #[test]
+    fn planetary_store_reads_chunk_summary_for_tile() {
+        let dir = tempdir().unwrap();
+        let manifest_path = dir.path().join("sample.sqlite");
+        let store_path = dir.path().join("planetary.sqlite");
+
+        let manifest = build_sample_multi_chunk(3, 1);
+        let center = manifest.meta.bbox.center();
+        write_manifest_sqlite(&manifest, &manifest_path).unwrap();
+        ingest_manifest_sqlite(&store_path, &manifest_path, Some("sample_austin")).unwrap();
+
+        let zoom = 10u8;
+        let x = (((center.lon + 180.0) / 360.0) * 2f64.powi(zoom as i32)).floor() as u32;
+        let lat_rad = center.lat.to_radians();
+        let y = ((1.0 - ((lat_rad.tan() + 1.0 / lat_rad.cos()).ln() / std::f64::consts::PI)) / 2.0
+            * 2f64.powi(zoom as i32))
+            .floor() as u32;
+
+        let chunks =
+            read_scene_chunk_summary_for_tile(&store_path, "sample_austin", zoom, x, y, Some(2), false, false)
+                .unwrap();
+        assert!(!chunks.is_empty());
+    }
+
+    #[test]
+    fn planetary_store_reads_manifest_subset_for_tile() {
+        let dir = tempdir().unwrap();
+        let manifest_path = dir.path().join("sample.sqlite");
+        let store_path = dir.path().join("planetary.sqlite");
+
+        let manifest = build_sample_multi_chunk(3, 1);
+        let center = manifest.meta.bbox.center();
+        write_manifest_sqlite(&manifest, &manifest_path).unwrap();
+        ingest_manifest_sqlite(&store_path, &manifest_path, Some("sample_austin")).unwrap();
+
+        let zoom = 10u8;
+        let x = (((center.lon + 180.0) / 360.0) * 2f64.powi(zoom as i32)).floor() as u32;
+        let lat_rad = center.lat.to_radians();
+        let y = ((1.0 - ((lat_rad.tan() + 1.0 / lat_rad.cos()).ln() / std::f64::consts::PI)) / 2.0
+            * 2f64.powi(zoom as i32))
+            .floor() as u32;
+
+        let subset = read_scene_manifest_subset_for_tile(&store_path, "sample_austin", zoom, x, y).unwrap();
+        assert!(!subset.chunks.is_empty());
     }
 }

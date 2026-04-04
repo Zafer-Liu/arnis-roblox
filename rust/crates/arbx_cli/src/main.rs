@@ -14,10 +14,12 @@ use arbx_pipeline::{
 };
 use arbx_planetary_store::{
     build_delivery_window_around_geo_point, find_scenes_covering_geo_point,
-    find_scenes_intersecting_geo_bbox, ingest_manifest_json, ingest_manifest_sqlite,
-    init_planetary_store, list_scenes, read_chunks_by_ids, read_scene_catalog_entry,
+    find_scenes_covering_tile, find_scenes_intersecting_geo_bbox, ingest_manifest_json,
+    ingest_manifest_sqlite, init_planetary_store, list_scenes, read_chunks_by_ids,
+    read_scene_catalog_entry,
     read_scene_chunk_subset, read_scene_chunk_summary_around_point, read_scene_chunk_summary_subset,
-    read_scene_manifest_subset, read_scene_manifest_subset_by_chunk_ids, summarize_planetary_store,
+    read_scene_chunk_summary_for_tile, read_scene_manifest_subset, read_scene_manifest_subset_by_chunk_ids,
+    read_scene_manifest_subset_for_tile, summarize_planetary_store,
 };
 use arbx_roblox_export::{
     build_sample_multi_chunk, export_to_chunks, read_manifest_sqlite_all, write_manifest_sqlite,
@@ -1851,7 +1853,7 @@ fn cmd_emit_runtime_lua(args: &[String]) -> Result<(), String> {
 fn cmd_planetary_store(args: &[String]) -> Result<(), String> {
     let Some(subcommand) = args.first().map(String::as_str) else {
         return Err(
-            "planetary-store requires a subcommand: init | ingest-manifest | ingest-json | summary | list-scenes | scene | subset | subset-summary | fetch-chunks | emit-manifest-subset | emit-runtime-lua | find-scenes | delivery-window".to_string(),
+            "planetary-store requires a subcommand: init | ingest-manifest | ingest-json | summary | list-scenes | scene | subset | subset-summary | fetch-chunks | emit-manifest-subset | emit-runtime-lua | find-scenes | delivery-window | tile-scenes".to_string(),
         );
     };
 
@@ -2118,6 +2120,7 @@ fn cmd_planetary_store(args: &[String]) -> Result<(), String> {
             let mut scene_id: Option<String> = None;
             let mut bbox_studs: Option<(f64, f64, f64, f64)> = None;
             let mut around_studs: Option<(f64, f64)> = None;
+            let mut tile: Option<(u8, u32, u32)> = None;
             let mut radius_studs: Option<f64> = None;
             let mut limit: Option<usize> = None;
             let mut require_buildings = false;
@@ -2170,6 +2173,22 @@ fn cmd_planetary_store(args: &[String]) -> Result<(), String> {
                             return Err("--around-studs requires two comma-separated numbers".to_string());
                         }
                         around_studs = Some((parts[0], parts[1]));
+                        i += 2;
+                    }
+                    "--tile" => {
+                        let value = args.get(i + 1).ok_or("--tile requires Z,X,Y")?;
+                        let parts: Vec<u64> = value
+                            .split(',')
+                            .map(|part| {
+                                part.trim()
+                                    .parse::<u64>()
+                                    .map_err(|_| format!("invalid number in --tile: {}", part))
+                            })
+                            .collect::<Result<Vec<u64>, String>>()?;
+                        if parts.len() != 3 {
+                            return Err("--tile requires three comma-separated integers".to_string());
+                        }
+                        tile = Some((parts[0] as u8, parts[1] as u32, parts[2] as u32));
                         i += 2;
                     }
                     "--radius-studs" => {
@@ -2236,9 +2255,21 @@ fn cmd_planetary_store(args: &[String]) -> Result<(), String> {
                     require_terrain,
                 )
                 .map_err(|err| format!("planetary-store subset-summary around-studs failed: {err}"))?
+            } else if let Some((zoom, x, y)) = tile {
+                read_scene_chunk_summary_for_tile(
+                    &store_path,
+                    &scene_id,
+                    zoom,
+                    x,
+                    y,
+                    limit,
+                    require_buildings,
+                    require_terrain,
+                )
+                .map_err(|err| format!("planetary-store subset-summary tile failed: {err}"))?
             } else {
                 return Err(
-                    "planetary-store subset-summary requires either --bbox-studs or --around-studs"
+                    "planetary-store subset-summary requires --bbox-studs, --around-studs, or --tile"
                         .to_string(),
                 );
             };
@@ -2305,6 +2336,7 @@ fn cmd_planetary_store(args: &[String]) -> Result<(), String> {
             let mut scene_id: Option<String> = None;
             let mut bbox_studs: Option<(f64, f64, f64, f64)> = None;
             let mut around_studs: Option<(f64, f64)> = None;
+            let mut tile: Option<(u8, u32, u32)> = None;
             let mut radius_studs: Option<f64> = None;
             let mut chunk_ids: Option<Vec<String>> = None;
             let mut out_path: Option<PathBuf> = None;
@@ -2358,6 +2390,22 @@ fn cmd_planetary_store(args: &[String]) -> Result<(), String> {
                             return Err("--around-studs requires two comma-separated numbers".to_string());
                         }
                         around_studs = Some((parts[0], parts[1]));
+                        i += 2;
+                    }
+                    "--tile" => {
+                        let value = args.get(i + 1).ok_or("--tile requires Z,X,Y")?;
+                        let parts: Vec<u64> = value
+                            .split(',')
+                            .map(|part| {
+                                part.trim()
+                                    .parse::<u64>()
+                                    .map_err(|_| format!("invalid number in --tile: {}", part))
+                            })
+                            .collect::<Result<Vec<u64>, String>>()?;
+                        if parts.len() != 3 {
+                            return Err("--tile requires three comma-separated integers".to_string());
+                        }
+                        tile = Some((parts[0] as u8, parts[1] as u32, parts[2] as u32));
                         i += 2;
                     }
                     "--radius-studs" => {
@@ -2439,12 +2487,15 @@ fn cmd_planetary_store(args: &[String]) -> Result<(), String> {
                 .collect::<Vec<_>>();
                 read_scene_manifest_subset_by_chunk_ids(&store_path, &scene_id, &chunk_ids)
                     .map_err(|err| format!("planetary-store emit-manifest-subset around chunk selection failed: {err}"))?
+            } else if let Some((zoom, x, y)) = tile {
+                read_scene_manifest_subset_for_tile(&store_path, &scene_id, zoom, x, y)
+                    .map_err(|err| format!("planetary-store emit-manifest-subset tile failed: {err}"))?
             } else if let Some(chunk_ids) = chunk_ids {
                 read_scene_manifest_subset_by_chunk_ids(&store_path, &scene_id, &chunk_ids)
                     .map_err(|err| format!("planetary-store emit-manifest-subset chunk-ids failed: {err}"))?
             } else {
                 return Err(
-                    "planetary-store emit-manifest-subset requires --bbox-studs, --around-studs, or --chunk-ids"
+                    "planetary-store emit-manifest-subset requires --bbox-studs, --around-studs, --tile, or --chunk-ids"
                         .to_string(),
                 );
             };
@@ -2469,6 +2520,7 @@ fn cmd_planetary_store(args: &[String]) -> Result<(), String> {
             let mut scene_id: Option<String> = None;
             let mut bbox_studs: Option<(f64, f64, f64, f64)> = None;
             let mut around_studs: Option<(f64, f64)> = None;
+            let mut tile: Option<(u8, u32, u32)> = None;
             let mut radius_studs: Option<f64> = None;
             let mut chunk_ids: Option<Vec<String>> = None;
             let mut output_dir: Option<PathBuf> = None;
@@ -2526,6 +2578,22 @@ fn cmd_planetary_store(args: &[String]) -> Result<(), String> {
                             return Err("--around-studs requires two comma-separated numbers".to_string());
                         }
                         around_studs = Some((parts[0], parts[1]));
+                        i += 2;
+                    }
+                    "--tile" => {
+                        let value = args.get(i + 1).ok_or("--tile requires Z,X,Y")?;
+                        let parts: Vec<u64> = value
+                            .split(',')
+                            .map(|part| {
+                                part.trim()
+                                    .parse::<u64>()
+                                    .map_err(|_| format!("invalid number in --tile: {}", part))
+                            })
+                            .collect::<Result<Vec<u64>, String>>()?;
+                        if parts.len() != 3 {
+                            return Err("--tile requires three comma-separated integers".to_string());
+                        }
+                        tile = Some((parts[0] as u8, parts[1] as u32, parts[2] as u32));
                         i += 2;
                     }
                     "--radius-studs" => {
@@ -2640,12 +2708,15 @@ fn cmd_planetary_store(args: &[String]) -> Result<(), String> {
                 .collect::<Vec<_>>();
                 read_scene_manifest_subset_by_chunk_ids(&store_path, &scene_id, &chunk_ids)
                     .map_err(|err| format!("planetary-store emit-runtime-lua around chunk selection failed: {err}"))?
+            } else if let Some((zoom, x, y)) = tile {
+                read_scene_manifest_subset_for_tile(&store_path, &scene_id, zoom, x, y)
+                    .map_err(|err| format!("planetary-store emit-runtime-lua tile failed: {err}"))?
             } else if let Some(chunk_ids) = chunk_ids {
                 read_scene_manifest_subset_by_chunk_ids(&store_path, &scene_id, &chunk_ids)
                     .map_err(|err| format!("planetary-store emit-runtime-lua chunk-ids failed: {err}"))?
             } else {
                 return Err(
-                    "planetary-store emit-runtime-lua requires --bbox-studs, --around-studs, or --chunk-ids"
+                    "planetary-store emit-runtime-lua requires --bbox-studs, --around-studs, --tile, or --chunk-ids"
                         .to_string(),
                 );
             };
@@ -2672,6 +2743,7 @@ fn cmd_planetary_store(args: &[String]) -> Result<(), String> {
             let mut store_path: Option<PathBuf> = None;
             let mut bbox: Option<(f64, f64, f64, f64)> = None;
             let mut point: Option<(f64, f64)> = None;
+            let mut tile: Option<(u8, u32, u32)> = None;
             let mut i = 1;
             while i < args.len() {
                 match args[i].as_str() {
@@ -2713,6 +2785,22 @@ fn cmd_planetary_store(args: &[String]) -> Result<(), String> {
                         point = Some((parts[0], parts[1]));
                         i += 2;
                     }
+                    "--tile" => {
+                        let value = args.get(i + 1).ok_or("--tile requires Z,X,Y")?;
+                        let parts: Vec<u64> = value
+                            .split(',')
+                            .map(|part| {
+                                part.trim()
+                                    .parse::<u64>()
+                                    .map_err(|_| format!("invalid number in --tile: {}", part))
+                            })
+                            .collect::<Result<Vec<u64>, String>>()?;
+                        if parts.len() != 3 {
+                            return Err("--tile requires three comma-separated integers".to_string());
+                        }
+                        tile = Some((parts[0] as u8, parts[1] as u32, parts[2] as u32));
+                        i += 2;
+                    }
                     other => {
                         return Err(format!("unknown argument to planetary-store find-scenes: {other}"))
                     }
@@ -2725,13 +2813,59 @@ fn cmd_planetary_store(args: &[String]) -> Result<(), String> {
             } else if let Some((lat, lon)) = point {
                 find_scenes_covering_geo_point(&store_path, lat, lon)
                     .map_err(|err| format!("planetary-store find-scenes point failed: {err}"))?
+            } else if let Some((zoom, x, y)) = tile {
+                find_scenes_covering_tile(&store_path, zoom, x, y)
+                    .map_err(|err| format!("planetary-store find-scenes tile failed: {err}"))?
             } else {
-                return Err("planetary-store find-scenes requires either --bbox or --point".to_string());
+                return Err("planetary-store find-scenes requires --bbox, --point, or --tile".to_string());
             };
             println!(
                 "{}",
                 serde_json::to_string_pretty(&scenes)
                     .map_err(|err| format!("find-scenes json failed: {err}"))?
+            );
+            Ok(())
+        }
+        "tile-scenes" => {
+            let mut store_path: Option<PathBuf> = None;
+            let mut tile: Option<(u8, u32, u32)> = None;
+            let mut i = 1;
+            while i < args.len() {
+                match args[i].as_str() {
+                    "--store" => {
+                        let value = args.get(i + 1).ok_or("--store requires a path")?;
+                        store_path = Some(PathBuf::from(value));
+                        i += 2;
+                    }
+                    "--tile" => {
+                        let value = args.get(i + 1).ok_or("--tile requires Z,X,Y")?;
+                        let parts: Vec<u64> = value
+                            .split(',')
+                            .map(|part| {
+                                part.trim()
+                                    .parse::<u64>()
+                                    .map_err(|_| format!("invalid number in --tile: {}", part))
+                            })
+                            .collect::<Result<Vec<u64>, String>>()?;
+                        if parts.len() != 3 {
+                            return Err("--tile requires three comma-separated integers".to_string());
+                        }
+                        tile = Some((parts[0] as u8, parts[1] as u32, parts[2] as u32));
+                        i += 2;
+                    }
+                    other => {
+                        return Err(format!("unknown argument to planetary-store tile-scenes: {other}"))
+                    }
+                }
+            }
+            let store_path = store_path.ok_or("planetary-store tile-scenes requires --store PATH")?;
+            let (zoom, x, y) = tile.ok_or("planetary-store tile-scenes requires --tile Z,X,Y")?;
+            let scenes = find_scenes_covering_tile(&store_path, zoom, x, y)
+                .map_err(|err| format!("planetary-store tile-scenes failed: {err}"))?;
+            println!(
+                "{}",
+                serde_json::to_string_pretty(&scenes)
+                    .map_err(|err| format!("tile-scenes json failed: {err}"))?
             );
             Ok(())
         }
@@ -3939,6 +4073,23 @@ mod tests {
             "30.2,-97.8".to_string(),
         ])
         .unwrap();
+
+        let center = manifest.meta.bbox.center();
+        let zoom = 10u8;
+        let x = (((center.lon + 180.0) / 360.0) * 2f64.powi(zoom as i32)).floor() as u32;
+        let lat_rad = center.lat.to_radians();
+        let y = ((1.0 - ((lat_rad.tan() + 1.0 / lat_rad.cos()).ln() / std::f64::consts::PI)) / 2.0
+            * 2f64.powi(zoom as i32))
+            .floor() as u32;
+
+        cmd_planetary_store(&[
+            "tile-scenes".to_string(),
+            "--store".to_string(),
+            store_path.display().to_string(),
+            "--tile".to_string(),
+            format!("{zoom},{x},{y}"),
+        ])
+        .unwrap();
     }
 
     #[test]
@@ -4073,6 +4224,93 @@ mod tests {
     }
 
     #[test]
+    fn planetary_store_subset_summary_tile_works() {
+        let tempdir = tempfile::tempdir().unwrap();
+        let store_path = tempdir.path().join("planetary.sqlite");
+        let manifest_path = tempdir.path().join("sample.sqlite");
+        let manifest = build_sample_multi_chunk(3, 1);
+        let center = manifest.meta.bbox.center();
+        write_manifest_sqlite(&manifest, &manifest_path).unwrap();
+
+        let zoom = 10u8;
+        let x = (((center.lon + 180.0) / 360.0) * 2f64.powi(zoom as i32)).floor() as u32;
+        let lat_rad = center.lat.to_radians();
+        let y = ((1.0 - ((lat_rad.tan() + 1.0 / lat_rad.cos()).ln() / std::f64::consts::PI)) / 2.0
+            * 2f64.powi(zoom as i32))
+            .floor() as u32;
+
+        cmd_planetary_store(&[
+            "ingest-manifest".to_string(),
+            "--store".to_string(),
+            store_path.display().to_string(),
+            "--manifest-sqlite".to_string(),
+            manifest_path.display().to_string(),
+            "--scene".to_string(),
+            "austin".to_string(),
+        ])
+        .unwrap();
+
+        cmd_planetary_store(&[
+            "subset-summary".to_string(),
+            "--store".to_string(),
+            store_path.display().to_string(),
+            "--scene".to_string(),
+            "austin".to_string(),
+            "--tile".to_string(),
+            format!("{zoom},{x},{y}"),
+            "--limit".to_string(),
+            "2".to_string(),
+        ])
+        .unwrap();
+    }
+
+    #[test]
+    fn planetary_store_emit_manifest_subset_tile_works() {
+        let tempdir = tempfile::tempdir().unwrap();
+        let store_path = tempdir.path().join("planetary.sqlite");
+        let manifest_path = tempdir.path().join("sample.sqlite");
+        let out_path = tempdir.path().join("subset.json");
+        let manifest = build_sample_multi_chunk(3, 1);
+        let center = manifest.meta.bbox.center();
+        write_manifest_sqlite(&manifest, &manifest_path).unwrap();
+
+        let zoom = 10u8;
+        let x = (((center.lon + 180.0) / 360.0) * 2f64.powi(zoom as i32)).floor() as u32;
+        let lat_rad = center.lat.to_radians();
+        let y = ((1.0 - ((lat_rad.tan() + 1.0 / lat_rad.cos()).ln() / std::f64::consts::PI)) / 2.0
+            * 2f64.powi(zoom as i32))
+            .floor() as u32;
+
+        cmd_planetary_store(&[
+            "ingest-manifest".to_string(),
+            "--store".to_string(),
+            store_path.display().to_string(),
+            "--manifest-sqlite".to_string(),
+            manifest_path.display().to_string(),
+            "--scene".to_string(),
+            "austin".to_string(),
+        ])
+        .unwrap();
+
+        cmd_planetary_store(&[
+            "emit-manifest-subset".to_string(),
+            "--store".to_string(),
+            store_path.display().to_string(),
+            "--scene".to_string(),
+            "austin".to_string(),
+            "--tile".to_string(),
+            format!("{zoom},{x},{y}"),
+            "--out".to_string(),
+            out_path.display().to_string(),
+        ])
+        .unwrap();
+
+        let output = std::fs::read_to_string(&out_path).unwrap();
+        let manifest: Value = serde_json::from_str(&output).unwrap();
+        assert!(!manifest["chunks"].as_array().unwrap().is_empty());
+    }
+
+    #[test]
     fn planetary_store_emit_runtime_lua_works() {
         let tempdir = tempfile::tempdir().unwrap();
         let store_path = tempdir.path().join("planetary.sqlite");
@@ -4145,6 +4383,55 @@ mod tests {
             "300".to_string(),
             "--limit".to_string(),
             "2".to_string(),
+            "--output-dir".to_string(),
+            output_dir.display().to_string(),
+            "--index-name".to_string(),
+            "PlanetaryIndex".to_string(),
+            "--shard-folder".to_string(),
+            "PlanetaryChunks".to_string(),
+        ])
+        .unwrap();
+
+        let index_path = output_dir.join("PlanetaryIndex.lua");
+        assert!(index_path.exists());
+    }
+
+    #[test]
+    fn planetary_store_emit_runtime_lua_tile_works() {
+        let tempdir = tempfile::tempdir().unwrap();
+        let store_path = tempdir.path().join("planetary.sqlite");
+        let manifest_path = tempdir.path().join("sample.sqlite");
+        let output_dir = tempdir.path().join("runtime");
+        let manifest = build_sample_multi_chunk(3, 1);
+        let center = manifest.meta.bbox.center();
+        write_manifest_sqlite(&manifest, &manifest_path).unwrap();
+
+        let zoom = 10u8;
+        let x = (((center.lon + 180.0) / 360.0) * 2f64.powi(zoom as i32)).floor() as u32;
+        let lat_rad = center.lat.to_radians();
+        let y = ((1.0 - ((lat_rad.tan() + 1.0 / lat_rad.cos()).ln() / std::f64::consts::PI)) / 2.0
+            * 2f64.powi(zoom as i32))
+            .floor() as u32;
+
+        cmd_planetary_store(&[
+            "ingest-manifest".to_string(),
+            "--store".to_string(),
+            store_path.display().to_string(),
+            "--manifest-sqlite".to_string(),
+            manifest_path.display().to_string(),
+            "--scene".to_string(),
+            "austin".to_string(),
+        ])
+        .unwrap();
+
+        cmd_planetary_store(&[
+            "emit-runtime-lua".to_string(),
+            "--store".to_string(),
+            store_path.display().to_string(),
+            "--scene".to_string(),
+            "austin".to_string(),
+            "--tile".to_string(),
+            format!("{zoom},{x},{y}"),
             "--output-dir".to_string(),
             output_dir.display().to_string(),
             "--index-name".to_string(),

@@ -2463,3 +2463,19 @@ The compact historical archive index is:
   - `cargo test -p arbx_planetary_store -p arbx_cli planetary_store --quiet`
   - `cargo test -p arbx_planetary_store --quiet`
   - `git diff --check rust/crates/arbx_planetary_store/src/lib.rs rust/crates/arbx_cli/src/main.rs`
+
+## 2026-04-03 19:57 CDT
+
+- Extended the planetary backbone again on `main`:
+  - `arbx_planetary_store`
+    - added slippy-tile geographic coverage lookup
+    - added tile-to-local subset and chunk-summary conversion for the canonical store
+    - the store now supports rectangular bbox, local point, geo point, and geographic tile selection against the same canonical scene data
+  - `arbx_cli`
+    - `planetary-store find-scenes` now supports `--tile Z,X,Y`
+    - added `planetary-store tile-scenes --tile Z,X,Y`
+    - `planetary-store subset-summary`, `emit-manifest-subset`, and `emit-runtime-lua` now support tile-based selection
+- Verification:
+  - `cargo test -p arbx_planetary_store -p arbx_cli planetary_store --quiet`
+  - `cargo test -p arbx_planetary_store --quiet`
+  - `git diff --check rust/crates/arbx_planetary_store/src/lib.rs rust/crates/arbx_cli/src/main.rs`
