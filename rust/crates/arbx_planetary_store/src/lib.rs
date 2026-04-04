@@ -236,14 +236,23 @@ fn summarize_delivery_chunks(chunks: &[PlanetaryChunkSummary]) -> (usize, usize,
 fn delivery_plan_from_window(
     selection_mode: &str,
     window: &PlanetaryDeliveryWindow,
+    include_geo_focus: bool,
 ) -> PlanetaryDeliveryPlan {
     PlanetaryDeliveryPlan {
         scene_id: window.scene.scene_id.clone(),
         world_name: window.scene.world_name.clone(),
         manifest_store_path: window.scene.manifest_store_path.clone(),
         selection_mode: selection_mode.to_string(),
-        focus_lat: Some(window.focus_lat),
-        focus_lon: Some(window.focus_lon),
+        focus_lat: if include_geo_focus {
+            Some(window.focus_lat)
+        } else {
+            None
+        },
+        focus_lon: if include_geo_focus {
+            Some(window.focus_lon)
+        } else {
+            None
+        },
         focus_x: Some(window.focus_x),
         focus_z: Some(window.focus_z),
         radius_studs: Some(window.radius_studs),
@@ -1466,7 +1475,7 @@ pub fn build_delivery_plan_around_geo_point(
         max_streaming_cost,
         max_estimated_memory_cost,
     )?
-    .map(|window| delivery_plan_from_window("geo-point", &window)))
+    .map(|window| delivery_plan_from_window("geo-point", &window, true)))
 }
 
 pub fn build_delivery_window_around_point(
@@ -1537,7 +1546,7 @@ pub fn build_delivery_plan_around_point(
         max_streaming_cost,
         max_estimated_memory_cost,
     )?
-    .map(|window| delivery_plan_from_window("local-point", &window)))
+    .map(|window| delivery_plan_from_window("local-point", &window, false)))
 }
 
 pub fn build_delivery_window_for_scene_bbox(
@@ -1615,7 +1624,7 @@ pub fn build_delivery_plan_for_scene_bbox(
         max_streaming_cost,
         max_estimated_memory_cost,
     )?
-    .map(|window| delivery_plan_from_window("scene-bbox", &window)))
+    .map(|window| delivery_plan_from_window("scene-bbox", &window, false)))
 }
 
 pub fn build_delivery_window_for_tile(
@@ -1693,7 +1702,7 @@ pub fn build_delivery_plan_for_tile(
         max_streaming_cost,
         max_estimated_memory_cost,
     )?
-    .map(|window| delivery_plan_from_window("tile", &window)))
+    .map(|window| delivery_plan_from_window("tile", &window, true)))
 }
 
 pub fn read_scene_chunk_summary_around_geo_point(
@@ -1998,6 +2007,88 @@ pub fn read_scene_manifest_subset_by_chunk_ids(
         }
     }
     Ok(arbx_roblox_export::StoredManifestSubset { meta, chunks })
+}
+
+pub fn read_scene_chunk_summary_by_chunk_ids(
+    path: &Path,
+    scene_id: &str,
+    chunk_ids: &[String],
+) -> PlanetaryStoreResult<Vec<PlanetaryChunkSummary>> {
+    let connection = open_store(path)?;
+    let mut statement = connection.prepare(
+        "
+        SELECT
+            chunk_id,
+            origin_x,
+            origin_z,
+            feature_count,
+            streaming_cost,
+            estimated_memory_cost,
+            partition_version,
+            has_terrain,
+            road_count,
+            rail_count,
+            building_count,
+            water_count,
+            prop_count,
+            landuse_count,
+            barrier_count
+        FROM chunks
+        WHERE scene_id = ?1 AND chunk_id = ?2
+        ",
+    )?;
+    let mut chunks = Vec::new();
+    for chunk_id in chunk_ids {
+        let row = statement
+            .query_row(params![scene_id, chunk_id], |row| {
+                Ok(PlanetaryChunkSummary {
+                    chunk_id: row.get(0)?,
+                    origin_x: row.get(1)?,
+                    origin_z: row.get(2)?,
+                    feature_count: row.get::<_, i64>(3)? as usize,
+                    streaming_cost: row.get(4)?,
+                    estimated_memory_cost: row.get(5)?,
+                    partition_version: row.get(6)?,
+                    has_terrain: row.get::<_, i64>(7)? != 0,
+                    road_count: row.get::<_, i64>(8)? as usize,
+                    rail_count: row.get::<_, i64>(9)? as usize,
+                    building_count: row.get::<_, i64>(10)? as usize,
+                    water_count: row.get::<_, i64>(11)? as usize,
+                    prop_count: row.get::<_, i64>(12)? as usize,
+                    landuse_count: row.get::<_, i64>(13)? as usize,
+                    barrier_count: row.get::<_, i64>(14)? as usize,
+                    center_distance_sq: None,
+                })
+            })
+            .optional()?;
+        if let Some(chunk) = row {
+            chunks.push(chunk);
+        }
+    }
+    Ok(chunks)
+}
+
+pub fn build_delivery_window_from_plan(
+    path: &Path,
+    plan: &PlanetaryDeliveryPlan,
+) -> PlanetaryStoreResult<Option<PlanetaryDeliveryWindow>> {
+    let Some(scene) = read_scene_catalog_entry(path, &plan.scene_id)? else {
+        return Ok(None);
+    };
+    let chunks = read_scene_chunk_summary_by_chunk_ids(path, &plan.scene_id, &plan.chunk_ids)?;
+    Ok(Some(PlanetaryDeliveryWindow {
+        scene,
+        focus_lat: plan.focus_lat.unwrap_or(0.0),
+        focus_lon: plan.focus_lon.unwrap_or(0.0),
+        focus_x: plan.focus_x.unwrap_or(0.0),
+        focus_z: plan.focus_z.unwrap_or(0.0),
+        radius_studs: plan.radius_studs.unwrap_or(0.0),
+        chunk_count: plan.chunk_count,
+        total_feature_count: plan.total_feature_count,
+        total_streaming_cost: plan.total_streaming_cost,
+        total_estimated_memory_cost: plan.total_estimated_memory_cost,
+        chunks,
+    }))
 }
 
 pub fn read_scene_chunk_summary_subset(

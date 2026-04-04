@@ -18,12 +18,13 @@ use arbx_planetary_store::{
     build_delivery_plan_around_point, build_delivery_plan_for_scene_bbox,
     build_delivery_plan_for_tile, build_delivery_window_around_geo_point,
     build_delivery_window_around_point, build_delivery_window_for_scene_bbox,
-    build_delivery_window_for_tile, find_best_scene_covering_geo_point,
-    find_best_scene_covering_tile, find_scenes_covering_geo_point, find_scenes_covering_tile,
-    find_scenes_intersecting_geo_bbox, ingest_manifest_json, ingest_manifest_sqlite,
-    init_planetary_store, list_scenes, read_chunks_by_ids, read_scene_catalog_entry,
-    read_scene_chunk_subset, read_scene_chunk_summary_around_geo_point,
-    read_scene_chunk_summary_around_point, read_scene_chunk_summary_for_tile,
+    build_delivery_window_for_tile, build_delivery_window_from_plan,
+    find_best_scene_covering_geo_point, find_best_scene_covering_tile,
+    find_scenes_covering_geo_point, find_scenes_covering_tile, find_scenes_intersecting_geo_bbox,
+    ingest_manifest_json, ingest_manifest_sqlite, init_planetary_store, list_scenes,
+    read_chunks_by_ids, read_scene_catalog_entry, read_scene_chunk_subset,
+    read_scene_chunk_summary_around_geo_point, read_scene_chunk_summary_around_point,
+    read_scene_chunk_summary_by_chunk_ids, read_scene_chunk_summary_for_tile,
     read_scene_chunk_summary_subset, read_scene_manifest_subset_around_geo_point,
     read_scene_manifest_subset_by_chunk_ids, summarize_planetary_store,
 };
@@ -2238,6 +2239,7 @@ fn cmd_planetary_store(args: &[String]) -> Result<(), String> {
         "subset-summary" => {
             let mut store_path: Option<PathBuf> = None;
             let mut scene_id: Option<String> = None;
+            let mut plan_path: Option<PathBuf> = None;
             let mut bbox_studs: Option<(f64, f64, f64, f64)> = None;
             let mut around_studs: Option<(f64, f64)> = None;
             let mut point: Option<(f64, f64)> = None;
@@ -2259,6 +2261,11 @@ fn cmd_planetary_store(args: &[String]) -> Result<(), String> {
                     "--scene" => {
                         let value = args.get(i + 1).ok_or("--scene requires a scene id")?;
                         scene_id = Some(value.clone());
+                        i += 2;
+                    }
+                    "--plan" => {
+                        let value = args.get(i + 1).ok_or("--plan requires a path")?;
+                        plan_path = Some(PathBuf::from(value));
                         i += 2;
                     }
                     "--bbox-studs" => {
@@ -2387,6 +2394,21 @@ fn cmd_planetary_store(args: &[String]) -> Result<(), String> {
             }
             let store_path =
                 store_path.ok_or("planetary-store subset-summary requires --store PATH")?;
+            if let Some(plan_path) = plan_path {
+                let plan = read_delivery_plan(&plan_path)?;
+                let subset = read_scene_chunk_summary_by_chunk_ids(
+                    &store_path,
+                    &plan.scene_id,
+                    &plan.chunk_ids,
+                )
+                .map_err(|err| format!("planetary-store subset-summary plan failed: {err}"))?;
+                println!(
+                    "{}",
+                    serde_json::to_string_pretty(&subset)
+                        .map_err(|err| format!("subset-summary json failed: {err}"))?
+                );
+                return Ok(());
+            }
             let scene_id = if bbox_studs.is_some() || around_studs.is_some() {
                 scene_id.ok_or(
                     "planetary-store subset-summary requires --scene ID when using --bbox-studs or --around-studs",
@@ -3386,6 +3408,7 @@ fn cmd_planetary_store(args: &[String]) -> Result<(), String> {
         }
         "delivery-window" => {
             let mut store_path: Option<PathBuf> = None;
+            let mut plan_path: Option<PathBuf> = None;
             let mut scene_id: Option<String> = None;
             let mut bbox_studs: Option<(f64, f64, f64, f64)> = None;
             let mut around_studs: Option<(f64, f64)> = None;
@@ -3408,6 +3431,11 @@ fn cmd_planetary_store(args: &[String]) -> Result<(), String> {
                     "--scene" => {
                         let value = args.get(i + 1).ok_or("--scene requires a scene id")?;
                         scene_id = Some(value.clone());
+                        i += 2;
+                    }
+                    "--plan" => {
+                        let value = args.get(i + 1).ok_or("--plan requires a path")?;
+                        plan_path = Some(PathBuf::from(value));
                         i += 2;
                     }
                     "--bbox-studs" => {
@@ -3536,7 +3564,10 @@ fn cmd_planetary_store(args: &[String]) -> Result<(), String> {
             }
             let store_path =
                 store_path.ok_or("planetary-store delivery-window requires --store PATH")?;
-            let window = if let Some((min_x, min_z, max_x, max_z)) = bbox_studs {
+            let window = if let Some(plan_path) = plan_path {
+                let plan = read_delivery_plan(&plan_path)?;
+                build_delivery_window_from_plan(&store_path, &plan)
+            } else if let Some((min_x, min_z, max_x, max_z)) = bbox_studs {
                 let scene_id = scene_id.ok_or(
                     "planetary-store delivery-window requires --scene ID when using --bbox-studs",
                 )?;
@@ -5052,6 +5083,50 @@ mod tests {
     }
 
     #[test]
+    fn planetary_store_subset_summary_plan_works() {
+        let tempdir = tempfile::tempdir().unwrap();
+        let store_path = tempdir.path().join("planetary.sqlite");
+        let manifest_path = tempdir.path().join("sample.sqlite");
+        let plan_path = tempdir.path().join("delivery-plan.json");
+        let manifest = build_sample_multi_chunk(3, 1);
+        let center = manifest.meta.bbox.center();
+        write_manifest_sqlite(&manifest, &manifest_path).unwrap();
+
+        cmd_planetary_store(&[
+            "ingest-manifest".to_string(),
+            "--store".to_string(),
+            store_path.display().to_string(),
+            "--manifest-sqlite".to_string(),
+            manifest_path.display().to_string(),
+            "--scene".to_string(),
+            "austin".to_string(),
+        ])
+        .unwrap();
+
+        cmd_planetary_store(&[
+            "delivery-plan".to_string(),
+            "--store".to_string(),
+            store_path.display().to_string(),
+            "--point".to_string(),
+            format!("{},{}", center.lat, center.lon),
+            "--radius-studs".to_string(),
+            "300".to_string(),
+            "--out".to_string(),
+            plan_path.display().to_string(),
+        ])
+        .unwrap();
+
+        cmd_planetary_store(&[
+            "subset-summary".to_string(),
+            "--store".to_string(),
+            store_path.display().to_string(),
+            "--plan".to_string(),
+            plan_path.display().to_string(),
+        ])
+        .unwrap();
+    }
+
+    #[test]
     fn planetary_store_find_scenes_works() {
         let tempdir = tempfile::tempdir().unwrap();
         let store_path = tempdir.path().join("planetary.sqlite");
@@ -5876,6 +5951,50 @@ mod tests {
             "200,0,500,200".to_string(),
             "--limit".to_string(),
             "2".to_string(),
+        ])
+        .unwrap();
+    }
+
+    #[test]
+    fn planetary_store_delivery_window_plan_works() {
+        let tempdir = tempfile::tempdir().unwrap();
+        let store_path = tempdir.path().join("planetary.sqlite");
+        let manifest_path = tempdir.path().join("sample.sqlite");
+        let plan_path = tempdir.path().join("delivery-plan.json");
+        let manifest = build_sample_multi_chunk(3, 1);
+        let center = manifest.meta.bbox.center();
+        write_manifest_sqlite(&manifest, &manifest_path).unwrap();
+
+        cmd_planetary_store(&[
+            "ingest-manifest".to_string(),
+            "--store".to_string(),
+            store_path.display().to_string(),
+            "--manifest-sqlite".to_string(),
+            manifest_path.display().to_string(),
+            "--scene".to_string(),
+            "austin".to_string(),
+        ])
+        .unwrap();
+
+        cmd_planetary_store(&[
+            "delivery-plan".to_string(),
+            "--store".to_string(),
+            store_path.display().to_string(),
+            "--point".to_string(),
+            format!("{},{}", center.lat, center.lon),
+            "--radius-studs".to_string(),
+            "300".to_string(),
+            "--out".to_string(),
+            plan_path.display().to_string(),
+        ])
+        .unwrap();
+
+        cmd_planetary_store(&[
+            "delivery-window".to_string(),
+            "--store".to_string(),
+            store_path.display().to_string(),
+            "--plan".to_string(),
+            plan_path.display().to_string(),
         ])
         .unwrap();
     }
