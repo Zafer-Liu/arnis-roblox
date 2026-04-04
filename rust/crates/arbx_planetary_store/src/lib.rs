@@ -817,6 +817,69 @@ pub fn read_scene_chunk_summary_subset(
     Ok(chunks)
 }
 
+pub fn read_chunks_by_ids(
+    path: &Path,
+    scene_id: &str,
+    chunk_ids: &[String],
+) -> PlanetaryStoreResult<PlanetarySceneSubset> {
+    let connection = open_store(path)?;
+    let (world_name, chunk_size_studs) = connection
+        .query_row(
+            "SELECT world_name, chunk_size_studs FROM scenes WHERE scene_id = ?1",
+            params![scene_id],
+            |row| Ok((row.get::<_, String>(0)?, row.get::<_, i32>(1)?)),
+        )
+        .optional()?
+        .ok_or_else(|| format!("scene {} is not present in planetary store", scene_id))?;
+
+    let mut chunks = Vec::new();
+    let mut statement = connection.prepare(
+        "
+        SELECT
+            chunk_id,
+            origin_x,
+            origin_y,
+            origin_z,
+            feature_count,
+            streaming_cost,
+            estimated_memory_cost,
+            partition_version,
+            subplans_json,
+            chunk_json
+        FROM chunks
+        WHERE scene_id = ?1 AND chunk_id = ?2
+        ",
+    )?;
+
+    for chunk_id in chunk_ids {
+        let row = statement
+            .query_row(params![scene_id, chunk_id], |row| {
+                Ok(StoredChunkRecord {
+                    chunk_id: row.get(0)?,
+                    origin_studs: arbx_geo::Vec3::new(row.get(1)?, row.get(2)?, row.get(3)?),
+                    feature_count: row.get::<_, i64>(4)? as usize,
+                    streaming_cost: row.get(5)?,
+                    estimated_memory_cost: row.get(6)?,
+                    partition_version: row.get(7)?,
+                    subplans_json: row.get(8)?,
+                    chunk_json: row.get(9)?,
+                })
+            })
+            .optional()?;
+
+        if let Some(chunk) = row {
+            chunks.push(chunk);
+        }
+    }
+
+    Ok(PlanetarySceneSubset {
+        scene_id: scene_id.to_string(),
+        world_name,
+        chunk_size_studs,
+        chunks,
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -997,5 +1060,25 @@ mod tests {
         let summary = ingest_manifest_json(&store_path, &manifest_path, Some("json_scene")).unwrap();
         assert_eq!(summary.scene_id, "json_scene");
         assert_eq!(summary.chunk_count, 2);
+    }
+
+    #[test]
+    fn planetary_store_reads_chunks_by_id() {
+        let dir = tempdir().unwrap();
+        let manifest_path = dir.path().join("sample.sqlite");
+        let store_path = dir.path().join("planetary.sqlite");
+
+        let manifest = build_sample_multi_chunk(3, 1);
+        write_manifest_sqlite(&manifest, &manifest_path).unwrap();
+        ingest_manifest_sqlite(&store_path, &manifest_path, Some("sample_austin")).unwrap();
+
+        let subset = read_chunks_by_ids(
+            &store_path,
+            "sample_austin",
+            &["0_0".to_string(), "2_0".to_string(), "missing".to_string()],
+        )
+        .unwrap();
+        let ids: Vec<&str> = subset.chunks.iter().map(|chunk| chunk.chunk_id.as_str()).collect();
+        assert_eq!(ids, vec!["0_0", "2_0"]);
     }
 }

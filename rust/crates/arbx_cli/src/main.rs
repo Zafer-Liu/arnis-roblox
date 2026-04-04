@@ -13,9 +13,10 @@ use arbx_pipeline::{
     NormalizeStage, PipelineContext, SourceTruthPack, TriangulateStage, ValidateStage,
 };
 use arbx_planetary_store::{
-    find_scenes_covering_geo_point, find_scenes_intersecting_geo_bbox, ingest_manifest_json, ingest_manifest_sqlite,
-    init_planetary_store, list_scenes, read_scene_catalog_entry, read_scene_chunk_subset,
-    read_scene_chunk_summary_subset, summarize_planetary_store,
+    find_scenes_covering_geo_point, find_scenes_intersecting_geo_bbox, ingest_manifest_json,
+    ingest_manifest_sqlite, init_planetary_store, list_scenes, read_chunks_by_ids,
+    read_scene_catalog_entry, read_scene_chunk_subset, read_scene_chunk_summary_subset,
+    summarize_planetary_store,
 };
 use arbx_roblox_export::{
     build_sample_multi_chunk, export_to_chunks, read_manifest_sqlite_all, write_manifest_sqlite,
@@ -1848,7 +1849,7 @@ fn cmd_emit_runtime_lua(args: &[String]) -> Result<(), String> {
 fn cmd_planetary_store(args: &[String]) -> Result<(), String> {
     let Some(subcommand) = args.first().map(String::as_str) else {
         return Err(
-            "planetary-store requires a subcommand: init | ingest-manifest | ingest-json | summary | list-scenes | scene | subset | subset-summary | find-scenes".to_string(),
+            "planetary-store requires a subcommand: init | ingest-manifest | ingest-json | summary | list-scenes | scene | subset | subset-summary | fetch-chunks | find-scenes".to_string(),
         );
     };
 
@@ -2184,6 +2185,57 @@ fn cmd_planetary_store(args: &[String]) -> Result<(), String> {
                 "{}",
                 serde_json::to_string_pretty(&subset)
                     .map_err(|err| format!("subset-summary json failed: {err}"))?
+            );
+            Ok(())
+        }
+        "fetch-chunks" => {
+            let mut store_path: Option<PathBuf> = None;
+            let mut scene_id: Option<String> = None;
+            let mut chunk_ids: Option<Vec<String>> = None;
+            let mut i = 1;
+            while i < args.len() {
+                match args[i].as_str() {
+                    "--store" => {
+                        let value = args.get(i + 1).ok_or("--store requires a path")?;
+                        store_path = Some(PathBuf::from(value));
+                        i += 2;
+                    }
+                    "--scene" => {
+                        let value = args.get(i + 1).ok_or("--scene requires a scene id")?;
+                        scene_id = Some(value.clone());
+                        i += 2;
+                    }
+                    "--chunk-ids" => {
+                        let value = args
+                            .get(i + 1)
+                            .ok_or("--chunk-ids requires a comma-separated list")?;
+                        chunk_ids = Some(
+                            value
+                                .split(',')
+                                .map(str::trim)
+                                .filter(|value| !value.is_empty())
+                                .map(ToString::to_string)
+                                .collect(),
+                        );
+                        i += 2;
+                    }
+                    other => {
+                        return Err(format!(
+                            "unknown argument to planetary-store fetch-chunks: {other}"
+                        ))
+                    }
+                }
+            }
+            let store_path = store_path.ok_or("planetary-store fetch-chunks requires --store PATH")?;
+            let scene_id = scene_id.ok_or("planetary-store fetch-chunks requires --scene ID")?;
+            let chunk_ids =
+                chunk_ids.ok_or("planetary-store fetch-chunks requires --chunk-ids ID1,ID2,...")?;
+            let subset = read_chunks_by_ids(&store_path, &scene_id, &chunk_ids)
+                .map_err(|err| format!("planetary-store fetch-chunks failed: {err}"))?;
+            println!(
+                "{}",
+                serde_json::to_string_pretty(&subset)
+                    .map_err(|err| format!("fetch-chunks json failed: {err}"))?
             );
             Ok(())
         }
@@ -3321,6 +3373,37 @@ mod tests {
             manifest_path.display().to_string(),
             "--scene".to_string(),
             "json_scene".to_string(),
+        ])
+        .unwrap();
+    }
+
+    #[test]
+    fn planetary_store_fetch_chunks_works() {
+        let tempdir = tempfile::tempdir().unwrap();
+        let store_path = tempdir.path().join("planetary.sqlite");
+        let manifest_path = tempdir.path().join("sample.sqlite");
+        let manifest = build_sample_multi_chunk(3, 1);
+        write_manifest_sqlite(&manifest, &manifest_path).unwrap();
+
+        cmd_planetary_store(&[
+            "ingest-manifest".to_string(),
+            "--store".to_string(),
+            store_path.display().to_string(),
+            "--manifest-sqlite".to_string(),
+            manifest_path.display().to_string(),
+            "--scene".to_string(),
+            "austin".to_string(),
+        ])
+        .unwrap();
+
+        cmd_planetary_store(&[
+            "fetch-chunks".to_string(),
+            "--store".to_string(),
+            store_path.display().to_string(),
+            "--scene".to_string(),
+            "austin".to_string(),
+            "--chunk-ids".to_string(),
+            "0_0,2_0".to_string(),
         ])
         .unwrap();
     }
