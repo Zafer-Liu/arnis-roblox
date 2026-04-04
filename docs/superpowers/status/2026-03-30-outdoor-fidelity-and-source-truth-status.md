@@ -3008,6 +3008,18 @@ The compact historical archive index is:
   - `python3 -m unittest scripts.tests.test_austin_runtime_contract -v`
   - `git diff --check`
 
+## 2026-04-04 09:59 CDT
+
+- Extended the runtime-facing planetary lane again on `main`:
+  - `RunAustin`
+    - runtime results now carry resolved manifest source metadata back out of the import path
+    - runtime perf attributes now publish both source kind and resolved source name for canonical-manifest versus route-catalog runs
+  - `BootstrapAustin`
+    - bootstrap now logs the resolved source kind and name before the world goes live, so route-driven boots are externally visible in logs without deeper debugging
+- Verification:
+  - `python3 -m unittest scripts.tests.test_austin_runtime_contract -v`
+  - `git diff --check`
+
 ## 2026-04-04 09:37 CDT
 
 - Extended the runtime consumption path on `main`:

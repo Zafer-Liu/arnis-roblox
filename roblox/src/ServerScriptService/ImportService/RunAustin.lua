@@ -162,6 +162,7 @@ function RunAustin.run(options)
 
     local manifestSource = manifestOrErr
     setPerfAttribute("ManifestName", resolvedManifestName or RunAustin.getManifestName())
+    setPerfAttribute("ManifestSourceName", resolvedManifestName or RunAustin.getManifestName())
     print(("[RunAustin] Manifest source loaded from %s"):format(resolvedManifestName or RunAustin.getManifestName()))
     print("[RunAustin] Manifest source loaded")
     reportPhase(options, "importing_startup")
@@ -242,6 +243,8 @@ function RunAustin.run(options)
     return {
         manifest = initialManifest,
         manifestSource = manifestSource,
+        resolvedManifestName = resolvedManifestName,
+        manifestSourceKind = Workspace:GetAttribute("VertigoAustinManifestSourceKind"),
         stats = stats,
         phaseSummary = phaseSummary,
         focusPoint = loadCenter,

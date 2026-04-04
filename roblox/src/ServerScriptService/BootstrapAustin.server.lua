@@ -298,6 +298,12 @@ local manifestSource = result.manifestSource or manifest
 local worldRoot = Workspace:FindFirstChild("GeneratedWorld_Austin")
 setBootstrapState("world_ready")
 
+print(
+    ("[BootstrapAustin] Manifest source kind=%s name=%s"):format(
+        result.manifestSourceKind or "canonical_manifest",
+        result.resolvedManifestName or RunAustin.getManifestName()
+    )
+)
 print("[BootstrapAustin] Done.")
 
 local anchor = AustinSpawn.resolveRuntimeAnchor(manifestSource, RunAustin.LOAD_RADIUS, result.focusPoint)
