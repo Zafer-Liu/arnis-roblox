@@ -2581,3 +2581,18 @@ The compact historical archive index is:
   - `cargo test -p arbx_planetary_store planetary_store_ -- --nocapture`
   - `cargo test -p arbx_cli planetary_store_ -- --nocapture`
   - `git diff --check`
+
+## 2026-04-03 21:40 CDT
+
+- Extended the planetary backbone again on `main`:
+  - `arbx_planetary_store`
+    - added `PlanetaryDeliveryPlan`, a reusable orchestration artifact carrying scene choice, selection mode, chunk ids, and aggregate cost totals
+    - added plan builders for geo-point, local-point, scene-bbox, and tile selection
+  - `arbx_cli`
+    - added `planetary-store delivery-plan` with the same selector surface as `delivery-window` plus optional `--out`
+    - `fetch-chunks`, `emit-manifest-subset`, and `emit-runtime-lua` now accept `--plan PATH` to consume a previously saved delivery plan directly
+- Verification:
+  - `cargo fmt --all`
+  - `cargo test -p arbx_planetary_store planetary_store_ -- --nocapture`
+  - `cargo test -p arbx_cli planetary_store_ -- --nocapture`
+  - `git diff --check`

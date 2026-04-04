@@ -6,7 +6,7 @@ use arbx_geo::{LatLon, Mercator};
 use arbx_pipeline::SourceTruthPackSummary;
 use arbx_roblox_export::{stream_manifest_sqlite_all, StoredChunkRecord, StoredManifestMeta};
 use rusqlite::{params, Connection, OptionalExtension};
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
 pub type PlanetaryStoreResult<T> = Result<T, Box<dyn std::error::Error + Send + Sync>>;
@@ -84,6 +84,24 @@ pub struct PlanetaryDeliveryWindow {
     pub total_streaming_cost: f64,
     pub total_estimated_memory_cost: f64,
     pub chunks: Vec<PlanetaryChunkSummary>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct PlanetaryDeliveryPlan {
+    pub scene_id: String,
+    pub world_name: String,
+    pub manifest_store_path: String,
+    pub selection_mode: String,
+    pub focus_lat: Option<f64>,
+    pub focus_lon: Option<f64>,
+    pub focus_x: Option<f64>,
+    pub focus_z: Option<f64>,
+    pub radius_studs: Option<f64>,
+    pub chunk_count: usize,
+    pub total_feature_count: usize,
+    pub total_streaming_cost: f64,
+    pub total_estimated_memory_cost: f64,
+    pub chunk_ids: Vec<String>,
 }
 
 #[derive(Debug, Clone)]
@@ -213,6 +231,32 @@ fn summarize_delivery_chunks(chunks: &[PlanetaryChunkSummary]) -> (usize, usize,
         total_streaming_cost,
         total_estimated_memory_cost,
     )
+}
+
+fn delivery_plan_from_window(
+    selection_mode: &str,
+    window: &PlanetaryDeliveryWindow,
+) -> PlanetaryDeliveryPlan {
+    PlanetaryDeliveryPlan {
+        scene_id: window.scene.scene_id.clone(),
+        world_name: window.scene.world_name.clone(),
+        manifest_store_path: window.scene.manifest_store_path.clone(),
+        selection_mode: selection_mode.to_string(),
+        focus_lat: Some(window.focus_lat),
+        focus_lon: Some(window.focus_lon),
+        focus_x: Some(window.focus_x),
+        focus_z: Some(window.focus_z),
+        radius_studs: Some(window.radius_studs),
+        chunk_count: window.chunk_count,
+        total_feature_count: window.total_feature_count,
+        total_streaming_cost: window.total_streaming_cost,
+        total_estimated_memory_cost: window.total_estimated_memory_cost,
+        chunk_ids: window
+            .chunks
+            .iter()
+            .map(|chunk| chunk.chunk_id.clone())
+            .collect(),
+    }
 }
 
 fn apply_chunk_summary_constraints(
@@ -1400,6 +1444,31 @@ pub fn build_delivery_window_around_geo_point(
     }))
 }
 
+pub fn build_delivery_plan_around_geo_point(
+    path: &Path,
+    lat: f64,
+    lon: f64,
+    radius_studs: f64,
+    limit: Option<usize>,
+    require_buildings: bool,
+    require_terrain: bool,
+    max_streaming_cost: Option<f64>,
+    max_estimated_memory_cost: Option<f64>,
+) -> PlanetaryStoreResult<Option<PlanetaryDeliveryPlan>> {
+    Ok(build_delivery_window_around_geo_point(
+        path,
+        lat,
+        lon,
+        radius_studs,
+        limit,
+        require_buildings,
+        require_terrain,
+        max_streaming_cost,
+        max_estimated_memory_cost,
+    )?
+    .map(|window| delivery_plan_from_window("geo-point", &window)))
+}
+
 pub fn build_delivery_window_around_point(
     path: &Path,
     scene_id: &str,
@@ -1442,6 +1511,33 @@ pub fn build_delivery_window_around_point(
         total_estimated_memory_cost,
         chunks,
     }))
+}
+
+pub fn build_delivery_plan_around_point(
+    path: &Path,
+    scene_id: &str,
+    focus_x: f64,
+    focus_z: f64,
+    radius_studs: f64,
+    limit: Option<usize>,
+    require_buildings: bool,
+    require_terrain: bool,
+    max_streaming_cost: Option<f64>,
+    max_estimated_memory_cost: Option<f64>,
+) -> PlanetaryStoreResult<Option<PlanetaryDeliveryPlan>> {
+    Ok(build_delivery_window_around_point(
+        path,
+        scene_id,
+        focus_x,
+        focus_z,
+        radius_studs,
+        limit,
+        require_buildings,
+        require_terrain,
+        max_streaming_cost,
+        max_estimated_memory_cost,
+    )?
+    .map(|window| delivery_plan_from_window("local-point", &window)))
 }
 
 pub fn build_delivery_window_for_scene_bbox(
@@ -1491,6 +1587,35 @@ pub fn build_delivery_window_for_scene_bbox(
         total_estimated_memory_cost,
         chunks,
     }))
+}
+
+pub fn build_delivery_plan_for_scene_bbox(
+    path: &Path,
+    scene_id: &str,
+    min_x: f64,
+    min_z: f64,
+    max_x: f64,
+    max_z: f64,
+    limit: Option<usize>,
+    require_buildings: bool,
+    require_terrain: bool,
+    max_streaming_cost: Option<f64>,
+    max_estimated_memory_cost: Option<f64>,
+) -> PlanetaryStoreResult<Option<PlanetaryDeliveryPlan>> {
+    Ok(build_delivery_window_for_scene_bbox(
+        path,
+        scene_id,
+        min_x,
+        min_z,
+        max_x,
+        max_z,
+        limit,
+        require_buildings,
+        require_terrain,
+        max_streaming_cost,
+        max_estimated_memory_cost,
+    )?
+    .map(|window| delivery_plan_from_window("scene-bbox", &window)))
 }
 
 pub fn build_delivery_window_for_tile(
@@ -1544,6 +1669,31 @@ pub fn build_delivery_window_for_tile(
         total_estimated_memory_cost,
         chunks,
     }))
+}
+
+pub fn build_delivery_plan_for_tile(
+    path: &Path,
+    zoom: u8,
+    x: u32,
+    y: u32,
+    limit: Option<usize>,
+    require_buildings: bool,
+    require_terrain: bool,
+    max_streaming_cost: Option<f64>,
+    max_estimated_memory_cost: Option<f64>,
+) -> PlanetaryStoreResult<Option<PlanetaryDeliveryPlan>> {
+    Ok(build_delivery_window_for_tile(
+        path,
+        zoom,
+        x,
+        y,
+        limit,
+        require_buildings,
+        require_terrain,
+        max_streaming_cost,
+        max_estimated_memory_cost,
+    )?
+    .map(|window| delivery_plan_from_window("tile", &window)))
 }
 
 pub fn read_scene_chunk_summary_around_geo_point(
@@ -2670,6 +2820,42 @@ mod tests {
         assert_eq!(window.chunk_count, window.chunks.len());
         assert!(window.total_feature_count >= window.chunks[0].feature_count);
         assert!(window.total_streaming_cost >= window.chunks[0].streaming_cost);
+    }
+
+    #[test]
+    fn planetary_store_builds_delivery_plan_for_tile() {
+        let dir = tempdir().unwrap();
+        let manifest_path = dir.path().join("sample.sqlite");
+        let store_path = dir.path().join("planetary.sqlite");
+
+        let manifest = build_sample_multi_chunk(3, 1);
+        let center = manifest.meta.bbox.center();
+        write_manifest_sqlite(&manifest, &manifest_path).unwrap();
+        ingest_manifest_sqlite(&store_path, &manifest_path, Some("sample_austin")).unwrap();
+
+        let zoom = 10u8;
+        let x = (((center.lon + 180.0) / 360.0) * 2f64.powi(zoom as i32)).floor() as u32;
+        let lat_rad = center.lat.to_radians();
+        let y = ((1.0 - ((lat_rad.tan() + 1.0 / lat_rad.cos()).ln() / std::f64::consts::PI)) / 2.0
+            * 2f64.powi(zoom as i32))
+        .floor() as u32;
+
+        let plan = build_delivery_plan_for_tile(
+            &store_path,
+            zoom,
+            x,
+            y,
+            Some(2),
+            false,
+            false,
+            None,
+            None,
+        )
+        .unwrap()
+        .unwrap();
+        assert_eq!(plan.scene_id, "sample_austin");
+        assert_eq!(plan.selection_mode, "tile");
+        assert_eq!(plan.chunk_count, plan.chunk_ids.len());
     }
 
     #[test]

@@ -14,7 +14,9 @@ use arbx_pipeline::{
     ValidateStage,
 };
 use arbx_planetary_store::{
-    attach_truth_pack_summary, build_delivery_window_around_geo_point,
+    attach_truth_pack_summary, build_delivery_plan_around_geo_point,
+    build_delivery_plan_around_point, build_delivery_plan_for_scene_bbox,
+    build_delivery_plan_for_tile, build_delivery_window_around_geo_point,
     build_delivery_window_around_point, build_delivery_window_for_scene_bbox,
     build_delivery_window_for_tile, find_best_scene_covering_geo_point,
     find_best_scene_covering_tile, find_scenes_covering_geo_point, find_scenes_covering_tile,
@@ -1893,10 +1895,27 @@ fn resolve_planetary_scene_for_selection(
     ))
 }
 
+fn read_delivery_plan(
+    plan_path: &Path,
+) -> Result<arbx_planetary_store::PlanetaryDeliveryPlan, String> {
+    let text = fs::read_to_string(plan_path).map_err(|err| {
+        format!(
+            "failed reading delivery plan {}: {err}",
+            plan_path.display()
+        )
+    })?;
+    serde_json::from_str(&text).map_err(|err| {
+        format!(
+            "failed parsing delivery plan {}: {err}",
+            plan_path.display()
+        )
+    })
+}
+
 fn cmd_planetary_store(args: &[String]) -> Result<(), String> {
     let Some(subcommand) = args.first().map(String::as_str) else {
         return Err(
-            "planetary-store requires a subcommand: init | ingest-manifest | ingest-json | attach-truth-pack-summary | summary | list-scenes | scene | subset | subset-summary | fetch-chunks | emit-manifest-subset | emit-runtime-lua | find-scenes | delivery-window | tile-scenes".to_string(),
+            "planetary-store requires a subcommand: init | ingest-manifest | ingest-json | attach-truth-pack-summary | summary | list-scenes | scene | subset | subset-summary | fetch-chunks | emit-manifest-subset | emit-runtime-lua | find-scenes | delivery-window | delivery-plan | tile-scenes".to_string(),
         );
     };
 
@@ -2463,6 +2482,7 @@ fn cmd_planetary_store(args: &[String]) -> Result<(), String> {
             let mut store_path: Option<PathBuf> = None;
             let mut scene_id: Option<String> = None;
             let mut chunk_ids: Option<Vec<String>> = None;
+            let mut plan_path: Option<PathBuf> = None;
             let mut i = 1;
             while i < args.len() {
                 match args[i].as_str() {
@@ -2490,6 +2510,11 @@ fn cmd_planetary_store(args: &[String]) -> Result<(), String> {
                         );
                         i += 2;
                     }
+                    "--plan" => {
+                        let value = args.get(i + 1).ok_or("--plan requires a path")?;
+                        plan_path = Some(PathBuf::from(value));
+                        i += 2;
+                    }
                     other => {
                         return Err(format!(
                             "unknown argument to planetary-store fetch-chunks: {other}"
@@ -2499,9 +2524,16 @@ fn cmd_planetary_store(args: &[String]) -> Result<(), String> {
             }
             let store_path =
                 store_path.ok_or("planetary-store fetch-chunks requires --store PATH")?;
-            let scene_id = scene_id.ok_or("planetary-store fetch-chunks requires --scene ID")?;
-            let chunk_ids =
-                chunk_ids.ok_or("planetary-store fetch-chunks requires --chunk-ids ID1,ID2,...")?;
+            let (scene_id, chunk_ids) = if let Some(plan_path) = plan_path {
+                let plan = read_delivery_plan(&plan_path)?;
+                (plan.scene_id, plan.chunk_ids)
+            } else {
+                (
+                    scene_id.ok_or("planetary-store fetch-chunks requires --scene ID")?,
+                    chunk_ids
+                        .ok_or("planetary-store fetch-chunks requires --chunk-ids ID1,ID2,...")?,
+                )
+            };
             let subset = read_chunks_by_ids(&store_path, &scene_id, &chunk_ids)
                 .map_err(|err| format!("planetary-store fetch-chunks failed: {err}"))?;
             println!(
@@ -2520,6 +2552,7 @@ fn cmd_planetary_store(args: &[String]) -> Result<(), String> {
             let mut tile: Option<(u8, u32, u32)> = None;
             let mut radius_studs: Option<f64> = None;
             let mut chunk_ids: Option<Vec<String>> = None;
+            let mut plan_path: Option<PathBuf> = None;
             let mut out_path: Option<PathBuf> = None;
             let mut limit: Option<usize> = None;
             let mut max_streaming_cost: Option<f64> = None;
@@ -2634,6 +2667,11 @@ fn cmd_planetary_store(args: &[String]) -> Result<(), String> {
                         );
                         i += 2;
                     }
+                    "--plan" => {
+                        let value = args.get(i + 1).ok_or("--plan requires a path")?;
+                        plan_path = Some(PathBuf::from(value));
+                        i += 2;
+                    }
                     "--out" => {
                         let value = args.get(i + 1).ok_or("--out requires a path")?;
                         out_path = Some(PathBuf::from(value));
@@ -2684,6 +2722,33 @@ fn cmd_planetary_store(args: &[String]) -> Result<(), String> {
             }
             let store_path =
                 store_path.ok_or("planetary-store emit-manifest-subset requires --store PATH")?;
+            if let Some(plan_path) = plan_path {
+                let plan = read_delivery_plan(&plan_path)?;
+                let subset = read_scene_manifest_subset_by_chunk_ids(
+                    &store_path,
+                    &plan.scene_id,
+                    &plan.chunk_ids,
+                )
+                .map_err(|err| {
+                    format!("planetary-store emit-manifest-subset plan failed: {err}")
+                })?;
+                let manifest = build_manifest_value_from_stored_subset(subset)?;
+                let manifest_json = serde_json::to_string_pretty(&manifest)
+                    .map_err(|err| format!("emit-manifest-subset json failed: {err}"))?;
+                if let Some(out_path) = out_path {
+                    if let Some(parent) = out_path.parent() {
+                        fs::create_dir_all(parent).map_err(|err| {
+                            format!("emit-manifest-subset create dir failed: {err}")
+                        })?;
+                    }
+                    fs::write(&out_path, format!("{manifest_json}\n"))
+                        .map_err(|err| format!("emit-manifest-subset write failed: {err}"))?;
+                    println!("Wrote manifest subset {}", out_path.display());
+                } else {
+                    println!("{manifest_json}");
+                }
+                return Ok(());
+            }
             let scene_id = resolve_planetary_scene_for_selection(
                 &store_path,
                 scene_id,
@@ -2813,6 +2878,7 @@ fn cmd_planetary_store(args: &[String]) -> Result<(), String> {
             let mut tile: Option<(u8, u32, u32)> = None;
             let mut radius_studs: Option<f64> = None;
             let mut chunk_ids: Option<Vec<String>> = None;
+            let mut plan_path: Option<PathBuf> = None;
             let mut output_dir: Option<PathBuf> = None;
             let mut index_name = "PlanetaryManifestIndex".to_string();
             let mut shard_folder = "PlanetaryManifestChunks".to_string();
@@ -2931,6 +2997,11 @@ fn cmd_planetary_store(args: &[String]) -> Result<(), String> {
                         );
                         i += 2;
                     }
+                    "--plan" => {
+                        let value = args.get(i + 1).ok_or("--plan requires a path")?;
+                        plan_path = Some(PathBuf::from(value));
+                        i += 2;
+                    }
                     "--output-dir" => {
                         let value = args.get(i + 1).ok_or("--output-dir requires a path")?;
                         output_dir = Some(PathBuf::from(value));
@@ -3012,6 +3083,35 @@ fn cmd_planetary_store(args: &[String]) -> Result<(), String> {
             }
             let store_path =
                 store_path.ok_or("planetary-store emit-runtime-lua requires --store PATH")?;
+            let output_dir =
+                output_dir.ok_or("planetary-store emit-runtime-lua requires --output-dir PATH")?;
+            if let Some(plan_path) = plan_path {
+                let plan = read_delivery_plan(&plan_path)?;
+                let subset = read_scene_manifest_subset_by_chunk_ids(
+                    &store_path,
+                    &plan.scene_id,
+                    &plan.chunk_ids,
+                )
+                .map_err(|err| format!("planetary-store emit-runtime-lua plan failed: {err}"))?;
+                let stats = write_runtime_lua_shards_from_stored_subset(
+                    &subset,
+                    &RuntimeLuaShardsOptions {
+                        output_dir,
+                        index_name,
+                        shard_folder,
+                        chunks_per_shard,
+                        max_bytes,
+                    },
+                )
+                .map_err(|err| format!("planetary-store emit-runtime-lua failed: {err}"))?;
+                println!("Wrote index module to {}", stats.index_path.display());
+                println!(
+                    "Wrote {} shard modules to {}",
+                    stats.shard_count,
+                    stats.shard_dir.display()
+                );
+                return Ok(());
+            }
             let scene_id = resolve_planetary_scene_for_selection(
                 &store_path,
                 scene_id,
@@ -3019,8 +3119,6 @@ fn cmd_planetary_store(args: &[String]) -> Result<(), String> {
                 tile,
                 "emit-runtime-lua",
             )?;
-            let output_dir =
-                output_dir.ok_or("planetary-store emit-runtime-lua requires --output-dir PATH")?;
             let subset = if let Some((min_x, min_z, max_x, max_z)) = bbox_studs {
                 let chunk_ids = read_scene_chunk_summary_subset(
                     &store_path,
@@ -3513,6 +3611,249 @@ fn cmd_planetary_store(args: &[String]) -> Result<(), String> {
                 serde_json::to_string_pretty(&window)
                     .map_err(|err| format!("delivery-window json failed: {err}"))?
             );
+            Ok(())
+        }
+        "delivery-plan" => {
+            let mut store_path: Option<PathBuf> = None;
+            let mut scene_id: Option<String> = None;
+            let mut bbox_studs: Option<(f64, f64, f64, f64)> = None;
+            let mut around_studs: Option<(f64, f64)> = None;
+            let mut point: Option<(f64, f64)> = None;
+            let mut tile: Option<(u8, u32, u32)> = None;
+            let mut radius_studs: Option<f64> = None;
+            let mut out_path: Option<PathBuf> = None;
+            let mut limit: Option<usize> = None;
+            let mut max_streaming_cost: Option<f64> = None;
+            let mut max_estimated_memory_cost: Option<f64> = None;
+            let mut require_buildings = false;
+            let mut require_terrain = false;
+            let mut i = 1;
+            while i < args.len() {
+                match args[i].as_str() {
+                    "--store" => {
+                        let value = args.get(i + 1).ok_or("--store requires a path")?;
+                        store_path = Some(PathBuf::from(value));
+                        i += 2;
+                    }
+                    "--scene" => {
+                        let value = args.get(i + 1).ok_or("--scene requires a scene id")?;
+                        scene_id = Some(value.clone());
+                        i += 2;
+                    }
+                    "--bbox-studs" => {
+                        let value = args
+                            .get(i + 1)
+                            .ok_or("--bbox-studs requires MIN_X,MIN_Z,MAX_X,MAX_Z")?;
+                        let parts: Vec<f64> = value
+                            .split(',')
+                            .map(|part| {
+                                part.trim().parse::<f64>().map_err(|_| {
+                                    format!("invalid number in --bbox-studs: {}", part)
+                                })
+                            })
+                            .collect::<Result<Vec<f64>, String>>()?;
+                        if parts.len() != 4 {
+                            return Err(
+                                "--bbox-studs requires four comma-separated numbers".to_string()
+                            );
+                        }
+                        bbox_studs = Some((parts[0], parts[1], parts[2], parts[3]));
+                        i += 2;
+                    }
+                    "--around-studs" => {
+                        let value = args.get(i + 1).ok_or("--around-studs requires X,Z")?;
+                        let parts: Vec<f64> = value
+                            .split(',')
+                            .map(|part| {
+                                part.trim().parse::<f64>().map_err(|_| {
+                                    format!("invalid number in --around-studs: {}", part)
+                                })
+                            })
+                            .collect::<Result<Vec<f64>, String>>()?;
+                        if parts.len() != 2 {
+                            return Err(
+                                "--around-studs requires two comma-separated numbers".to_string()
+                            );
+                        }
+                        around_studs = Some((parts[0], parts[1]));
+                        i += 2;
+                    }
+                    "--point" => {
+                        let value = args.get(i + 1).ok_or("--point requires LAT,LON")?;
+                        let parts: Vec<f64> = value
+                            .split(',')
+                            .map(|part| {
+                                part.trim()
+                                    .parse::<f64>()
+                                    .map_err(|_| format!("invalid number in --point: {}", part))
+                            })
+                            .collect::<Result<Vec<f64>, String>>()?;
+                        if parts.len() != 2 {
+                            return Err("--point requires two comma-separated numbers".to_string());
+                        }
+                        point = Some((parts[0], parts[1]));
+                        i += 2;
+                    }
+                    "--tile" => {
+                        let value = args.get(i + 1).ok_or("--tile requires Z,X,Y")?;
+                        let parts: Vec<u64> = value
+                            .split(',')
+                            .map(|part| {
+                                part.trim()
+                                    .parse::<u64>()
+                                    .map_err(|_| format!("invalid number in --tile: {}", part))
+                            })
+                            .collect::<Result<Vec<u64>, String>>()?;
+                        if parts.len() != 3 {
+                            return Err(
+                                "--tile requires three comma-separated integers".to_string()
+                            );
+                        }
+                        tile = Some((parts[0] as u8, parts[1] as u32, parts[2] as u32));
+                        i += 2;
+                    }
+                    "--radius-studs" => {
+                        let value = args.get(i + 1).ok_or("--radius-studs requires a number")?;
+                        radius_studs = Some(
+                            value
+                                .parse::<f64>()
+                                .map_err(|_| format!("invalid --radius-studs value: {value}"))?,
+                        );
+                        i += 2;
+                    }
+                    "--out" => {
+                        let value = args.get(i + 1).ok_or("--out requires a path")?;
+                        out_path = Some(PathBuf::from(value));
+                        i += 2;
+                    }
+                    "--limit" => {
+                        let value = args.get(i + 1).ok_or("--limit requires a number")?;
+                        limit = Some(
+                            value
+                                .parse::<usize>()
+                                .map_err(|_| format!("invalid --limit value: {value}"))?,
+                        );
+                        i += 2;
+                    }
+                    "--max-streaming-cost" => {
+                        let value = args
+                            .get(i + 1)
+                            .ok_or("--max-streaming-cost requires a number")?;
+                        max_streaming_cost =
+                            Some(value.parse::<f64>().map_err(|_| {
+                                format!("invalid --max-streaming-cost value: {value}")
+                            })?);
+                        i += 2;
+                    }
+                    "--max-estimated-memory-cost" => {
+                        let value = args
+                            .get(i + 1)
+                            .ok_or("--max-estimated-memory-cost requires a number")?;
+                        max_estimated_memory_cost = Some(value.parse::<f64>().map_err(|_| {
+                            format!("invalid --max-estimated-memory-cost value: {value}")
+                        })?);
+                        i += 2;
+                    }
+                    "--require-buildings" => {
+                        require_buildings = true;
+                        i += 1;
+                    }
+                    "--require-terrain" => {
+                        require_terrain = true;
+                        i += 1;
+                    }
+                    other => {
+                        return Err(format!(
+                            "unknown argument to planetary-store delivery-plan: {other}"
+                        ))
+                    }
+                }
+            }
+            let store_path =
+                store_path.ok_or("planetary-store delivery-plan requires --store PATH")?;
+            let plan = if let Some((min_x, min_z, max_x, max_z)) = bbox_studs {
+                let scene_id = scene_id.ok_or(
+                    "planetary-store delivery-plan requires --scene ID when using --bbox-studs",
+                )?;
+                build_delivery_plan_for_scene_bbox(
+                    &store_path,
+                    &scene_id,
+                    min_x,
+                    min_z,
+                    max_x,
+                    max_z,
+                    limit,
+                    require_buildings,
+                    require_terrain,
+                    max_streaming_cost,
+                    max_estimated_memory_cost,
+                )
+            } else if let Some((focus_x, focus_z)) = around_studs {
+                let scene_id = scene_id.ok_or(
+                    "planetary-store delivery-plan requires --scene ID when using --around-studs",
+                )?;
+                let radius_studs = radius_studs.ok_or(
+                    "planetary-store delivery-plan requires --radius-studs R when using --around-studs",
+                )?;
+                build_delivery_plan_around_point(
+                    &store_path,
+                    &scene_id,
+                    focus_x,
+                    focus_z,
+                    radius_studs,
+                    limit,
+                    require_buildings,
+                    require_terrain,
+                    max_streaming_cost,
+                    max_estimated_memory_cost,
+                )
+            } else if let Some((lat, lon)) = point {
+                let radius_studs = radius_studs.ok_or(
+                    "planetary-store delivery-plan requires --radius-studs R when using --point",
+                )?;
+                build_delivery_plan_around_geo_point(
+                    &store_path,
+                    lat,
+                    lon,
+                    radius_studs,
+                    limit,
+                    require_buildings,
+                    require_terrain,
+                    max_streaming_cost,
+                    max_estimated_memory_cost,
+                )
+            } else if let Some((zoom, x, y)) = tile {
+                build_delivery_plan_for_tile(
+                    &store_path,
+                    zoom,
+                    x,
+                    y,
+                    limit,
+                    require_buildings,
+                    require_terrain,
+                    max_streaming_cost,
+                    max_estimated_memory_cost,
+                )
+            } else {
+                return Err(
+                    "planetary-store delivery-plan requires --bbox-studs, --around-studs, --point LAT,LON, or --tile Z,X,Y"
+                        .to_string(),
+                );
+            }
+            .map_err(|err| format!("planetary-store delivery-plan failed: {err}"))?;
+            let plan_json = serde_json::to_string_pretty(&plan)
+                .map_err(|err| format!("delivery-plan json failed: {err}"))?;
+            if let Some(out_path) = out_path {
+                if let Some(parent) = out_path.parent() {
+                    fs::create_dir_all(parent)
+                        .map_err(|err| format!("delivery-plan create dir failed: {err}"))?;
+                }
+                fs::write(&out_path, format!("{plan_json}\n"))
+                    .map_err(|err| format!("delivery-plan write failed: {err}"))?;
+                println!("Wrote delivery plan {}", out_path.display());
+            } else {
+                println!("{plan_json}");
+            }
             Ok(())
         }
         other => Err(format!("unknown planetary-store subcommand: {other}")),
@@ -4856,6 +5197,55 @@ mod tests {
     }
 
     #[test]
+    fn planetary_store_delivery_plan_and_fetch_chunks_plan_work() {
+        let tempdir = tempfile::tempdir().unwrap();
+        let store_path = tempdir.path().join("planetary.sqlite");
+        let manifest_path = tempdir.path().join("sample.sqlite");
+        let plan_path = tempdir.path().join("delivery-plan.json");
+        let manifest = build_sample_multi_chunk(3, 1);
+        let center = manifest.meta.bbox.center();
+        write_manifest_sqlite(&manifest, &manifest_path).unwrap();
+
+        cmd_planetary_store(&[
+            "ingest-manifest".to_string(),
+            "--store".to_string(),
+            store_path.display().to_string(),
+            "--manifest-sqlite".to_string(),
+            manifest_path.display().to_string(),
+            "--scene".to_string(),
+            "austin".to_string(),
+        ])
+        .unwrap();
+
+        cmd_planetary_store(&[
+            "delivery-plan".to_string(),
+            "--store".to_string(),
+            store_path.display().to_string(),
+            "--point".to_string(),
+            format!("{},{}", center.lat, center.lon),
+            "--radius-studs".to_string(),
+            "300".to_string(),
+            "--out".to_string(),
+            plan_path.display().to_string(),
+        ])
+        .unwrap();
+
+        let plan: Value =
+            serde_json::from_str(&std::fs::read_to_string(&plan_path).unwrap()).unwrap();
+        assert_eq!(plan["scene_id"], "austin");
+        assert!(!plan["chunk_ids"].as_array().unwrap().is_empty());
+
+        cmd_planetary_store(&[
+            "fetch-chunks".to_string(),
+            "--store".to_string(),
+            store_path.display().to_string(),
+            "--plan".to_string(),
+            plan_path.display().to_string(),
+        ])
+        .unwrap();
+    }
+
+    #[test]
     fn planetary_store_emit_manifest_subset_works() {
         let tempdir = tempfile::tempdir().unwrap();
         let store_path = tempdir.path().join("planetary.sqlite");
@@ -5134,6 +5524,60 @@ mod tests {
             "austin".to_string(),
             "--chunk-ids".to_string(),
             "0_0,2_0".to_string(),
+            "--output-dir".to_string(),
+            output_dir.display().to_string(),
+            "--index-name".to_string(),
+            "PlanetaryIndex".to_string(),
+            "--shard-folder".to_string(),
+            "PlanetaryChunks".to_string(),
+        ])
+        .unwrap();
+
+        let index_path = output_dir.join("PlanetaryIndex.lua");
+        assert!(index_path.exists());
+    }
+
+    #[test]
+    fn planetary_store_emit_runtime_lua_plan_works() {
+        let tempdir = tempfile::tempdir().unwrap();
+        let store_path = tempdir.path().join("planetary.sqlite");
+        let manifest_path = tempdir.path().join("sample.sqlite");
+        let plan_path = tempdir.path().join("delivery-plan.json");
+        let output_dir = tempdir.path().join("runtime");
+        let manifest = build_sample_multi_chunk(3, 1);
+        let center = manifest.meta.bbox.center();
+        write_manifest_sqlite(&manifest, &manifest_path).unwrap();
+
+        cmd_planetary_store(&[
+            "ingest-manifest".to_string(),
+            "--store".to_string(),
+            store_path.display().to_string(),
+            "--manifest-sqlite".to_string(),
+            manifest_path.display().to_string(),
+            "--scene".to_string(),
+            "austin".to_string(),
+        ])
+        .unwrap();
+
+        cmd_planetary_store(&[
+            "delivery-plan".to_string(),
+            "--store".to_string(),
+            store_path.display().to_string(),
+            "--point".to_string(),
+            format!("{},{}", center.lat, center.lon),
+            "--radius-studs".to_string(),
+            "300".to_string(),
+            "--out".to_string(),
+            plan_path.display().to_string(),
+        ])
+        .unwrap();
+
+        cmd_planetary_store(&[
+            "emit-runtime-lua".to_string(),
+            "--store".to_string(),
+            store_path.display().to_string(),
+            "--plan".to_string(),
+            plan_path.display().to_string(),
             "--output-dir".to_string(),
             output_dir.display().to_string(),
             "--index-name".to_string(),
