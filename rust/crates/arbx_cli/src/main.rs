@@ -1934,6 +1934,21 @@ fn read_delivery_plan(
     })
 }
 
+fn parse_lat_lon_pair(value: &str, flag_name: &str) -> Result<(f64, f64), String> {
+    let parts: Vec<f64> = value
+        .split(',')
+        .map(|part| {
+            part.trim()
+                .parse::<f64>()
+                .map_err(|_| format!("invalid number in {flag_name}: {}", part))
+        })
+        .collect::<Result<Vec<f64>, String>>()?;
+    if parts.len() != 2 {
+        return Err(format!("{flag_name} requires two comma-separated numbers"));
+    }
+    Ok((parts[0], parts[1]))
+}
+
 fn resolve_planetary_store_path(
     explicit_store_path: Option<PathBuf>,
     plan: Option<&arbx_planetary_store::PlanetaryDeliveryPlan>,
@@ -1983,7 +1998,7 @@ fn write_json_file<T: serde::Serialize>(
 fn cmd_planetary_store(args: &[String]) -> Result<(), String> {
     let Some(subcommand) = args.first().map(String::as_str) else {
         return Err(
-            "planetary-store requires a subcommand: init | ingest-manifest | ingest-json | attach-truth-pack-summary | summary | list-scenes | scene | subset | subset-summary | fetch-chunks | emit-manifest-subset | emit-runtime-lua | find-scenes | delivery-window | delivery-plan | merge-delivery-plans | delivery-bundle | tile-scenes".to_string(),
+            "planetary-store requires a subcommand: init | ingest-manifest | ingest-json | attach-truth-pack-summary | summary | list-scenes | scene | subset | subset-summary | fetch-chunks | emit-manifest-subset | emit-runtime-lua | find-scenes | delivery-window | delivery-plan | route-plan | merge-delivery-plans | delivery-bundle | tile-scenes".to_string(),
         );
     };
 
@@ -3970,6 +3985,129 @@ fn cmd_planetary_store(args: &[String]) -> Result<(), String> {
             }
             Ok(())
         }
+        "route-plan" => {
+            let mut store_path: Option<PathBuf> = None;
+            let mut points: Vec<(f64, f64)> = Vec::new();
+            let mut radius_studs: Option<f64> = None;
+            let mut out_path: Option<PathBuf> = None;
+            let mut limit: Option<usize> = None;
+            let mut max_streaming_cost: Option<f64> = None;
+            let mut max_estimated_memory_cost: Option<f64> = None;
+            let mut require_buildings = false;
+            let mut require_terrain = false;
+            let mut i = 1;
+            while i < args.len() {
+                match args[i].as_str() {
+                    "--store" => {
+                        let value = args.get(i + 1).ok_or("--store requires a path")?;
+                        store_path = Some(PathBuf::from(value));
+                        i += 2;
+                    }
+                    "--point" => {
+                        let value = args.get(i + 1).ok_or("--point requires LAT,LON")?;
+                        points.push(parse_lat_lon_pair(value, "--point")?);
+                        i += 2;
+                    }
+                    "--radius-studs" => {
+                        let value = args.get(i + 1).ok_or("--radius-studs requires a number")?;
+                        radius_studs = Some(
+                            value
+                                .parse::<f64>()
+                                .map_err(|_| format!("invalid --radius-studs value: {value}"))?,
+                        );
+                        i += 2;
+                    }
+                    "--out" => {
+                        let value = args.get(i + 1).ok_or("--out requires a path")?;
+                        out_path = Some(PathBuf::from(value));
+                        i += 2;
+                    }
+                    "--limit" => {
+                        let value = args.get(i + 1).ok_or("--limit requires a number")?;
+                        limit = Some(
+                            value
+                                .parse::<usize>()
+                                .map_err(|_| format!("invalid --limit value: {value}"))?,
+                        );
+                        i += 2;
+                    }
+                    "--max-streaming-cost" => {
+                        let value = args
+                            .get(i + 1)
+                            .ok_or("--max-streaming-cost requires a number")?;
+                        max_streaming_cost =
+                            Some(value.parse::<f64>().map_err(|_| {
+                                format!("invalid --max-streaming-cost value: {value}")
+                            })?);
+                        i += 2;
+                    }
+                    "--max-estimated-memory-cost" => {
+                        let value = args
+                            .get(i + 1)
+                            .ok_or("--max-estimated-memory-cost requires a number")?;
+                        max_estimated_memory_cost = Some(value.parse::<f64>().map_err(|_| {
+                            format!("invalid --max-estimated-memory-cost value: {value}")
+                        })?);
+                        i += 2;
+                    }
+                    "--require-buildings" => {
+                        require_buildings = true;
+                        i += 1;
+                    }
+                    "--require-terrain" => {
+                        require_terrain = true;
+                        i += 1;
+                    }
+                    other => {
+                        return Err(format!(
+                            "unknown argument to planetary-store route-plan: {other}"
+                        ))
+                    }
+                }
+            }
+            if points.is_empty() {
+                return Err(
+                    "planetary-store route-plan requires at least one --point LAT,LON".to_string(),
+                );
+            }
+            let store_path = resolve_planetary_store_path(store_path, None, "route-plan")?;
+            let radius_studs =
+                radius_studs.ok_or("planetary-store route-plan requires --radius-studs R")?;
+            let plans = points
+                .into_iter()
+                .map(|(lat, lon)| {
+                    build_delivery_plan_around_geo_point(
+                        &store_path,
+                        lat,
+                        lon,
+                        radius_studs,
+                        limit,
+                        require_buildings,
+                        require_terrain,
+                        max_streaming_cost,
+                        max_estimated_memory_cost,
+                    )
+                    .map_err(|err| format!("planetary-store route-plan failed: {err}"))?
+                    .ok_or_else(|| {
+                        format!(
+                            "planetary-store route-plan found no matching scene/chunks for point {lat},{lon}"
+                        )
+                    })
+                })
+                .collect::<Result<Vec<_>, String>>()?;
+            let merged = merge_delivery_plans(&plans)
+                .map_err(|err| format!("planetary-store route-plan failed: {err}"))?
+                .ok_or("planetary-store route-plan found no plans to merge")?;
+            if let Some(out_path) = out_path.as_ref() {
+                write_delivery_plan_json(&merged, out_path)?;
+                println!("Wrote route plan {}", out_path.display());
+            } else {
+                let merged_json = serde_json::to_string_pretty(&merged)
+                    .map_err(|err| format!("route-plan json failed: {err}"))?;
+                println!("{merged_json}");
+            }
+            Ok(())
+        }
         "merge-delivery-plans" => {
             let mut plan_paths: Vec<PathBuf> = Vec::new();
             let mut out_path: Option<PathBuf> = None;
@@ -5908,6 +6046,48 @@ mod tests {
     }
 
     #[test]
+    fn planetary_store_route_plan_works() {
+        let tempdir = tempfile::tempdir().unwrap();
+        let store_path = tempdir.path().join("planetary.sqlite");
+        let manifest_path = tempdir.path().join("sample.sqlite");
+        let route_path = tempdir.path().join("route-plan.json");
+        let manifest = build_sample_multi_chunk(3, 1);
+        let center = manifest.meta.bbox.center();
+        write_manifest_sqlite(&manifest, &manifest_path).unwrap();
+
+        cmd_planetary_store(&[
+            "ingest-manifest".to_string(),
+            "--store".to_string(),
+            store_path.display().to_string(),
+            "--manifest-sqlite".to_string(),
+            manifest_path.display().to_string(),
+            "--scene".to_string(),
+            "austin".to_string(),
+        ])
+        .unwrap();
+
+        cmd_planetary_store(&[
+            "route-plan".to_string(),
+            "--store".to_string(),
+            store_path.display().to_string(),
+            "--point".to_string(),
+            format!("{},{}", center.lat, center.lon),
+            "--point".to_string(),
+            format!("{},{}", center.lat, center.lon + 0.0002),
+            "--radius-studs".to_string(),
+            "300".to_string(),
+            "--out".to_string(),
+            route_path.display().to_string(),
+        ])
+        .unwrap();
+
+        let route: Value =
+            serde_json::from_str(&std::fs::read_to_string(&route_path).unwrap()).unwrap();
+        assert_eq!(route["selection_mode"], "merged");
+        assert!(route["chunk_count"].as_u64().unwrap() >= 1);
+    }
+
+    #[test]
     fn planetary_store_emit_manifest_subset_works() {
         let tempdir = tempfile::tempdir().unwrap();
         let store_path = tempdir.path().join("planetary.sqlite");
@@ -6432,6 +6612,58 @@ mod tests {
             serde_json::from_str(&std::fs::read_to_string(&bundle_path).unwrap()).unwrap();
         assert_eq!(bundle["plan"]["selection_mode"], "merged");
         assert_eq!(bundle["plan"]["chunk_count"], 2);
+    }
+
+    #[test]
+    fn planetary_store_delivery_bundle_accepts_route_plan() {
+        let tempdir = tempfile::tempdir().unwrap();
+        let store_path = tempdir.path().join("planetary.sqlite");
+        let manifest_path = tempdir.path().join("sample.sqlite");
+        let route_path = tempdir.path().join("route-plan.json");
+        let bundle_path = tempdir.path().join("delivery-bundle.json");
+        let manifest = build_sample_multi_chunk(3, 1);
+        let center = manifest.meta.bbox.center();
+        write_manifest_sqlite(&manifest, &manifest_path).unwrap();
+
+        cmd_planetary_store(&[
+            "ingest-manifest".to_string(),
+            "--store".to_string(),
+            store_path.display().to_string(),
+            "--manifest-sqlite".to_string(),
+            manifest_path.display().to_string(),
+            "--scene".to_string(),
+            "austin".to_string(),
+        ])
+        .unwrap();
+
+        cmd_planetary_store(&[
+            "route-plan".to_string(),
+            "--store".to_string(),
+            store_path.display().to_string(),
+            "--point".to_string(),
+            format!("{},{}", center.lat, center.lon),
+            "--point".to_string(),
+            format!("{},{}", center.lat, center.lon + 0.0002),
+            "--radius-studs".to_string(),
+            "300".to_string(),
+            "--out".to_string(),
+            route_path.display().to_string(),
+        ])
+        .unwrap();
+
+        cmd_planetary_store(&[
+            "delivery-bundle".to_string(),
+            "--plan".to_string(),
+            route_path.display().to_string(),
+            "--out".to_string(),
+            bundle_path.display().to_string(),
+        ])
+        .unwrap();
+
+        let bundle: Value =
+            serde_json::from_str(&std::fs::read_to_string(&bundle_path).unwrap()).unwrap();
+        assert_eq!(bundle["plan"]["selection_mode"], "merged");
+        assert!(bundle["plan"]["chunk_count"].as_u64().unwrap() >= 1);
     }
 
     #[test]

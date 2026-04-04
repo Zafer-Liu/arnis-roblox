@@ -2696,3 +2696,17 @@ The compact historical archive index is:
   - `cargo test -p arbx_planetary_store planetary_store_ -- --nocapture`
   - `cargo test -p arbx_cli planetary_store_ -- --nocapture`
   - `git diff --check`
+
+## 2026-04-04 00:02 CDT
+
+- Extended the planetary backbone again on `main`:
+  - `arbx_cli`
+    - added `planetary-store route-plan`, which samples repeated geo points and emits one merged delivery plan
+    - `delivery-bundle` now accepts route-style multi-plan inputs through merged delivery plans, giving the repo a native multi-point prefetch path instead of shell-stitching multiple windows
+  - `arbx_planetary_store`
+    - merged delivery plans now serve as the canonical deduped, cost-recomputed artifact for route/prefetch assembly
+- Verification:
+  - `cargo fmt --all`
+  - `cargo test -p arbx_planetary_store planetary_store_ -- --nocapture`
+  - `cargo test -p arbx_cli planetary_store_ -- --nocapture`
+  - `git diff --check`
