@@ -19,15 +19,15 @@ use arbx_planetary_store::{
     build_delivery_plan_for_tile, build_delivery_window_around_geo_point,
     build_delivery_window_around_point, build_delivery_window_for_scene_bbox,
     build_delivery_window_for_tile, build_delivery_window_from_plan, build_hydrated_route_session,
-    build_route_delivery_session_for_geo_points, find_best_scene_covering_geo_point,
-    find_best_scene_covering_tile, find_scenes_covering_geo_point, find_scenes_covering_tile,
-    find_scenes_intersecting_geo_bbox, ingest_manifest_json, ingest_manifest_sqlite,
-    init_planetary_store, list_scenes, merge_delivery_plans, read_chunk_summaries_by_refs,
-    read_chunks_by_ids, read_scene_catalog_entry, read_scene_chunk_subset,
-    read_scene_chunk_summary_around_geo_point, read_scene_chunk_summary_around_point,
-    read_scene_chunk_summary_for_tile, read_scene_chunk_summary_subset,
-    read_scene_manifest_subset_around_geo_point, read_scene_manifest_subset_by_chunk_ids,
-    summarize_planetary_store,
+    build_route_delivery_schedule, build_route_delivery_session_for_geo_points,
+    find_best_scene_covering_geo_point, find_best_scene_covering_tile,
+    find_scenes_covering_geo_point, find_scenes_covering_tile, find_scenes_intersecting_geo_bbox,
+    ingest_manifest_json, ingest_manifest_sqlite, init_planetary_store, list_scenes,
+    merge_delivery_plans, read_chunk_summaries_by_refs, read_chunks_by_ids,
+    read_scene_catalog_entry, read_scene_chunk_subset, read_scene_chunk_summary_around_geo_point,
+    read_scene_chunk_summary_around_point, read_scene_chunk_summary_for_tile,
+    read_scene_chunk_summary_subset, read_scene_manifest_subset_around_geo_point,
+    read_scene_manifest_subset_by_chunk_ids, summarize_planetary_store,
 };
 use arbx_roblox_export::{
     build_sample_multi_chunk, export_to_chunks, read_manifest_sqlite_all, write_manifest_sqlite,
@@ -57,6 +57,7 @@ struct DeliveryBundleResult {
     plan_out: Option<String>,
     route_session_out: Option<String>,
     hydrated_route_out: Option<String>,
+    schedule_out: Option<String>,
     step_summary_dir: Option<String>,
     step_window_dir: Option<String>,
     step_transition_dir: Option<String>,
@@ -2093,7 +2094,7 @@ fn write_json_file<T: serde::Serialize>(
 fn cmd_planetary_store(args: &[String]) -> Result<(), String> {
     let Some(subcommand) = args.first().map(String::as_str) else {
         return Err(
-            "planetary-store requires a subcommand: init | ingest-manifest | ingest-json | attach-truth-pack-summary | summary | list-scenes | scene | subset | subset-summary | fetch-chunks | emit-manifest-subset | emit-runtime-lua | find-scenes | delivery-window | delivery-plan | route-plan | route-session | hydrate-route-session | merge-delivery-plans | delivery-bundle | tile-scenes".to_string(),
+            "planetary-store requires a subcommand: init | ingest-manifest | ingest-json | attach-truth-pack-summary | summary | list-scenes | scene | subset | subset-summary | fetch-chunks | emit-manifest-subset | emit-runtime-lua | find-scenes | delivery-window | delivery-plan | route-plan | route-session | hydrate-route-session | schedule-route-session | merge-delivery-plans | delivery-bundle | tile-scenes".to_string(),
         );
     };
 
@@ -4531,6 +4532,76 @@ fn cmd_planetary_store(args: &[String]) -> Result<(), String> {
             }
             Ok(())
         }
+        "schedule-route-session" => {
+            let mut store_path: Option<PathBuf> = None;
+            let mut session_path: Option<PathBuf> = None;
+            let mut out_path: Option<PathBuf> = None;
+            let mut ahead_steps: usize = 1;
+            let mut behind_steps: usize = 1;
+            let mut i = 1;
+            while i < args.len() {
+                match args[i].as_str() {
+                    "--store" => {
+                        let value = args.get(i + 1).ok_or("--store requires a path")?;
+                        store_path = Some(PathBuf::from(value));
+                        i += 2;
+                    }
+                    "--session" => {
+                        let value = args.get(i + 1).ok_or("--session requires a path")?;
+                        session_path = Some(PathBuf::from(value));
+                        i += 2;
+                    }
+                    "--ahead-steps" => {
+                        let value = args.get(i + 1).ok_or("--ahead-steps requires a number")?;
+                        ahead_steps = value
+                            .parse::<usize>()
+                            .map_err(|_| format!("invalid --ahead-steps value: {value}"))?;
+                        i += 2;
+                    }
+                    "--behind-steps" => {
+                        let value = args.get(i + 1).ok_or("--behind-steps requires a number")?;
+                        behind_steps = value
+                            .parse::<usize>()
+                            .map_err(|_| format!("invalid --behind-steps value: {value}"))?;
+                        i += 2;
+                    }
+                    "--out" => {
+                        let value = args.get(i + 1).ok_or("--out requires a path")?;
+                        out_path = Some(PathBuf::from(value));
+                        i += 2;
+                    }
+                    other => {
+                        return Err(format!(
+                            "unknown argument to planetary-store schedule-route-session: {other}"
+                        ))
+                    }
+                }
+            }
+            let session_path = session_path
+                .ok_or("planetary-store schedule-route-session requires --session PATH")?;
+            let session = read_route_session(&session_path)?;
+            let store_path = resolve_planetary_store_path(
+                store_path,
+                Some(&session.merged_plan),
+                Some(&session),
+                "schedule-route-session",
+            )?;
+            let hydrated = build_hydrated_route_session(&store_path, &session)
+                .map_err(|err| format!("planetary-store schedule-route-session failed: {err}"))?
+                .ok_or("planetary-store schedule-route-session found no matching scene/chunks")?;
+            let schedule = build_route_delivery_schedule(&hydrated, ahead_steps, behind_steps);
+            if let Some(out_path) = out_path.as_ref() {
+                write_json_file(&schedule, out_path, "schedule-route-session")?;
+                println!("Wrote route delivery schedule {}", out_path.display());
+            } else {
+                println!(
+                    "{}",
+                    serde_json::to_string_pretty(&schedule)
+                        .map_err(|err| format!("schedule-route-session json failed: {err}"))?
+                );
+            }
+            Ok(())
+        }
         "merge-delivery-plans" => {
             let mut plan_paths: Vec<PathBuf> = Vec::new();
             let mut out_path: Option<PathBuf> = None;
@@ -4591,9 +4662,12 @@ fn cmd_planetary_store(args: &[String]) -> Result<(), String> {
             let mut plan_out: Option<PathBuf> = None;
             let mut route_session_out: Option<PathBuf> = None;
             let mut hydrated_route_out: Option<PathBuf> = None;
+            let mut schedule_out: Option<PathBuf> = None;
             let mut step_summary_dir: Option<PathBuf> = None;
             let mut step_window_dir: Option<PathBuf> = None;
             let mut step_transition_dir: Option<PathBuf> = None;
+            let mut ahead_steps: usize = 1;
+            let mut behind_steps: usize = 1;
             let mut summary_out: Option<PathBuf> = None;
             let mut window_out: Option<PathBuf> = None;
             let mut manifest_out: Option<PathBuf> = None;
@@ -4724,6 +4798,11 @@ fn cmd_planetary_store(args: &[String]) -> Result<(), String> {
                         hydrated_route_out = Some(PathBuf::from(value));
                         i += 2;
                     }
+                    "--schedule-out" => {
+                        let value = args.get(i + 1).ok_or("--schedule-out requires a path")?;
+                        schedule_out = Some(PathBuf::from(value));
+                        i += 2;
+                    }
                     "--step-summary-dir" => {
                         let value = args
                             .get(i + 1)
@@ -4792,6 +4871,20 @@ fn cmd_planetary_store(args: &[String]) -> Result<(), String> {
                                 .parse::<usize>()
                                 .map_err(|err| format!("invalid --max-bytes: {err}"))?,
                         );
+                        i += 2;
+                    }
+                    "--ahead-steps" => {
+                        let value = args.get(i + 1).ok_or("--ahead-steps requires a number")?;
+                        ahead_steps = value
+                            .parse::<usize>()
+                            .map_err(|_| format!("invalid --ahead-steps value: {value}"))?;
+                        i += 2;
+                    }
+                    "--behind-steps" => {
+                        let value = args.get(i + 1).ok_or("--behind-steps requires a number")?;
+                        behind_steps = value
+                            .parse::<usize>()
+                            .map_err(|_| format!("invalid --behind-steps value: {value}"))?;
                         i += 2;
                     }
                     "--limit" => {
@@ -4984,12 +5077,24 @@ fn cmd_planetary_store(args: &[String]) -> Result<(), String> {
             } else {
                 None
             };
+            let route_schedule = hydrated_route
+                .as_ref()
+                .map(|hydrated| build_route_delivery_schedule(hydrated, ahead_steps, behind_steps));
             if let Some(hydrated_route_out) = hydrated_route_out.as_ref() {
                 if let Some(hydrated_route) = hydrated_route.as_ref() {
                     write_json_file(
                         hydrated_route,
                         hydrated_route_out,
                         "delivery-bundle hydrated-route",
+                    )?;
+                }
+            }
+            if let Some(schedule_out) = schedule_out.as_ref() {
+                if let Some(route_schedule) = route_schedule.as_ref() {
+                    write_json_file(
+                        route_schedule,
+                        schedule_out,
+                        "delivery-bundle route schedule",
                     )?;
                 }
             }
@@ -5060,6 +5165,7 @@ fn cmd_planetary_store(args: &[String]) -> Result<(), String> {
                 hydrated_route_out: hydrated_route_out
                     .as_ref()
                     .map(|path| path.display().to_string()),
+                schedule_out: schedule_out.as_ref().map(|path| path.display().to_string()),
                 step_summary_dir: step_summary_dir
                     .as_ref()
                     .map(|path| path.display().to_string()),
@@ -6769,6 +6875,66 @@ mod tests {
     }
 
     #[test]
+    fn planetary_store_schedule_route_session_works() {
+        let tempdir = tempfile::tempdir().unwrap();
+        let store_path = tempdir.path().join("planetary.sqlite");
+        let manifest_path = tempdir.path().join("sample.sqlite");
+        let session_path = tempdir.path().join("route-session.json");
+        let schedule_path = tempdir.path().join("route-schedule.json");
+        let manifest = build_sample_multi_chunk(3, 1);
+        let center = manifest.meta.bbox.center();
+        write_manifest_sqlite(&manifest, &manifest_path).unwrap();
+
+        cmd_planetary_store(&[
+            "ingest-manifest".to_string(),
+            "--store".to_string(),
+            store_path.display().to_string(),
+            "--manifest-sqlite".to_string(),
+            manifest_path.display().to_string(),
+            "--scene".to_string(),
+            "austin".to_string(),
+        ])
+        .unwrap();
+
+        cmd_planetary_store(&[
+            "route-session".to_string(),
+            "--store".to_string(),
+            store_path.display().to_string(),
+            "--point".to_string(),
+            format!("{},{}", center.lat, center.lon),
+            "--point".to_string(),
+            format!("{},{}", center.lat, center.lon + 0.0002),
+            "--point".to_string(),
+            format!("{},{}", center.lat, center.lon + 0.0004),
+            "--radius-studs".to_string(),
+            "300".to_string(),
+            "--out".to_string(),
+            session_path.display().to_string(),
+        ])
+        .unwrap();
+
+        cmd_planetary_store(&[
+            "schedule-route-session".to_string(),
+            "--session".to_string(),
+            session_path.display().to_string(),
+            "--ahead-steps".to_string(),
+            "1".to_string(),
+            "--behind-steps".to_string(),
+            "1".to_string(),
+            "--out".to_string(),
+            schedule_path.display().to_string(),
+        ])
+        .unwrap();
+
+        let schedule: Value =
+            serde_json::from_str(&std::fs::read_to_string(&schedule_path).unwrap()).unwrap();
+        assert_eq!(schedule["steps"].as_array().unwrap().len(), 3);
+        assert_eq!(schedule["steps"][0]["active"]["chunk_count"], 1);
+        assert_eq!(schedule["ahead_steps"], 1);
+        assert_eq!(schedule["behind_steps"], 1);
+    }
+
+    #[test]
     fn planetary_store_emit_manifest_subset_works() {
         let tempdir = tempfile::tempdir().unwrap();
         let store_path = tempdir.path().join("planetary.sqlite");
@@ -7410,6 +7576,7 @@ mod tests {
         let manifest_path = tempdir.path().join("sample.sqlite");
         let route_session_path = tempdir.path().join("route-session.json");
         let hydrated_route_path = tempdir.path().join("hydrated-route.json");
+        let schedule_path = tempdir.path().join("route-schedule.json");
         let step_summary_dir = tempdir.path().join("step-summaries");
         let step_window_dir = tempdir.path().join("step-windows");
         let step_transition_dir = tempdir.path().join("step-transitions");
@@ -7443,6 +7610,8 @@ mod tests {
             route_session_path.display().to_string(),
             "--hydrated-route-out".to_string(),
             hydrated_route_path.display().to_string(),
+            "--schedule-out".to_string(),
+            schedule_path.display().to_string(),
             "--step-summary-dir".to_string(),
             step_summary_dir.display().to_string(),
             "--step-window-dir".to_string(),
@@ -7464,6 +7633,7 @@ mod tests {
             bundle["hydrated_route_out"],
             hydrated_route_path.display().to_string()
         );
+        assert_eq!(bundle["schedule_out"], schedule_path.display().to_string());
         assert_eq!(
             bundle["step_summary_dir"],
             step_summary_dir.display().to_string()
@@ -7479,6 +7649,9 @@ mod tests {
         let hydrated: Value =
             serde_json::from_str(&std::fs::read_to_string(&hydrated_route_path).unwrap()).unwrap();
         assert_eq!(hydrated["steps"].as_array().unwrap().len(), 2);
+        let schedule: Value =
+            serde_json::from_str(&std::fs::read_to_string(&schedule_path).unwrap()).unwrap();
+        assert_eq!(schedule["steps"].as_array().unwrap().len(), 2);
         assert!(step_summary_dir.join("step-000-summary.json").exists());
         assert!(step_window_dir.join("step-000-window.json").exists());
         assert!(step_transition_dir

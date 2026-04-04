@@ -2818,3 +2818,19 @@ The compact historical archive index is:
   - `cargo test -p arbx_cli planetary_store_delivery_bundle_writes_hydrated_route_outputs -- --nocapture`
   - `cargo test -p arbx_cli planetary_store_ -- --nocapture`
   - `git diff --check`
+
+## 2026-04-04 02:44 CDT
+
+- Extended the planetary backbone again on `main`:
+  - `arbx_planetary_store`
+    - added canonical route delivery schedules derived from hydrated route sessions, with per-step `active`, `prefetch`, and `retain` chunk sets
+    - scheduling now exists as a first-class execution artifact in the store rather than an implied downstream policy
+  - `arbx_cli`
+    - added `planetary-store schedule-route-session`
+    - `delivery-bundle` can now persist a top-level route schedule via `--schedule-out`
+    - bundle outputs now support direct runtime/scheduler handoff for route-step planning in addition to raw route sessions and hydrated transitions
+- Verification:
+  - `cargo fmt --all`
+  - `cargo test -p arbx_planetary_store planetary_store_ -- --nocapture`
+  - `cargo test -p arbx_cli planetary_store_ -- --nocapture`
+  - `git diff --check`

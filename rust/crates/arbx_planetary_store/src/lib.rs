@@ -162,6 +162,22 @@ pub struct PlanetaryHydratedRouteSession {
     pub steps: Vec<PlanetaryHydratedRouteStep>,
 }
 
+#[derive(Debug, Clone, PartialEq, Serialize)]
+pub struct PlanetaryScheduledRouteStep {
+    pub step_index: usize,
+    pub active: PlanetaryRouteChunkSetSummary,
+    pub prefetch: PlanetaryRouteChunkSetSummary,
+    pub retain: PlanetaryRouteChunkSetSummary,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize)]
+pub struct PlanetaryRouteDeliverySchedule {
+    pub session: PlanetaryRouteSession,
+    pub ahead_steps: usize,
+    pub behind_steps: usize,
+    pub steps: Vec<PlanetaryScheduledRouteStep>,
+}
+
 fn default_source_plan_count() -> usize {
     1
 }
@@ -320,6 +336,20 @@ fn summarize_chunk_set<'a>(
         total_streaming_cost,
         total_estimated_memory_cost,
     }
+}
+
+fn collect_unique_chunk_summaries<'a>(
+    chunks: impl IntoIterator<Item = &'a PlanetaryChunkSummary>,
+) -> Vec<&'a PlanetaryChunkSummary> {
+    let mut seen = HashSet::new();
+    let mut ordered = Vec::new();
+    for chunk in chunks {
+        let key = format!("{}:{}", chunk.scene_id, chunk.chunk_id);
+        if seen.insert(key) {
+            ordered.push(chunk);
+        }
+    }
+    ordered
 }
 
 fn plan_chunk_refs(plan: &PlanetaryDeliveryPlan) -> Vec<PlanetaryChunkRef> {
@@ -2493,6 +2523,60 @@ pub fn build_hydrated_route_session(
     }))
 }
 
+pub fn build_route_delivery_schedule(
+    hydrated: &PlanetaryHydratedRouteSession,
+    ahead_steps: usize,
+    behind_steps: usize,
+) -> PlanetaryRouteDeliverySchedule {
+    let mut steps = Vec::with_capacity(hydrated.steps.len());
+    for step in &hydrated.steps {
+        let active_chunks = collect_unique_chunk_summaries(step.window.chunks.iter());
+        let active_ids = active_chunks
+            .iter()
+            .map(|chunk| format!("{}:{}", chunk.scene_id, chunk.chunk_id))
+            .collect::<HashSet<_>>();
+
+        let prefetch_chunks = collect_unique_chunk_summaries(
+            hydrated
+                .steps
+                .iter()
+                .skip(step.step_index + 1)
+                .take(ahead_steps)
+                .flat_map(|future_step| future_step.window.chunks.iter())
+                .filter(|chunk| {
+                    !active_ids.contains(&format!("{}:{}", chunk.scene_id, chunk.chunk_id))
+                }),
+        );
+
+        let retain_chunks = collect_unique_chunk_summaries(
+            hydrated
+                .steps
+                .iter()
+                .take(step.step_index)
+                .rev()
+                .take(behind_steps)
+                .flat_map(|prior_step| prior_step.window.chunks.iter())
+                .filter(|chunk| {
+                    !active_ids.contains(&format!("{}:{}", chunk.scene_id, chunk.chunk_id))
+                }),
+        );
+
+        steps.push(PlanetaryScheduledRouteStep {
+            step_index: step.step_index,
+            active: summarize_chunk_set(active_chunks.into_iter()),
+            prefetch: summarize_chunk_set(prefetch_chunks.into_iter()),
+            retain: summarize_chunk_set(retain_chunks.into_iter()),
+        });
+    }
+
+    PlanetaryRouteDeliverySchedule {
+        session: hydrated.session.clone(),
+        ahead_steps,
+        behind_steps,
+        steps,
+    }
+}
+
 pub fn read_scene_chunk_summary_subset(
     path: &Path,
     scene_id: &str,
@@ -3523,6 +3607,76 @@ mod tests {
         assert_eq!(session.merged_plan.scene_id, "__multi_scene__");
         assert_eq!(session.merged_plan.chunk_ids.len(), 0);
         assert_eq!(session.steps.len(), 2);
+    }
+
+    #[test]
+    fn planetary_store_builds_route_delivery_schedule() {
+        let dir = tempdir().unwrap();
+        let manifest_path = dir.path().join("sample.sqlite");
+        let store_path = dir.path().join("planetary.sqlite");
+
+        let manifest = build_sample_multi_chunk(3, 1);
+        write_manifest_sqlite(&manifest, &manifest_path).unwrap();
+        ingest_manifest_sqlite(&store_path, &manifest_path, Some("sample_austin")).unwrap();
+
+        let plan_a = build_delivery_plan_around_point(
+            &store_path,
+            "sample_austin",
+            0.0,
+            0.0,
+            300.0,
+            Some(1),
+            false,
+            false,
+            None,
+            None,
+        )
+        .unwrap()
+        .unwrap();
+        let plan_b = build_delivery_plan_around_point(
+            &store_path,
+            "sample_austin",
+            256.0,
+            0.0,
+            300.0,
+            Some(2),
+            false,
+            false,
+            None,
+            None,
+        )
+        .unwrap()
+        .unwrap();
+        let plan_c = build_delivery_plan_around_point(
+            &store_path,
+            "sample_austin",
+            512.0,
+            0.0,
+            300.0,
+            Some(2),
+            false,
+            false,
+            None,
+            None,
+        )
+        .unwrap()
+        .unwrap();
+
+        let session = build_route_delivery_session(&[plan_a, plan_b, plan_c])
+            .unwrap()
+            .unwrap();
+        let hydrated = build_hydrated_route_session(&store_path, &session)
+            .unwrap()
+            .unwrap();
+        let schedule = build_route_delivery_schedule(&hydrated, 1, 1);
+
+        assert_eq!(schedule.steps.len(), 3);
+        assert_eq!(schedule.ahead_steps, 1);
+        assert_eq!(schedule.behind_steps, 1);
+        assert_eq!(schedule.steps[0].active.chunk_count, 1);
+        assert!(schedule.steps[0].prefetch.chunk_count >= 1);
+        assert_eq!(schedule.steps[0].retain.chunk_count, 0);
+        assert_eq!(schedule.steps[1].step_index, 1);
     }
 
     #[test]
