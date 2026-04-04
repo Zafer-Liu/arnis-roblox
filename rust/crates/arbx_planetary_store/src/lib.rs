@@ -1,6 +1,6 @@
+use std::collections::BTreeMap;
 use std::fs;
 use std::path::Path;
-use std::collections::BTreeMap;
 
 use arbx_geo::{LatLon, Mercator};
 use arbx_pipeline::SourceTruthPackSummary;
@@ -101,7 +101,10 @@ struct ChunkPayloadSummary {
     barrier_count: usize,
 }
 
-fn read_scene_meta(connection: &Connection, scene_id: &str) -> PlanetaryStoreResult<StoredManifestMeta> {
+fn read_scene_meta(
+    connection: &Connection,
+    scene_id: &str,
+) -> PlanetaryStoreResult<StoredManifestMeta> {
     let meta = connection
         .query_row(
             "
@@ -138,7 +141,12 @@ fn read_scene_meta(connection: &Connection, scene_id: &str) -> PlanetaryStoreRes
                     source: row.get(3)?,
                     meters_per_stud: row.get(4)?,
                     chunk_size_studs: row.get(5)?,
-                    bbox: arbx_geo::BoundingBox::new(row.get(6)?, row.get(7)?, row.get(8)?, row.get(9)?),
+                    bbox: arbx_geo::BoundingBox::new(
+                        row.get(6)?,
+                        row.get(7)?,
+                        row.get(8)?,
+                        row.get(9)?,
+                    ),
                     total_features: row.get::<_, i64>(10)? as usize,
                     notes,
                 })
@@ -153,7 +161,9 @@ fn decode_truth_pack_source_counts(
     value: Option<String>,
 ) -> PlanetaryStoreResult<Option<BTreeMap<String, usize>>> {
     match value {
-        Some(text) => Ok(Some(serde_json::from_str::<BTreeMap<String, usize>>(&text)?)),
+        Some(text) => Ok(Some(serde_json::from_str::<BTreeMap<String, usize>>(
+            &text,
+        )?)),
         None => Ok(None),
     }
 }
@@ -176,6 +186,28 @@ fn bbox_intersects(
 
 fn bbox_area_degrees(bbox: arbx_geo::BoundingBox) -> f64 {
     bbox.width_degrees() * bbox.height_degrees()
+}
+
+fn scene_truth_score(entry: &PlanetarySceneCatalogEntry) -> usize {
+    entry.truth_pack_feature_count.unwrap_or(0)
+        + entry.truth_pack_retained_semantic_count.unwrap_or(0)
+        + entry.truth_pack_semantic_lineage_count.unwrap_or(0)
+}
+
+fn compare_scene_priority(
+    left_entry: &PlanetarySceneCatalogEntry,
+    left_bbox: arbx_geo::BoundingBox,
+    right_entry: &PlanetarySceneCatalogEntry,
+    right_bbox: arbx_geo::BoundingBox,
+) -> std::cmp::Ordering {
+    scene_truth_score(right_entry)
+        .cmp(&scene_truth_score(left_entry))
+        .then_with(|| {
+            bbox_area_degrees(left_bbox)
+                .partial_cmp(&bbox_area_degrees(right_bbox))
+                .unwrap_or(std::cmp::Ordering::Equal)
+        })
+        .then_with(|| left_entry.scene_id.cmp(&right_entry.scene_id))
 }
 
 fn tile_x_to_lon(x: u32, zoom: u8) -> f64 {
@@ -201,10 +233,26 @@ fn project_geo_bbox_to_local_bounds(
     meters_per_stud: f64,
 ) -> (f64, f64, f64, f64) {
     let corners = [
-        Mercator::project(LatLon::new(bbox.min.lat, bbox.min.lon), center, meters_per_stud),
-        Mercator::project(LatLon::new(bbox.min.lat, bbox.max.lon), center, meters_per_stud),
-        Mercator::project(LatLon::new(bbox.max.lat, bbox.min.lon), center, meters_per_stud),
-        Mercator::project(LatLon::new(bbox.max.lat, bbox.max.lon), center, meters_per_stud),
+        Mercator::project(
+            LatLon::new(bbox.min.lat, bbox.min.lon),
+            center,
+            meters_per_stud,
+        ),
+        Mercator::project(
+            LatLon::new(bbox.min.lat, bbox.max.lon),
+            center,
+            meters_per_stud,
+        ),
+        Mercator::project(
+            LatLon::new(bbox.max.lat, bbox.min.lon),
+            center,
+            meters_per_stud,
+        ),
+        Mercator::project(
+            LatLon::new(bbox.max.lat, bbox.max.lon),
+            center,
+            meters_per_stud,
+        ),
     ];
     let mut min_x = f64::INFINITY;
     let mut min_z = f64::INFINITY;
@@ -408,33 +456,41 @@ fn infer_scene_id_from_world_name(
     sanitize_scene_id(world_name)
 }
 
-fn get_required_object<'a>(value: &'a Value, key: &str) -> PlanetaryStoreResult<&'a serde_json::Map<String, Value>> {
-    value.get(key)
+fn get_required_object<'a>(
+    value: &'a Value,
+    key: &str,
+) -> PlanetaryStoreResult<&'a serde_json::Map<String, Value>> {
+    value
+        .get(key)
         .and_then(Value::as_object)
         .ok_or_else(|| format!("manifest JSON is missing object field {}", key).into())
 }
 
 fn get_required_array<'a>(value: &'a Value, key: &str) -> PlanetaryStoreResult<&'a Vec<Value>> {
-    value.get(key)
+    value
+        .get(key)
         .and_then(Value::as_array)
         .ok_or_else(|| format!("manifest JSON is missing array field {}", key).into())
 }
 
 fn get_required_string(value: &Value, key: &str) -> PlanetaryStoreResult<String> {
-    value.get(key)
+    value
+        .get(key)
         .and_then(Value::as_str)
         .map(ToString::to_string)
         .ok_or_else(|| format!("manifest JSON is missing string field {}", key).into())
 }
 
 fn get_required_f64(value: &Value, key: &str) -> PlanetaryStoreResult<f64> {
-    value.get(key)
+    value
+        .get(key)
         .and_then(Value::as_f64)
         .ok_or_else(|| format!("manifest JSON is missing numeric field {}", key).into())
 }
 
 fn get_required_usize(value: &Value, key: &str) -> PlanetaryStoreResult<usize> {
-    value.get(key)
+    value
+        .get(key)
         .and_then(Value::as_u64)
         .map(|value| value as usize)
         .ok_or_else(|| format!("manifest JSON is missing unsigned integer field {}", key).into())
@@ -450,7 +506,8 @@ fn build_meta_from_manifest_json(value: &Value) -> PlanetaryStoreResult<StoredMa
         .get("notes")
         .and_then(Value::as_array)
         .map(|items| {
-            items.iter()
+            items
+                .iter()
                 .filter_map(Value::as_str)
                 .map(ToString::to_string)
                 .collect::<Vec<_>>()
@@ -477,31 +534,37 @@ fn build_meta_from_manifest_json(value: &Value) -> PlanetaryStoreResult<StoredMa
         meters_per_stud: meta
             .get("metersPerStud")
             .and_then(Value::as_f64)
-            .ok_or_else(|| "manifest JSON is missing numeric field meta.metersPerStud".to_string())?,
+            .ok_or_else(|| {
+                "manifest JSON is missing numeric field meta.metersPerStud".to_string()
+            })?,
         chunk_size_studs: meta
             .get("chunkSizeStuds")
             .and_then(Value::as_i64)
             .map(|value| value as i32)
-            .ok_or_else(|| "manifest JSON is missing integer field meta.chunkSizeStuds".to_string())?,
+            .ok_or_else(|| {
+                "manifest JSON is missing integer field meta.chunkSizeStuds".to_string()
+            })?,
         bbox: arbx_geo::BoundingBox::new(
-            bbox.get("minLat")
-                .and_then(Value::as_f64)
-                .ok_or_else(|| "manifest JSON is missing numeric field meta.bbox.minLat".to_string())?,
-            bbox.get("minLon")
-                .and_then(Value::as_f64)
-                .ok_or_else(|| "manifest JSON is missing numeric field meta.bbox.minLon".to_string())?,
-            bbox.get("maxLat")
-                .and_then(Value::as_f64)
-                .ok_or_else(|| "manifest JSON is missing numeric field meta.bbox.maxLat".to_string())?,
-            bbox.get("maxLon")
-                .and_then(Value::as_f64)
-                .ok_or_else(|| "manifest JSON is missing numeric field meta.bbox.maxLon".to_string())?,
+            bbox.get("minLat").and_then(Value::as_f64).ok_or_else(|| {
+                "manifest JSON is missing numeric field meta.bbox.minLat".to_string()
+            })?,
+            bbox.get("minLon").and_then(Value::as_f64).ok_or_else(|| {
+                "manifest JSON is missing numeric field meta.bbox.minLon".to_string()
+            })?,
+            bbox.get("maxLat").and_then(Value::as_f64).ok_or_else(|| {
+                "manifest JSON is missing numeric field meta.bbox.maxLat".to_string()
+            })?,
+            bbox.get("maxLon").and_then(Value::as_f64).ok_or_else(|| {
+                "manifest JSON is missing numeric field meta.bbox.maxLon".to_string()
+            })?,
         ),
         total_features: meta
             .get("totalFeatures")
             .and_then(Value::as_u64)
             .map(|value| value as usize)
-            .ok_or_else(|| "manifest JSON is missing unsigned integer field meta.totalFeatures".to_string())?,
+            .ok_or_else(|| {
+                "manifest JSON is missing unsigned integer field meta.totalFeatures".to_string()
+            })?,
         notes,
     })
 }
@@ -514,7 +577,8 @@ pub fn ingest_manifest_json(
     let manifest_text = fs::read_to_string(manifest_json_path)?;
     let manifest_value: Value = serde_json::from_str(&manifest_text)?;
     let meta = build_meta_from_manifest_json(&manifest_value)?;
-    let resolved_scene_id = infer_scene_id_from_world_name(manifest_json_path, &meta.world_name, scene_id);
+    let resolved_scene_id =
+        infer_scene_id_from_world_name(manifest_json_path, &meta.world_name, scene_id);
     let chunk_refs = get_required_array(&manifest_value, "chunkRefs")?;
     let chunks = get_required_array(&manifest_value, "chunks")?;
 
@@ -537,29 +601,29 @@ pub fn ingest_manifest_json(
         let origin = get_required_object(chunk, "originStuds")?;
         let chunk_ref = chunk_refs
             .iter()
-            .find(|candidate| candidate.get("id").and_then(Value::as_str) == Some(chunk_id.as_str()))
+            .find(|candidate| {
+                candidate.get("id").and_then(Value::as_str) == Some(chunk_id.as_str())
+            })
             .ok_or_else(|| format!("manifest JSON is missing chunkRef for chunk {}", chunk_id))?;
-        let subplans_json = serde_json::to_string(
-            chunk_ref
-                .get("subplans")
-                .ok_or_else(|| format!("manifest JSON is missing subplans for chunkRef {}", chunk_id))?,
-        )?;
+        let subplans_json = serde_json::to_string(chunk_ref.get("subplans").ok_or_else(|| {
+            format!(
+                "manifest JSON is missing subplans for chunkRef {}",
+                chunk_id
+            )
+        })?)?;
         let chunk_json = serde_json::to_string(chunk)?;
         let record = StoredChunkRecord {
             chunk_id,
             origin_studs: arbx_geo::Vec3::new(
-                origin
-                    .get("x")
-                    .and_then(Value::as_f64)
-                    .ok_or_else(|| "manifest JSON is missing numeric field originStuds.x".to_string())?,
-                origin
-                    .get("y")
-                    .and_then(Value::as_f64)
-                    .ok_or_else(|| "manifest JSON is missing numeric field originStuds.y".to_string())?,
-                origin
-                    .get("z")
-                    .and_then(Value::as_f64)
-                    .ok_or_else(|| "manifest JSON is missing numeric field originStuds.z".to_string())?,
+                origin.get("x").and_then(Value::as_f64).ok_or_else(|| {
+                    "manifest JSON is missing numeric field originStuds.x".to_string()
+                })?,
+                origin.get("y").and_then(Value::as_f64).ok_or_else(|| {
+                    "manifest JSON is missing numeric field originStuds.y".to_string()
+                })?,
+                origin.get("z").and_then(Value::as_f64).ok_or_else(|| {
+                    "manifest JSON is missing numeric field originStuds.z".to_string()
+                })?,
             ),
             feature_count: get_required_usize(chunk_ref, "featureCount")?,
             streaming_cost: get_required_f64(chunk_ref, "streamingCost")?,
@@ -816,17 +880,21 @@ pub fn list_scenes(path: &Path) -> PlanetaryStoreResult<Vec<PlanetarySceneCatalo
             manifest_store_path: row.get(4)?,
             truth_pack_scene: row.get(5)?,
             truth_pack_feature_count: row.get::<_, Option<i64>>(6)?.map(|value| value as usize),
-            truth_pack_retained_semantic_count: row.get::<_, Option<i64>>(7)?.map(|value| value as usize),
-            truth_pack_semantic_lineage_count: row.get::<_, Option<i64>>(8)?.map(|value| value as usize),
-            truth_pack_dropped_semantic_count: row.get::<_, Option<i64>>(9)?.map(|value| value as usize),
+            truth_pack_retained_semantic_count: row
+                .get::<_, Option<i64>>(7)?
+                .map(|value| value as usize),
+            truth_pack_semantic_lineage_count: row
+                .get::<_, Option<i64>>(8)?
+                .map(|value| value as usize),
+            truth_pack_dropped_semantic_count: row
+                .get::<_, Option<i64>>(9)?
+                .map(|value| value as usize),
             truth_pack_collapse_count: row.get::<_, Option<i64>>(10)?.map(|value| value as usize),
-            truth_pack_source_counts: decode_truth_pack_source_counts(source_counts_json).map_err(|err| {
-                rusqlite::Error::FromSqlConversionFailure(
-                    11,
-                    rusqlite::types::Type::Text,
-                    err,
-                )
-            })?,
+            truth_pack_source_counts: decode_truth_pack_source_counts(source_counts_json).map_err(
+                |err| {
+                    rusqlite::Error::FromSqlConversionFailure(11, rusqlite::types::Type::Text, err)
+                },
+            )?,
             chunk_count: row.get::<_, i64>(12)? as usize,
         })
     })?;
@@ -887,12 +955,23 @@ pub fn read_scene_catalog_entry(
                     total_features: row.get::<_, i64>(3)? as usize,
                     manifest_store_path: row.get(4)?,
                     truth_pack_scene: row.get(5)?,
-                    truth_pack_feature_count: row.get::<_, Option<i64>>(6)?.map(|value| value as usize),
-                    truth_pack_retained_semantic_count: row.get::<_, Option<i64>>(7)?.map(|value| value as usize),
-                    truth_pack_semantic_lineage_count: row.get::<_, Option<i64>>(8)?.map(|value| value as usize),
-                    truth_pack_dropped_semantic_count: row.get::<_, Option<i64>>(9)?.map(|value| value as usize),
-                    truth_pack_collapse_count: row.get::<_, Option<i64>>(10)?.map(|value| value as usize),
-                    truth_pack_source_counts: decode_truth_pack_source_counts(source_counts_json).map_err(|err| {
+                    truth_pack_feature_count: row
+                        .get::<_, Option<i64>>(6)?
+                        .map(|value| value as usize),
+                    truth_pack_retained_semantic_count: row
+                        .get::<_, Option<i64>>(7)?
+                        .map(|value| value as usize),
+                    truth_pack_semantic_lineage_count: row
+                        .get::<_, Option<i64>>(8)?
+                        .map(|value| value as usize),
+                    truth_pack_dropped_semantic_count: row
+                        .get::<_, Option<i64>>(9)?
+                        .map(|value| value as usize),
+                    truth_pack_collapse_count: row
+                        .get::<_, Option<i64>>(10)?
+                        .map(|value| value as usize),
+                    truth_pack_source_counts: decode_truth_pack_source_counts(source_counts_json)
+                        .map_err(|err| {
                         rusqlite::Error::FromSqlConversionFailure(
                             11,
                             rusqlite::types::Type::Text,
@@ -960,6 +1039,13 @@ pub fn find_scenes_intersecting_geo_bbox(
             scenes.chunk_size_studs,
             scenes.total_features,
             scenes.manifest_store_path,
+            scenes.truth_pack_scene,
+            scenes.truth_pack_feature_count,
+            scenes.truth_pack_retained_semantic_count,
+            scenes.truth_pack_semantic_lineage_count,
+            scenes.truth_pack_dropped_semantic_count,
+            scenes.truth_pack_collapse_count,
+            scenes.truth_pack_source_counts_json,
             scenes.bbox_min_lat,
             scenes.bbox_min_lon,
             scenes.bbox_max_lat,
@@ -973,6 +1059,13 @@ pub fn find_scenes_intersecting_geo_bbox(
             scenes.chunk_size_studs,
             scenes.total_features,
             scenes.manifest_store_path,
+            scenes.truth_pack_scene,
+            scenes.truth_pack_feature_count,
+            scenes.truth_pack_retained_semantic_count,
+            scenes.truth_pack_semantic_lineage_count,
+            scenes.truth_pack_dropped_semantic_count,
+            scenes.truth_pack_collapse_count,
+            scenes.truth_pack_source_counts_json,
             scenes.bbox_min_lat,
             scenes.bbox_min_lon,
             scenes.bbox_max_lat,
@@ -981,6 +1074,7 @@ pub fn find_scenes_intersecting_geo_bbox(
         ",
     )?;
     let rows = statement.query_map([], |row| {
+        let source_counts_json: Option<String> = row.get(11)?;
         Ok((
             PlanetarySceneCatalogEntry {
                 scene_id: row.get(0)?,
@@ -988,20 +1082,35 @@ pub fn find_scenes_intersecting_geo_bbox(
                 chunk_size_studs: row.get(2)?,
                 total_features: row.get::<_, i64>(3)? as usize,
                 manifest_store_path: row.get(4)?,
-                truth_pack_scene: None,
-                truth_pack_feature_count: None,
-                truth_pack_retained_semantic_count: None,
-                truth_pack_semantic_lineage_count: None,
-                truth_pack_dropped_semantic_count: None,
-                truth_pack_collapse_count: None,
-                truth_pack_source_counts: None,
-                chunk_count: row.get::<_, i64>(9)? as usize,
+                truth_pack_scene: row.get(5)?,
+                truth_pack_feature_count: row.get::<_, Option<i64>>(6)?.map(|value| value as usize),
+                truth_pack_retained_semantic_count: row
+                    .get::<_, Option<i64>>(7)?
+                    .map(|value| value as usize),
+                truth_pack_semantic_lineage_count: row
+                    .get::<_, Option<i64>>(8)?
+                    .map(|value| value as usize),
+                truth_pack_dropped_semantic_count: row
+                    .get::<_, Option<i64>>(9)?
+                    .map(|value| value as usize),
+                truth_pack_collapse_count: row
+                    .get::<_, Option<i64>>(10)?
+                    .map(|value| value as usize),
+                truth_pack_source_counts: decode_truth_pack_source_counts(source_counts_json)
+                    .map_err(|err| {
+                        rusqlite::Error::FromSqlConversionFailure(
+                            11,
+                            rusqlite::types::Type::Text,
+                            err,
+                        )
+                    })?,
+                chunk_count: row.get::<_, i64>(16)? as usize,
             },
             (
-                row.get::<_, f64>(5)?,
-                row.get::<_, f64>(6)?,
-                row.get::<_, f64>(7)?,
-                row.get::<_, f64>(8)?,
+                row.get::<_, f64>(12)?,
+                row.get::<_, f64>(13)?,
+                row.get::<_, f64>(14)?,
+                row.get::<_, f64>(15)?,
             ),
         ))
     })?;
@@ -1019,10 +1128,19 @@ pub fn find_scenes_intersecting_geo_bbox(
             scene_max_lat,
             scene_max_lon,
         ) {
-            scenes.push(entry);
+            scenes.push((
+                entry,
+                arbx_geo::BoundingBox::new(
+                    scene_min_lat,
+                    scene_min_lon,
+                    scene_max_lat,
+                    scene_max_lon,
+                ),
+            ));
         }
     }
-    Ok(scenes)
+    scenes.sort_by(|left, right| compare_scene_priority(&left.0, left.1, &right.0, right.1));
+    Ok(scenes.into_iter().map(|(entry, _)| entry).collect())
 }
 
 fn find_scene_geo_candidates_covering_point(
@@ -1039,6 +1157,13 @@ fn find_scene_geo_candidates_covering_point(
             scenes.chunk_size_studs,
             scenes.total_features,
             scenes.manifest_store_path,
+            scenes.truth_pack_scene,
+            scenes.truth_pack_feature_count,
+            scenes.truth_pack_retained_semantic_count,
+            scenes.truth_pack_semantic_lineage_count,
+            scenes.truth_pack_dropped_semantic_count,
+            scenes.truth_pack_collapse_count,
+            scenes.truth_pack_source_counts_json,
             scenes.bbox_min_lat,
             scenes.bbox_min_lon,
             scenes.bbox_max_lat,
@@ -1053,6 +1178,13 @@ fn find_scene_geo_candidates_covering_point(
             scenes.chunk_size_studs,
             scenes.total_features,
             scenes.manifest_store_path,
+            scenes.truth_pack_scene,
+            scenes.truth_pack_feature_count,
+            scenes.truth_pack_retained_semantic_count,
+            scenes.truth_pack_semantic_lineage_count,
+            scenes.truth_pack_dropped_semantic_count,
+            scenes.truth_pack_collapse_count,
+            scenes.truth_pack_source_counts_json,
             scenes.bbox_min_lat,
             scenes.bbox_min_lon,
             scenes.bbox_max_lat,
@@ -1062,6 +1194,7 @@ fn find_scene_geo_candidates_covering_point(
         ",
     )?;
     let rows = statement.query_map([], |row| {
+        let source_counts_json: Option<String> = row.get(11)?;
         Ok(SceneGeoCandidate {
             entry: PlanetarySceneCatalogEntry {
                 scene_id: row.get(0)?,
@@ -1069,22 +1202,37 @@ fn find_scene_geo_candidates_covering_point(
                 chunk_size_studs: row.get(2)?,
                 total_features: row.get::<_, i64>(3)? as usize,
                 manifest_store_path: row.get(4)?,
-                truth_pack_scene: None,
-                truth_pack_feature_count: None,
-                truth_pack_retained_semantic_count: None,
-                truth_pack_semantic_lineage_count: None,
-                truth_pack_dropped_semantic_count: None,
-                truth_pack_collapse_count: None,
-                truth_pack_source_counts: None,
-                chunk_count: row.get::<_, i64>(10)? as usize,
+                truth_pack_scene: row.get(5)?,
+                truth_pack_feature_count: row.get::<_, Option<i64>>(6)?.map(|value| value as usize),
+                truth_pack_retained_semantic_count: row
+                    .get::<_, Option<i64>>(7)?
+                    .map(|value| value as usize),
+                truth_pack_semantic_lineage_count: row
+                    .get::<_, Option<i64>>(8)?
+                    .map(|value| value as usize),
+                truth_pack_dropped_semantic_count: row
+                    .get::<_, Option<i64>>(9)?
+                    .map(|value| value as usize),
+                truth_pack_collapse_count: row
+                    .get::<_, Option<i64>>(10)?
+                    .map(|value| value as usize),
+                truth_pack_source_counts: decode_truth_pack_source_counts(source_counts_json)
+                    .map_err(|err| {
+                        rusqlite::Error::FromSqlConversionFailure(
+                            11,
+                            rusqlite::types::Type::Text,
+                            err,
+                        )
+                    })?,
+                chunk_count: row.get::<_, i64>(17)? as usize,
             },
             bbox: arbx_geo::BoundingBox::new(
-                row.get(5)?,
-                row.get(6)?,
-                row.get(7)?,
-                row.get(8)?,
+                row.get(12)?,
+                row.get(13)?,
+                row.get(14)?,
+                row.get(15)?,
             ),
-            meters_per_stud: row.get(9)?,
+            meters_per_stud: row.get(16)?,
         })
     })?;
 
@@ -1097,12 +1245,20 @@ fn find_scene_geo_candidates_covering_point(
         }
     }
     scenes.sort_by(|left, right| {
-        bbox_area_degrees(left.bbox)
-            .partial_cmp(&bbox_area_degrees(right.bbox))
-            .unwrap_or(std::cmp::Ordering::Equal)
-            .then_with(|| left.entry.scene_id.cmp(&right.entry.scene_id))
+        compare_scene_priority(&left.entry, left.bbox, &right.entry, right.bbox)
     });
     Ok(scenes)
+}
+
+pub fn find_best_scene_covering_geo_point(
+    path: &Path,
+    lat: f64,
+    lon: f64,
+) -> PlanetaryStoreResult<Option<PlanetarySceneCatalogEntry>> {
+    Ok(find_scene_geo_candidates_covering_point(path, lat, lon)?
+        .into_iter()
+        .next()
+        .map(|candidate| candidate.entry))
 }
 
 pub fn find_scenes_covering_geo_point(
@@ -1116,6 +1272,17 @@ pub fn find_scenes_covering_geo_point(
         .collect())
 }
 
+pub fn find_best_scene_covering_tile(
+    path: &Path,
+    zoom: u8,
+    x: u32,
+    y: u32,
+) -> PlanetaryStoreResult<Option<PlanetarySceneCatalogEntry>> {
+    Ok(find_scenes_covering_tile(path, zoom, x, y)?
+        .into_iter()
+        .next())
+}
+
 pub fn find_scenes_covering_tile(
     path: &Path,
     zoom: u8,
@@ -1123,13 +1290,7 @@ pub fn find_scenes_covering_tile(
     y: u32,
 ) -> PlanetaryStoreResult<Vec<PlanetarySceneCatalogEntry>> {
     let bbox = slippy_tile_bbox(zoom, x, y);
-    find_scenes_intersecting_geo_bbox(
-        path,
-        bbox.min.lat,
-        bbox.min.lon,
-        bbox.max.lat,
-        bbox.max.lon,
-    )
+    find_scenes_intersecting_geo_bbox(path, bbox.min.lat, bbox.min.lon, bbox.max.lat, bbox.max.lon)
 }
 
 pub fn build_delivery_window_around_geo_point(
@@ -1141,10 +1302,17 @@ pub fn build_delivery_window_around_geo_point(
     require_buildings: bool,
     require_terrain: bool,
 ) -> PlanetaryStoreResult<Option<PlanetaryDeliveryWindow>> {
-    let Some(scene) = find_scene_geo_candidates_covering_point(path, lat, lon)?.into_iter().next() else {
+    let Some(scene) = find_scene_geo_candidates_covering_point(path, lat, lon)?
+        .into_iter()
+        .next()
+    else {
         return Ok(None);
     };
-    let focus = Mercator::project(LatLon::new(lat, lon), scene.bbox.center(), scene.meters_per_stud);
+    let focus = Mercator::project(
+        LatLon::new(lat, lon),
+        scene.bbox.center(),
+        scene.meters_per_stud,
+    );
     let chunks = read_scene_chunk_summary_around_point(
         path,
         &scene.entry.scene_id,
@@ -1166,6 +1334,49 @@ pub fn build_delivery_window_around_geo_point(
     }))
 }
 
+pub fn build_delivery_window_for_tile(
+    path: &Path,
+    zoom: u8,
+    x: u32,
+    y: u32,
+    limit: Option<usize>,
+    require_buildings: bool,
+    require_terrain: bool,
+) -> PlanetaryStoreResult<Option<PlanetaryDeliveryWindow>> {
+    let Some(scene) = find_best_scene_covering_tile(path, zoom, x, y)? else {
+        return Ok(None);
+    };
+    let connection = open_store(path)?;
+    let meta = read_scene_meta(&connection, &scene.scene_id)?;
+    drop(connection);
+
+    let tile_bbox = slippy_tile_bbox(zoom, x, y);
+    let tile_center = tile_bbox.center();
+    let focus = Mercator::project(tile_center, meta.bbox.center(), meta.meters_per_stud);
+    let (min_x, min_z, max_x, max_z) =
+        project_geo_bbox_to_local_bounds(tile_bbox, meta.bbox.center(), meta.meters_per_stud);
+    let radius_studs = ((max_x - min_x) * 0.5).max((max_z - min_z) * 0.5);
+    let chunks = read_scene_chunk_summary_for_tile(
+        path,
+        &scene.scene_id,
+        zoom,
+        x,
+        y,
+        limit,
+        require_buildings,
+        require_terrain,
+    )?;
+    Ok(Some(PlanetaryDeliveryWindow {
+        scene,
+        focus_lat: tile_center.lat,
+        focus_lon: tile_center.lon,
+        focus_x: focus.x,
+        focus_z: focus.z,
+        radius_studs,
+        chunks,
+    }))
+}
+
 pub fn read_scene_chunk_summary_around_geo_point(
     path: &Path,
     scene_id: &str,
@@ -1178,7 +1389,11 @@ pub fn read_scene_chunk_summary_around_geo_point(
 ) -> PlanetaryStoreResult<Vec<PlanetaryChunkSummary>> {
     let connection = open_store(path)?;
     let meta = read_scene_meta(&connection, scene_id)?;
-    let focus = Mercator::project(LatLon::new(lat, lon), meta.bbox.center(), meta.meters_per_stud);
+    let focus = Mercator::project(
+        LatLon::new(lat, lon),
+        meta.bbox.center(),
+        meta.meters_per_stud,
+    );
     drop(connection);
     read_scene_chunk_summary_around_point(
         path,
@@ -1911,7 +2126,8 @@ mod tests {
         ingest_manifest_sqlite(&store_path, &manifest_a_path, Some("austin")).unwrap();
         ingest_manifest_sqlite(&store_path, &manifest_b_path, Some("philly")).unwrap();
 
-        let scenes = find_scenes_intersecting_geo_bbox(&store_path, 30.1, -97.9, 30.2, -97.8).unwrap();
+        let scenes =
+            find_scenes_intersecting_geo_bbox(&store_path, 30.1, -97.9, 30.2, -97.8).unwrap();
         assert_eq!(scenes.len(), 1);
         assert_eq!(scenes[0].scene_id, "austin");
     }
@@ -1941,7 +2157,8 @@ mod tests {
         let manifest = build_sample_multi_chunk(2, 1);
         fs::write(&manifest_path, manifest.to_json_pretty()).unwrap();
 
-        let summary = ingest_manifest_json(&store_path, &manifest_path, Some("json_scene")).unwrap();
+        let summary =
+            ingest_manifest_json(&store_path, &manifest_path, Some("json_scene")).unwrap();
         assert_eq!(summary.scene_id, "json_scene");
         assert_eq!(summary.chunk_count, 2);
     }
@@ -1962,7 +2179,11 @@ mod tests {
             &["0_0".to_string(), "2_0".to_string(), "missing".to_string()],
         )
         .unwrap();
-        let ids: Vec<&str> = subset.chunks.iter().map(|chunk| chunk.chunk_id.as_str()).collect();
+        let ids: Vec<&str> = subset
+            .chunks
+            .iter()
+            .map(|chunk| chunk.chunk_id.as_str())
+            .collect();
         assert_eq!(ids, vec!["0_0", "2_0"]);
     }
 
@@ -1977,7 +2198,8 @@ mod tests {
         ingest_manifest_sqlite(&store_path, &manifest_path, Some("sample_austin")).unwrap();
 
         let subset =
-            read_scene_manifest_subset(&store_path, "sample_austin", 200.0, 0.0, 500.0, 200.0).unwrap();
+            read_scene_manifest_subset(&store_path, "sample_austin", 200.0, 0.0, 500.0, 200.0)
+                .unwrap();
         assert_eq!(subset.chunks.len(), 2);
     }
 
@@ -2067,6 +2289,19 @@ mod tests {
         ingest_manifest_sqlite(&store_path, &manifest_a_path, Some("large_scene")).unwrap();
         ingest_manifest_sqlite(&store_path, &manifest_b_path, Some("small_scene")).unwrap();
 
+        let mut source_counts = BTreeMap::new();
+        source_counts.insert("overpass".to_string(), 20);
+        let summary = SourceTruthPackSummary {
+            scene: "large_scene_truth".to_string(),
+            feature_count: 40,
+            retained_semantic_count: 10,
+            semantic_lineage_count: 10,
+            dropped_semantic_count: 0,
+            collapse_count: 0,
+            source_counts,
+        };
+        attach_truth_pack_summary(&store_path, "large_scene", &summary).unwrap();
+
         let window = build_delivery_window_around_geo_point(
             &store_path,
             30.3,
@@ -2078,7 +2313,7 @@ mod tests {
         )
         .unwrap()
         .unwrap();
-        assert_eq!(window.scene.scene_id, "small_scene");
+        assert_eq!(window.scene.scene_id, "large_scene");
     }
 
     #[test]
@@ -2108,6 +2343,31 @@ mod tests {
     }
 
     #[test]
+    fn planetary_store_builds_delivery_window_for_tile() {
+        let dir = tempdir().unwrap();
+        let manifest_path = dir.path().join("sample.sqlite");
+        let store_path = dir.path().join("planetary.sqlite");
+
+        let manifest = build_sample_multi_chunk(3, 1);
+        let center = manifest.meta.bbox.center();
+        write_manifest_sqlite(&manifest, &manifest_path).unwrap();
+        ingest_manifest_sqlite(&store_path, &manifest_path, Some("sample_austin")).unwrap();
+
+        let zoom = 10u8;
+        let x = (((center.lon + 180.0) / 360.0) * 2f64.powi(zoom as i32)).floor() as u32;
+        let lat_rad = center.lat.to_radians();
+        let y = ((1.0 - ((lat_rad.tan() + 1.0 / lat_rad.cos()).ln() / std::f64::consts::PI)) / 2.0
+            * 2f64.powi(zoom as i32))
+        .floor() as u32;
+
+        let window = build_delivery_window_for_tile(&store_path, zoom, x, y, Some(2), false, false)
+            .unwrap()
+            .unwrap();
+        assert_eq!(window.scene.scene_id, "sample_austin");
+        assert!(!window.chunks.is_empty());
+    }
+
+    #[test]
     fn planetary_store_finds_scenes_covering_tile() {
         let dir = tempdir().unwrap();
         let manifest_path = dir.path().join("sample.sqlite");
@@ -2124,7 +2384,7 @@ mod tests {
         let lat_rad = center.lat.to_radians();
         let y = ((1.0 - ((lat_rad.tan() + 1.0 / lat_rad.cos()).ln() / std::f64::consts::PI)) / 2.0
             * 2f64.powi(zoom as i32))
-            .floor() as u32;
+        .floor() as u32;
 
         let scenes = find_scenes_covering_tile(&store_path, zoom, x, y).unwrap();
         assert_eq!(scenes.len(), 1);
@@ -2147,11 +2407,19 @@ mod tests {
         let lat_rad = center.lat.to_radians();
         let y = ((1.0 - ((lat_rad.tan() + 1.0 / lat_rad.cos()).ln() / std::f64::consts::PI)) / 2.0
             * 2f64.powi(zoom as i32))
-            .floor() as u32;
+        .floor() as u32;
 
-        let chunks =
-            read_scene_chunk_summary_for_tile(&store_path, "sample_austin", zoom, x, y, Some(2), false, false)
-                .unwrap();
+        let chunks = read_scene_chunk_summary_for_tile(
+            &store_path,
+            "sample_austin",
+            zoom,
+            x,
+            y,
+            Some(2),
+            false,
+            false,
+        )
+        .unwrap();
         assert!(!chunks.is_empty());
     }
 
@@ -2171,9 +2439,10 @@ mod tests {
         let lat_rad = center.lat.to_radians();
         let y = ((1.0 - ((lat_rad.tan() + 1.0 / lat_rad.cos()).ln() / std::f64::consts::PI)) / 2.0
             * 2f64.powi(zoom as i32))
-            .floor() as u32;
+        .floor() as u32;
 
-        let subset = read_scene_manifest_subset_for_tile(&store_path, "sample_austin", zoom, x, y).unwrap();
+        let subset =
+            read_scene_manifest_subset_for_tile(&store_path, "sample_austin", zoom, x, y).unwrap();
         assert!(!subset.chunks.is_empty());
     }
 
@@ -2207,7 +2476,8 @@ mod tests {
         assert_eq!(scene.truth_pack_feature_count, Some(12));
         assert_eq!(scene.truth_pack_collapse_count, Some(1));
         assert_eq!(
-            scene.truth_pack_source_counts
+            scene
+                .truth_pack_source_counts
                 .as_ref()
                 .and_then(|value| value.get("overpass"))
                 .copied(),

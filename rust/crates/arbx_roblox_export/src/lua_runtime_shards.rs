@@ -97,8 +97,9 @@ fn write_runtime_lua_shards_from_records(
             let would_add_new_chunk = !shard_chunk_ids.contains(&fragment_chunk_id);
             let would_exceed_chunk_limit =
                 would_add_new_chunk && shard_chunk_ids.len() == options.chunks_per_shard;
-            let would_exceed_byte_limit =
-                options.max_bytes.is_some() && !shard_buffer.is_empty() && next_shard_bytes > options.max_bytes.unwrap();
+            let would_exceed_byte_limit = options.max_bytes.is_some()
+                && !shard_buffer.is_empty()
+                && next_shard_bytes > options.max_bytes.unwrap();
 
             if would_exceed_chunk_limit || would_exceed_byte_limit {
                 flush_shard_buffer(
@@ -120,7 +121,6 @@ fn write_runtime_lua_shards_from_records(
             shard_chunk_ids.insert(fragment_chunk_id);
             shard_bytes = next_shard_bytes;
         }
-
     }
 
     if !shard_buffer.is_empty() {
@@ -206,15 +206,15 @@ fn build_chunk_ref_value(record: &StoredChunkRecord) -> ManifestStoreResult<Valu
             ("z".to_string(), Value::from(record.origin_studs.z)),
         ])),
     );
-    object.insert(
-        "shards".to_string(),
-        Value::Array(Vec::new()),
-    );
+    object.insert("shards".to_string(), Value::Array(Vec::new()));
     object.insert(
         "featureCount".to_string(),
         Value::from(record.feature_count as u64),
     );
-    object.insert("streamingCost".to_string(), Value::from(record.streaming_cost));
+    object.insert(
+        "streamingCost".to_string(),
+        Value::from(record.streaming_cost),
+    );
     if let Some(estimated_memory_cost) = record.estimated_memory_cost {
         object.insert(
             "estimatedMemoryCost".to_string(),
@@ -234,10 +234,19 @@ fn build_chunk_ref_value(record: &StoredChunkRecord) -> ManifestStoreResult<Valu
 
 fn build_meta_value(meta: &crate::manifest_store::StoredManifestMeta) -> Value {
     Value::Object(Map::from_iter([
-        ("worldName".to_string(), Value::String(meta.world_name.clone())),
-        ("generator".to_string(), Value::String(meta.generator.clone())),
+        (
+            "worldName".to_string(),
+            Value::String(meta.world_name.clone()),
+        ),
+        (
+            "generator".to_string(),
+            Value::String(meta.generator.clone()),
+        ),
         ("source".to_string(), Value::String(meta.source.clone())),
-        ("metersPerStud".to_string(), Value::from(meta.meters_per_stud)),
+        (
+            "metersPerStud".to_string(),
+            Value::from(meta.meters_per_stud),
+        ),
         (
             "chunkSizeStuds".to_string(),
             Value::from(meta.chunk_size_studs as i64),
@@ -342,7 +351,8 @@ fn fragment_chunk_for_lua_shards(
     if lua_payload_len(&Value::Object(Map::from_iter([(
         "chunks".to_string(),
         Value::Array(vec![Value::Object(base_fragment.clone())]),
-    )]))) > max_bytes
+    )])))
+        > max_bytes
     {
         return Err(format!(
             "runtime chunk {} base metadata exceeds max bytes {max_bytes}",
@@ -366,7 +376,10 @@ fn fragment_chunk_for_lua_shards(
                         &format!("terrain field {terrain_key}"),
                         |fragment_items| {
                             Map::from_iter([
-                                ("id".to_string(), Value::String(chunk_id(chunk).unwrap().to_string())),
+                                (
+                                    "id".to_string(),
+                                    Value::String(chunk_id(chunk).unwrap().to_string()),
+                                ),
                                 (
                                     "terrain".to_string(),
                                     Value::Object(Map::from_iter([(
@@ -381,16 +394,23 @@ fn fragment_chunk_for_lua_shards(
                 }
                 other => {
                     let fragment = Map::from_iter([
-                        ("id".to_string(), Value::String(chunk_id(chunk)?.to_string())),
+                        (
+                            "id".to_string(),
+                            Value::String(chunk_id(chunk)?.to_string()),
+                        ),
                         (
                             "terrain".to_string(),
-                            Value::Object(Map::from_iter([(terrain_key.to_string(), other.clone())])),
+                            Value::Object(Map::from_iter([(
+                                terrain_key.to_string(),
+                                other.clone(),
+                            )])),
                         ),
                     ]);
                     if lua_payload_len(&Value::Object(Map::from_iter([(
                         "chunks".to_string(),
                         Value::Array(vec![Value::Object(fragment.clone())]),
-                    )]))) > max_bytes
+                    )])))
+                        > max_bytes
                     {
                         return Err(format!(
                             "runtime chunk {} terrain field {terrain_key} exceeds max bytes {max_bytes}",
@@ -412,12 +432,21 @@ fn fragment_chunk_for_lua_shards(
             continue;
         }
 
-        let list_fragments = fragment_list_payloads(chunk_id(chunk)?, items, max_bytes, &format!("field {field}"), |fragment_items| {
-            Map::from_iter([
-                ("id".to_string(), Value::String(chunk_id(chunk).unwrap().to_string())),
-                (field.to_string(), Value::Array(fragment_items.to_vec())),
-            ])
-        })?;
+        let list_fragments = fragment_list_payloads(
+            chunk_id(chunk)?,
+            items,
+            max_bytes,
+            &format!("field {field}"),
+            |fragment_items| {
+                Map::from_iter([
+                    (
+                        "id".to_string(),
+                        Value::String(chunk_id(chunk).unwrap().to_string()),
+                    ),
+                    (field.to_string(), Value::Array(fragment_items.to_vec())),
+                ])
+            },
+        )?;
         fragments.extend(list_fragments);
     }
 
@@ -496,7 +525,9 @@ fn base_chunk_fragment(chunk: &Map<String, Value>) -> Map<String, Value> {
             if let Value::Object(terrain) = value {
                 let terrain_fragment = terrain
                     .iter()
-                    .filter(|(nested_key, _)| *nested_key != "heights" && *nested_key != "materials")
+                    .filter(|(nested_key, _)| {
+                        *nested_key != "heights" && *nested_key != "materials"
+                    })
                     .map(|(nested_key, nested_value)| (nested_key.clone(), nested_value.clone()))
                     .collect::<Map<String, Value>>();
                 if !terrain_fragment.is_empty() {
@@ -511,7 +542,8 @@ fn base_chunk_fragment(chunk: &Map<String, Value>) -> Map<String, Value> {
 }
 
 fn chunk_id(chunk: &Map<String, Value>) -> ManifestStoreResult<&str> {
-    chunk.get("id")
+    chunk
+        .get("id")
         .and_then(Value::as_str)
         .ok_or_else(|| "runtime chunk is missing string id".to_string().into())
 }

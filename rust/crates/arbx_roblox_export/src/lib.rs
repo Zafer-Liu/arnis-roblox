@@ -13,6 +13,10 @@ use arbx_pipeline::Feature;
 use crate::chunker::{build_empty_chunk, ensure_terrain_materials, Chunker};
 use crate::materials::StyleMapper;
 pub use arbx_geo::satellite::SatelliteTileProvider;
+pub use lua_runtime_shards::{
+    write_runtime_lua_shards_from_sqlite, write_runtime_lua_shards_from_stored_subset,
+    RuntimeLuaShardsOptions, RuntimeLuaShardsStats,
+};
 pub use manifest::{
     BarrierSegment, BuildingShell, Chunk, ChunkManifest, Color, GroundPoint, LanduseShell,
     ManifestMeta, PropInstance, RailSegment, RoadSegment, TerrainGrid, WaterFeature,
@@ -21,10 +25,6 @@ pub use manifest_store::{
     read_manifest_sqlite_all, read_manifest_sqlite_subset, stream_manifest_sqlite_all,
     write_manifest_sqlite, ManifestStoreResult, StoredChunkRecord, StoredManifestMeta,
     StoredManifestSubset,
-};
-pub use lua_runtime_shards::{
-    write_runtime_lua_shards_from_sqlite, write_runtime_lua_shards_from_stored_subset,
-    RuntimeLuaShardsOptions, RuntimeLuaShardsStats,
 };
 use subplans::derive_chunk_ref;
 pub use subplans::{ChunkRef, ChunkSubplan, SubplanBounds, PARTITION_VERSION};
@@ -1047,7 +1047,10 @@ mod tests {
 
         assert_eq!(material_by_id.get("pitch_semantics"), Some(&"Grass"));
         assert_eq!(material_by_id.get("education_semantics"), Some(&"Brick"));
-        assert_eq!(material_by_id.get("religious_semantics"), Some(&"Sandstone"));
+        assert_eq!(
+            material_by_id.get("religious_semantics"),
+            Some(&"Sandstone")
+        );
         assert_eq!(material_by_id.get("retail_semantics"), Some(&"Limestone"));
         assert_eq!(material_by_id.get("railway_semantics"), Some(&"Slate"));
 

@@ -2507,3 +2507,20 @@ The compact historical archive index is:
   - `cargo test -p arbx_planetary_store -p arbx_cli planetary_store --quiet`
   - `cargo test -p arbx_planetary_store --quiet`
   - `git diff --check rust/crates/arbx_pipeline/src/truth_pack.rs rust/crates/arbx_planetary_store/Cargo.toml rust/crates/arbx_planetary_store/src/lib.rs rust/crates/arbx_cli/src/main.rs`
+
+## 2026-04-03 20:32 CDT
+
+- Extended the planetary backbone again on `main`:
+  - `arbx_planetary_store`
+    - scene selection now ranks overlapping geo candidates by attached truth-pack richness first, then by tighter geographic coverage
+    - geo-bbox scene queries now surface truth-pack metadata consistently instead of dropping provenance on one path
+    - added best-scene helpers for geo points and slippy tiles so scene choice can stay inside the canonical store
+    - added tile-driven `PlanetaryDeliveryWindow` construction, so geographic tiles can produce the same orchestration artifact as geo-point delivery
+  - `arbx_cli`
+    - `emit-manifest-subset` and `emit-runtime-lua` no longer require `--scene` when `--point` or `--tile` already identifies the target scene
+    - `delivery-window` now supports `--tile Z,X,Y` in addition to `--point LAT,LON`
+- Verification:
+  - `cargo fmt --all`
+  - `cargo test -p arbx_planetary_store planetary_store_ -- --nocapture`
+  - `cargo test -p arbx_cli planetary_store_ -- --nocapture`
+  - `git diff --check`
