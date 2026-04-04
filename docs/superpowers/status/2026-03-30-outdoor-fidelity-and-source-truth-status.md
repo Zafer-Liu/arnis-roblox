@@ -3065,6 +3065,16 @@ The compact historical archive index is:
   - `python3 -m unittest scripts.tests.test_run_studio_harness scripts.tests.test_austin_runtime_contract -v`
   - `git diff --check`
 
+## 2026-04-04 10:11 CDT
+
+- Extended the remote proof control lane again on `main`:
+  - `run_studio_harness_remote.sh`
+    - remote wrapper usage now explicitly documents route-driven proof forwarding
+    - route-driven harness runs are now represented in the remote contract surface instead of being implicit pass-through behavior
+- Verification:
+  - `python3 -m unittest scripts.tests.test_run_studio_harness_remote scripts.tests.test_run_studio_harness -v`
+  - `git diff --check`
+
 ## 2026-04-04 09:37 CDT
 
 - Extended the runtime consumption path on `main`:

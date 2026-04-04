@@ -152,6 +152,9 @@ class RunStudioHarnessRemoteTests(unittest.TestCase):
         self.assertIn('--remote-host HOST', self.text)
         self.assertIn('--remote-root PATH', self.text)
         self.assertIn('--no-sync', self.text)
+        self.assertIn('--route-catalog PlanetaryRouteBundle.route-catalog', self.text)
+        self.assertIn('--route-lane active', self.text)
+        self.assertIn('--route-step-index 0', self.text)
 
     def test_example_profile_template_exists(self) -> None:
         template_path = ROOT / "scripts" / "remote_studio_profiles.example.sh"

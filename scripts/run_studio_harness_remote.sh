@@ -292,6 +292,7 @@ Local config:
 All remaining arguments are forwarded to scripts/run_studio_harness.sh on the remote host.
 Example:
   $(basename "$0") --remote-profile tertiary -- --no-play --edit-tests --spec-filter ImportManifestRegistrationChunkTruth.spec
+  $(basename "$0") --remote-profile tertiary -- --play --route-catalog PlanetaryRouteBundle.route-catalog --route-lane active --route-step-index 0
 EOF
 }
 
