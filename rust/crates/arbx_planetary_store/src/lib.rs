@@ -1,4 +1,4 @@
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, HashSet};
 use std::fs;
 use std::path::Path;
 
@@ -269,6 +269,57 @@ fn delivery_plan_from_window(
             .map(|chunk| chunk.chunk_id.clone())
             .collect(),
     }
+}
+
+pub fn merge_delivery_plans(
+    plans: &[PlanetaryDeliveryPlan],
+) -> PlanetaryStoreResult<Option<PlanetaryDeliveryPlan>> {
+    let Some(first) = plans.first() else {
+        return Ok(None);
+    };
+    for plan in plans.iter().skip(1) {
+        if plan.planetary_store_path != first.planetary_store_path {
+            return Err("cannot merge delivery plans from different planetary stores".into());
+        }
+        if plan.scene_id != first.scene_id {
+            return Err("cannot merge delivery plans from different scenes".into());
+        }
+    }
+
+    let path = Path::new(&first.planetary_store_path);
+    let chunks = {
+        let mut seen = HashSet::new();
+        let mut ordered = Vec::new();
+        for plan in plans {
+            for chunk_id in &plan.chunk_ids {
+                if seen.insert(chunk_id.clone()) {
+                    ordered.push(chunk_id.clone());
+                }
+            }
+        }
+        ordered
+    };
+    let summaries = read_scene_chunk_summary_by_chunk_ids(path, &first.scene_id, &chunks)?;
+    let (chunk_count, total_feature_count, total_streaming_cost, total_estimated_memory_cost) =
+        summarize_delivery_chunks(&summaries);
+
+    Ok(Some(PlanetaryDeliveryPlan {
+        planetary_store_path: first.planetary_store_path.clone(),
+        scene_id: first.scene_id.clone(),
+        world_name: first.world_name.clone(),
+        manifest_store_path: first.manifest_store_path.clone(),
+        selection_mode: "merged".to_string(),
+        focus_lat: None,
+        focus_lon: None,
+        focus_x: None,
+        focus_z: None,
+        radius_studs: None,
+        chunk_count,
+        total_feature_count,
+        total_streaming_cost,
+        total_estimated_memory_cost,
+        chunk_ids: chunks,
+    }))
 }
 
 fn apply_chunk_summary_constraints(
@@ -2951,6 +3002,54 @@ mod tests {
         assert_eq!(plan.scene_id, "sample_austin");
         assert_eq!(plan.selection_mode, "tile");
         assert_eq!(plan.chunk_count, plan.chunk_ids.len());
+    }
+
+    #[test]
+    fn planetary_store_merges_delivery_plans() {
+        let dir = tempdir().unwrap();
+        let manifest_path = dir.path().join("sample.sqlite");
+        let store_path = dir.path().join("planetary.sqlite");
+
+        let manifest = build_sample_multi_chunk(3, 1);
+        let center = manifest.meta.bbox.center();
+        write_manifest_sqlite(&manifest, &manifest_path).unwrap();
+        ingest_manifest_sqlite(&store_path, &manifest_path, Some("sample_austin")).unwrap();
+
+        let plan_a = build_delivery_plan_around_geo_point(
+            &store_path,
+            center.lat,
+            center.lon,
+            300.0,
+            Some(1),
+            false,
+            false,
+            None,
+            None,
+        )
+        .unwrap()
+        .unwrap();
+        let plan_b = build_delivery_plan_around_point(
+            &store_path,
+            "sample_austin",
+            300.0,
+            128.0,
+            300.0,
+            Some(2),
+            false,
+            false,
+            None,
+            None,
+        )
+        .unwrap()
+        .unwrap();
+
+        let merged = merge_delivery_plans(&[plan_a, plan_b]).unwrap().unwrap();
+        assert_eq!(merged.selection_mode, "merged");
+        assert_eq!(merged.chunk_ids, vec!["0_0".to_string(), "1_0".to_string()]);
+        assert_eq!(merged.chunk_count, 2);
+        assert_eq!(merged.total_feature_count, 4);
+        assert_eq!(merged.total_streaming_cost, 32.0);
+        assert!(merged.focus_lat.is_none());
     }
 
     #[test]

@@ -22,7 +22,7 @@ use arbx_planetary_store::{
     find_best_scene_covering_geo_point, find_best_scene_covering_tile,
     find_scenes_covering_geo_point, find_scenes_covering_tile, find_scenes_intersecting_geo_bbox,
     ingest_manifest_json, ingest_manifest_sqlite, init_planetary_store, list_scenes,
-    read_chunks_by_ids, read_scene_catalog_entry, read_scene_chunk_subset,
+    merge_delivery_plans, read_chunks_by_ids, read_scene_catalog_entry, read_scene_chunk_subset,
     read_scene_chunk_summary_around_geo_point, read_scene_chunk_summary_around_point,
     read_scene_chunk_summary_by_chunk_ids, read_scene_chunk_summary_for_tile,
     read_scene_chunk_summary_subset, read_scene_manifest_subset_around_geo_point,
@@ -1983,7 +1983,7 @@ fn write_json_file<T: serde::Serialize>(
 fn cmd_planetary_store(args: &[String]) -> Result<(), String> {
     let Some(subcommand) = args.first().map(String::as_str) else {
         return Err(
-            "planetary-store requires a subcommand: init | ingest-manifest | ingest-json | attach-truth-pack-summary | summary | list-scenes | scene | subset | subset-summary | fetch-chunks | emit-manifest-subset | emit-runtime-lua | find-scenes | delivery-window | delivery-plan | delivery-bundle | tile-scenes".to_string(),
+            "planetary-store requires a subcommand: init | ingest-manifest | ingest-json | attach-truth-pack-summary | summary | list-scenes | scene | subset | subset-summary | fetch-chunks | emit-manifest-subset | emit-runtime-lua | find-scenes | delivery-window | delivery-plan | merge-delivery-plans | delivery-bundle | tile-scenes".to_string(),
         );
     };
 
@@ -3970,6 +3970,52 @@ fn cmd_planetary_store(args: &[String]) -> Result<(), String> {
             }
             Ok(())
         }
+        "merge-delivery-plans" => {
+            let mut plan_paths: Vec<PathBuf> = Vec::new();
+            let mut out_path: Option<PathBuf> = None;
+            let mut i = 1;
+            while i < args.len() {
+                match args[i].as_str() {
+                    "--plan" => {
+                        let value = args.get(i + 1).ok_or("--plan requires a path")?;
+                        plan_paths.push(PathBuf::from(value));
+                        i += 2;
+                    }
+                    "--out" => {
+                        let value = args.get(i + 1).ok_or("--out requires a path")?;
+                        out_path = Some(PathBuf::from(value));
+                        i += 2;
+                    }
+                    other => {
+                        return Err(format!(
+                            "unknown argument to planetary-store merge-delivery-plans: {other}"
+                        ))
+                    }
+                }
+            }
+            if plan_paths.is_empty() {
+                return Err(
+                    "planetary-store merge-delivery-plans requires at least one --plan PATH"
+                        .to_string(),
+                );
+            }
+            let plans = plan_paths
+                .iter()
+                .map(|path| read_delivery_plan(path))
+                .collect::<Result<Vec<_>, _>>()?;
+            let merged = merge_delivery_plans(&plans)
+                .map_err(|err| format!("planetary-store merge-delivery-plans failed: {err}"))?
+                .ok_or("planetary-store merge-delivery-plans found no plans to merge")?;
+            if let Some(out_path) = out_path.as_ref() {
+                write_delivery_plan_json(&merged, out_path)?;
+                println!("Wrote merged delivery plan {}", out_path.display());
+            } else {
+                let merged_json = serde_json::to_string_pretty(&merged)
+                    .map_err(|err| format!("merge-delivery-plans json failed: {err}"))?;
+                println!("{merged_json}");
+            }
+            Ok(())
+        }
         "delivery-bundle" => {
             let mut store_path: Option<PathBuf> = None;
             let mut scene_id: Option<String> = None;
@@ -3978,7 +4024,7 @@ fn cmd_planetary_store(args: &[String]) -> Result<(), String> {
             let mut point: Option<(f64, f64)> = None;
             let mut tile: Option<(u8, u32, u32)> = None;
             let mut radius_studs: Option<f64> = None;
-            let mut plan_path: Option<PathBuf> = None;
+            let mut plan_paths: Vec<PathBuf> = Vec::new();
             let mut out_path: Option<PathBuf> = None;
             let mut plan_out: Option<PathBuf> = None;
             let mut summary_out: Option<PathBuf> = None;
@@ -4090,7 +4136,7 @@ fn cmd_planetary_store(args: &[String]) -> Result<(), String> {
                     }
                     "--plan" => {
                         let value = args.get(i + 1).ok_or("--plan requires a path")?;
-                        plan_path = Some(PathBuf::from(value));
+                        plan_paths.push(PathBuf::from(value));
                         i += 2;
                     }
                     "--out" => {
@@ -4198,8 +4244,14 @@ fn cmd_planetary_store(args: &[String]) -> Result<(), String> {
                 }
             }
 
-            let plan = if let Some(plan_path) = plan_path {
-                read_delivery_plan(&plan_path)?
+            let plan = if !plan_paths.is_empty() {
+                let plans = plan_paths
+                    .iter()
+                    .map(|path| read_delivery_plan(path))
+                    .collect::<Result<Vec<_>, _>>()?;
+                merge_delivery_plans(&plans)
+                    .map_err(|err| format!("planetary-store delivery-bundle failed: {err}"))?
+                    .ok_or("planetary-store delivery-bundle found no matching scene/chunks")?
             } else {
                 let store_path =
                     resolve_planetary_store_path(store_path.clone(), None, "delivery-bundle")?;
@@ -5788,6 +5840,74 @@ mod tests {
     }
 
     #[test]
+    fn planetary_store_merge_delivery_plans_works() {
+        let tempdir = tempfile::tempdir().unwrap();
+        let store_path = tempdir.path().join("planetary.sqlite");
+        let manifest_path = tempdir.path().join("sample.sqlite");
+        let plan_a_path = tempdir.path().join("delivery-a.json");
+        let plan_b_path = tempdir.path().join("delivery-b.json");
+        let merged_path = tempdir.path().join("delivery-merged.json");
+        let manifest = build_sample_multi_chunk(3, 1);
+        let center = manifest.meta.bbox.center();
+        write_manifest_sqlite(&manifest, &manifest_path).unwrap();
+
+        cmd_planetary_store(&[
+            "ingest-manifest".to_string(),
+            "--store".to_string(),
+            store_path.display().to_string(),
+            "--manifest-sqlite".to_string(),
+            manifest_path.display().to_string(),
+            "--scene".to_string(),
+            "austin".to_string(),
+        ])
+        .unwrap();
+
+        cmd_planetary_store(&[
+            "delivery-plan".to_string(),
+            "--store".to_string(),
+            store_path.display().to_string(),
+            "--point".to_string(),
+            format!("{},{}", center.lat, center.lon),
+            "--radius-studs".to_string(),
+            "300".to_string(),
+            "--out".to_string(),
+            plan_a_path.display().to_string(),
+        ])
+        .unwrap();
+
+        cmd_planetary_store(&[
+            "delivery-plan".to_string(),
+            "--store".to_string(),
+            store_path.display().to_string(),
+            "--scene".to_string(),
+            "austin".to_string(),
+            "--around-studs".to_string(),
+            "300,128".to_string(),
+            "--radius-studs".to_string(),
+            "300".to_string(),
+            "--out".to_string(),
+            plan_b_path.display().to_string(),
+        ])
+        .unwrap();
+
+        cmd_planetary_store(&[
+            "merge-delivery-plans".to_string(),
+            "--plan".to_string(),
+            plan_a_path.display().to_string(),
+            "--plan".to_string(),
+            plan_b_path.display().to_string(),
+            "--out".to_string(),
+            merged_path.display().to_string(),
+        ])
+        .unwrap();
+
+        let merged: Value =
+            serde_json::from_str(&std::fs::read_to_string(&merged_path).unwrap()).unwrap();
+        assert_eq!(merged["selection_mode"], "merged");
+        assert_eq!(merged["chunk_count"], 2);
+    }
+
+    #[test]
     fn planetary_store_emit_manifest_subset_works() {
         let tempdir = tempfile::tempdir().unwrap();
         let store_path = tempdir.path().join("planetary.sqlite");
@@ -6244,6 +6364,74 @@ mod tests {
         assert!(window_path.exists());
         assert!(subset_path.exists());
         assert!(output_dir.join("PlanetaryIndex.lua").exists());
+    }
+
+    #[test]
+    fn planetary_store_delivery_bundle_accepts_multiple_plans() {
+        let tempdir = tempfile::tempdir().unwrap();
+        let store_path = tempdir.path().join("planetary.sqlite");
+        let manifest_path = tempdir.path().join("sample.sqlite");
+        let plan_a_path = tempdir.path().join("delivery-a.json");
+        let plan_b_path = tempdir.path().join("delivery-b.json");
+        let bundle_path = tempdir.path().join("delivery-bundle.json");
+        let manifest = build_sample_multi_chunk(3, 1);
+        let center = manifest.meta.bbox.center();
+        write_manifest_sqlite(&manifest, &manifest_path).unwrap();
+
+        cmd_planetary_store(&[
+            "ingest-manifest".to_string(),
+            "--store".to_string(),
+            store_path.display().to_string(),
+            "--manifest-sqlite".to_string(),
+            manifest_path.display().to_string(),
+            "--scene".to_string(),
+            "austin".to_string(),
+        ])
+        .unwrap();
+
+        cmd_planetary_store(&[
+            "delivery-plan".to_string(),
+            "--store".to_string(),
+            store_path.display().to_string(),
+            "--point".to_string(),
+            format!("{},{}", center.lat, center.lon),
+            "--radius-studs".to_string(),
+            "300".to_string(),
+            "--out".to_string(),
+            plan_a_path.display().to_string(),
+        ])
+        .unwrap();
+
+        cmd_planetary_store(&[
+            "delivery-plan".to_string(),
+            "--store".to_string(),
+            store_path.display().to_string(),
+            "--scene".to_string(),
+            "austin".to_string(),
+            "--around-studs".to_string(),
+            "300,128".to_string(),
+            "--radius-studs".to_string(),
+            "300".to_string(),
+            "--out".to_string(),
+            plan_b_path.display().to_string(),
+        ])
+        .unwrap();
+
+        cmd_planetary_store(&[
+            "delivery-bundle".to_string(),
+            "--plan".to_string(),
+            plan_a_path.display().to_string(),
+            "--plan".to_string(),
+            plan_b_path.display().to_string(),
+            "--out".to_string(),
+            bundle_path.display().to_string(),
+        ])
+        .unwrap();
+
+        let bundle: Value =
+            serde_json::from_str(&std::fs::read_to_string(&bundle_path).unwrap()).unwrap();
+        assert_eq!(bundle["plan"]["selection_mode"], "merged");
+        assert_eq!(bundle["plan"]["chunk_count"], 2);
     }
 
     #[test]
