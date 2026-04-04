@@ -79,6 +79,10 @@ pub struct PlanetaryDeliveryWindow {
     pub focus_x: f64,
     pub focus_z: f64,
     pub radius_studs: f64,
+    pub chunk_count: usize,
+    pub total_feature_count: usize,
+    pub total_streaming_cost: f64,
+    pub total_estimated_memory_cost: f64,
     pub chunks: Vec<PlanetaryChunkSummary>,
 }
 
@@ -192,6 +196,23 @@ fn scene_truth_score(entry: &PlanetarySceneCatalogEntry) -> usize {
     entry.truth_pack_feature_count.unwrap_or(0)
         + entry.truth_pack_retained_semantic_count.unwrap_or(0)
         + entry.truth_pack_semantic_lineage_count.unwrap_or(0)
+}
+
+fn summarize_delivery_chunks(chunks: &[PlanetaryChunkSummary]) -> (usize, usize, f64, f64) {
+    let mut total_feature_count = 0usize;
+    let mut total_streaming_cost = 0.0f64;
+    let mut total_estimated_memory_cost = 0.0f64;
+    for chunk in chunks {
+        total_feature_count += chunk.feature_count;
+        total_streaming_cost += chunk.streaming_cost;
+        total_estimated_memory_cost += chunk.estimated_memory_cost.unwrap_or(chunk.streaming_cost);
+    }
+    (
+        chunks.len(),
+        total_feature_count,
+        total_streaming_cost,
+        total_estimated_memory_cost,
+    )
 }
 
 fn compare_scene_priority(
@@ -1323,6 +1344,8 @@ pub fn build_delivery_window_around_geo_point(
         require_buildings,
         require_terrain,
     )?;
+    let (chunk_count, total_feature_count, total_streaming_cost, total_estimated_memory_cost) =
+        summarize_delivery_chunks(&chunks);
     Ok(Some(PlanetaryDeliveryWindow {
         scene: scene.entry,
         focus_lat: lat,
@@ -1330,6 +1353,10 @@ pub fn build_delivery_window_around_geo_point(
         focus_x: focus.x,
         focus_z: focus.z,
         radius_studs,
+        chunk_count,
+        total_feature_count,
+        total_streaming_cost,
+        total_estimated_memory_cost,
         chunks,
     }))
 }
@@ -1366,6 +1393,8 @@ pub fn build_delivery_window_for_tile(
         require_buildings,
         require_terrain,
     )?;
+    let (chunk_count, total_feature_count, total_streaming_cost, total_estimated_memory_cost) =
+        summarize_delivery_chunks(&chunks);
     Ok(Some(PlanetaryDeliveryWindow {
         scene,
         focus_lat: tile_center.lat,
@@ -1373,6 +1402,10 @@ pub fn build_delivery_window_for_tile(
         focus_x: focus.x,
         focus_z: focus.z,
         radius_studs,
+        chunk_count,
+        total_feature_count,
+        total_streaming_cost,
+        total_estimated_memory_cost,
         chunks,
     }))
 }
@@ -2340,6 +2373,9 @@ mod tests {
         .unwrap();
         assert_eq!(window.scene.scene_id, "sample_austin");
         assert_eq!(window.chunks.len(), 1);
+        assert_eq!(window.chunk_count, 1);
+        assert_eq!(window.total_feature_count, window.chunks[0].feature_count);
+        assert_eq!(window.total_streaming_cost, window.chunks[0].streaming_cost);
     }
 
     #[test]
@@ -2365,6 +2401,9 @@ mod tests {
             .unwrap();
         assert_eq!(window.scene.scene_id, "sample_austin");
         assert!(!window.chunks.is_empty());
+        assert_eq!(window.chunk_count, window.chunks.len());
+        assert!(window.total_feature_count >= window.chunks[0].feature_count);
+        assert!(window.total_streaming_cost >= window.chunks[0].streaming_cost);
     }
 
     #[test]

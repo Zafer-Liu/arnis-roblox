@@ -2524,3 +2524,15 @@ The compact historical archive index is:
   - `cargo test -p arbx_planetary_store planetary_store_ -- --nocapture`
   - `cargo test -p arbx_cli planetary_store_ -- --nocapture`
   - `git diff --check`
+
+## 2026-04-03 20:41 CDT
+
+- Extended the planetary backbone again on `main`:
+  - `arbx_planetary_store`
+    - `PlanetaryDeliveryWindow` now carries aggregate chunk count, feature count, streaming cost, and estimated memory cost so higher-level schedulers can act on costed selections directly
+    - both geo-point and tile delivery windows now emit the same cost summary shape
+- Verification:
+  - `cargo fmt --all`
+  - `cargo test -p arbx_planetary_store planetary_store_ -- --nocapture`
+  - `cargo test -p arbx_cli planetary_store_delivery_window_ -- --nocapture`
+  - `git diff --check`
