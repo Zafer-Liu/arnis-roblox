@@ -2566,3 +2566,18 @@ The compact historical archive index is:
   - `cargo test -p arbx_planetary_store planetary_store_ -- --nocapture`
   - `cargo test -p arbx_cli planetary_store_ -- --nocapture`
   - `git diff --check`
+
+## 2026-04-03 21:26 CDT
+
+- Extended the planetary backbone again on `main`:
+  - `arbx_planetary_store`
+    - delivery windows now support scene-local local-point and scene-local bbox selection in addition to geo-point and tile selection
+    - local and geographic scheduling now share the same costed delivery-window artifact instead of splitting into parallel summary-only paths
+  - `arbx_cli`
+    - `delivery-window` now supports `--scene --around-studs X,Z --radius-studs R` and `--scene --bbox-studs MIN_X,MIN_Z,MAX_X,MAX_Z`
+    - `subset-summary` now resolves the scene automatically for point/tile selection, matching the other high-level planetary commands
+- Verification:
+  - `cargo fmt --all`
+  - `cargo test -p arbx_planetary_store planetary_store_ -- --nocapture`
+  - `cargo test -p arbx_cli planetary_store_ -- --nocapture`
+  - `git diff --check`
