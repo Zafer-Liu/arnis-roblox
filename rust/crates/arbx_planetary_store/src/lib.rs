@@ -53,6 +53,7 @@ pub struct PlanetarySceneSubset {
 
 #[derive(Debug, Clone, PartialEq, Serialize)]
 pub struct PlanetaryChunkSummary {
+    pub scene_id: String,
     pub chunk_id: String,
     pub origin_x: f64,
     pub origin_z: f64,
@@ -69,6 +70,12 @@ pub struct PlanetaryChunkSummary {
     pub landuse_count: usize,
     pub barrier_count: usize,
     pub center_distance_sq: Option<f64>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct PlanetaryChunkRef {
+    pub scene_id: String,
+    pub chunk_id: String,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize)]
@@ -99,6 +106,8 @@ pub struct PlanetaryDeliveryPlan {
     pub source_selector_count: usize,
     #[serde(default)]
     pub source_selection_modes: Vec<String>,
+    #[serde(default)]
+    pub chunk_refs: Vec<PlanetaryChunkRef>,
     pub focus_lat: Option<f64>,
     pub focus_lon: Option<f64>,
     pub focus_x: Option<f64>,
@@ -114,6 +123,7 @@ pub struct PlanetaryDeliveryPlan {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct PlanetaryRouteSession {
     pub planetary_store_path: String,
+    pub scene_ids: Vec<String>,
     pub scene_id: String,
     pub world_name: String,
     pub manifest_store_path: String,
@@ -301,7 +311,7 @@ fn summarize_chunk_set<'a>(
         total_feature_count += chunk.feature_count;
         total_streaming_cost += chunk.streaming_cost;
         total_estimated_memory_cost += chunk.estimated_memory_cost.unwrap_or(chunk.streaming_cost);
-        chunk_ids.push(chunk.chunk_id.clone());
+        chunk_ids.push(format!("{}:{}", chunk.scene_id, chunk.chunk_id));
     }
     PlanetaryRouteChunkSetSummary {
         chunk_count: chunk_ids.len(),
@@ -310,6 +320,29 @@ fn summarize_chunk_set<'a>(
         total_streaming_cost,
         total_estimated_memory_cost,
     }
+}
+
+fn plan_chunk_refs(plan: &PlanetaryDeliveryPlan) -> Vec<PlanetaryChunkRef> {
+    if !plan.chunk_refs.is_empty() {
+        return plan.chunk_refs.clone();
+    }
+    plan.chunk_ids
+        .iter()
+        .map(|chunk_id| PlanetaryChunkRef {
+            scene_id: plan.scene_id.clone(),
+            chunk_id: chunk_id.clone(),
+        })
+        .collect()
+}
+
+fn plan_scene_ids(plan: &PlanetaryDeliveryPlan) -> Vec<String> {
+    let mut scene_ids = plan_chunk_refs(plan)
+        .into_iter()
+        .map(|chunk_ref| chunk_ref.scene_id)
+        .collect::<Vec<_>>();
+    scene_ids.sort();
+    scene_ids.dedup();
+    scene_ids
 }
 
 fn delivery_plan_from_window(
@@ -327,6 +360,14 @@ fn delivery_plan_from_window(
         source_plan_count: 1,
         source_selector_count: 1,
         source_selection_modes: vec![selection_mode.to_string()],
+        chunk_refs: window
+            .chunks
+            .iter()
+            .map(|chunk| PlanetaryChunkRef {
+                scene_id: window.scene.scene_id.clone(),
+                chunk_id: chunk.chunk_id.clone(),
+            })
+            .collect(),
         focus_lat: if include_geo_focus {
             Some(window.focus_lat)
         } else {
@@ -362,25 +403,23 @@ pub fn merge_delivery_plans(
         if plan.planetary_store_path != first.planetary_store_path {
             return Err("cannot merge delivery plans from different planetary stores".into());
         }
-        if plan.scene_id != first.scene_id {
-            return Err("cannot merge delivery plans from different scenes".into());
-        }
     }
 
     let path = Path::new(&first.planetary_store_path);
-    let chunks = {
+    let chunk_refs = {
         let mut seen = HashSet::new();
         let mut ordered = Vec::new();
         for plan in plans {
-            for chunk_id in &plan.chunk_ids {
-                if seen.insert(chunk_id.clone()) {
-                    ordered.push(chunk_id.clone());
+            for chunk_ref in plan_chunk_refs(plan) {
+                let key = format!("{}:{}", chunk_ref.scene_id, chunk_ref.chunk_id);
+                if seen.insert(key) {
+                    ordered.push(chunk_ref);
                 }
             }
         }
         ordered
     };
-    let summaries = read_scene_chunk_summary_by_chunk_ids(path, &first.scene_id, &chunks)?;
+    let summaries = read_chunk_summaries_by_refs(path, &chunk_refs)?;
     let (chunk_count, total_feature_count, total_streaming_cost, total_estimated_memory_cost) =
         summarize_delivery_chunks(&summaries);
     let mut source_selection_modes = Vec::new();
@@ -392,16 +431,44 @@ pub fn merge_delivery_plans(
         };
         source_selection_modes.extend(modes);
     }
+    let mut scene_ids = plans.iter().flat_map(plan_scene_ids).collect::<Vec<_>>();
+    scene_ids.sort();
+    scene_ids.dedup();
+    let is_single_scene = scene_ids.len() == 1;
+    let merged_scene_id = if is_single_scene {
+        first.scene_id.clone()
+    } else {
+        "__multi_scene__".to_string()
+    };
+    let merged_world_name = if is_single_scene {
+        first.world_name.clone()
+    } else {
+        "MultiSceneRoute".to_string()
+    };
+    let merged_manifest_store_path = if is_single_scene {
+        first.manifest_store_path.clone()
+    } else {
+        String::new()
+    };
+    let merged_chunk_ids = if is_single_scene {
+        chunk_refs
+            .iter()
+            .map(|chunk_ref| chunk_ref.chunk_id.clone())
+            .collect()
+    } else {
+        Vec::new()
+    };
 
     Ok(Some(PlanetaryDeliveryPlan {
         planetary_store_path: first.planetary_store_path.clone(),
-        scene_id: first.scene_id.clone(),
-        world_name: first.world_name.clone(),
-        manifest_store_path: first.manifest_store_path.clone(),
+        scene_id: merged_scene_id,
+        world_name: merged_world_name,
+        manifest_store_path: merged_manifest_store_path,
         selection_mode: "merged".to_string(),
         source_plan_count: plans.iter().map(|plan| plan.source_plan_count).sum(),
         source_selector_count: plans.iter().map(|plan| plan.source_selector_count).sum(),
         source_selection_modes,
+        chunk_refs: chunk_refs.clone(),
         focus_lat: None,
         focus_lon: None,
         focus_x: None,
@@ -411,7 +478,7 @@ pub fn merge_delivery_plans(
         total_feature_count,
         total_streaming_cost,
         total_estimated_memory_cost,
-        chunk_ids: chunks,
+        chunk_ids: merged_chunk_ids,
     }))
 }
 
@@ -421,8 +488,12 @@ pub fn build_route_delivery_session(
     let Some(merged_plan) = merge_delivery_plans(plans)? else {
         return Ok(None);
     };
+    let mut scene_ids = plans.iter().flat_map(plan_scene_ids).collect::<Vec<_>>();
+    scene_ids.sort();
+    scene_ids.dedup();
     Ok(Some(PlanetaryRouteSession {
         planetary_store_path: merged_plan.planetary_store_path.clone(),
+        scene_ids,
         scene_id: merged_plan.scene_id.clone(),
         world_name: merged_plan.world_name.clone(),
         manifest_store_path: merged_plan.manifest_store_path.clone(),
@@ -2242,6 +2313,66 @@ pub fn read_scene_chunk_summary_by_chunk_ids(
         let row = statement
             .query_row(params![scene_id, chunk_id], |row| {
                 Ok(PlanetaryChunkSummary {
+                    scene_id: scene_id.to_string(),
+                    chunk_id: row.get(0)?,
+                    origin_x: row.get(1)?,
+                    origin_z: row.get(2)?,
+                    feature_count: row.get::<_, i64>(3)? as usize,
+                    streaming_cost: row.get(4)?,
+                    estimated_memory_cost: row.get(5)?,
+                    partition_version: row.get(6)?,
+                    has_terrain: row.get::<_, i64>(7)? != 0,
+                    road_count: row.get::<_, i64>(8)? as usize,
+                    rail_count: row.get::<_, i64>(9)? as usize,
+                    building_count: row.get::<_, i64>(10)? as usize,
+                    water_count: row.get::<_, i64>(11)? as usize,
+                    prop_count: row.get::<_, i64>(12)? as usize,
+                    landuse_count: row.get::<_, i64>(13)? as usize,
+                    barrier_count: row.get::<_, i64>(14)? as usize,
+                    center_distance_sq: None,
+                })
+            })
+            .optional()?;
+        if let Some(chunk) = row {
+            chunks.push(chunk);
+        }
+    }
+    Ok(chunks)
+}
+
+pub fn read_chunk_summaries_by_refs(
+    path: &Path,
+    chunk_refs: &[PlanetaryChunkRef],
+) -> PlanetaryStoreResult<Vec<PlanetaryChunkSummary>> {
+    let connection = open_store(path)?;
+    let mut statement = connection.prepare(
+        "
+        SELECT
+            chunk_id,
+            origin_x,
+            origin_z,
+            feature_count,
+            streaming_cost,
+            estimated_memory_cost,
+            partition_version,
+            has_terrain,
+            road_count,
+            rail_count,
+            building_count,
+            water_count,
+            prop_count,
+            landuse_count,
+            barrier_count
+        FROM chunks
+        WHERE scene_id = ?1 AND chunk_id = ?2
+        ",
+    )?;
+    let mut chunks = Vec::new();
+    for chunk_ref in chunk_refs {
+        let row = statement
+            .query_row(params![chunk_ref.scene_id, chunk_ref.chunk_id], |row| {
+                Ok(PlanetaryChunkSummary {
+                    scene_id: chunk_ref.scene_id.clone(),
                     chunk_id: row.get(0)?,
                     origin_x: row.get(1)?,
                     origin_z: row.get(2)?,
@@ -2272,10 +2403,16 @@ pub fn build_delivery_window_from_plan(
     path: &Path,
     plan: &PlanetaryDeliveryPlan,
 ) -> PlanetaryStoreResult<Option<PlanetaryDeliveryWindow>> {
+    let scene_ids = plan_scene_ids(plan);
+    if scene_ids.len() > 1 {
+        return Err(
+            "cannot build a single delivery window from a multi-scene delivery plan".into(),
+        );
+    }
     let Some(scene) = read_scene_catalog_entry(path, &plan.scene_id)? else {
         return Ok(None);
     };
-    let chunks = read_scene_chunk_summary_by_chunk_ids(path, &plan.scene_id, &plan.chunk_ids)?;
+    let chunks = read_chunk_summaries_by_refs(path, &plan_chunk_refs(plan))?;
     Ok(Some(PlanetaryDeliveryWindow {
         scene,
         focus_lat: plan.focus_lat.unwrap_or(0.0),
@@ -2304,15 +2441,16 @@ pub fn build_hydrated_route_session(
         let current_chunk_ids = window
             .chunks
             .iter()
-            .map(|chunk| chunk.chunk_id.clone())
+            .map(|chunk| format!("{}:{}", chunk.scene_id, chunk.chunk_id))
             .collect::<HashSet<_>>();
         let entering = summarize_chunk_set(window.chunks.iter().filter(|chunk| {
             previous_window
                 .as_ref()
                 .map(|prev| {
-                    prev.chunks
-                        .iter()
-                        .all(|prev_chunk| prev_chunk.chunk_id != chunk.chunk_id)
+                    prev.chunks.iter().all(|prev_chunk| {
+                        prev_chunk.scene_id != chunk.scene_id
+                            || prev_chunk.chunk_id != chunk.chunk_id
+                    })
                 })
                 .unwrap_or(true)
         }));
@@ -2320,9 +2458,10 @@ pub fn build_hydrated_route_session(
             previous_window
                 .as_ref()
                 .map(|prev| {
-                    prev.chunks
-                        .iter()
-                        .any(|prev_chunk| prev_chunk.chunk_id == chunk.chunk_id)
+                    prev.chunks.iter().any(|prev_chunk| {
+                        prev_chunk.scene_id == chunk.scene_id
+                            && prev_chunk.chunk_id == chunk.chunk_id
+                    })
                 })
                 .unwrap_or(false)
         }));
@@ -2330,9 +2469,10 @@ pub fn build_hydrated_route_session(
             previous_window
                 .as_ref()
                 .map(|prev| {
-                    prev.chunks
-                        .iter()
-                        .filter(|chunk| !current_chunk_ids.contains(&chunk.chunk_id))
+                    prev.chunks.iter().filter(|chunk| {
+                        !current_chunk_ids
+                            .contains(&format!("{}:{}", chunk.scene_id, chunk.chunk_id))
+                    })
                 })
                 .into_iter()
                 .flatten(),
@@ -2419,6 +2559,7 @@ pub fn read_scene_chunk_summary_subset(
         ],
         |row| {
             Ok(PlanetaryChunkSummary {
+                scene_id: scene_id.to_string(),
                 chunk_id: row.get(0)?,
                 origin_x: row.get(1)?,
                 origin_z: row.get(2)?,
@@ -2517,6 +2658,7 @@ pub fn read_scene_chunk_summary_around_point(
         ],
         |row| {
             Ok(PlanetaryChunkSummary {
+                scene_id: scene_id.to_string(),
                 chunk_id: row.get(0)?,
                 origin_x: row.get(1)?,
                 origin_z: row.get(2)?,
@@ -3341,6 +3483,46 @@ mod tests {
         assert_eq!(hydrated.steps[0].leaving.chunk_count, 0);
         assert_eq!(hydrated.steps[1].retained.chunk_count, 1);
         assert_eq!(hydrated.steps[1].entering.chunk_count, 0);
+    }
+
+    #[test]
+    fn planetary_store_builds_cross_scene_route_delivery_session() {
+        let dir = tempdir().unwrap();
+        let manifest_a_path = dir.path().join("sample-a.sqlite");
+        let manifest_b_path = dir.path().join("sample-b.sqlite");
+        let store_path = dir.path().join("planetary.sqlite");
+
+        let manifest_a = build_sample_multi_chunk(1, 1);
+        let center_a = manifest_a.meta.bbox.center();
+        let mut manifest_b = build_sample_multi_chunk(1, 1);
+        manifest_b.meta.world_name = "SampleAustinLikeBlockB".to_string();
+        manifest_b.meta.bbox = arbx_geo::BoundingBox::new(30.30, -97.70, 30.302, -97.698);
+        let center_b = manifest_b.meta.bbox.center();
+        write_manifest_sqlite(&manifest_a, &manifest_a_path).unwrap();
+        write_manifest_sqlite(&manifest_b, &manifest_b_path).unwrap();
+        ingest_manifest_sqlite(&store_path, &manifest_a_path, Some("sample_austin_a")).unwrap();
+        ingest_manifest_sqlite(&store_path, &manifest_b_path, Some("sample_austin_b")).unwrap();
+
+        let session = build_route_delivery_session_for_geo_points(
+            &store_path,
+            &[(center_a.lat, center_a.lon), (center_b.lat, center_b.lon)],
+            300.0,
+            Some(1),
+            false,
+            false,
+            None,
+            None,
+        )
+        .unwrap()
+        .unwrap();
+
+        assert_eq!(
+            session.scene_ids,
+            vec!["sample_austin_a".to_string(), "sample_austin_b".to_string()]
+        );
+        assert_eq!(session.merged_plan.scene_id, "__multi_scene__");
+        assert_eq!(session.merged_plan.chunk_ids.len(), 0);
+        assert_eq!(session.steps.len(), 2);
     }
 
     #[test]

@@ -22,9 +22,9 @@ use arbx_planetary_store::{
     build_route_delivery_session_for_geo_points, find_best_scene_covering_geo_point,
     find_best_scene_covering_tile, find_scenes_covering_geo_point, find_scenes_covering_tile,
     find_scenes_intersecting_geo_bbox, ingest_manifest_json, ingest_manifest_sqlite,
-    init_planetary_store, list_scenes, merge_delivery_plans, read_chunks_by_ids,
-    read_scene_catalog_entry, read_scene_chunk_subset, read_scene_chunk_summary_around_geo_point,
-    read_scene_chunk_summary_around_point, read_scene_chunk_summary_by_chunk_ids,
+    init_planetary_store, list_scenes, merge_delivery_plans, read_chunk_summaries_by_refs,
+    read_chunks_by_ids, read_scene_catalog_entry, read_scene_chunk_subset,
+    read_scene_chunk_summary_around_geo_point, read_scene_chunk_summary_around_point,
     read_scene_chunk_summary_for_tile, read_scene_chunk_summary_subset,
     read_scene_manifest_subset_around_geo_point, read_scene_manifest_subset_by_chunk_ids,
     summarize_planetary_store,
@@ -1954,6 +1954,74 @@ fn read_route_session(
     })
 }
 
+fn plan_chunk_refs(
+    plan: &arbx_planetary_store::PlanetaryDeliveryPlan,
+) -> Vec<arbx_planetary_store::PlanetaryChunkRef> {
+    if !plan.chunk_refs.is_empty() {
+        return plan.chunk_refs.clone();
+    }
+    plan.chunk_ids
+        .iter()
+        .map(|chunk_id| arbx_planetary_store::PlanetaryChunkRef {
+            scene_id: plan.scene_id.clone(),
+            chunk_id: chunk_id.clone(),
+        })
+        .collect()
+}
+
+fn plan_scene_ids(plan: &arbx_planetary_store::PlanetaryDeliveryPlan) -> Vec<String> {
+    let mut scene_ids = plan_chunk_refs(plan)
+        .into_iter()
+        .map(|chunk_ref| chunk_ref.scene_id)
+        .collect::<Vec<_>>();
+    scene_ids.sort();
+    scene_ids.dedup();
+    scene_ids
+}
+
+fn single_scene_plan_scene_id(
+    plan: &arbx_planetary_store::PlanetaryDeliveryPlan,
+    command_name: &str,
+) -> Result<String, String> {
+    let scene_ids = plan_scene_ids(plan);
+    if scene_ids.len() != 1 {
+        return Err(format!(
+            "planetary-store {command_name} requires a single-scene delivery artifact; use --session for cross-scene route truth"
+        ));
+    }
+    Ok(scene_ids[0].clone())
+}
+
+fn single_scene_plan_chunk_ids(
+    plan: &arbx_planetary_store::PlanetaryDeliveryPlan,
+    scene_id: &str,
+) -> Vec<String> {
+    plan_chunk_refs(plan)
+        .into_iter()
+        .filter(|chunk_ref| chunk_ref.scene_id == scene_id)
+        .map(|chunk_ref| chunk_ref.chunk_id)
+        .collect()
+}
+
+fn read_chunk_summary_for_plan(
+    store_path: &Path,
+    plan: &arbx_planetary_store::PlanetaryDeliveryPlan,
+) -> Result<Vec<arbx_planetary_store::PlanetaryChunkSummary>, String> {
+    read_chunk_summaries_by_refs(store_path, &plan_chunk_refs(plan))
+        .map_err(|err| format!("failed reading delivery plan chunk summaries: {err}"))
+}
+
+fn read_manifest_subset_for_plan_single_scene(
+    store_path: &Path,
+    plan: &arbx_planetary_store::PlanetaryDeliveryPlan,
+    command_name: &str,
+) -> Result<StoredManifestSubset, String> {
+    let scene_id = single_scene_plan_scene_id(plan, command_name)?;
+    let chunk_ids = single_scene_plan_chunk_ids(plan, &scene_id);
+    read_scene_manifest_subset_by_chunk_ids(store_path, &scene_id, &chunk_ids)
+        .map_err(|err| format!("planetary-store {command_name} failed: {err}"))
+}
+
 fn parse_lat_lon_pair(value: &str, flag_name: &str) -> Result<(f64, f64), String> {
     let parts: Vec<f64> = value
         .split(',')
@@ -2508,12 +2576,8 @@ fn cmd_planetary_store(args: &[String]) -> Result<(), String> {
                 let plan = read_delivery_plan(&plan_path)?;
                 let store_path =
                     resolve_planetary_store_path(store_path, Some(&plan), None, "subset-summary")?;
-                let subset = read_scene_chunk_summary_by_chunk_ids(
-                    &store_path,
-                    &plan.scene_id,
-                    &plan.chunk_ids,
-                )
-                .map_err(|err| format!("planetary-store subset-summary plan failed: {err}"))?;
+                let subset = read_chunk_summary_for_plan(&store_path, &plan)
+                    .map_err(|err| format!("planetary-store subset-summary plan failed: {err}"))?;
                 println!(
                     "{}",
                     serde_json::to_string_pretty(&subset)
@@ -2529,12 +2593,10 @@ fn cmd_planetary_store(args: &[String]) -> Result<(), String> {
                     Some(&session),
                     "subset-summary",
                 )?;
-                let subset = read_scene_chunk_summary_by_chunk_ids(
-                    &store_path,
-                    &session.scene_id,
-                    &session.merged_plan.chunk_ids,
-                )
-                .map_err(|err| format!("planetary-store subset-summary session failed: {err}"))?;
+                let subset = read_chunk_summary_for_plan(&store_path, &session.merged_plan)
+                    .map_err(|err| {
+                        format!("planetary-store subset-summary session failed: {err}")
+                    })?;
                 println!(
                     "{}",
                     serde_json::to_string_pretty(&subset)
@@ -2689,11 +2751,24 @@ fn cmd_planetary_store(args: &[String]) -> Result<(), String> {
                 let plan = read_delivery_plan(&plan_path)?;
                 let store_path =
                     resolve_planetary_store_path(store_path, Some(&plan), None, "fetch-chunks")?;
-                let subset = read_chunks_by_ids(&store_path, &plan.scene_id, &plan.chunk_ids)
-                    .map_err(|err| format!("planetary-store fetch-chunks failed: {err}"))?;
+                let refs = plan_chunk_refs(&plan);
+                let mut by_scene = std::collections::BTreeMap::<String, Vec<String>>::new();
+                for chunk_ref in refs {
+                    by_scene
+                        .entry(chunk_ref.scene_id)
+                        .or_default()
+                        .push(chunk_ref.chunk_id);
+                }
+                let subsets = by_scene
+                    .into_iter()
+                    .map(|(scene_id, chunk_ids)| {
+                        read_chunks_by_ids(&store_path, &scene_id, &chunk_ids)
+                            .map_err(|err| format!("planetary-store fetch-chunks failed: {err}"))
+                    })
+                    .collect::<Result<Vec<_>, _>>()?;
                 println!(
                     "{}",
-                    serde_json::to_string_pretty(&subset)
+                    serde_json::to_string_pretty(&subsets)
                         .map_err(|err| format!("fetch-chunks json failed: {err}"))?
                 );
                 return Ok(());
@@ -2706,15 +2781,24 @@ fn cmd_planetary_store(args: &[String]) -> Result<(), String> {
                     Some(&session),
                     "fetch-chunks",
                 )?;
-                let subset = read_chunks_by_ids(
-                    &store_path,
-                    &session.scene_id,
-                    &session.merged_plan.chunk_ids,
-                )
-                .map_err(|err| format!("planetary-store fetch-chunks failed: {err}"))?;
+                let refs = plan_chunk_refs(&session.merged_plan);
+                let mut by_scene = std::collections::BTreeMap::<String, Vec<String>>::new();
+                for chunk_ref in refs {
+                    by_scene
+                        .entry(chunk_ref.scene_id)
+                        .or_default()
+                        .push(chunk_ref.chunk_id);
+                }
+                let subsets = by_scene
+                    .into_iter()
+                    .map(|(scene_id, chunk_ids)| {
+                        read_chunks_by_ids(&store_path, &scene_id, &chunk_ids)
+                            .map_err(|err| format!("planetary-store fetch-chunks failed: {err}"))
+                    })
+                    .collect::<Result<Vec<_>, _>>()?;
                 println!(
                     "{}",
-                    serde_json::to_string_pretty(&subset)
+                    serde_json::to_string_pretty(&subsets)
                         .map_err(|err| format!("fetch-chunks json failed: {err}"))?
                 );
                 return Ok(());
@@ -2923,10 +3007,10 @@ fn cmd_planetary_store(args: &[String]) -> Result<(), String> {
                     None,
                     "emit-manifest-subset",
                 )?;
-                let subset = read_scene_manifest_subset_by_chunk_ids(
+                let subset = read_manifest_subset_for_plan_single_scene(
                     &store_path,
-                    &plan.scene_id,
-                    &plan.chunk_ids,
+                    &plan,
+                    "emit-manifest-subset",
                 )
                 .map_err(|err| {
                     format!("planetary-store emit-manifest-subset plan failed: {err}")
@@ -2956,10 +3040,10 @@ fn cmd_planetary_store(args: &[String]) -> Result<(), String> {
                     Some(&session),
                     "emit-manifest-subset",
                 )?;
-                let subset = read_scene_manifest_subset_by_chunk_ids(
+                let subset = read_manifest_subset_for_plan_single_scene(
                     &store_path,
-                    &session.scene_id,
-                    &session.merged_plan.chunk_ids,
+                    &session.merged_plan,
+                    "emit-manifest-subset",
                 )
                 .map_err(|err| {
                     format!("planetary-store emit-manifest-subset session failed: {err}")
@@ -3331,10 +3415,10 @@ fn cmd_planetary_store(args: &[String]) -> Result<(), String> {
                     None,
                     "emit-runtime-lua",
                 )?;
-                let subset = read_scene_manifest_subset_by_chunk_ids(
+                let subset = read_manifest_subset_for_plan_single_scene(
                     &store_path,
-                    &plan.scene_id,
-                    &plan.chunk_ids,
+                    &plan,
+                    "emit-runtime-lua",
                 )
                 .map_err(|err| format!("planetary-store emit-runtime-lua plan failed: {err}"))?;
                 let stats = write_runtime_lua_shards_from_stored_subset(
@@ -3364,10 +3448,10 @@ fn cmd_planetary_store(args: &[String]) -> Result<(), String> {
                     Some(&session),
                     "emit-runtime-lua",
                 )?;
-                let subset = read_scene_manifest_subset_by_chunk_ids(
+                let subset = read_manifest_subset_for_plan_single_scene(
                     &store_path,
-                    &session.scene_id,
-                    &session.merged_plan.chunk_ids,
+                    &session.merged_plan,
+                    "emit-runtime-lua",
                 )
                 .map_err(|err| format!("planetary-store emit-runtime-lua session failed: {err}"))?;
                 let stats = write_runtime_lua_shards_from_stored_subset(
@@ -4885,30 +4969,22 @@ fn cmd_planetary_store(args: &[String]) -> Result<(), String> {
                 }
             }
 
-            let summary =
-                read_scene_chunk_summary_by_chunk_ids(&store_path, &plan.scene_id, &plan.chunk_ids)
-                    .map_err(|err| {
-                        format!("planetary-store delivery-bundle summary failed: {err}")
-                    })?;
+            let summary = read_chunk_summary_for_plan(&store_path, &plan)
+                .map_err(|err| format!("planetary-store delivery-bundle summary failed: {err}"))?;
             if let Some(summary_out) = summary_out.as_ref() {
                 write_json_file(&summary, summary_out, "delivery-bundle summary")?;
             }
 
-            let window = build_delivery_window_from_plan(&store_path, &plan)
-                .map_err(|err| format!("planetary-store delivery-bundle window failed: {err}"))?;
             if let Some(window_out) = window_out.as_ref() {
+                let window =
+                    build_delivery_window_from_plan(&store_path, &plan).map_err(|err| {
+                        format!("planetary-store delivery-bundle window failed: {err}")
+                    })?;
                 write_json_file(&window, window_out, "delivery-bundle window")?;
             }
 
-            let subset = read_scene_manifest_subset_by_chunk_ids(
-                &store_path,
-                &plan.scene_id,
-                &plan.chunk_ids,
-            )
-            .map_err(|err| format!("planetary-store delivery-bundle subset failed: {err}"))?;
-
             let mut result = DeliveryBundleResult {
-                plan,
+                plan: plan.clone(),
                 out: out_path.as_ref().map(|path| path.display().to_string()),
                 plan_out: plan_out.as_ref().map(|path| path.display().to_string()),
                 route_session_out: route_session_out
@@ -4924,11 +5000,23 @@ fn cmd_planetary_store(args: &[String]) -> Result<(), String> {
             };
 
             if let Some(manifest_out) = manifest_out.as_ref() {
+                let subset = read_manifest_subset_for_plan_single_scene(
+                    &store_path,
+                    &plan,
+                    "delivery-bundle subset",
+                )
+                .map_err(|err| format!("planetary-store delivery-bundle subset failed: {err}"))?;
                 let manifest = build_manifest_value_from_stored_subset(subset.clone())?;
                 write_json_file(&manifest, manifest_out, "delivery-bundle manifest")?;
             }
 
             if let Some(output_dir) = output_dir {
+                let subset = read_manifest_subset_for_plan_single_scene(
+                    &store_path,
+                    &plan,
+                    "delivery-bundle subset",
+                )
+                .map_err(|err| format!("planetary-store delivery-bundle subset failed: {err}"))?;
                 let stats = write_runtime_lua_shards_from_stored_subset(
                     &subset,
                     &RuntimeLuaShardsOptions {
@@ -7294,6 +7382,65 @@ mod tests {
         let hydrated: Value =
             serde_json::from_str(&std::fs::read_to_string(&hydrated_route_path).unwrap()).unwrap();
         assert_eq!(hydrated["steps"].as_array().unwrap().len(), 2);
+    }
+
+    #[test]
+    fn planetary_store_route_session_cross_scene_works() {
+        let tempdir = tempfile::tempdir().unwrap();
+        let store_path = tempdir.path().join("planetary.sqlite");
+        let manifest_a_path = tempdir.path().join("sample-a.sqlite");
+        let manifest_b_path = tempdir.path().join("sample-b.sqlite");
+        let session_path = tempdir.path().join("route-session.json");
+
+        let manifest_a = build_sample_multi_chunk(1, 1);
+        let center_a = manifest_a.meta.bbox.center();
+        let mut manifest_b = build_sample_multi_chunk(1, 1);
+        manifest_b.meta.world_name = "SampleAustinLikeBlockB".to_string();
+        manifest_b.meta.bbox = arbx_geo::BoundingBox::new(30.30, -97.70, 30.302, -97.698);
+        let center_b = manifest_b.meta.bbox.center();
+        write_manifest_sqlite(&manifest_a, &manifest_a_path).unwrap();
+        write_manifest_sqlite(&manifest_b, &manifest_b_path).unwrap();
+
+        cmd_planetary_store(&[
+            "ingest-manifest".to_string(),
+            "--store".to_string(),
+            store_path.display().to_string(),
+            "--manifest-sqlite".to_string(),
+            manifest_a_path.display().to_string(),
+            "--scene".to_string(),
+            "austin_a".to_string(),
+        ])
+        .unwrap();
+        cmd_planetary_store(&[
+            "ingest-manifest".to_string(),
+            "--store".to_string(),
+            store_path.display().to_string(),
+            "--manifest-sqlite".to_string(),
+            manifest_b_path.display().to_string(),
+            "--scene".to_string(),
+            "austin_b".to_string(),
+        ])
+        .unwrap();
+
+        cmd_planetary_store(&[
+            "route-session".to_string(),
+            "--store".to_string(),
+            store_path.display().to_string(),
+            "--point".to_string(),
+            format!("{},{}", center_a.lat, center_a.lon),
+            "--point".to_string(),
+            format!("{},{}", center_b.lat, center_b.lon),
+            "--radius-studs".to_string(),
+            "300".to_string(),
+            "--out".to_string(),
+            session_path.display().to_string(),
+        ])
+        .unwrap();
+
+        let session: Value =
+            serde_json::from_str(&std::fs::read_to_string(&session_path).unwrap()).unwrap();
+        assert_eq!(session["scene_ids"].as_array().unwrap().len(), 2);
+        assert_eq!(session["merged_plan"]["scene_id"], "__multi_scene__");
     }
 
     #[test]

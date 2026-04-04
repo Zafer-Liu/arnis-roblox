@@ -2785,3 +2785,20 @@ The compact historical archive index is:
   - `cargo test -p arbx_planetary_store planetary_store_ -- --nocapture`
   - `cargo test -p arbx_cli planetary_store_ -- --nocapture`
   - `git diff --check`
+
+## 2026-04-04 02:18 CDT
+
+- Extended the planetary backbone again on `main`:
+  - `arbx_planetary_store`
+    - delivery plans now carry scene-qualified chunk refs so canonical route execution can survive multi-scene traversal without pretending one scene owns the whole frontier
+    - route sessions now record `scene_ids`, and merged route plans become explicitly multi-scene when needed instead of failing the merge
+    - hydrated route transitions now compare qualified scene/chunk identities, not bare chunk ids
+  - `arbx_cli`
+    - plan/session summary and fetch flows now honor scene-qualified chunk refs
+    - manifest/runtime derivative surfaces now fail loudly for multi-scene delivery artifacts instead of emitting dishonest single-scene outputs
+    - cross-scene route sessions are now an explicit supported path for route truth, hydration, and bundle/session inspection
+- Verification:
+  - `cargo fmt --all`
+  - `cargo test -p arbx_planetary_store planetary_store_ -- --nocapture`
+  - `cargo test -p arbx_cli planetary_store_ -- --nocapture`
+  - `git diff --check`
