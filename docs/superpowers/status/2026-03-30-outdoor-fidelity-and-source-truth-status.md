@@ -2479,3 +2479,16 @@ The compact historical archive index is:
   - `cargo test -p arbx_planetary_store -p arbx_cli planetary_store --quiet`
   - `cargo test -p arbx_planetary_store --quiet`
   - `git diff --check rust/crates/arbx_planetary_store/src/lib.rs rust/crates/arbx_cli/src/main.rs`
+
+## 2026-04-03 20:01 CDT
+
+- Extended the planetary backbone again on `main`:
+  - `arbx_cli`
+    - `planetary-store subset-summary` now supports direct geographic point selection
+    - `planetary-store emit-manifest-subset` now supports direct geographic point selection
+    - `planetary-store emit-runtime-lua` now supports direct geographic point selection
+  - this means callers can now go straight from real lat/lon to summary, manifest subset, or Roblox runtime shard output without first translating into local stud-space arguments
+- Verification:
+  - `cargo test -p arbx_planetary_store -p arbx_cli planetary_store --quiet`
+  - `cargo test -p arbx_planetary_store --quiet`
+  - `git diff --check rust/crates/arbx_planetary_store/src/lib.rs rust/crates/arbx_cli/src/main.rs`
