@@ -58,6 +58,7 @@ struct DeliveryBundleResult {
     route_session_out: Option<String>,
     hydrated_route_out: Option<String>,
     schedule_out: Option<String>,
+    step_lane_dir: Option<String>,
     step_summary_dir: Option<String>,
     step_window_dir: Option<String>,
     step_transition_dir: Option<String>,
@@ -2091,10 +2092,27 @@ fn write_json_file<T: serde::Serialize>(
     Ok(())
 }
 
+fn write_route_schedule_lane_files(
+    schedule: &arbx_planetary_store::PlanetaryRouteDeliverySchedule,
+    out_dir: &Path,
+    label: &str,
+) -> Result<(), String> {
+    fs::create_dir_all(out_dir).map_err(|err| format!("{label} create dir failed: {err}"))?;
+    for step in &schedule.steps {
+        let active_path = out_dir.join(format!("step-{:03}-active.json", step.step_index));
+        let prefetch_path = out_dir.join(format!("step-{:03}-prefetch.json", step.step_index));
+        let retain_path = out_dir.join(format!("step-{:03}-retain.json", step.step_index));
+        write_json_file(&step.active, &active_path, label)?;
+        write_json_file(&step.prefetch, &prefetch_path, label)?;
+        write_json_file(&step.retain, &retain_path, label)?;
+    }
+    Ok(())
+}
+
 fn cmd_planetary_store(args: &[String]) -> Result<(), String> {
     let Some(subcommand) = args.first().map(String::as_str) else {
         return Err(
-            "planetary-store requires a subcommand: init | ingest-manifest | ingest-json | attach-truth-pack-summary | summary | list-scenes | scene | subset | subset-summary | fetch-chunks | emit-manifest-subset | emit-runtime-lua | find-scenes | delivery-window | delivery-plan | route-plan | route-session | hydrate-route-session | schedule-route-session | merge-delivery-plans | delivery-bundle | tile-scenes".to_string(),
+            "planetary-store requires a subcommand: init | ingest-manifest | ingest-json | attach-truth-pack-summary | summary | list-scenes | scene | subset | subset-summary | fetch-chunks | emit-manifest-subset | emit-runtime-lua | find-scenes | delivery-window | delivery-plan | route-plan | route-session | hydrate-route-session | schedule-route-session | materialize-route-schedule | merge-delivery-plans | delivery-bundle | tile-scenes".to_string(),
         );
     };
 
@@ -4654,6 +4672,150 @@ fn cmd_planetary_store(args: &[String]) -> Result<(), String> {
             }
             Ok(())
         }
+        "materialize-route-schedule" => {
+            let mut store_path: Option<PathBuf> = None;
+            let mut session_path: Option<PathBuf> = None;
+            let mut schedule_path: Option<PathBuf> = None;
+            let mut out_dir: Option<PathBuf> = None;
+            let mut ahead_steps: usize = 1;
+            let mut behind_steps: usize = 1;
+            let mut max_prefetch_streaming_cost: Option<f64> = None;
+            let mut max_prefetch_estimated_memory_cost: Option<f64> = None;
+            let mut max_retain_streaming_cost: Option<f64> = None;
+            let mut max_retain_estimated_memory_cost: Option<f64> = None;
+            let mut i = 1;
+            while i < args.len() {
+                match args[i].as_str() {
+                    "--store" => {
+                        let value = args.get(i + 1).ok_or("--store requires a path")?;
+                        store_path = Some(PathBuf::from(value));
+                        i += 2;
+                    }
+                    "--session" => {
+                        let value = args.get(i + 1).ok_or("--session requires a path")?;
+                        session_path = Some(PathBuf::from(value));
+                        i += 2;
+                    }
+                    "--schedule" => {
+                        let value = args.get(i + 1).ok_or("--schedule requires a path")?;
+                        schedule_path = Some(PathBuf::from(value));
+                        i += 2;
+                    }
+                    "--out-dir" => {
+                        let value = args.get(i + 1).ok_or("--out-dir requires a path")?;
+                        out_dir = Some(PathBuf::from(value));
+                        i += 2;
+                    }
+                    "--ahead-steps" => {
+                        let value = args.get(i + 1).ok_or("--ahead-steps requires a number")?;
+                        ahead_steps = value
+                            .parse::<usize>()
+                            .map_err(|_| format!("invalid --ahead-steps value: {value}"))?;
+                        i += 2;
+                    }
+                    "--behind-steps" => {
+                        let value = args.get(i + 1).ok_or("--behind-steps requires a number")?;
+                        behind_steps = value
+                            .parse::<usize>()
+                            .map_err(|_| format!("invalid --behind-steps value: {value}"))?;
+                        i += 2;
+                    }
+                    "--max-prefetch-streaming-cost" => {
+                        let value = args
+                            .get(i + 1)
+                            .ok_or("--max-prefetch-streaming-cost requires a number")?;
+                        max_prefetch_streaming_cost = Some(value.parse::<f64>().map_err(|_| {
+                            format!("invalid --max-prefetch-streaming-cost value: {value}")
+                        })?);
+                        i += 2;
+                    }
+                    "--max-prefetch-estimated-memory-cost" => {
+                        let value = args
+                            .get(i + 1)
+                            .ok_or("--max-prefetch-estimated-memory-cost requires a number")?;
+                        max_prefetch_estimated_memory_cost =
+                            Some(value.parse::<f64>().map_err(|_| {
+                                format!(
+                                    "invalid --max-prefetch-estimated-memory-cost value: {value}"
+                                )
+                            })?);
+                        i += 2;
+                    }
+                    "--max-retain-streaming-cost" => {
+                        let value = args
+                            .get(i + 1)
+                            .ok_or("--max-retain-streaming-cost requires a number")?;
+                        max_retain_streaming_cost = Some(value.parse::<f64>().map_err(|_| {
+                            format!("invalid --max-retain-streaming-cost value: {value}")
+                        })?);
+                        i += 2;
+                    }
+                    "--max-retain-estimated-memory-cost" => {
+                        let value = args
+                            .get(i + 1)
+                            .ok_or("--max-retain-estimated-memory-cost requires a number")?;
+                        max_retain_estimated_memory_cost =
+                            Some(value.parse::<f64>().map_err(|_| {
+                                format!("invalid --max-retain-estimated-memory-cost value: {value}")
+                            })?);
+                        i += 2;
+                    }
+                    other => {
+                        return Err(format!(
+                        "unknown argument to planetary-store materialize-route-schedule: {other}"
+                    ))
+                    }
+                }
+            }
+            let out_dir = out_dir
+                .ok_or("planetary-store materialize-route-schedule requires --out-dir PATH")?;
+            if let Some(schedule_path) = schedule_path {
+                let text = fs::read_to_string(&schedule_path).map_err(|err| {
+                    format!(
+                        "failed reading route schedule {}: {err}",
+                        schedule_path.display()
+                    )
+                })?;
+                let schedule = serde_json::from_str::<
+                    arbx_planetary_store::PlanetaryRouteDeliverySchedule,
+                >(&text)
+                .map_err(|err| {
+                    format!(
+                        "failed parsing route schedule {}: {err}",
+                        schedule_path.display()
+                    )
+                })?;
+                write_route_schedule_lane_files(&schedule, &out_dir, "materialize-route-schedule")?;
+                println!("Wrote route schedule lane files {}", out_dir.display());
+                return Ok(());
+            }
+            let session_path = session_path
+                .ok_or("planetary-store materialize-route-schedule requires --session PATH or --schedule PATH")?;
+            let session = read_route_session(&session_path)?;
+            let store_path = resolve_planetary_store_path(
+                store_path,
+                Some(&session.merged_plan),
+                Some(&session),
+                "materialize-route-schedule",
+            )?;
+            let hydrated = build_hydrated_route_session(&store_path, &session)
+                .map_err(|err| format!("planetary-store materialize-route-schedule failed: {err}"))?
+                .ok_or(
+                    "planetary-store materialize-route-schedule found no matching scene/chunks",
+                )?;
+            let schedule = build_route_delivery_schedule(
+                &hydrated,
+                ahead_steps,
+                behind_steps,
+                max_prefetch_streaming_cost,
+                max_prefetch_estimated_memory_cost,
+                max_retain_streaming_cost,
+                max_retain_estimated_memory_cost,
+            );
+            write_route_schedule_lane_files(&schedule, &out_dir, "materialize-route-schedule")?;
+            println!("Wrote route schedule lane files {}", out_dir.display());
+            Ok(())
+        }
         "merge-delivery-plans" => {
             let mut plan_paths: Vec<PathBuf> = Vec::new();
             let mut out_path: Option<PathBuf> = None;
@@ -4715,6 +4877,7 @@ fn cmd_planetary_store(args: &[String]) -> Result<(), String> {
             let mut route_session_out: Option<PathBuf> = None;
             let mut hydrated_route_out: Option<PathBuf> = None;
             let mut schedule_out: Option<PathBuf> = None;
+            let mut step_lane_dir: Option<PathBuf> = None;
             let mut step_summary_dir: Option<PathBuf> = None;
             let mut step_window_dir: Option<PathBuf> = None;
             let mut step_transition_dir: Option<PathBuf> = None;
@@ -4857,6 +5020,11 @@ fn cmd_planetary_store(args: &[String]) -> Result<(), String> {
                     "--schedule-out" => {
                         let value = args.get(i + 1).ok_or("--schedule-out requires a path")?;
                         schedule_out = Some(PathBuf::from(value));
+                        i += 2;
+                    }
+                    "--step-lane-dir" => {
+                        let value = args.get(i + 1).ok_or("--step-lane-dir requires a path")?;
+                        step_lane_dir = Some(PathBuf::from(value));
                         i += 2;
                     }
                     "--step-summary-dir" => {
@@ -5202,6 +5370,15 @@ fn cmd_planetary_store(args: &[String]) -> Result<(), String> {
                     )?;
                 }
             }
+            if let Some(route_schedule) = route_schedule.as_ref() {
+                if let Some(step_lane_dir) = step_lane_dir.as_ref() {
+                    write_route_schedule_lane_files(
+                        route_schedule,
+                        step_lane_dir,
+                        "delivery-bundle step lanes",
+                    )?;
+                }
+            }
             if let Some(hydrated_route) = hydrated_route.as_ref() {
                 if let Some(step_summary_dir) = step_summary_dir.as_ref() {
                     fs::create_dir_all(step_summary_dir).map_err(|err| {
@@ -5270,6 +5447,9 @@ fn cmd_planetary_store(args: &[String]) -> Result<(), String> {
                     .as_ref()
                     .map(|path| path.display().to_string()),
                 schedule_out: schedule_out.as_ref().map(|path| path.display().to_string()),
+                step_lane_dir: step_lane_dir
+                    .as_ref()
+                    .map(|path| path.display().to_string()),
                 step_summary_dir: step_summary_dir
                     .as_ref()
                     .map(|path| path.display().to_string()),
@@ -7045,6 +7225,57 @@ mod tests {
                 .unwrap()
                 <= 8.0
         );
+    }
+
+    #[test]
+    fn planetary_store_materialize_route_schedule_works() {
+        let tempdir = tempfile::tempdir().unwrap();
+        let store_path = tempdir.path().join("planetary.sqlite");
+        let manifest_path = tempdir.path().join("sample.sqlite");
+        let session_path = tempdir.path().join("route-session.json");
+        let lane_dir = tempdir.path().join("route-lanes");
+        let manifest = build_sample_multi_chunk(3, 1);
+        let center = manifest.meta.bbox.center();
+        write_manifest_sqlite(&manifest, &manifest_path).unwrap();
+
+        cmd_planetary_store(&[
+            "ingest-manifest".to_string(),
+            "--store".to_string(),
+            store_path.display().to_string(),
+            "--manifest-sqlite".to_string(),
+            manifest_path.display().to_string(),
+            "--scene".to_string(),
+            "austin".to_string(),
+        ])
+        .unwrap();
+
+        cmd_planetary_store(&[
+            "route-session".to_string(),
+            "--store".to_string(),
+            store_path.display().to_string(),
+            "--point".to_string(),
+            format!("{},{}", center.lat, center.lon),
+            "--point".to_string(),
+            format!("{},{}", center.lat, center.lon + 0.0002),
+            "--radius-studs".to_string(),
+            "300".to_string(),
+            "--out".to_string(),
+            session_path.display().to_string(),
+        ])
+        .unwrap();
+
+        cmd_planetary_store(&[
+            "materialize-route-schedule".to_string(),
+            "--session".to_string(),
+            session_path.display().to_string(),
+            "--out-dir".to_string(),
+            lane_dir.display().to_string(),
+        ])
+        .unwrap();
+
+        assert!(lane_dir.join("step-000-active.json").exists());
+        assert!(lane_dir.join("step-000-prefetch.json").exists());
+        assert!(lane_dir.join("step-000-retain.json").exists());
     }
 
     #[test]

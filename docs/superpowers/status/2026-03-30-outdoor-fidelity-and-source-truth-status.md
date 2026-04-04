@@ -2850,3 +2850,19 @@ The compact historical archive index is:
   - `cargo test -p arbx_planetary_store planetary_store_ -- --nocapture`
   - `cargo test -p arbx_cli planetary_store_ -- --nocapture`
   - `git diff --check`
+
+## 2026-04-04 03:19 CDT
+
+- Extended the planetary backbone again on `main`:
+  - `arbx_planetary_store`
+    - route chunk-set summaries now carry structured `chunk_refs` in addition to flattened string ids
+    - schedule artifacts remain round-trippable and lane-materialization-friendly without reparsing composite ids downstream
+  - `arbx_cli`
+    - added `planetary-store materialize-route-schedule`
+    - `delivery-bundle` can now emit a `--step-lane-dir` with direct per-step `active`, `prefetch`, and `retain` lane files from the canonical route schedule
+    - route schedule materialization is now a first-class CLI surface instead of an implicit post-processing step
+- Verification:
+  - `cargo fmt --all`
+  - `cargo test -p arbx_planetary_store planetary_store_ -- --nocapture`
+  - `cargo test -p arbx_cli planetary_store_ -- --nocapture`
+  - `git diff --check`

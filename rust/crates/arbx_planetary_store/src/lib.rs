@@ -19,7 +19,7 @@ pub struct PlanetarySceneSummary {
     pub total_features: usize,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct PlanetarySceneCatalogEntry {
     pub scene_id: String,
     pub world_name: String,
@@ -51,7 +51,7 @@ pub struct PlanetarySceneSubset {
     pub chunks: Vec<StoredChunkRecord>,
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct PlanetaryChunkSummary {
     pub scene_id: String,
     pub chunk_id: String,
@@ -78,7 +78,7 @@ pub struct PlanetaryChunkRef {
     pub chunk_id: String,
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct PlanetaryDeliveryWindow {
     pub scene: PlanetarySceneCatalogEntry,
     pub focus_lat: f64,
@@ -137,8 +137,9 @@ pub struct PlanetaryRouteSession {
     pub steps: Vec<PlanetaryDeliveryPlan>,
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct PlanetaryRouteChunkSetSummary {
+    pub chunk_refs: Vec<PlanetaryChunkRef>,
     pub chunk_ids: Vec<String>,
     pub chunk_count: usize,
     pub total_feature_count: usize,
@@ -146,7 +147,7 @@ pub struct PlanetaryRouteChunkSetSummary {
     pub total_estimated_memory_cost: f64,
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct PlanetaryHydratedRouteStep {
     pub step_index: usize,
     pub plan: PlanetaryDeliveryPlan,
@@ -156,13 +157,13 @@ pub struct PlanetaryHydratedRouteStep {
     pub leaving: PlanetaryRouteChunkSetSummary,
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct PlanetaryHydratedRouteSession {
     pub session: PlanetaryRouteSession,
     pub steps: Vec<PlanetaryHydratedRouteStep>,
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct PlanetaryScheduledRouteStep {
     pub step_index: usize,
     pub active: PlanetaryRouteChunkSetSummary,
@@ -170,7 +171,7 @@ pub struct PlanetaryScheduledRouteStep {
     pub retain: PlanetaryRouteChunkSetSummary,
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct PlanetaryRouteDeliverySchedule {
     pub session: PlanetaryRouteSession,
     pub ahead_steps: usize,
@@ -326,14 +327,20 @@ fn summarize_chunk_set<'a>(
     let mut total_feature_count = 0usize;
     let mut total_streaming_cost = 0.0f64;
     let mut total_estimated_memory_cost = 0.0f64;
+    let mut chunk_refs = Vec::with_capacity(chunks.len());
     let mut chunk_ids = Vec::with_capacity(chunks.len());
     for chunk in &chunks {
         total_feature_count += chunk.feature_count;
         total_streaming_cost += chunk.streaming_cost;
         total_estimated_memory_cost += chunk.estimated_memory_cost.unwrap_or(chunk.streaming_cost);
+        chunk_refs.push(PlanetaryChunkRef {
+            scene_id: chunk.scene_id.clone(),
+            chunk_id: chunk.chunk_id.clone(),
+        });
         chunk_ids.push(format!("{}:{}", chunk.scene_id, chunk.chunk_id));
     }
     PlanetaryRouteChunkSetSummary {
+        chunk_refs,
         chunk_count: chunk_ids.len(),
         chunk_ids,
         total_feature_count,
