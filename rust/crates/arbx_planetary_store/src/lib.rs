@@ -1,6 +1,7 @@
 use std::fs;
 use std::path::Path;
 
+use arbx_geo::{LatLon, Mercator};
 use arbx_roblox_export::{stream_manifest_sqlite_all, StoredChunkRecord, StoredManifestMeta};
 use rusqlite::{params, Connection, OptionalExtension};
 use serde::Serialize;
@@ -816,6 +817,58 @@ pub fn find_scenes_covering_geo_point(
     find_scenes_intersecting_geo_bbox(path, lat, lon, lat, lon)
 }
 
+pub fn read_scene_chunk_summary_around_geo_point(
+    path: &Path,
+    scene_id: &str,
+    lat: f64,
+    lon: f64,
+    radius_studs: f64,
+    limit: Option<usize>,
+    require_buildings: bool,
+    require_terrain: bool,
+) -> PlanetaryStoreResult<Vec<PlanetaryChunkSummary>> {
+    let connection = open_store(path)?;
+    let meta = read_scene_meta(&connection, scene_id)?;
+    let focus = Mercator::project(LatLon::new(lat, lon), meta.bbox.center(), meta.meters_per_stud);
+    drop(connection);
+    read_scene_chunk_summary_around_point(
+        path,
+        scene_id,
+        focus.x,
+        focus.z,
+        radius_studs,
+        limit,
+        require_buildings,
+        require_terrain,
+    )
+}
+
+pub fn read_scene_manifest_subset_around_geo_point(
+    path: &Path,
+    scene_id: &str,
+    lat: f64,
+    lon: f64,
+    radius_studs: f64,
+    limit: Option<usize>,
+    require_buildings: bool,
+    require_terrain: bool,
+) -> PlanetaryStoreResult<arbx_roblox_export::StoredManifestSubset> {
+    let chunk_ids = read_scene_chunk_summary_around_geo_point(
+        path,
+        scene_id,
+        lat,
+        lon,
+        radius_studs,
+        limit,
+        require_buildings,
+        require_terrain,
+    )?
+    .into_iter()
+    .map(|chunk| chunk.chunk_id)
+    .collect::<Vec<_>>();
+    read_scene_manifest_subset_by_chunk_ids(path, scene_id, &chunk_ids)
+}
+
 pub fn scene_exists(path: &Path, scene_id: &str) -> PlanetaryStoreResult<bool> {
     let connection = open_store(path)?;
     let exists = connection
@@ -1551,5 +1604,55 @@ mod tests {
         )
         .unwrap();
         assert_eq!(subset.chunks.len(), 2);
+    }
+
+    #[test]
+    fn planetary_store_reads_chunk_summary_around_geo_point() {
+        let dir = tempdir().unwrap();
+        let manifest_path = dir.path().join("sample.sqlite");
+        let store_path = dir.path().join("planetary.sqlite");
+
+        let manifest = build_sample_multi_chunk(3, 1);
+        let center = manifest.meta.bbox.center();
+        write_manifest_sqlite(&manifest, &manifest_path).unwrap();
+        ingest_manifest_sqlite(&store_path, &manifest_path, Some("sample_austin")).unwrap();
+
+        let chunks = read_scene_chunk_summary_around_geo_point(
+            &store_path,
+            "sample_austin",
+            center.lat,
+            center.lon,
+            300.0,
+            Some(2),
+            false,
+            false,
+        )
+        .unwrap();
+        assert_eq!(chunks.len(), 1);
+    }
+
+    #[test]
+    fn planetary_store_reads_manifest_subset_around_geo_point() {
+        let dir = tempdir().unwrap();
+        let manifest_path = dir.path().join("sample.sqlite");
+        let store_path = dir.path().join("planetary.sqlite");
+
+        let manifest = build_sample_multi_chunk(3, 1);
+        let center = manifest.meta.bbox.center();
+        write_manifest_sqlite(&manifest, &manifest_path).unwrap();
+        ingest_manifest_sqlite(&store_path, &manifest_path, Some("sample_austin")).unwrap();
+
+        let subset = read_scene_manifest_subset_around_geo_point(
+            &store_path,
+            "sample_austin",
+            center.lat,
+            center.lon,
+            300.0,
+            Some(2),
+            false,
+            false,
+        )
+        .unwrap();
+        assert_eq!(subset.chunks.len(), 1);
     }
 }

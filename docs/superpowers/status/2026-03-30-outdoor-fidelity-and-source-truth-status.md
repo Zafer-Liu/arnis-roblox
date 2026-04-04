@@ -2439,3 +2439,14 @@ The compact historical archive index is:
   - `cargo test -p arbx_planetary_store -p arbx_cli planetary_store --quiet`
   - `cargo test -p arbx_planetary_store --quiet`
   - `git diff --check rust/crates/arbx_planetary_store/src/lib.rs rust/crates/arbx_cli/src/main.rs`
+
+## 2026-04-03 19:35 CDT
+
+- Extended the planetary backbone again on `main`:
+  - `arbx_planetary_store`
+    - added geo-to-local focus bridging: the canonical store can now turn a geographic focus point into point-centered local delivery windows and manifest subsets, instead of forcing callers to compute Mercator/local stud conversions themselves
+  - this keeps the store as the orchestration boundary for both geo scene discovery and local delivery selection
+- Verification:
+  - `cargo test -p arbx_planetary_store -p arbx_cli planetary_store --quiet`
+  - `cargo test -p arbx_planetary_store --quiet`
+  - `git diff --check rust/crates/arbx_planetary_store/src/lib.rs rust/crates/arbx_cli/src/main.rs`
