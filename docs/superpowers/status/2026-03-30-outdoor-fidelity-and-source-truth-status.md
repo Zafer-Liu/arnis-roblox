@@ -2834,3 +2834,19 @@ The compact historical archive index is:
   - `cargo test -p arbx_planetary_store planetary_store_ -- --nocapture`
   - `cargo test -p arbx_cli planetary_store_ -- --nocapture`
   - `git diff --check`
+
+## 2026-04-04 03:02 CDT
+
+- Extended the planetary backbone again on `main`:
+  - `arbx_planetary_store`
+    - route delivery schedules now support explicit budget caps for prefetch and retain lanes
+    - schedule artifacts can encode both step horizons and bounded cost policy instead of leaving that to downstream schedulers
+  - `arbx_cli`
+    - `planetary-store schedule-route-session` now accepts route-schedule budget flags
+    - `delivery-bundle` carries those same schedule budget flags through to `--schedule-out`
+    - the emitted route schedule is now a closer representation of a real runtime streaming policy, not just an unbounded step grouping
+- Verification:
+  - `cargo fmt --all`
+  - `cargo test -p arbx_planetary_store planetary_store_ -- --nocapture`
+  - `cargo test -p arbx_cli planetary_store_ -- --nocapture`
+  - `git diff --check`

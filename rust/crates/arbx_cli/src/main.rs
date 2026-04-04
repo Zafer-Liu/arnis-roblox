@@ -4538,6 +4538,10 @@ fn cmd_planetary_store(args: &[String]) -> Result<(), String> {
             let mut out_path: Option<PathBuf> = None;
             let mut ahead_steps: usize = 1;
             let mut behind_steps: usize = 1;
+            let mut max_prefetch_streaming_cost: Option<f64> = None;
+            let mut max_prefetch_estimated_memory_cost: Option<f64> = None;
+            let mut max_retain_streaming_cost: Option<f64> = None;
+            let mut max_retain_estimated_memory_cost: Option<f64> = None;
             let mut i = 1;
             while i < args.len() {
                 match args[i].as_str() {
@@ -4565,6 +4569,46 @@ fn cmd_planetary_store(args: &[String]) -> Result<(), String> {
                             .map_err(|_| format!("invalid --behind-steps value: {value}"))?;
                         i += 2;
                     }
+                    "--max-prefetch-streaming-cost" => {
+                        let value = args
+                            .get(i + 1)
+                            .ok_or("--max-prefetch-streaming-cost requires a number")?;
+                        max_prefetch_streaming_cost = Some(value.parse::<f64>().map_err(|_| {
+                            format!("invalid --max-prefetch-streaming-cost value: {value}")
+                        })?);
+                        i += 2;
+                    }
+                    "--max-prefetch-estimated-memory-cost" => {
+                        let value = args
+                            .get(i + 1)
+                            .ok_or("--max-prefetch-estimated-memory-cost requires a number")?;
+                        max_prefetch_estimated_memory_cost =
+                            Some(value.parse::<f64>().map_err(|_| {
+                                format!(
+                                    "invalid --max-prefetch-estimated-memory-cost value: {value}"
+                                )
+                            })?);
+                        i += 2;
+                    }
+                    "--max-retain-streaming-cost" => {
+                        let value = args
+                            .get(i + 1)
+                            .ok_or("--max-retain-streaming-cost requires a number")?;
+                        max_retain_streaming_cost = Some(value.parse::<f64>().map_err(|_| {
+                            format!("invalid --max-retain-streaming-cost value: {value}")
+                        })?);
+                        i += 2;
+                    }
+                    "--max-retain-estimated-memory-cost" => {
+                        let value = args
+                            .get(i + 1)
+                            .ok_or("--max-retain-estimated-memory-cost requires a number")?;
+                        max_retain_estimated_memory_cost =
+                            Some(value.parse::<f64>().map_err(|_| {
+                                format!("invalid --max-retain-estimated-memory-cost value: {value}")
+                            })?);
+                        i += 2;
+                    }
                     "--out" => {
                         let value = args.get(i + 1).ok_or("--out requires a path")?;
                         out_path = Some(PathBuf::from(value));
@@ -4589,7 +4633,15 @@ fn cmd_planetary_store(args: &[String]) -> Result<(), String> {
             let hydrated = build_hydrated_route_session(&store_path, &session)
                 .map_err(|err| format!("planetary-store schedule-route-session failed: {err}"))?
                 .ok_or("planetary-store schedule-route-session found no matching scene/chunks")?;
-            let schedule = build_route_delivery_schedule(&hydrated, ahead_steps, behind_steps);
+            let schedule = build_route_delivery_schedule(
+                &hydrated,
+                ahead_steps,
+                behind_steps,
+                max_prefetch_streaming_cost,
+                max_prefetch_estimated_memory_cost,
+                max_retain_streaming_cost,
+                max_retain_estimated_memory_cost,
+            );
             if let Some(out_path) = out_path.as_ref() {
                 write_json_file(&schedule, out_path, "schedule-route-session")?;
                 println!("Wrote route delivery schedule {}", out_path.display());
@@ -4668,6 +4720,10 @@ fn cmd_planetary_store(args: &[String]) -> Result<(), String> {
             let mut step_transition_dir: Option<PathBuf> = None;
             let mut ahead_steps: usize = 1;
             let mut behind_steps: usize = 1;
+            let mut max_prefetch_streaming_cost: Option<f64> = None;
+            let mut max_prefetch_estimated_memory_cost: Option<f64> = None;
+            let mut max_retain_streaming_cost: Option<f64> = None;
+            let mut max_retain_estimated_memory_cost: Option<f64> = None;
             let mut summary_out: Option<PathBuf> = None;
             let mut window_out: Option<PathBuf> = None;
             let mut manifest_out: Option<PathBuf> = None;
@@ -4887,6 +4943,46 @@ fn cmd_planetary_store(args: &[String]) -> Result<(), String> {
                             .map_err(|_| format!("invalid --behind-steps value: {value}"))?;
                         i += 2;
                     }
+                    "--max-prefetch-streaming-cost" => {
+                        let value = args
+                            .get(i + 1)
+                            .ok_or("--max-prefetch-streaming-cost requires a number")?;
+                        max_prefetch_streaming_cost = Some(value.parse::<f64>().map_err(|_| {
+                            format!("invalid --max-prefetch-streaming-cost value: {value}")
+                        })?);
+                        i += 2;
+                    }
+                    "--max-prefetch-estimated-memory-cost" => {
+                        let value = args
+                            .get(i + 1)
+                            .ok_or("--max-prefetch-estimated-memory-cost requires a number")?;
+                        max_prefetch_estimated_memory_cost =
+                            Some(value.parse::<f64>().map_err(|_| {
+                                format!(
+                                    "invalid --max-prefetch-estimated-memory-cost value: {value}"
+                                )
+                            })?);
+                        i += 2;
+                    }
+                    "--max-retain-streaming-cost" => {
+                        let value = args
+                            .get(i + 1)
+                            .ok_or("--max-retain-streaming-cost requires a number")?;
+                        max_retain_streaming_cost = Some(value.parse::<f64>().map_err(|_| {
+                            format!("invalid --max-retain-streaming-cost value: {value}")
+                        })?);
+                        i += 2;
+                    }
+                    "--max-retain-estimated-memory-cost" => {
+                        let value = args
+                            .get(i + 1)
+                            .ok_or("--max-retain-estimated-memory-cost requires a number")?;
+                        max_retain_estimated_memory_cost =
+                            Some(value.parse::<f64>().map_err(|_| {
+                                format!("invalid --max-retain-estimated-memory-cost value: {value}")
+                            })?);
+                        i += 2;
+                    }
                     "--limit" => {
                         let value = args.get(i + 1).ok_or("--limit requires a number")?;
                         limit = Some(
@@ -5077,9 +5173,17 @@ fn cmd_planetary_store(args: &[String]) -> Result<(), String> {
             } else {
                 None
             };
-            let route_schedule = hydrated_route
-                .as_ref()
-                .map(|hydrated| build_route_delivery_schedule(hydrated, ahead_steps, behind_steps));
+            let route_schedule = hydrated_route.as_ref().map(|hydrated| {
+                build_route_delivery_schedule(
+                    hydrated,
+                    ahead_steps,
+                    behind_steps,
+                    max_prefetch_streaming_cost,
+                    max_prefetch_estimated_memory_cost,
+                    max_retain_streaming_cost,
+                    max_retain_estimated_memory_cost,
+                )
+            });
             if let Some(hydrated_route_out) = hydrated_route_out.as_ref() {
                 if let Some(hydrated_route) = hydrated_route.as_ref() {
                     write_json_file(
@@ -6921,6 +7025,8 @@ mod tests {
             "1".to_string(),
             "--behind-steps".to_string(),
             "1".to_string(),
+            "--max-prefetch-streaming-cost".to_string(),
+            "8".to_string(),
             "--out".to_string(),
             schedule_path.display().to_string(),
         ])
@@ -6932,6 +7038,13 @@ mod tests {
         assert_eq!(schedule["steps"][0]["active"]["chunk_count"], 1);
         assert_eq!(schedule["ahead_steps"], 1);
         assert_eq!(schedule["behind_steps"], 1);
+        assert_eq!(schedule["max_prefetch_streaming_cost"], 8.0);
+        assert!(
+            schedule["steps"][0]["prefetch"]["total_streaming_cost"]
+                .as_f64()
+                .unwrap()
+                <= 8.0
+        );
     }
 
     #[test]

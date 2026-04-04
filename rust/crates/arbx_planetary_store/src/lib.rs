@@ -175,6 +175,10 @@ pub struct PlanetaryRouteDeliverySchedule {
     pub session: PlanetaryRouteSession,
     pub ahead_steps: usize,
     pub behind_steps: usize,
+    pub max_prefetch_streaming_cost: Option<f64>,
+    pub max_prefetch_estimated_memory_cost: Option<f64>,
+    pub max_retain_streaming_cost: Option<f64>,
+    pub max_retain_estimated_memory_cost: Option<f64>,
     pub steps: Vec<PlanetaryScheduledRouteStep>,
 }
 
@@ -350,6 +354,35 @@ fn collect_unique_chunk_summaries<'a>(
         }
     }
     ordered
+}
+
+fn apply_chunk_summary_budget<'a>(
+    chunks: Vec<&'a PlanetaryChunkSummary>,
+    max_streaming_cost: Option<f64>,
+    max_estimated_memory_cost: Option<f64>,
+) -> Vec<&'a PlanetaryChunkSummary> {
+    let mut selected = Vec::new();
+    let mut running_streaming_cost = 0.0f64;
+    let mut running_estimated_memory_cost = 0.0f64;
+    for chunk in chunks {
+        let next_streaming_cost = running_streaming_cost + chunk.streaming_cost;
+        if let Some(max_streaming_cost) = max_streaming_cost {
+            if next_streaming_cost > max_streaming_cost {
+                break;
+            }
+        }
+        let next_estimated_memory_cost = running_estimated_memory_cost
+            + chunk.estimated_memory_cost.unwrap_or(chunk.streaming_cost);
+        if let Some(max_estimated_memory_cost) = max_estimated_memory_cost {
+            if next_estimated_memory_cost > max_estimated_memory_cost {
+                break;
+            }
+        }
+        running_streaming_cost = next_streaming_cost;
+        running_estimated_memory_cost = next_estimated_memory_cost;
+        selected.push(chunk);
+    }
+    selected
 }
 
 fn plan_chunk_refs(plan: &PlanetaryDeliveryPlan) -> Vec<PlanetaryChunkRef> {
@@ -2527,6 +2560,10 @@ pub fn build_route_delivery_schedule(
     hydrated: &PlanetaryHydratedRouteSession,
     ahead_steps: usize,
     behind_steps: usize,
+    max_prefetch_streaming_cost: Option<f64>,
+    max_prefetch_estimated_memory_cost: Option<f64>,
+    max_retain_streaming_cost: Option<f64>,
+    max_retain_estimated_memory_cost: Option<f64>,
 ) -> PlanetaryRouteDeliverySchedule {
     let mut steps = Vec::with_capacity(hydrated.steps.len());
     for step in &hydrated.steps {
@@ -2536,29 +2573,37 @@ pub fn build_route_delivery_schedule(
             .map(|chunk| format!("{}:{}", chunk.scene_id, chunk.chunk_id))
             .collect::<HashSet<_>>();
 
-        let prefetch_chunks = collect_unique_chunk_summaries(
-            hydrated
-                .steps
-                .iter()
-                .skip(step.step_index + 1)
-                .take(ahead_steps)
-                .flat_map(|future_step| future_step.window.chunks.iter())
-                .filter(|chunk| {
-                    !active_ids.contains(&format!("{}:{}", chunk.scene_id, chunk.chunk_id))
-                }),
+        let prefetch_chunks = apply_chunk_summary_budget(
+            collect_unique_chunk_summaries(
+                hydrated
+                    .steps
+                    .iter()
+                    .skip(step.step_index + 1)
+                    .take(ahead_steps)
+                    .flat_map(|future_step| future_step.window.chunks.iter())
+                    .filter(|chunk| {
+                        !active_ids.contains(&format!("{}:{}", chunk.scene_id, chunk.chunk_id))
+                    }),
+            ),
+            max_prefetch_streaming_cost,
+            max_prefetch_estimated_memory_cost,
         );
 
-        let retain_chunks = collect_unique_chunk_summaries(
-            hydrated
-                .steps
-                .iter()
-                .take(step.step_index)
-                .rev()
-                .take(behind_steps)
-                .flat_map(|prior_step| prior_step.window.chunks.iter())
-                .filter(|chunk| {
-                    !active_ids.contains(&format!("{}:{}", chunk.scene_id, chunk.chunk_id))
-                }),
+        let retain_chunks = apply_chunk_summary_budget(
+            collect_unique_chunk_summaries(
+                hydrated
+                    .steps
+                    .iter()
+                    .take(step.step_index)
+                    .rev()
+                    .take(behind_steps)
+                    .flat_map(|prior_step| prior_step.window.chunks.iter())
+                    .filter(|chunk| {
+                        !active_ids.contains(&format!("{}:{}", chunk.scene_id, chunk.chunk_id))
+                    }),
+            ),
+            max_retain_streaming_cost,
+            max_retain_estimated_memory_cost,
         );
 
         steps.push(PlanetaryScheduledRouteStep {
@@ -2573,6 +2618,10 @@ pub fn build_route_delivery_schedule(
         session: hydrated.session.clone(),
         ahead_steps,
         behind_steps,
+        max_prefetch_streaming_cost,
+        max_prefetch_estimated_memory_cost,
+        max_retain_streaming_cost,
+        max_retain_estimated_memory_cost,
         steps,
     }
 }
@@ -3668,7 +3717,7 @@ mod tests {
         let hydrated = build_hydrated_route_session(&store_path, &session)
             .unwrap()
             .unwrap();
-        let schedule = build_route_delivery_schedule(&hydrated, 1, 1);
+        let schedule = build_route_delivery_schedule(&hydrated, 1, 1, None, None, None, None);
 
         assert_eq!(schedule.steps.len(), 3);
         assert_eq!(schedule.ahead_steps, 1);
@@ -3677,6 +3726,69 @@ mod tests {
         assert!(schedule.steps[0].prefetch.chunk_count >= 1);
         assert_eq!(schedule.steps[0].retain.chunk_count, 0);
         assert_eq!(schedule.steps[1].step_index, 1);
+    }
+
+    #[test]
+    fn planetary_store_route_delivery_schedule_applies_prefetch_budget() {
+        let dir = tempdir().unwrap();
+        let manifest_path = dir.path().join("sample.sqlite");
+        let store_path = dir.path().join("planetary.sqlite");
+
+        let manifest = build_sample_multi_chunk(3, 1);
+        write_manifest_sqlite(&manifest, &manifest_path).unwrap();
+        ingest_manifest_sqlite(&store_path, &manifest_path, Some("sample_austin")).unwrap();
+
+        let plan_a = build_delivery_plan_around_point(
+            &store_path,
+            "sample_austin",
+            0.0,
+            0.0,
+            300.0,
+            Some(1),
+            false,
+            false,
+            None,
+            None,
+        )
+        .unwrap()
+        .unwrap();
+        let plan_b = build_delivery_plan_around_point(
+            &store_path,
+            "sample_austin",
+            256.0,
+            0.0,
+            300.0,
+            Some(2),
+            false,
+            false,
+            None,
+            None,
+        )
+        .unwrap()
+        .unwrap();
+        let plan_c = build_delivery_plan_around_point(
+            &store_path,
+            "sample_austin",
+            512.0,
+            0.0,
+            300.0,
+            Some(2),
+            false,
+            false,
+            None,
+            None,
+        )
+        .unwrap()
+        .unwrap();
+        let session = build_route_delivery_session(&[plan_a, plan_b, plan_c])
+            .unwrap()
+            .unwrap();
+        let hydrated = build_hydrated_route_session(&store_path, &session)
+            .unwrap()
+            .unwrap();
+
+        let schedule = build_route_delivery_schedule(&hydrated, 2, 1, Some(8.0), None, None, None);
+        assert!(schedule.steps[0].prefetch.total_streaming_cost <= 8.0);
     }
 
     #[test]
