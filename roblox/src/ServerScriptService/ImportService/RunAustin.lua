@@ -118,6 +118,13 @@ end
 function RunAustin.loadManifestSource(options)
     options = options or {}
     local routeSelectionOptions = resolveRouteSelectionOptions(options)
+    setPerfAttribute("RouteCatalogName", routeSelectionOptions.routeCatalogName or "")
+    setPerfAttribute("RouteLane", routeSelectionOptions.routeLane or "")
+    setPerfAttribute("RouteStepIndex", routeSelectionOptions.routeStepIndex or -1)
+    setPerfAttribute(
+        "ManifestSourceKind",
+        routeSelectionOptions.routeCatalogName and "route_catalog" or "canonical_manifest"
+    )
     local materializationFamily = CanonicalWorldContract.resolveCanonicalMaterializationFamily("play")
     print(
         ("[RunAustin] Loading canonical manifest source %s via %s"):format(

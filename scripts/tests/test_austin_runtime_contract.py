@@ -425,6 +425,17 @@ class AustinRuntimeContractTests(unittest.TestCase):
         self.assertIn("routeCatalogName = routeSelectionOptions.routeCatalogName", self.run_austin_text)
         self.assertIn("routeLane = routeSelectionOptions.routeLane", self.run_austin_text)
         self.assertIn("routeStepIndex = routeSelectionOptions.routeStepIndex", self.run_austin_text)
+        self.assertIn('setPerfAttribute("RouteCatalogName", routeSelectionOptions.routeCatalogName or "")', self.run_austin_text)
+        self.assertIn('setPerfAttribute("RouteLane", routeSelectionOptions.routeLane or "")', self.run_austin_text)
+        self.assertIn('setPerfAttribute("RouteStepIndex", routeSelectionOptions.routeStepIndex or -1)', self.run_austin_text)
+        self.assertIn('"ManifestSourceKind"', self.run_austin_text)
+        self.assertIn('routeSelectionOptions.routeCatalogName and "route_catalog" or "canonical_manifest"', self.run_austin_text)
+        self.assertIn('RouteCatalogName = normalizedRequest and normalizedRequest.routeCatalogName or ""', self.preview_builder_text)
+        self.assertIn('RouteLane = normalizedRequest and normalizedRequest.routeLane or ""', self.preview_builder_text)
+        self.assertIn('RouteStepIndex = normalizedRequest and normalizedRequest.routeStepIndex or -1', self.preview_builder_text)
+        self.assertIn("ManifestSourceKind = manifestSourceKind", self.preview_builder_text)
+        self.assertIn('local manifestSourceKind =', self.preview_builder_text)
+        self.assertIn('normalizedRequest and normalizedRequest.routeCatalogName and "route_catalog"', self.preview_builder_text)
 
     def test_client_world_probe_exposes_support_wall_and_roof_cover_observability(self) -> None:
         self.assertIn("supportSurfaceRole =", self.world_probe_text)

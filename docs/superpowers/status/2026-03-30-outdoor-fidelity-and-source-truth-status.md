@@ -2997,6 +2997,17 @@ The compact historical archive index is:
   - `python3 -m unittest scripts.tests.test_austin_runtime_contract -v`
   - `git diff --check`
 
+## 2026-04-04 09:57 CDT
+
+- Extended the runtime-facing planetary lane again on `main`:
+  - `RunAustin`
+    - route-driven runtime selection now publishes explicit perf attributes for route catalog, lane, step, and source kind
+  - `AustinPreviewBuilder`
+    - preview/full-bake manifest loading now publishes the same route-selection observability so route-driven preview runs are diagnosable without Studio-only debugging
+- Verification:
+  - `python3 -m unittest scripts.tests.test_austin_runtime_contract -v`
+  - `git diff --check`
+
 ## 2026-04-04 09:37 CDT
 
 - Extended the runtime consumption path on `main`:

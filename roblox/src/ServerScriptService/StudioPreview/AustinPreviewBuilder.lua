@@ -272,11 +272,17 @@ local function shouldCancelBuild(buildToken)
 end
 
 local function loadPreviewManifestSource(timeTravelActive, normalizedRequest)
+    local manifestSourceKind = normalizedRequest and normalizedRequest.routeCatalogName and "route_catalog"
+        or "canonical_manifest"
     if RunService:IsStudio() and not timeTravelActive then
         local currentHash = getCurrentSyncHash()
         if cachedPreviewManifestHandle ~= nil and cachedPreviewManifestHash == currentHash then
             updatePreviewPerf({
                 ManifestSource = "canonical-preview-cached",
+                ManifestSourceKind = manifestSourceKind,
+                RouteCatalogName = normalizedRequest and normalizedRequest.routeCatalogName or "",
+                RouteLane = normalizedRequest and normalizedRequest.routeLane or "",
+                RouteStepIndex = normalizedRequest and normalizedRequest.routeStepIndex or -1,
             }, true)
             return cachedPreviewManifestHandle
         end
@@ -296,6 +302,10 @@ local function loadPreviewManifestSource(timeTravelActive, normalizedRequest)
 
     updatePreviewPerf({
         ManifestSource = if timeTravelActive then "canonical-preview-frozen" else "canonical-preview",
+        ManifestSourceKind = manifestSourceKind,
+        RouteCatalogName = normalizedRequest and normalizedRequest.routeCatalogName or "",
+        RouteLane = normalizedRequest and normalizedRequest.routeLane or "",
+        RouteStepIndex = normalizedRequest and normalizedRequest.routeStepIndex or -1,
     }, true)
     return previewManifest
 end
@@ -305,11 +315,18 @@ local function loadFullManifestSource(timeTravelActive, normalizedRequest)
         return nil
     end
 
+    local manifestSourceKind = normalizedRequest and normalizedRequest.routeCatalogName and "route_catalog"
+        or "canonical_manifest"
+
     if not timeTravelActive then
         local currentHash = getCurrentSyncHash()
         if cachedFullManifestHandle ~= nil and cachedFullManifestHash == currentHash then
             updatePreviewPerf({
                 ManifestSource = "canonical-full-cached",
+                ManifestSourceKind = manifestSourceKind,
+                RouteCatalogName = normalizedRequest and normalizedRequest.routeCatalogName or "",
+                RouteLane = normalizedRequest and normalizedRequest.routeLane or "",
+                RouteStepIndex = normalizedRequest and normalizedRequest.routeStepIndex or -1,
             }, true)
             return cachedFullManifestHandle
         end
@@ -335,6 +352,10 @@ local function loadFullManifestSource(timeTravelActive, normalizedRequest)
 
     updatePreviewPerf({
         ManifestSource = if timeTravelActive then "full-frozen" else "full",
+        ManifestSourceKind = manifestSourceKind,
+        RouteCatalogName = normalizedRequest and normalizedRequest.routeCatalogName or "",
+        RouteLane = normalizedRequest and normalizedRequest.routeLane or "",
+        RouteStepIndex = normalizedRequest and normalizedRequest.routeStepIndex or -1,
     }, true)
     return fullManifest
 end
