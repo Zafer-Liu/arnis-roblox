@@ -2423,3 +2423,19 @@ The compact historical archive index is:
   - `cargo test -p arbx_planetary_store -p arbx_cli planetary_store --quiet`
   - `cargo test -p arbx_planetary_store --quiet`
   - `git diff --check rust/crates/arbx_planetary_store/src/lib.rs rust/crates/arbx_cli/src/main.rs`
+
+## 2026-04-03 19:30 CDT
+
+- Extended the planetary backbone again on `main`:
+  - `arbx_planetary_store`
+    - added point-centered local stud-space delivery windows sorted by chunk-center distance
+    - this gives the canonical store a true “around the player/focus point” selection primitive instead of only rectangular bbox selection
+    - added extra query-path indexes for geographic scene lookup and payload-aware chunk selection to keep the store fast without compromising fidelity
+  - `arbx_cli`
+    - `planetary-store subset-summary` now supports `--around-studs X,Z --radius-studs R`
+    - `planetary-store emit-manifest-subset` now supports around-point selection
+    - `planetary-store emit-runtime-lua` now supports around-point selection
+- Verification:
+  - `cargo test -p arbx_planetary_store -p arbx_cli planetary_store --quiet`
+  - `cargo test -p arbx_planetary_store --quiet`
+  - `git diff --check rust/crates/arbx_planetary_store/src/lib.rs rust/crates/arbx_cli/src/main.rs`

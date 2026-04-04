@@ -58,6 +58,7 @@ pub struct PlanetaryChunkSummary {
     pub prop_count: usize,
     pub landuse_count: usize,
     pub barrier_count: usize,
+    pub center_distance_sq: Option<f64>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -191,6 +192,12 @@ fn open_store(path: &Path) -> PlanetaryStoreResult<Connection> {
         );
         CREATE INDEX IF NOT EXISTS idx_chunks_scene_origin
             ON chunks(scene_id, origin_x, origin_z);
+        CREATE INDEX IF NOT EXISTS idx_scenes_geo_bbox
+            ON scenes(bbox_min_lat, bbox_min_lon, bbox_max_lat, bbox_max_lon);
+        CREATE INDEX IF NOT EXISTS idx_chunks_scene_building_origin
+            ON chunks(scene_id, building_count, origin_x, origin_z);
+        CREATE INDEX IF NOT EXISTS idx_chunks_scene_terrain_origin
+            ON chunks(scene_id, has_terrain, origin_x, origin_z);
         ",
     )?;
     ensure_chunk_payload_columns(&connection)?;
@@ -1083,6 +1090,102 @@ pub fn read_scene_chunk_summary_subset(
                 prop_count: row.get::<_, i64>(12)? as usize,
                 landuse_count: row.get::<_, i64>(13)? as usize,
                 barrier_count: row.get::<_, i64>(14)? as usize,
+                center_distance_sq: None,
+            })
+        },
+    )?;
+
+    let mut chunks = Vec::new();
+    for row in rows {
+        chunks.push(row?);
+    }
+    Ok(chunks)
+}
+
+pub fn read_scene_chunk_summary_around_point(
+    path: &Path,
+    scene_id: &str,
+    focus_x: f64,
+    focus_z: f64,
+    radius_studs: f64,
+    limit: Option<usize>,
+    require_buildings: bool,
+    require_terrain: bool,
+) -> PlanetaryStoreResult<Vec<PlanetaryChunkSummary>> {
+    let connection = open_store(path)?;
+    let chunk_size_studs: i32 = connection
+        .query_row(
+            "SELECT chunk_size_studs FROM scenes WHERE scene_id = ?1",
+            params![scene_id],
+            |row| row.get(0),
+        )
+        .optional()?
+        .ok_or_else(|| format!("scene {} is not present in planetary store", scene_id))?;
+
+    let half = chunk_size_studs as f64 * 0.5;
+    let radius_sq = radius_studs * radius_studs;
+    let mut sql = String::from(
+        "
+        SELECT
+            chunk_id,
+            origin_x,
+            origin_z,
+            feature_count,
+            streaming_cost,
+            estimated_memory_cost,
+            partition_version,
+            has_terrain,
+            road_count,
+            rail_count,
+            building_count,
+            water_count,
+            prop_count,
+            landuse_count,
+            barrier_count,
+            ((origin_x + ?2) - ?3) * ((origin_x + ?2) - ?3)
+              + ((origin_z + ?2) - ?4) * ((origin_z + ?2) - ?4) AS center_distance_sq
+        FROM chunks
+        WHERE scene_id = ?1
+          AND ((origin_x + ?2) - ?3) * ((origin_x + ?2) - ?3)
+            + ((origin_z + ?2) - ?4) * ((origin_z + ?2) - ?4) <= ?5
+          AND (?6 = 0 OR building_count > 0)
+          AND (?7 = 0 OR has_terrain = 1)
+        ORDER BY center_distance_sq ASC, chunk_id ASC
+        ",
+    );
+    if let Some(limit) = limit {
+        sql.push_str(&format!(" LIMIT {}", limit));
+    }
+
+    let mut statement = connection.prepare(&sql)?;
+    let rows = statement.query_map(
+        params![
+            scene_id,
+            half,
+            focus_x,
+            focus_z,
+            radius_sq,
+            if require_buildings { 1 } else { 0 },
+            if require_terrain { 1 } else { 0 },
+        ],
+        |row| {
+            Ok(PlanetaryChunkSummary {
+                chunk_id: row.get(0)?,
+                origin_x: row.get(1)?,
+                origin_z: row.get(2)?,
+                feature_count: row.get::<_, i64>(3)? as usize,
+                streaming_cost: row.get(4)?,
+                estimated_memory_cost: row.get(5)?,
+                partition_version: row.get(6)?,
+                has_terrain: row.get::<_, i64>(7)? != 0,
+                road_count: row.get::<_, i64>(8)? as usize,
+                rail_count: row.get::<_, i64>(9)? as usize,
+                building_count: row.get::<_, i64>(10)? as usize,
+                water_count: row.get::<_, i64>(11)? as usize,
+                prop_count: row.get::<_, i64>(12)? as usize,
+                landuse_count: row.get::<_, i64>(13)? as usize,
+                barrier_count: row.get::<_, i64>(14)? as usize,
+                center_distance_sq: Some(row.get(15)?),
             })
         },
     )?;
@@ -1315,6 +1418,33 @@ mod tests {
         assert_eq!(chunks[0].chunk_id, "0_0");
         assert!(chunks[0].has_terrain);
         assert!(chunks[0].building_count > 0);
+    }
+
+    #[test]
+    fn planetary_store_reads_chunk_summary_around_point() {
+        let dir = tempdir().unwrap();
+        let manifest_path = dir.path().join("sample.sqlite");
+        let store_path = dir.path().join("planetary.sqlite");
+
+        let manifest = build_sample_multi_chunk(3, 1);
+        write_manifest_sqlite(&manifest, &manifest_path).unwrap();
+        ingest_manifest_sqlite(&store_path, &manifest_path, Some("sample_austin")).unwrap();
+
+        let chunks = read_scene_chunk_summary_around_point(
+            &store_path,
+            "sample_austin",
+            300.0,
+            128.0,
+            300.0,
+            Some(2),
+            false,
+            false,
+        )
+        .unwrap();
+        assert_eq!(chunks.len(), 2);
+        assert_eq!(chunks[0].chunk_id, "1_0");
+        assert_eq!(chunks[1].chunk_id, "0_0");
+        assert!(chunks[0].center_distance_sq.unwrap() <= chunks[1].center_distance_sq.unwrap());
     }
 
     #[test]
