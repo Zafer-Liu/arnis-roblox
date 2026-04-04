@@ -1400,6 +1400,99 @@ pub fn build_delivery_window_around_geo_point(
     }))
 }
 
+pub fn build_delivery_window_around_point(
+    path: &Path,
+    scene_id: &str,
+    focus_x: f64,
+    focus_z: f64,
+    radius_studs: f64,
+    limit: Option<usize>,
+    require_buildings: bool,
+    require_terrain: bool,
+    max_streaming_cost: Option<f64>,
+    max_estimated_memory_cost: Option<f64>,
+) -> PlanetaryStoreResult<Option<PlanetaryDeliveryWindow>> {
+    let Some(scene) = read_scene_catalog_entry(path, scene_id)? else {
+        return Ok(None);
+    };
+    let chunks = read_scene_chunk_summary_around_point(
+        path,
+        scene_id,
+        focus_x,
+        focus_z,
+        radius_studs,
+        limit,
+        require_buildings,
+        require_terrain,
+        max_streaming_cost,
+        max_estimated_memory_cost,
+    )?;
+    let (chunk_count, total_feature_count, total_streaming_cost, total_estimated_memory_cost) =
+        summarize_delivery_chunks(&chunks);
+    Ok(Some(PlanetaryDeliveryWindow {
+        scene,
+        focus_lat: 0.0,
+        focus_lon: 0.0,
+        focus_x,
+        focus_z,
+        radius_studs,
+        chunk_count,
+        total_feature_count,
+        total_streaming_cost,
+        total_estimated_memory_cost,
+        chunks,
+    }))
+}
+
+pub fn build_delivery_window_for_scene_bbox(
+    path: &Path,
+    scene_id: &str,
+    min_x: f64,
+    min_z: f64,
+    max_x: f64,
+    max_z: f64,
+    limit: Option<usize>,
+    require_buildings: bool,
+    require_terrain: bool,
+    max_streaming_cost: Option<f64>,
+    max_estimated_memory_cost: Option<f64>,
+) -> PlanetaryStoreResult<Option<PlanetaryDeliveryWindow>> {
+    let Some(scene) = read_scene_catalog_entry(path, scene_id)? else {
+        return Ok(None);
+    };
+    let focus_x = (min_x + max_x) * 0.5;
+    let focus_z = (min_z + max_z) * 0.5;
+    let radius_studs = ((max_x - min_x) * 0.5).max((max_z - min_z) * 0.5);
+    let chunks = read_scene_chunk_summary_subset(
+        path,
+        scene_id,
+        min_x,
+        min_z,
+        max_x,
+        max_z,
+        limit,
+        require_buildings,
+        require_terrain,
+        max_streaming_cost,
+        max_estimated_memory_cost,
+    )?;
+    let (chunk_count, total_feature_count, total_streaming_cost, total_estimated_memory_cost) =
+        summarize_delivery_chunks(&chunks);
+    Ok(Some(PlanetaryDeliveryWindow {
+        scene,
+        focus_lat: 0.0,
+        focus_lon: 0.0,
+        focus_x,
+        focus_z,
+        radius_studs,
+        chunk_count,
+        total_feature_count,
+        total_streaming_cost,
+        total_estimated_memory_cost,
+        chunks,
+    }))
+}
+
 pub fn build_delivery_window_for_tile(
     path: &Path,
     zoom: u8,
@@ -2478,6 +2571,67 @@ mod tests {
         assert_eq!(window.chunk_count, 1);
         assert_eq!(window.total_feature_count, window.chunks[0].feature_count);
         assert_eq!(window.total_streaming_cost, window.chunks[0].streaming_cost);
+    }
+
+    #[test]
+    fn planetary_store_builds_delivery_window_around_local_point() {
+        let dir = tempdir().unwrap();
+        let manifest_path = dir.path().join("sample.sqlite");
+        let store_path = dir.path().join("planetary.sqlite");
+
+        let manifest = build_sample_multi_chunk(3, 1);
+        write_manifest_sqlite(&manifest, &manifest_path).unwrap();
+        ingest_manifest_sqlite(&store_path, &manifest_path, Some("sample_austin")).unwrap();
+
+        let window = build_delivery_window_around_point(
+            &store_path,
+            "sample_austin",
+            300.0,
+            128.0,
+            300.0,
+            Some(2),
+            false,
+            false,
+            None,
+            None,
+        )
+        .unwrap()
+        .unwrap();
+        assert_eq!(window.scene.scene_id, "sample_austin");
+        assert_eq!(window.focus_x, 300.0);
+        assert_eq!(window.focus_z, 128.0);
+        assert_eq!(window.chunk_count, 2);
+    }
+
+    #[test]
+    fn planetary_store_builds_delivery_window_for_scene_bbox() {
+        let dir = tempdir().unwrap();
+        let manifest_path = dir.path().join("sample.sqlite");
+        let store_path = dir.path().join("planetary.sqlite");
+
+        let manifest = build_sample_multi_chunk(3, 1);
+        write_manifest_sqlite(&manifest, &manifest_path).unwrap();
+        ingest_manifest_sqlite(&store_path, &manifest_path, Some("sample_austin")).unwrap();
+
+        let window = build_delivery_window_for_scene_bbox(
+            &store_path,
+            "sample_austin",
+            200.0,
+            0.0,
+            500.0,
+            200.0,
+            Some(2),
+            false,
+            false,
+            None,
+            None,
+        )
+        .unwrap()
+        .unwrap();
+        assert_eq!(window.scene.scene_id, "sample_austin");
+        assert_eq!(window.focus_x, 350.0);
+        assert_eq!(window.focus_z, 100.0);
+        assert_eq!(window.chunk_count, 2);
     }
 
     #[test]
