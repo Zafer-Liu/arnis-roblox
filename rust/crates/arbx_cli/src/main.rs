@@ -2181,6 +2181,24 @@ fn lua_module_path_from_file(root_dir: &Path, lua_path: &Path) -> Result<String,
     Ok(without_ext.replace('\\', "/"))
 }
 
+fn try_lua_module_path_from_file(root_dir: &Path, lua_path: &Path) -> Option<String> {
+    lua_module_path_from_file(root_dir, lua_path).ok()
+}
+
+fn common_path_root(paths: &[&Path]) -> Option<PathBuf> {
+    let mut iter = paths.iter();
+    let first = iter.next()?.to_path_buf();
+    let mut root = first;
+    for path in iter {
+        while !path.starts_with(&root) {
+            if !root.pop() {
+                return None;
+            }
+        }
+    }
+    Some(root)
+}
+
 fn write_json_and_lua_file<T: serde::Serialize>(
     value: &T,
     json_path: &Path,
@@ -2215,6 +2233,7 @@ fn write_route_schedule_lane_files(
 fn write_route_schedule_lane_payloads(
     schedule: &arbx_planetary_store::PlanetaryRouteDeliverySchedule,
     store_path: &Path,
+    catalog_root: Option<&Path>,
     lane_dir: Option<&Path>,
     manifest_dir: Option<&Path>,
     runtime_dir: Option<&Path>,
@@ -2238,21 +2257,17 @@ fn write_route_schedule_lane_payloads(
                 materializable: false,
                 scene_id: None,
                 reason: None,
-                lane_module_path: lane_dir.map(|dir| {
-                    format!(
-                        "{}/step-{:03}-{}",
-                        dir.file_name()
-                            .and_then(|value| value.to_str())
-                            .unwrap_or("route-lanes"),
-                        step.step_index,
-                        lane
-                    )
-                }),
+                lane_module_path: None,
                 manifest_out: None,
                 manifest_module_path: None,
                 runtime_index_module_path: None,
                 runtime: None,
             };
+            if let (Some(root), Some(lane_dir)) = (catalog_root, lane_dir) {
+                let lane_lua_path =
+                    lane_dir.join(format!("step-{:03}-{}.lua", step.step_index, lane));
+                result.lane_module_path = try_lua_module_path_from_file(root, &lane_lua_path);
+            }
             if lane_summary.chunk_refs.is_empty() {
                 result.reason = Some("empty lane".to_string());
                 results.push(result);
@@ -2294,7 +2309,7 @@ fn write_route_schedule_lane_payloads(
                 let lua_path = write_json_and_lua_file(&manifest, &out_path, label)?;
                 result.manifest_out = Some(out_path.display().to_string());
                 result.manifest_module_path =
-                    Some(lua_module_path_from_file(manifest_dir, &lua_path)?);
+                    catalog_root.and_then(|root| try_lua_module_path_from_file(root, &lua_path));
             }
 
             if let (Some(runtime_dir), Some(runtime_template)) =
@@ -2313,8 +2328,8 @@ fn write_route_schedule_lane_payloads(
                     },
                 )
                 .map_err(|err| format!("{label} runtime failed: {err}"))?;
-                result.runtime_index_module_path =
-                    Some(lua_module_path_from_file(runtime_dir, &stats.index_path)?);
+                result.runtime_index_module_path = catalog_root
+                    .and_then(|root| try_lua_module_path_from_file(root, &stats.index_path));
                 result.runtime = Some(DeliveryBundleRuntimeResult {
                     chunk_count: stats.chunk_count,
                     fragment_count: stats.fragment_count,
@@ -2416,6 +2431,7 @@ fn materialize_route_bundle(
     let payloads = write_route_schedule_lane_payloads(
         &schedule,
         store_path,
+        Some(out_dir),
         Some(&lane_dir),
         manifest_dir,
         runtime_dir,
@@ -5181,11 +5197,17 @@ fn cmd_planetary_store(args: &[String]) -> Result<(), String> {
                         schedule_path.display()
                     )
                 })?;
-                write_route_schedule_lane_files(&schedule, &out_dir, "materialize-route-schedule")?;
+                let lane_dir = out_dir.join("route-lanes");
+                write_route_schedule_lane_files(
+                    &schedule,
+                    &lane_dir,
+                    "materialize-route-schedule",
+                )?;
                 let payloads = write_route_schedule_lane_payloads(
                     &schedule,
                     Path::new(&schedule.session.planetary_store_path),
                     Some(&out_dir),
+                    Some(&lane_dir),
                     manifest_dir.as_deref(),
                     runtime_dir.as_deref(),
                     runtime_dir
@@ -5211,7 +5233,7 @@ fn cmd_planetary_store(args: &[String]) -> Result<(), String> {
                     None,
                     None,
                     None,
-                    Some(&out_dir),
+                    Some(&lane_dir),
                     Some(&out_dir),
                     manifest_dir.as_deref(),
                     runtime_dir.as_deref(),
@@ -5251,11 +5273,17 @@ fn cmd_planetary_store(args: &[String]) -> Result<(), String> {
                 max_retain_streaming_cost,
                 max_retain_estimated_memory_cost,
             );
-            write_route_schedule_lane_files(&schedule, &out_dir, "materialize-route-schedule")?;
+            let lane_dir = out_dir.join("route-lanes");
+            write_route_schedule_lane_files(
+                &schedule,
+                &lane_dir,
+                "materialize-route-schedule",
+            )?;
             let payloads = write_route_schedule_lane_payloads(
                 &schedule,
                 &store_path,
                 Some(&out_dir),
+                Some(&lane_dir),
                 manifest_dir.as_deref(),
                 runtime_dir.as_deref(),
                 runtime_dir
@@ -5281,7 +5309,7 @@ fn cmd_planetary_store(args: &[String]) -> Result<(), String> {
                 None,
                 None,
                 None,
-                Some(&out_dir),
+                Some(&lane_dir),
                 Some(&out_dir),
                 manifest_dir.as_deref(),
                 runtime_dir.as_deref(),
@@ -6100,13 +6128,14 @@ fn cmd_planetary_store(args: &[String]) -> Result<(), String> {
             if let Some(plan_out) = plan_out.as_ref() {
                 write_delivery_plan_json(&plan, plan_out)?;
             }
+            let mut route_session_lua_out: Option<PathBuf> = None;
             if let Some(route_session_out) = route_session_out.as_ref() {
                 if let Some(route_session) = route_session.as_ref() {
-                    write_json_file(
+                    route_session_lua_out = Some(write_json_and_lua_file(
                         route_session,
                         route_session_out,
                         "delivery-bundle route-session",
-                    )?;
+                    )?);
                 }
             }
 
@@ -6117,6 +6146,8 @@ fn cmd_planetary_store(args: &[String]) -> Result<(), String> {
             } else {
                 None
             };
+            let mut hydrated_route_lua_out: Option<PathBuf> = None;
+            let mut schedule_lua_out: Option<PathBuf> = None;
             let route_schedule = hydrated_route.as_ref().map(|hydrated| {
                 build_route_delivery_schedule(
                     hydrated,
@@ -6130,22 +6161,37 @@ fn cmd_planetary_store(args: &[String]) -> Result<(), String> {
             });
             if let Some(hydrated_route_out) = hydrated_route_out.as_ref() {
                 if let Some(hydrated_route) = hydrated_route.as_ref() {
-                    write_json_file(
+                    hydrated_route_lua_out = Some(write_json_and_lua_file(
                         hydrated_route,
                         hydrated_route_out,
                         "delivery-bundle hydrated-route",
-                    )?;
+                    )?);
                 }
             }
             if let Some(schedule_out) = schedule_out.as_ref() {
                 if let Some(route_schedule) = route_schedule.as_ref() {
-                    write_json_file(
+                    schedule_lua_out = Some(write_json_and_lua_file(
                         route_schedule,
                         schedule_out,
                         "delivery-bundle route schedule",
-                    )?;
+                    )?);
                 }
             }
+            let route_catalog_root = step_payload_dir.clone().or_else(|| {
+                common_path_root(
+                    &[
+                        route_session_out.as_deref().and_then(|path| path.parent()),
+                        hydrated_route_out.as_deref().and_then(|path| path.parent()),
+                        schedule_out.as_deref().and_then(|path| path.parent()),
+                        step_lane_dir.as_deref(),
+                        step_manifest_dir.as_deref(),
+                        step_runtime_dir.as_deref(),
+                    ]
+                    .into_iter()
+                    .flatten()
+                    .collect::<Vec<_>>(),
+                )
+            });
             if let Some(route_schedule) = route_schedule.as_ref() {
                 if let Some(step_lane_dir) = step_lane_dir.as_ref() {
                     write_route_schedule_lane_files(
@@ -6161,6 +6207,7 @@ fn cmd_planetary_store(args: &[String]) -> Result<(), String> {
                     let payloads = write_route_schedule_lane_payloads(
                         route_schedule,
                         &store_path,
+                        route_catalog_root.as_deref(),
                         step_lane_dir.as_deref(),
                         step_manifest_dir.as_deref(),
                         step_runtime_dir.as_deref(),
@@ -6282,29 +6329,19 @@ fn cmd_planetary_store(args: &[String]) -> Result<(), String> {
                 } else {
                     Vec::new()
                 };
-                if let Some(catalog_base) = step_payload_dir
-                    .as_deref()
-                    .or(step_lane_dir.as_deref())
-                    .or(schedule_out.as_deref().and_then(|path| path.parent()))
-                {
+                if let Some(catalog_base) = route_catalog_root.as_deref() {
                     let catalog = build_route_payload_catalog(
                         route_schedule,
                         schedule_out.as_deref(),
-                        if route_session_out.is_some() {
-                            Some("route-session".to_string())
-                        } else {
-                            None
-                        },
-                        if hydrated_route_out.is_some() {
-                            Some("hydrated-route".to_string())
-                        } else {
-                            None
-                        },
-                        if schedule_out.is_some() {
-                            Some("route-schedule".to_string())
-                        } else {
-                            None
-                        },
+                        route_session_lua_out
+                            .as_deref()
+                            .and_then(|path| try_lua_module_path_from_file(catalog_base, path)),
+                        hydrated_route_lua_out
+                            .as_deref()
+                            .and_then(|path| try_lua_module_path_from_file(catalog_base, path)),
+                        schedule_lua_out
+                            .as_deref()
+                            .and_then(|path| try_lua_module_path_from_file(catalog_base, path)),
                         step_lane_dir.as_deref(),
                         step_payload_dir.as_deref(),
                         step_manifest_dir.as_deref(),
@@ -8137,9 +8174,9 @@ mod tests {
         ])
         .unwrap();
 
-        assert!(lane_dir.join("step-000-active.json").exists());
-        assert!(lane_dir.join("step-000-prefetch.json").exists());
-        assert!(lane_dir.join("step-000-retain.json").exists());
+        assert!(lane_dir.join("route-lanes").join("step-000-active.json").exists());
+        assert!(lane_dir.join("route-lanes").join("step-000-prefetch.json").exists());
+        assert!(lane_dir.join("route-lanes").join("step-000-retain.json").exists());
         assert!(lane_dir.join("lane-payloads.json").exists());
         assert!(lane_dir.join("route-catalog.json").exists());
         assert!(lane_dir.join("route-catalog.lua").exists());
@@ -8148,6 +8185,26 @@ mod tests {
             .join("step-000-active")
             .join("PlanetaryManifestIndex.lua")
             .exists());
+
+        let catalog: Value = serde_json::from_str(
+            &std::fs::read_to_string(lane_dir.join("route-catalog.json")).unwrap(),
+        )
+        .unwrap();
+        assert!(catalog["route_session_module_path"].is_null());
+        assert!(catalog["hydrated_route_module_path"].is_null());
+        assert!(catalog["schedule_module_path"].is_null());
+        assert_eq!(
+            catalog["payloads"][0]["lane_module_path"].as_str(),
+            Some("route-lanes/step-000-active")
+        );
+        assert_eq!(
+            catalog["payloads"][0]["manifest_module_path"].as_str(),
+            Some("route-manifests/step-000-active-manifest")
+        );
+        assert_eq!(
+            catalog["payloads"][0]["runtime_index_module_path"].as_str(),
+            Some("route-runtime/step-000-active/PlanetaryManifestIndex")
+        );
     }
 
     #[test]
@@ -8219,6 +8276,34 @@ mod tests {
             .join("step-000-active")
             .join("PlanetaryManifestIndex.lua")
             .exists());
+        let catalog: Value = serde_json::from_str(
+            &std::fs::read_to_string(bundle_dir.join("route-catalog.json")).unwrap(),
+        )
+        .unwrap();
+        assert_eq!(
+            catalog["route_session_module_path"].as_str(),
+            Some("route-session")
+        );
+        assert_eq!(
+            catalog["hydrated_route_module_path"].as_str(),
+            Some("hydrated-route")
+        );
+        assert_eq!(
+            catalog["schedule_module_path"].as_str(),
+            Some("route-schedule")
+        );
+        assert_eq!(
+            catalog["payloads"][0]["lane_module_path"].as_str(),
+            Some("route-lanes/step-000-active")
+        );
+        assert_eq!(
+            catalog["payloads"][0]["manifest_module_path"].as_str(),
+            Some("route-manifests/step-000-active-manifest")
+        );
+        assert_eq!(
+            catalog["payloads"][0]["runtime_index_module_path"].as_str(),
+            Some("route-runtime/step-000-active/PlanetaryManifestIndex")
+        );
     }
 
     #[test]
@@ -8937,6 +9022,13 @@ mod tests {
             .as_str()
             .unwrap()
             .ends_with("route-catalog.json"));
+        assert_eq!(
+            bundle["route_catalog_out"],
+            step_payload_dir
+                .join("route-catalog.json")
+                .display()
+                .to_string()
+        );
         assert_eq!(bundle["step_lane_dir"], step_lane_dir.display().to_string());
         assert_eq!(
             bundle["step_payload_dir"],
@@ -8960,7 +9052,13 @@ mod tests {
         let schedule: Value =
             serde_json::from_str(&std::fs::read_to_string(&schedule_path).unwrap()).unwrap();
         assert_eq!(schedule["steps"].as_array().unwrap().len(), 2);
-        assert!(step_payload_dir.join("route-catalog.json").exists());
+        let route_catalog_path = step_payload_dir.join("route-catalog.json");
+        assert_eq!(
+            bundle["route_catalog_out"].as_str(),
+            Some(route_catalog_path.display().to_string().as_str())
+        );
+        assert!(route_catalog_path.exists());
+        assert!(tempdir.path().join("route-catalog.lua").exists());
         assert!(step_lane_dir.join("step-000-active.json").exists());
         assert!(step_payload_dir.join("lane-payloads.json").exists());
         assert!(step_manifest_dir
@@ -8975,6 +9073,32 @@ mod tests {
         assert!(step_transition_dir
             .join("step-000-transition.json")
             .exists());
+        let catalog: Value =
+            serde_json::from_str(&std::fs::read_to_string(&route_catalog_path).unwrap()).unwrap();
+        assert_eq!(
+            catalog["route_session_module_path"].as_str(),
+            Some("route-session")
+        );
+        assert_eq!(
+            catalog["hydrated_route_module_path"].as_str(),
+            Some("hydrated-route")
+        );
+        assert_eq!(
+            catalog["schedule_module_path"].as_str(),
+            Some("route-schedule")
+        );
+        assert_eq!(
+            catalog["payloads"][0]["lane_module_path"].as_str(),
+            Some("step-lanes/step-000-active")
+        );
+        assert_eq!(
+            catalog["payloads"][0]["manifest_module_path"].as_str(),
+            Some("step-manifests/step-000-active-manifest")
+        );
+        assert_eq!(
+            catalog["payloads"][0]["runtime_index_module_path"].as_str(),
+            Some("step-runtime/step-000-active/PlanetaryManifestIndex")
+        );
     }
 
     #[test]

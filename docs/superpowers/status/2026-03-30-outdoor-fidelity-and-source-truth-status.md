@@ -2950,3 +2950,36 @@ The compact historical archive index is:
   - `cargo test -p arbx_planetary_store planetary_store_ -- --nocapture`
   - `cargo test -p arbx_cli planetary_store_ -- --nocapture`
   - `git diff --check`
+
+## 2026-04-04 09:43 CDT
+
+- Extended the runtime-facing planetary lane again on `main`:
+  - `ManifestLoader`
+    - added canonical route-catalog handle loading from runtime-native Lua bundle artifacts
+    - route catalogs can now resolve route session, hydrated route, schedule, lane summaries, lane manifests, and lane runtime shard handles from one bundle root
+    - named route-catalog loading now supports nested sample-data paths instead of only flat sample modules
+  - `arbx_cli`
+    - route payload catalogs now compute module paths from the actual catalog root instead of per-subdirectory heuristics
+    - `delivery-bundle` now emits Lua companions for route session, hydrated route, and schedule outputs and writes the route catalog at a truthful common root when step artifacts are split across sibling directories
+    - route-bundle and route-schedule tests now lock the runtime-native module-path contract explicitly
+- Verification:
+  - `cd rust && cargo fmt --all`
+  - `cd rust && cargo test -p arbx_cli planetary_store_ -- --nocapture`
+  - `python3 -m unittest discover -s scripts/tests -p 'test_manifest_loader_route_catalog_contract.py' -v`
+  - `stylua --check roblox/src/ServerScriptService/ImportService/ManifestLoader.lua roblox/src/ServerScriptService/Tests/ManifestSubplans.spec.lua`
+  - `git diff --check`
+
+## 2026-04-04 09:37 CDT
+
+- Extended the runtime consumption path on `main`:
+  - `ManifestLoader`
+    - promoted the internal route-catalog handle into a direct public runtime loader surface
+    - route catalogs can now resolve route session, hydrated route, route schedule, lane manifest modules, and lane runtime shard handles from one canonical handoff root
+    - Roblox consumers no longer need to rediscover route-bundle path conventions outside `ManifestLoader`
+  - tests
+    - added a local-safe Python contract for the route-catalog loader surface
+    - expanded the Luau manifest-loader spec with a synthetic route bundle that exercises route-session, schedule, manifest, and runtime-handle consumption
+- Verification:
+  - `python3 -m unittest scripts.tests.test_manifest_loader_route_catalog_contract scripts.tests.test_austin_runtime_contract -v`
+  - `stylua --check roblox/src/ServerScriptService/ImportService/ManifestLoader.lua roblox/src/ServerScriptService/Tests/ManifestSubplans.spec.lua`
+  - `git diff --check`

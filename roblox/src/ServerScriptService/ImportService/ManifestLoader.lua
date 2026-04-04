@@ -99,6 +99,59 @@ local function requireModule(module, freshRequire)
     return result
 end
 
+local function requireTableModule(module, freshRequire, label)
+    local value = requireModule(module, freshRequire)
+    if type(value) ~= "table" then
+        error(("%s must return a table"):format(label))
+    end
+    return value
+end
+
+local function resolveRelativeInstance(root, relativePath, timeoutSeconds)
+    if typeof(root) ~= "Instance" then
+        error("Relative module resolution root must be an Instance")
+    end
+    if type(relativePath) ~= "string" or relativePath == "" then
+        error("Relative module path is required")
+    end
+
+    local current = root
+    for segment in string.gmatch(relativePath, "[^/]+") do
+        local child = current:FindFirstChild(segment)
+            or current:WaitForChild(segment, timeoutSeconds or SAMPLE_DATA_TIMEOUT_SECONDS)
+        if child == nil then
+            error(("%s.%s was not provisioned into the live DataModel"):format(current:GetFullName(), segment))
+        end
+        current = child
+    end
+    return current
+end
+
+local function resolveRelativeModule(root, relativePath, timeoutSeconds)
+    local module = resolveRelativeInstance(root, relativePath, timeoutSeconds)
+    if not module:IsA("ModuleScript") then
+        error(("%s must resolve to a ModuleScript"):format(relativePath))
+    end
+    return module
+end
+
+local function loadShardedHandleFromIndexModule(indexModule, timeoutSeconds, options)
+    local freshRequire = type(options) == "table" and options.freshRequire == true
+    local index = requireTableModule(indexModule, freshRequire, "Sharded manifest index")
+    local shardFolderName = index.shardFolder or (indexModule.Name .. "Chunks")
+    local parent = indexModule.Parent
+    local shardFolder = parent and parent:FindFirstChild(shardFolderName)
+        or (parent and parent:WaitForChild(shardFolderName, timeoutSeconds or SAMPLE_DATA_TIMEOUT_SECONDS))
+    if shardFolder == nil then
+        error(("%s.%s was not provisioned into the live DataModel"):format(parent:GetFullName(), shardFolderName))
+    end
+    return ManifestLoader.LoadShardedModuleHandle(indexModule, shardFolder, timeoutSeconds, options)
+end
+
+local function buildLanePayloadKey(stepIndex, laneName)
+    return ("%s:%s"):format(tostring(stepIndex), tostring(laneName))
+end
+
 local function newManifest(index, chunkRefs)
     local manifest = {
         schemaVersion = index.schemaVersion,
@@ -176,8 +229,7 @@ local function resolveSampleDataFolder(timeoutSeconds)
         return sampleData
     end
 
-    sampleData =
-        ServerStorage:WaitForChild("SampleData", timeoutSeconds or SAMPLE_DATA_TIMEOUT_SECONDS)
+    sampleData = ServerStorage:WaitForChild("SampleData", timeoutSeconds or SAMPLE_DATA_TIMEOUT_SECONDS)
     if sampleData then
         print("[ManifestLoader] Resolved ServerStorage.SampleData via WaitForChild")
         return sampleData
@@ -204,6 +256,28 @@ local function resolveSampleModule(name, timeoutSeconds)
     error(("ServerStorage.SampleData.%s was not provisioned into the live DataModel"):format(name))
 end
 
+local function resolveSampleModulePath(path, timeoutSeconds)
+    local sampleData = resolveSampleDataFolder(timeoutSeconds)
+    if type(path) ~= "string" or path == "" then
+        error("Sample module path is required")
+    end
+
+    local current = sampleData
+    for segment in string.gmatch(path, "[^./]+") do
+        current = current:FindFirstChild(segment)
+            or current:WaitForChild(segment, timeoutSeconds or SAMPLE_DATA_TIMEOUT_SECONDS)
+        if current == nil then
+            error(("ServerStorage.SampleData.%s was not provisioned into the live DataModel"):format(path))
+        end
+    end
+
+    if not current:IsA("ModuleScript") then
+        error(("ServerStorage.SampleData.%s must resolve to a ModuleScript"):format(path))
+    end
+
+    return current
+end
+
 local function loadShardedManifest(indexModule, timeoutSeconds)
     local index = require(indexModule)
     if type(index) ~= "table" then
@@ -215,19 +289,11 @@ local function loadShardedManifest(indexModule, timeoutSeconds)
     local shardFolder = sampleData:FindFirstChild(shardFolderName)
         or sampleData:WaitForChild(shardFolderName, timeoutSeconds or SAMPLE_DATA_TIMEOUT_SECONDS)
     if not shardFolder then
-        error(
-            ("ServerStorage.SampleData.%s was not provisioned into the live DataModel"):format(
-                shardFolderName
-            )
-        )
+        error(("ServerStorage.SampleData.%s was not provisioned into the live DataModel"):format(shardFolderName))
     end
 
-    local chunkRefs = buildChunkRefsFromShards(
-        index,
-        shardFolder,
-        timeoutSeconds,
-        buildChunkRefSeedMap(index.chunkRefs)
-    )
+    local chunkRefs =
+        buildChunkRefsFromShards(index, shardFolder, timeoutSeconds, buildChunkRefSeedMap(index.chunkRefs))
     local chunksById = {}
     local chunkOrder = {}
 
@@ -252,13 +318,7 @@ local function loadShardedManifest(indexModule, timeoutSeconds)
     return finalizeManifest(index, chunksById, chunkOrder, chunkRefs)
 end
 
-function buildChunkRefsFromShards(
-    index,
-    shardFolder,
-    timeoutSeconds,
-    seedChunkRefsById,
-    shardDataLoader
-)
+function buildChunkRefsFromShards(index, shardFolder, timeoutSeconds, seedChunkRefsById, shardDataLoader)
     local chunkRefsById = {}
     local chunkOrder = {}
 
@@ -268,16 +328,10 @@ function buildChunkRefsFromShards(
             shardData = shardDataLoader(shardName)
         else
             local shardModule = shardFolder:FindFirstChild(shardName)
-                or shardFolder:WaitForChild(
-                    shardName,
-                    timeoutSeconds or SAMPLE_DATA_TIMEOUT_SECONDS
-                )
+                or shardFolder:WaitForChild(shardName, timeoutSeconds or SAMPLE_DATA_TIMEOUT_SECONDS)
             if not shardModule then
                 error(
-                    ("%s.%s was not provisioned into the live DataModel"):format(
-                        shardFolder:GetFullName(),
-                        shardName
-                    )
+                    ("%s.%s was not provisioned into the live DataModel"):format(shardFolder:GetFullName(), shardName)
                 )
             end
 
@@ -289,11 +343,9 @@ function buildChunkRefsFromShards(
                 local seedChunkRef = seedChunkRefsById and seedChunkRefsById[chunk.id]
                 chunkRef = {
                     id = chunk.id,
-                    originStuds = chunk.originStuds
-                        or (seedChunkRef and seedChunkRef.originStuds and table.clone(
-                            seedChunkRef.originStuds
-                        ))
-                        or { x = 0, y = 0, z = 0 },
+                    originStuds = chunk.originStuds or (seedChunkRef and seedChunkRef.originStuds and table.clone(
+                        seedChunkRef.originStuds
+                    )) or { x = 0, y = 0, z = 0 },
                     shards = {},
                 }
                 if seedChunkRef then
@@ -332,12 +384,7 @@ function normalizeChunkRefs(index, shardFolder, timeoutSeconds)
         return cloneChunkRefs(index.chunkRefs)
     end
 
-    return buildChunkRefsFromShards(
-        index,
-        shardFolder,
-        timeoutSeconds,
-        buildChunkRefSeedMap(index.chunkRefs)
-    )
+    return buildChunkRefsFromShards(index, shardFolder, timeoutSeconds, buildChunkRefSeedMap(index.chunkRefs))
 end
 
 function ManifestLoader.LoadShardedModuleHandle(indexModule, shardFolder, timeoutSeconds, options)
@@ -357,12 +404,7 @@ function ManifestLoader.LoadShardedModuleHandle(indexModule, shardFolder, timeou
     local chunkFingerprintCache = {}
     local chunkRefs = normalizeChunkRefs(index, shardFolder, timeoutSeconds)
     ChunkSchema.validateChunkRefs(chunkRefs)
-    print(
-        ("[ManifestLoader] Prepared handle for %s with %d chunkRefs"):format(
-            indexModule.Name,
-            #chunkRefs
-        )
-    )
+    print(("[ManifestLoader] Prepared handle for %s with %d chunkRefs"):format(indexModule.Name, #chunkRefs))
     local canonicalShardCacheByChunkId = {}
     local chunkIdsByShardName = {}
 
@@ -376,16 +418,10 @@ function ManifestLoader.LoadShardedModuleHandle(indexModule, shardFolder, timeou
     local function resolveShardModule(shardName, required)
         local shardModule = shardFolder:FindFirstChild(shardName)
         if shardModule == nil and required ~= false then
-            shardModule =
-                shardFolder:WaitForChild(shardName, timeoutSeconds or SAMPLE_DATA_TIMEOUT_SECONDS)
+            shardModule = shardFolder:WaitForChild(shardName, timeoutSeconds or SAMPLE_DATA_TIMEOUT_SECONDS)
         end
         if shardModule == nil and required ~= false then
-            error(
-                ("%s.%s was not provisioned into the live DataModel"):format(
-                    shardFolder:GetFullName(),
-                    shardName
-                )
-            )
+            error(("%s.%s was not provisioned into the live DataModel"):format(shardFolder:GetFullName(), shardName))
         end
         return shardModule
     end
@@ -499,13 +535,8 @@ function ManifestLoader.LoadShardedModuleHandle(indexModule, shardFolder, timeou
             return canonicalChunkRefs
         end
 
-        canonicalChunkRefs = buildChunkRefsFromShards(
-            index,
-            shardFolder,
-            timeoutSeconds,
-            buildChunkRefSeedMap(chunkRefs),
-            loadShardData
-        )
+        canonicalChunkRefs =
+            buildChunkRefsFromShards(index, shardFolder, timeoutSeconds, buildChunkRefSeedMap(chunkRefs), loadShardData)
         chunkRefs = canonicalChunkRefs
         chunkRefById = {}
         for _, chunkRef in ipairs(canonicalChunkRefs) do
@@ -547,14 +578,12 @@ function ManifestLoader.LoadShardedModuleHandle(indexModule, shardFolder, timeou
         local resolvedShardNames = nil
 
         if type(chunkRef.shards) == "table" and #chunkRef.shards > 0 then
-            chunk, resolvedShardNames =
-                materializeChunkFromShardNames(chunkId, chunkRef, chunkRef.shards, false)
+            chunk, resolvedShardNames = materializeChunkFromShardNames(chunkId, chunkRef, chunkRef.shards, false)
         end
 
         if chunk == nil then
             local canonicalShards = resolveCanonicalShardsForChunk(chunkId)
-            chunk, resolvedShardNames =
-                materializeChunkFromShardNames(chunkId, chunkRef, canonicalShards, true)
+            chunk, resolvedShardNames = materializeChunkFromShardNames(chunkId, chunkRef, canonicalShards, true)
         end
 
         if not chunk then
@@ -712,15 +741,276 @@ function ManifestLoader.LoadNamedShardedSampleHandle(indexName, timeoutSeconds, 
     local shardFolder = sampleData:FindFirstChild(shardFolderName)
         or sampleData:WaitForChild(shardFolderName, timeoutSeconds or SAMPLE_DATA_TIMEOUT_SECONDS)
     if not shardFolder then
-        error(
-            ("ServerStorage.SampleData.%s was not provisioned into the live DataModel"):format(
-                shardFolderName
-            )
-        )
+        error(("ServerStorage.SampleData.%s was not provisioned into the live DataModel"):format(shardFolderName))
     end
     print(("[ManifestLoader] Resolved shard folder %s for %s"):format(shardFolderName, indexName))
 
     return ManifestLoader.LoadShardedModuleHandle(indexModule, shardFolder, timeoutSeconds, options)
+end
+
+function ManifestLoader.LoadRouteCatalogHandle(catalogModule, timeoutSeconds, options)
+    if not catalogModule:IsA("ModuleScript") then
+        error("Route catalog must be a ModuleScript")
+    end
+
+    local freshRequire = type(options) == "table" and options.freshRequire == true
+    local rootFolder = catalogModule.Parent
+    local catalog = requireTableModule(catalogModule, freshRequire, "Route catalog")
+    local payloads = catalog.payloads or {}
+    local payloadsByKey = {}
+    local tableModuleCache = {}
+    local moduleScriptCache = {}
+
+    for _, payload in ipairs(payloads) do
+        payloadsByKey[buildLanePayloadKey(payload.step_index, payload.lane)] = payload
+    end
+
+    local function resolveTableModule(modulePath, label)
+        if type(modulePath) ~= "string" or modulePath == "" then
+            return nil
+        end
+
+        local cached = tableModuleCache[modulePath]
+        if cached ~= nil then
+            return cached
+        end
+
+        local module = resolveRelativeModule(rootFolder, modulePath, timeoutSeconds)
+        cached = requireTableModule(module, freshRequire, label)
+        tableModuleCache[modulePath] = cached
+        moduleScriptCache[modulePath] = module
+        return cached
+    end
+
+    local function resolveModuleScript(modulePath)
+        if type(modulePath) ~= "string" or modulePath == "" then
+            return nil
+        end
+
+        local cached = moduleScriptCache[modulePath]
+        if cached ~= nil then
+            return cached
+        end
+
+        cached = resolveRelativeModule(rootFolder, modulePath, timeoutSeconds)
+        moduleScriptCache[modulePath] = cached
+        return cached
+    end
+
+    local handle = {
+        catalog = catalog,
+        routeCatalog = catalog,
+        rootFolder = rootFolder,
+        bundleRoot = rootFolder,
+        payloads = payloads,
+        routeSession = nil,
+        hydratedRoute = nil,
+        schedule = nil,
+    }
+
+    function handle:GetRouteSession()
+        if self.routeSession == nil then
+            self.routeSession = resolveTableModule(catalog.route_session_module_path, "Route session")
+        end
+        return self.routeSession
+    end
+
+    function handle:GetHydratedRoute()
+        if self.hydratedRoute == nil then
+            self.hydratedRoute = resolveTableModule(catalog.hydrated_route_module_path, "Hydrated route")
+        end
+        return self.hydratedRoute
+    end
+
+    function handle:GetSchedule()
+        if self.schedule == nil then
+            self.schedule = resolveTableModule(catalog.schedule_module_path, "Route schedule")
+        end
+        return self.schedule
+    end
+
+    function handle:GetLanePayload(stepIndex, laneName)
+        local payload = payloadsByKey[buildLanePayloadKey(stepIndex, laneName)]
+        if payload == nil then
+            error(
+                ("Route catalog does not declare a payload for step %s lane %s"):format(
+                    tostring(stepIndex),
+                    tostring(laneName)
+                )
+            )
+        end
+        return payload
+    end
+
+    function handle:ResolveLanePayload(stepIndex, laneName)
+        return self:GetLanePayload(stepIndex, laneName)
+    end
+
+    function handle:LoadLaneSummary(stepIndex, laneName)
+        local payload = self:GetLanePayload(stepIndex, laneName)
+        return resolveTableModule(payload.lane_module_path, "Route lane")
+    end
+
+    function handle:LoadLane(stepIndex, laneName)
+        return self:LoadLaneSummary(stepIndex, laneName)
+    end
+
+    function handle:LoadLaneManifest(stepIndex, laneName)
+        local payload = self:GetLanePayload(stepIndex, laneName)
+        if type(payload.manifest_module_path) ~= "string" then
+            error(
+                ("Route catalog payload for step %s lane %s is missing manifest_module_path"):format(
+                    tostring(stepIndex),
+                    tostring(laneName)
+                )
+            )
+        end
+        local module = resolveModuleScript(payload.manifest_module_path)
+        return ManifestLoader.LoadFromModule(module)
+    end
+
+    function handle:LoadLaneRuntimeHandle(stepIndex, laneName, laneTimeoutSeconds, laneOptions)
+        if type(laneTimeoutSeconds) == "table" and laneOptions == nil then
+            laneOptions = laneTimeoutSeconds
+            laneTimeoutSeconds = nil
+        end
+        local payload = self:GetLanePayload(stepIndex, laneName)
+        if type(payload.runtime_index_module_path) ~= "string" then
+            error(
+                ("Route catalog payload for step %s lane %s is missing runtime_index_module_path"):format(
+                    tostring(stepIndex),
+                    tostring(laneName)
+                )
+            )
+        end
+
+        local resolvedOptions = {}
+        if type(options) == "table" then
+            for key, value in pairs(options) do
+                resolvedOptions[key] = value
+            end
+        end
+        if type(laneOptions) == "table" then
+            for key, value in pairs(laneOptions) do
+                resolvedOptions[key] = value
+            end
+        end
+
+        local indexModule = resolveModuleScript(payload.runtime_index_module_path)
+        return loadShardedHandleFromIndexModule(indexModule, laneTimeoutSeconds or timeoutSeconds, resolvedOptions)
+    end
+
+    function handle:LoadLaneManifestSource(stepIndex, laneName, laneTimeoutSeconds, laneOptions)
+        if type(laneTimeoutSeconds) == "table" and laneOptions == nil then
+            laneOptions = laneTimeoutSeconds
+            laneTimeoutSeconds = nil
+        end
+        local payload = self:GetLanePayload(stepIndex, laneName)
+        if type(payload.manifest_module_path) == "string" then
+            return self:LoadLaneManifest(stepIndex, laneName)
+        end
+        if type(payload.runtime_index_module_path) == "string" then
+            return self:LoadLaneRuntimeHandle(stepIndex, laneName, laneTimeoutSeconds, laneOptions)
+        end
+        error(
+            ("Route catalog payload for step %s lane %s has no manifest or runtime source"):format(
+                tostring(stepIndex),
+                tostring(laneName)
+            )
+        )
+    end
+
+    handle.routeSession = handle:GetRouteSession()
+    handle.hydratedRoute = handle:GetHydratedRoute()
+    handle.schedule = handle:GetSchedule()
+
+    return handle
+end
+
+function ManifestLoader.LoadNamedRouteCatalogHandle(name, timeoutSeconds, options)
+    local catalogModule = resolveSampleModulePath(name, timeoutSeconds)
+    return ManifestLoader.LoadRouteCatalogHandle(catalogModule, timeoutSeconds, options)
+end
+
+function ManifestLoader.LoadRouteBundleHandle(bundleFolder, timeoutSeconds, options)
+    if not bundleFolder:IsA("Folder") then
+        error("Route bundle must be a Folder")
+    end
+    local catalogModule = resolveRelativeModule(bundleFolder, "route-catalog", timeoutSeconds)
+    return ManifestLoader.LoadRouteCatalogHandle(catalogModule, timeoutSeconds, options)
+end
+
+function ManifestLoader.LoadNamedRouteBundleHandle(name, timeoutSeconds, options)
+    local sampleData = resolveSampleDataFolder(timeoutSeconds)
+    local bundleFolder = resolveRelativeInstance(sampleData, name, timeoutSeconds)
+    if not bundleFolder:IsA("Folder") then
+        error(("ServerStorage.SampleData.%s must resolve to a Folder route bundle"):format(name))
+    end
+    return ManifestLoader.LoadRouteBundleHandle(bundleFolder, timeoutSeconds, options)
+end
+
+function ManifestLoader.ResolveModuleByPath(root, modulePath, timeoutSeconds)
+    return resolveRelativeModule(root, modulePath, timeoutSeconds)
+end
+
+function ManifestLoader.LoadRouteCatalogFromModule(catalogModule, timeoutSeconds, options)
+    return ManifestLoader.LoadRouteCatalogHandle(catalogModule, timeoutSeconds, options).catalog
+end
+
+function ManifestLoader.LoadNamedRouteCatalog(name, timeoutSeconds, options)
+    return ManifestLoader.LoadNamedRouteCatalogHandle(name, timeoutSeconds, options).catalog
+end
+
+function ManifestLoader.LoadRouteSessionFromCatalogModule(catalogModule, timeoutSeconds, options)
+    return ManifestLoader.LoadRouteCatalogHandle(catalogModule, timeoutSeconds, options):GetRouteSession()
+end
+
+function ManifestLoader.LoadHydratedRouteFromCatalogModule(catalogModule, timeoutSeconds, options)
+    return ManifestLoader.LoadRouteCatalogHandle(catalogModule, timeoutSeconds, options):GetHydratedRoute()
+end
+
+function ManifestLoader.LoadRouteScheduleFromCatalogModule(catalogModule, timeoutSeconds, options)
+    return ManifestLoader.LoadRouteCatalogHandle(catalogModule, timeoutSeconds, options):GetSchedule()
+end
+
+function ManifestLoader.LoadRouteLaneManifestFromCatalogModule(
+    catalogModule,
+    stepIndex,
+    laneName,
+    timeoutSeconds,
+    options
+)
+    local manifest = ManifestLoader.LoadRouteCatalogHandle(catalogModule, timeoutSeconds, options)
+        :LoadLaneManifest(stepIndex, laneName)
+    if manifest == nil then
+        error(
+            ("Route catalog does not expose a materialized manifest for step %s lane %s"):format(
+                tostring(stepIndex),
+                tostring(laneName)
+            )
+        )
+    end
+    return manifest
+end
+
+function ManifestLoader.LoadRouteLaneRuntimeHandleFromCatalogModule(
+    catalogModule,
+    stepIndex,
+    laneName,
+    timeoutSeconds,
+    options
+)
+    local handle = ManifestLoader.LoadRouteCatalogHandle(catalogModule, timeoutSeconds, options)
+        :LoadLaneRuntimeHandle(stepIndex, laneName, options)
+    if handle == nil then
+        error(
+            ("Route catalog does not expose a runtime handle for step %s lane %s"):format(
+                tostring(stepIndex),
+                tostring(laneName)
+            )
+        )
+    end
+    return handle
 end
 
 function ManifestLoader.FreezeHandleForChunkIds(handle, chunkIds)
