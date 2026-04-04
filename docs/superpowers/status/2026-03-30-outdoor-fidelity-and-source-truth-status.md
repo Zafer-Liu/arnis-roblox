@@ -2710,3 +2710,16 @@ The compact historical archive index is:
   - `cargo test -p arbx_planetary_store planetary_store_ -- --nocapture`
   - `cargo test -p arbx_cli planetary_store_ -- --nocapture`
   - `git diff --check`
+
+## 2026-04-04 00:21 CDT
+
+- Extended the planetary backbone again on `main`:
+  - `arbx_cli`
+    - `delivery-bundle` now accepts repeated `--point LAT,LON` selectors directly and internally collapses them into the merged route-prefetch plan
+    - multi-point lookahead no longer requires an explicit `route-plan` pre-step when the goal is immediate execution
+  - the route lane now supports both explicit staged planning (`route-plan`) and direct one-shot execution (`delivery-bundle --point ... --point ...`) against the same merged plan semantics
+- Verification:
+  - `cargo fmt --all`
+  - `cargo test -p arbx_planetary_store planetary_store_ -- --nocapture`
+  - `cargo test -p arbx_cli planetary_store_ -- --nocapture`
+  - `git diff --check`

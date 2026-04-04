@@ -4159,7 +4159,7 @@ fn cmd_planetary_store(args: &[String]) -> Result<(), String> {
             let mut scene_id: Option<String> = None;
             let mut bbox_studs: Option<(f64, f64, f64, f64)> = None;
             let mut around_studs: Option<(f64, f64)> = None;
-            let mut point: Option<(f64, f64)> = None;
+            let mut points: Vec<(f64, f64)> = Vec::new();
             let mut tile: Option<(u8, u32, u32)> = None;
             let mut radius_studs: Option<f64> = None;
             let mut plan_paths: Vec<PathBuf> = Vec::new();
@@ -4231,18 +4231,7 @@ fn cmd_planetary_store(args: &[String]) -> Result<(), String> {
                     }
                     "--point" => {
                         let value = args.get(i + 1).ok_or("--point requires LAT,LON")?;
-                        let parts: Vec<f64> = value
-                            .split(',')
-                            .map(|part| {
-                                part.trim()
-                                    .parse::<f64>()
-                                    .map_err(|_| format!("invalid number in --point: {}", part))
-                            })
-                            .collect::<Result<Vec<f64>, String>>()?;
-                        if parts.len() != 2 {
-                            return Err("--point requires two comma-separated numbers".to_string());
-                        }
-                        point = Some((parts[0], parts[1]));
+                        points.push(parse_lat_lon_pair(value, "--point")?);
                         i += 2;
                     }
                     "--tile" => {
@@ -4429,7 +4418,8 @@ fn cmd_planetary_store(args: &[String]) -> Result<(), String> {
                         max_streaming_cost,
                         max_estimated_memory_cost,
                     )
-                } else if let Some((lat, lon)) = point {
+                } else if points.len() == 1 {
+                    let (lat, lon) = points[0];
                     let radius_studs = radius_studs.ok_or(
                         "planetary-store delivery-bundle requires --radius-studs R when using --point",
                     )?;
@@ -4444,6 +4434,34 @@ fn cmd_planetary_store(args: &[String]) -> Result<(), String> {
                         max_streaming_cost,
                         max_estimated_memory_cost,
                     )
+                } else if !points.is_empty() {
+                    let radius_studs = radius_studs.ok_or(
+                        "planetary-store delivery-bundle requires --radius-studs R when using repeated --point",
+                    )?;
+                    let sampled_plans = points
+                        .iter()
+                        .map(|(lat, lon)| {
+                            build_delivery_plan_around_geo_point(
+                                &store_path,
+                                *lat,
+                                *lon,
+                                radius_studs,
+                                limit,
+                                require_buildings,
+                                require_terrain,
+                                max_streaming_cost,
+                                max_estimated_memory_cost,
+                            )
+                            .map_err(|err| format!("planetary-store delivery-bundle failed: {err}"))?
+                            .ok_or_else(|| {
+                                format!(
+                                    "planetary-store delivery-bundle found no matching scene/chunks for point {lat},{lon}"
+                                )
+                            })
+                        })
+                        .collect::<Result<Vec<_>, String>>()?;
+                    Ok(merge_delivery_plans(&sampled_plans)
+                        .map_err(|err| format!("planetary-store delivery-bundle failed: {err}"))?)
                 } else if let Some((zoom, x, y)) = tile {
                     build_delivery_plan_for_tile(
                         &store_path,
@@ -4458,7 +4476,7 @@ fn cmd_planetary_store(args: &[String]) -> Result<(), String> {
                     )
                 } else {
                     return Err(
-                        "planetary-store delivery-bundle requires --plan or a selector (--bbox-studs, --around-studs, --point, or --tile)"
+                        "planetary-store delivery-bundle requires --plan or a selector (--bbox-studs, --around-studs, repeated --point, or --tile)"
                             .to_string(),
                     );
                 }
@@ -6655,6 +6673,48 @@ mod tests {
             "delivery-bundle".to_string(),
             "--plan".to_string(),
             route_path.display().to_string(),
+            "--out".to_string(),
+            bundle_path.display().to_string(),
+        ])
+        .unwrap();
+
+        let bundle: Value =
+            serde_json::from_str(&std::fs::read_to_string(&bundle_path).unwrap()).unwrap();
+        assert_eq!(bundle["plan"]["selection_mode"], "merged");
+        assert!(bundle["plan"]["chunk_count"].as_u64().unwrap() >= 1);
+    }
+
+    #[test]
+    fn planetary_store_delivery_bundle_accepts_multiple_points_directly() {
+        let tempdir = tempfile::tempdir().unwrap();
+        let store_path = tempdir.path().join("planetary.sqlite");
+        let manifest_path = tempdir.path().join("sample.sqlite");
+        let bundle_path = tempdir.path().join("delivery-bundle.json");
+        let manifest = build_sample_multi_chunk(3, 1);
+        let center = manifest.meta.bbox.center();
+        write_manifest_sqlite(&manifest, &manifest_path).unwrap();
+
+        cmd_planetary_store(&[
+            "ingest-manifest".to_string(),
+            "--store".to_string(),
+            store_path.display().to_string(),
+            "--manifest-sqlite".to_string(),
+            manifest_path.display().to_string(),
+            "--scene".to_string(),
+            "austin".to_string(),
+        ])
+        .unwrap();
+
+        cmd_planetary_store(&[
+            "delivery-bundle".to_string(),
+            "--store".to_string(),
+            store_path.display().to_string(),
+            "--point".to_string(),
+            format!("{},{}", center.lat, center.lon),
+            "--point".to_string(),
+            format!("{},{}", center.lat, center.lon + 0.0002),
+            "--radius-studs".to_string(),
+            "300".to_string(),
             "--out".to_string(),
             bundle_path.display().to_string(),
         ])
