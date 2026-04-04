@@ -893,6 +893,8 @@ class SceneParityAuditTests(unittest.TestCase):
             self.assertEqual(written["summary"]["matching"], 25)
             self.assertEqual(written["summary"]["mismatched"], 0)
             self.assertIn("Scene Parity Audit", html)
+            self.assertIn("manifestSourceKind", html)
+            self.assertIn("manifestSourceName", html)
             self.assertIn("chunkIds", html)
             self.assertIn("buildingRoofCoverageByShape", html)
             self.assertIn("roadSurfacePartCountBySubkind", html)

@@ -3085,6 +3085,16 @@ The compact historical archive index is:
   - `python3 -m unittest scripts.tests.test_run_studio_harness -v`
   - `git diff --check`
 
+## 2026-04-04 10:16 CDT
+
+- Extended the audit presentation lane again on `main`:
+  - `scene_fidelity_audit.py`
+    - rendered HTML now surfaces manifest source kind/name instead of hiding that data in JSON only
+  - audit HTML contract tests now lock the rendered source metadata on both fidelity and parity outputs
+- Verification:
+  - `python3 -m unittest scripts.tests.test_run_studio_harness scripts.tests.test_austin_runtime_contract scripts.tests.test_scene_fidelity_audit scripts.tests.test_scene_parity_audit -v`
+  - `git diff --check`
+
 ## 2026-04-04 09:37 CDT
 
 - Extended the runtime consumption path on `main`:

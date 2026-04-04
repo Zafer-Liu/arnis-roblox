@@ -464,6 +464,11 @@ class SceneFidelityAuditTests(unittest.TestCase):
             self.assertEqual(report["scene"]["buildingRoofCoverageByUsage"]["office"]["noRoofEvidenceCount"], 1)
             self.assertEqual(report["scene"]["buildingRoofCoverageByShape"]["flat"]["withoutRoofCount"], 1)
             self.assertEqual(report["scene"]["buildingRoofCoverageByShape"]["flat"]["noRoofEvidenceCount"], 1)
+            html_path = root / "scene-report.html"
+            audit.write_html_report(report, html_path)
+            html = html_path.read_text(encoding="utf-8")
+            self.assertIn("canonical_manifest", html)
+            self.assertIn("AustinManifestIndex", html)
             self.assertEqual(report["scene"]["waterSurfacePartCount"], 1)
             self.assertEqual(report["scene"]["waterSurfacePartCountByType"]["polygon"]["surfacePartCount"], 1)
             self.assertEqual(report["scene"]["waterSurfacePartCountByKind"]["pond"]["surfacePartCount"], 1)
@@ -1151,6 +1156,12 @@ class SceneFidelityAuditTests(unittest.TestCase):
             report_path = root / "report.json"
             html_path = root / "report.html"
             report = {
+                "phase": "edit",
+                "rootName": "GeneratedWorld_AustinPreview",
+                "worldIdentity": "AustinManifestIndex",
+                "chunkEnvelopeKind": "bounded_preview",
+                "manifestSourceKind": "canonical_manifest",
+                "manifestSourceName": "AustinManifestIndex",
                 "summary": {
                     "marker": "ARNIS_SCENE_EDIT",
                     "building_model_ratio": 0.5,
@@ -1252,6 +1263,8 @@ class SceneFidelityAuditTests(unittest.TestCase):
             html = html_path.read_text(encoding="utf-8")
             self.assertIn("ARNIS_SCENE_EDIT", html)
             self.assertIn("missing_building_models", html)
+            self.assertIn("manifest_source_kind", html.lower())
+            self.assertIn("manifest_source_name", html.lower())
             self.assertIn("building_model_ratio", html)
             self.assertIn("building_models_with_direct_shell", html)
             self.assertIn("building_models_missing_direct_shell", html)

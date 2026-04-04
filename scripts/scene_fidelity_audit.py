@@ -1853,6 +1853,18 @@ def write_html_report(report: dict[str, Any], html_path: Path) -> None:
         "terrainMaxCellSizeStuds",
         "terrainCellSizeDistribution",
     ]
+    report_metric_entries = []
+    for key in ("phase", "rootName", "worldIdentity", "chunkEnvelopeKind", "manifestSourceKind", "manifestSourceName"):
+        value = report.get(key)
+        if value not in (None, ""):
+            report_metric_entries.append((key, value))
+    report_metrics_html = "".join(
+        (
+            f"<div class=\"metric\"><div class=\"metric-label\">{escape(_to_metric_label(key))}</div>"
+            f"<div class=\"metric-value\">{escape(str(value))}</div></div>"
+        )
+        for key, value in report_metric_entries
+    )
     manifest_metrics_html = "".join(
         (
             f"<div class=\"metric\"><div class=\"metric-label\">manifest_{escape(_to_metric_label(key))}</div>"
@@ -2236,6 +2248,7 @@ def write_html_report(report: dict[str, Any], html_path: Path) -> None:
       <div class="metric"><div class="metric-label">water_geometry_ratio</div><div class="metric-value">{float(report["summary"].get("water_geometry_ratio", 0.0)):.3f}</div></div>
       <div class="metric"><div class="metric-label">chunk_ratio</div><div class="metric-value">{float(report["summary"].get("chunk_ratio", 0.0)):.3f}</div></div>
     </div>
+    {"<div class=\"metric-strip\">" + report_metrics_html + "</div>" if report_metrics_html else ""}
     {"<div class=\"metric-strip\">" + scene_metrics_html + "</div>" if scene_metrics_html else ""}
     {"<div class=\"metric-strip\">" + client_metrics_html + "</div>" if client_metrics_html else ""}
     {"<div class=\"metric-strip\">" + manifest_metrics_html + "</div>" if manifest_metrics_html else ""}
