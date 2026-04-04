@@ -215,6 +215,41 @@ fn summarize_delivery_chunks(chunks: &[PlanetaryChunkSummary]) -> (usize, usize,
     )
 }
 
+fn apply_chunk_summary_constraints(
+    chunks: Vec<PlanetaryChunkSummary>,
+    limit: Option<usize>,
+    max_streaming_cost: Option<f64>,
+    max_estimated_memory_cost: Option<f64>,
+) -> Vec<PlanetaryChunkSummary> {
+    let mut selected = Vec::new();
+    let mut running_streaming_cost = 0.0f64;
+    let mut running_estimated_memory_cost = 0.0f64;
+    for chunk in chunks {
+        if let Some(limit) = limit {
+            if selected.len() >= limit {
+                break;
+            }
+        }
+        let next_streaming_cost = running_streaming_cost + chunk.streaming_cost;
+        if let Some(max_streaming_cost) = max_streaming_cost {
+            if next_streaming_cost > max_streaming_cost {
+                break;
+            }
+        }
+        let next_estimated_memory_cost = running_estimated_memory_cost
+            + chunk.estimated_memory_cost.unwrap_or(chunk.streaming_cost);
+        if let Some(max_estimated_memory_cost) = max_estimated_memory_cost {
+            if next_estimated_memory_cost > max_estimated_memory_cost {
+                break;
+            }
+        }
+        running_streaming_cost = next_streaming_cost;
+        running_estimated_memory_cost = next_estimated_memory_cost;
+        selected.push(chunk);
+    }
+    selected
+}
+
 fn compare_scene_priority(
     left_entry: &PlanetarySceneCatalogEntry,
     left_bbox: arbx_geo::BoundingBox,
@@ -1322,6 +1357,8 @@ pub fn build_delivery_window_around_geo_point(
     limit: Option<usize>,
     require_buildings: bool,
     require_terrain: bool,
+    max_streaming_cost: Option<f64>,
+    max_estimated_memory_cost: Option<f64>,
 ) -> PlanetaryStoreResult<Option<PlanetaryDeliveryWindow>> {
     let Some(scene) = find_scene_geo_candidates_covering_point(path, lat, lon)?
         .into_iter()
@@ -1343,6 +1380,8 @@ pub fn build_delivery_window_around_geo_point(
         limit,
         require_buildings,
         require_terrain,
+        max_streaming_cost,
+        max_estimated_memory_cost,
     )?;
     let (chunk_count, total_feature_count, total_streaming_cost, total_estimated_memory_cost) =
         summarize_delivery_chunks(&chunks);
@@ -1369,6 +1408,8 @@ pub fn build_delivery_window_for_tile(
     limit: Option<usize>,
     require_buildings: bool,
     require_terrain: bool,
+    max_streaming_cost: Option<f64>,
+    max_estimated_memory_cost: Option<f64>,
 ) -> PlanetaryStoreResult<Option<PlanetaryDeliveryWindow>> {
     let Some(scene) = find_best_scene_covering_tile(path, zoom, x, y)? else {
         return Ok(None);
@@ -1392,6 +1433,8 @@ pub fn build_delivery_window_for_tile(
         limit,
         require_buildings,
         require_terrain,
+        max_streaming_cost,
+        max_estimated_memory_cost,
     )?;
     let (chunk_count, total_feature_count, total_streaming_cost, total_estimated_memory_cost) =
         summarize_delivery_chunks(&chunks);
@@ -1419,6 +1462,8 @@ pub fn read_scene_chunk_summary_around_geo_point(
     limit: Option<usize>,
     require_buildings: bool,
     require_terrain: bool,
+    max_streaming_cost: Option<f64>,
+    max_estimated_memory_cost: Option<f64>,
 ) -> PlanetaryStoreResult<Vec<PlanetaryChunkSummary>> {
     let connection = open_store(path)?;
     let meta = read_scene_meta(&connection, scene_id)?;
@@ -1437,6 +1482,8 @@ pub fn read_scene_chunk_summary_around_geo_point(
         limit,
         require_buildings,
         require_terrain,
+        max_streaming_cost,
+        max_estimated_memory_cost,
     )
 }
 
@@ -1449,6 +1496,8 @@ pub fn read_scene_manifest_subset_around_geo_point(
     limit: Option<usize>,
     require_buildings: bool,
     require_terrain: bool,
+    max_streaming_cost: Option<f64>,
+    max_estimated_memory_cost: Option<f64>,
 ) -> PlanetaryStoreResult<arbx_roblox_export::StoredManifestSubset> {
     let chunk_ids = read_scene_chunk_summary_around_geo_point(
         path,
@@ -1459,6 +1508,8 @@ pub fn read_scene_manifest_subset_around_geo_point(
         limit,
         require_buildings,
         require_terrain,
+        max_streaming_cost,
+        max_estimated_memory_cost,
     )?
     .into_iter()
     .map(|chunk| chunk.chunk_id)
@@ -1475,6 +1526,8 @@ pub fn read_scene_chunk_summary_for_tile(
     limit: Option<usize>,
     require_buildings: bool,
     require_terrain: bool,
+    max_streaming_cost: Option<f64>,
+    max_estimated_memory_cost: Option<f64>,
 ) -> PlanetaryStoreResult<Vec<PlanetaryChunkSummary>> {
     let connection = open_store(path)?;
     let meta = read_scene_meta(&connection, scene_id)?;
@@ -1492,6 +1545,8 @@ pub fn read_scene_chunk_summary_for_tile(
         limit,
         require_buildings,
         require_terrain,
+        max_streaming_cost,
+        max_estimated_memory_cost,
     )
 }
 
@@ -1712,6 +1767,8 @@ pub fn read_scene_chunk_summary_subset(
     limit: Option<usize>,
     require_buildings: bool,
     require_terrain: bool,
+    max_streaming_cost: Option<f64>,
+    max_estimated_memory_cost: Option<f64>,
 ) -> PlanetaryStoreResult<Vec<PlanetaryChunkSummary>> {
     let connection = open_store(path)?;
     let chunk_size_studs: i32 = connection
@@ -1723,7 +1780,7 @@ pub fn read_scene_chunk_summary_subset(
         .optional()?
         .ok_or_else(|| format!("scene {} is not present in planetary store", scene_id))?;
 
-    let mut sql = String::from(
+    let sql = String::from(
         "
         SELECT
             chunk_id,
@@ -1752,10 +1809,6 @@ pub fn read_scene_chunk_summary_subset(
         ORDER BY origin_z ASC, origin_x ASC
         ",
     );
-    if let Some(limit) = limit {
-        sql.push_str(&format!(" LIMIT {}", limit));
-    }
-
     let mut statement = connection.prepare(&sql)?;
     let rows = statement.query_map(
         params![
@@ -1794,7 +1847,12 @@ pub fn read_scene_chunk_summary_subset(
     for row in rows {
         chunks.push(row?);
     }
-    Ok(chunks)
+    Ok(apply_chunk_summary_constraints(
+        chunks,
+        limit,
+        max_streaming_cost,
+        max_estimated_memory_cost,
+    ))
 }
 
 pub fn read_scene_chunk_summary_around_point(
@@ -1806,6 +1864,8 @@ pub fn read_scene_chunk_summary_around_point(
     limit: Option<usize>,
     require_buildings: bool,
     require_terrain: bool,
+    max_streaming_cost: Option<f64>,
+    max_estimated_memory_cost: Option<f64>,
 ) -> PlanetaryStoreResult<Vec<PlanetaryChunkSummary>> {
     let connection = open_store(path)?;
     let chunk_size_studs: i32 = connection
@@ -1819,7 +1879,7 @@ pub fn read_scene_chunk_summary_around_point(
 
     let half = chunk_size_studs as f64 * 0.5;
     let radius_sq = radius_studs * radius_studs;
-    let mut sql = String::from(
+    let sql = String::from(
         "
         SELECT
             chunk_id,
@@ -1848,10 +1908,6 @@ pub fn read_scene_chunk_summary_around_point(
         ORDER BY center_distance_sq ASC, chunk_id ASC
         ",
     );
-    if let Some(limit) = limit {
-        sql.push_str(&format!(" LIMIT {}", limit));
-    }
-
     let mut statement = connection.prepare(&sql)?;
     let rows = statement.query_map(
         params![
@@ -1889,7 +1945,12 @@ pub fn read_scene_chunk_summary_around_point(
     for row in rows {
         chunks.push(row?);
     }
-    Ok(chunks)
+    Ok(apply_chunk_summary_constraints(
+        chunks,
+        limit,
+        max_streaming_cost,
+        max_estimated_memory_cost,
+    ))
 }
 
 pub fn read_chunks_by_ids(
@@ -2081,6 +2142,8 @@ mod tests {
             Some(1),
             false,
             false,
+            None,
+            None,
         )
         .unwrap();
         assert_eq!(chunks.len(), 1);
@@ -2107,6 +2170,8 @@ mod tests {
             None,
             true,
             true,
+            None,
+            None,
         )
         .unwrap();
         assert_eq!(chunks.len(), 1);
@@ -2134,12 +2199,41 @@ mod tests {
             Some(2),
             false,
             false,
+            None,
+            None,
         )
         .unwrap();
         assert_eq!(chunks.len(), 2);
         assert_eq!(chunks[0].chunk_id, "1_0");
         assert_eq!(chunks[1].chunk_id, "0_0");
         assert!(chunks[0].center_distance_sq.unwrap() <= chunks[1].center_distance_sq.unwrap());
+    }
+
+    #[test]
+    fn planetary_store_applies_streaming_budget_to_point_selection() {
+        let dir = tempdir().unwrap();
+        let manifest_path = dir.path().join("sample.sqlite");
+        let store_path = dir.path().join("planetary.sqlite");
+
+        let manifest = build_sample_multi_chunk(3, 1);
+        write_manifest_sqlite(&manifest, &manifest_path).unwrap();
+        ingest_manifest_sqlite(&store_path, &manifest_path, Some("sample_austin")).unwrap();
+
+        let chunks = read_scene_chunk_summary_around_point(
+            &store_path,
+            "sample_austin",
+            300.0,
+            128.0,
+            300.0,
+            None,
+            false,
+            false,
+            Some(8.0),
+            None,
+        )
+        .unwrap();
+        assert_eq!(chunks.len(), 1);
+        assert_eq!(chunks[0].chunk_id, "1_0");
     }
 
     #[test]
@@ -2275,6 +2369,8 @@ mod tests {
             Some(2),
             false,
             false,
+            None,
+            None,
         )
         .unwrap();
         assert_eq!(chunks.len(), 1);
@@ -2300,6 +2396,8 @@ mod tests {
             Some(2),
             false,
             false,
+            None,
+            None,
         )
         .unwrap();
         assert_eq!(subset.chunks.len(), 1);
@@ -2343,6 +2441,8 @@ mod tests {
             Some(1),
             false,
             false,
+            None,
+            None,
         )
         .unwrap()
         .unwrap();
@@ -2368,6 +2468,8 @@ mod tests {
             Some(2),
             false,
             false,
+            None,
+            None,
         )
         .unwrap()
         .unwrap();
@@ -2396,9 +2498,19 @@ mod tests {
             * 2f64.powi(zoom as i32))
         .floor() as u32;
 
-        let window = build_delivery_window_for_tile(&store_path, zoom, x, y, Some(2), false, false)
-            .unwrap()
-            .unwrap();
+        let window = build_delivery_window_for_tile(
+            &store_path,
+            zoom,
+            x,
+            y,
+            Some(2),
+            false,
+            false,
+            None,
+            None,
+        )
+        .unwrap()
+        .unwrap();
         assert_eq!(window.scene.scene_id, "sample_austin");
         assert!(!window.chunks.is_empty());
         assert_eq!(window.chunk_count, window.chunks.len());
@@ -2457,6 +2569,8 @@ mod tests {
             Some(2),
             false,
             false,
+            None,
+            None,
         )
         .unwrap();
         assert!(!chunks.is_empty());

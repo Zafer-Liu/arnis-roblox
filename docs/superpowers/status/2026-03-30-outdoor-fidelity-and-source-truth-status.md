@@ -2536,3 +2536,18 @@ The compact historical archive index is:
   - `cargo test -p arbx_planetary_store planetary_store_ -- --nocapture`
   - `cargo test -p arbx_cli planetary_store_delivery_window_ -- --nocapture`
   - `git diff --check`
+
+## 2026-04-03 21:02 CDT
+
+- Extended the planetary backbone again on `main`:
+  - `arbx_planetary_store`
+    - chunk-summary selection now supports cumulative `max_streaming_cost` and `max_estimated_memory_cost` ceilings in stable order, not just raw count limits
+    - geo-point and tile delivery windows now inherit those ceilings and expose the trimmed budgeted chunk set
+  - `arbx_cli`
+    - `subset-summary`, `emit-manifest-subset`, `emit-runtime-lua`, and `delivery-window` now accept `--max-streaming-cost` and `--max-estimated-memory-cost`
+    - bbox, around-point, geo-point, and tile flows now all use the same budget-aware selection contract
+- Verification:
+  - `cargo fmt --all`
+  - `cargo test -p arbx_planetary_store planetary_store_ -- --nocapture`
+  - `cargo test -p arbx_cli planetary_store_ -- --nocapture`
+  - `git diff --check`

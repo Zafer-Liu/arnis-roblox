@@ -21,9 +21,8 @@ use arbx_planetary_store::{
     init_planetary_store, list_scenes, read_chunks_by_ids, read_scene_catalog_entry,
     read_scene_chunk_subset, read_scene_chunk_summary_around_geo_point,
     read_scene_chunk_summary_around_point, read_scene_chunk_summary_for_tile,
-    read_scene_chunk_summary_subset, read_scene_manifest_subset,
-    read_scene_manifest_subset_around_geo_point, read_scene_manifest_subset_by_chunk_ids,
-    read_scene_manifest_subset_for_tile, summarize_planetary_store,
+    read_scene_chunk_summary_subset, read_scene_manifest_subset_around_geo_point,
+    read_scene_manifest_subset_by_chunk_ids, summarize_planetary_store,
 };
 use arbx_roblox_export::{
     build_sample_multi_chunk, export_to_chunks, read_manifest_sqlite_all, write_manifest_sqlite,
@@ -2225,6 +2224,8 @@ fn cmd_planetary_store(args: &[String]) -> Result<(), String> {
             let mut tile: Option<(u8, u32, u32)> = None;
             let mut radius_studs: Option<f64> = None;
             let mut limit: Option<usize> = None;
+            let mut max_streaming_cost: Option<f64> = None;
+            let mut max_estimated_memory_cost: Option<f64> = None;
             let mut require_buildings = false;
             let mut require_terrain = false;
             let mut i = 1;
@@ -2330,6 +2331,25 @@ fn cmd_planetary_store(args: &[String]) -> Result<(), String> {
                         );
                         i += 2;
                     }
+                    "--max-streaming-cost" => {
+                        let value = args
+                            .get(i + 1)
+                            .ok_or("--max-streaming-cost requires a number")?;
+                        max_streaming_cost =
+                            Some(value.parse::<f64>().map_err(|_| {
+                                format!("invalid --max-streaming-cost value: {value}")
+                            })?);
+                        i += 2;
+                    }
+                    "--max-estimated-memory-cost" => {
+                        let value = args
+                            .get(i + 1)
+                            .ok_or("--max-estimated-memory-cost requires a number")?;
+                        max_estimated_memory_cost = Some(value.parse::<f64>().map_err(|_| {
+                            format!("invalid --max-estimated-memory-cost value: {value}")
+                        })?);
+                        i += 2;
+                    }
                     "--require-buildings" => {
                         require_buildings = true;
                         i += 1;
@@ -2359,6 +2379,8 @@ fn cmd_planetary_store(args: &[String]) -> Result<(), String> {
                     limit,
                     require_buildings,
                     require_terrain,
+                    max_streaming_cost,
+                    max_estimated_memory_cost,
                 )
                 .map_err(|err| format!("planetary-store subset-summary bbox failed: {err}"))?
             } else if let Some((focus_x, focus_z)) = around_studs {
@@ -2374,6 +2396,8 @@ fn cmd_planetary_store(args: &[String]) -> Result<(), String> {
                     limit,
                     require_buildings,
                     require_terrain,
+                    max_streaming_cost,
+                    max_estimated_memory_cost,
                 )
                 .map_err(|err| {
                     format!("planetary-store subset-summary around-studs failed: {err}")
@@ -2391,6 +2415,8 @@ fn cmd_planetary_store(args: &[String]) -> Result<(), String> {
                     limit,
                     require_buildings,
                     require_terrain,
+                    max_streaming_cost,
+                    max_estimated_memory_cost,
                 )
                 .map_err(|err| format!("planetary-store subset-summary point failed: {err}"))?
             } else if let Some((zoom, x, y)) = tile {
@@ -2403,6 +2429,8 @@ fn cmd_planetary_store(args: &[String]) -> Result<(), String> {
                     limit,
                     require_buildings,
                     require_terrain,
+                    max_streaming_cost,
+                    max_estimated_memory_cost,
                 )
                 .map_err(|err| format!("planetary-store subset-summary tile failed: {err}"))?
             } else {
@@ -2481,6 +2509,8 @@ fn cmd_planetary_store(args: &[String]) -> Result<(), String> {
             let mut chunk_ids: Option<Vec<String>> = None;
             let mut out_path: Option<PathBuf> = None;
             let mut limit: Option<usize> = None;
+            let mut max_streaming_cost: Option<f64> = None;
+            let mut max_estimated_memory_cost: Option<f64> = None;
             let mut require_buildings = false;
             let mut require_terrain = false;
             let mut i = 1;
@@ -2605,6 +2635,25 @@ fn cmd_planetary_store(args: &[String]) -> Result<(), String> {
                         );
                         i += 2;
                     }
+                    "--max-streaming-cost" => {
+                        let value = args
+                            .get(i + 1)
+                            .ok_or("--max-streaming-cost requires a number")?;
+                        max_streaming_cost =
+                            Some(value.parse::<f64>().map_err(|_| {
+                                format!("invalid --max-streaming-cost value: {value}")
+                            })?);
+                        i += 2;
+                    }
+                    "--max-estimated-memory-cost" => {
+                        let value = args
+                            .get(i + 1)
+                            .ok_or("--max-estimated-memory-cost requires a number")?;
+                        max_estimated_memory_cost = Some(value.parse::<f64>().map_err(|_| {
+                            format!("invalid --max-estimated-memory-cost value: {value}")
+                        })?);
+                        i += 2;
+                    }
                     "--require-buildings" => {
                         require_buildings = true;
                         i += 1;
@@ -2630,9 +2679,26 @@ fn cmd_planetary_store(args: &[String]) -> Result<(), String> {
                 "emit-manifest-subset",
             )?;
             let subset = if let Some((min_x, min_z, max_x, max_z)) = bbox_studs {
-                read_scene_manifest_subset(&store_path, &scene_id, min_x, min_z, max_x, max_z)
+                let chunk_ids = read_scene_chunk_summary_subset(
+                    &store_path,
+                    &scene_id,
+                    min_x,
+                    min_z,
+                    max_x,
+                    max_z,
+                    limit,
+                    require_buildings,
+                    require_terrain,
+                    max_streaming_cost,
+                    max_estimated_memory_cost,
+                )
+                .map_err(|err| format!("planetary-store emit-manifest-subset bbox failed: {err}"))?
+                .into_iter()
+                .map(|chunk| chunk.chunk_id)
+                .collect::<Vec<_>>();
+                read_scene_manifest_subset_by_chunk_ids(&store_path, &scene_id, &chunk_ids)
                     .map_err(|err| {
-                        format!("planetary-store emit-manifest-subset bbox failed: {err}")
+                        format!("planetary-store emit-manifest-subset bbox chunk selection failed: {err}")
                     })?
             } else if let Some((focus_x, focus_z)) = around_studs {
                 let radius_studs = radius_studs.ok_or(
@@ -2647,6 +2713,8 @@ fn cmd_planetary_store(args: &[String]) -> Result<(), String> {
                     limit,
                     require_buildings,
                     require_terrain,
+                    max_streaming_cost,
+                    max_estimated_memory_cost,
                 )
                 .map_err(|err| {
                     format!("planetary-store emit-manifest-subset around-studs failed: {err}")
@@ -2669,14 +2737,33 @@ fn cmd_planetary_store(args: &[String]) -> Result<(), String> {
                     limit,
                     require_buildings,
                     require_terrain,
+                    max_streaming_cost,
+                    max_estimated_memory_cost,
                 )
                 .map_err(|err| {
                     format!("planetary-store emit-manifest-subset point failed: {err}")
                 })?
             } else if let Some((zoom, x, y)) = tile {
-                read_scene_manifest_subset_for_tile(&store_path, &scene_id, zoom, x, y).map_err(
-                    |err| format!("planetary-store emit-manifest-subset tile failed: {err}"),
-                )?
+                let chunk_ids = read_scene_chunk_summary_for_tile(
+                    &store_path,
+                    &scene_id,
+                    zoom,
+                    x,
+                    y,
+                    limit,
+                    require_buildings,
+                    require_terrain,
+                    max_streaming_cost,
+                    max_estimated_memory_cost,
+                )
+                .map_err(|err| format!("planetary-store emit-manifest-subset tile failed: {err}"))?
+                .into_iter()
+                .map(|chunk| chunk.chunk_id)
+                .collect::<Vec<_>>();
+                read_scene_manifest_subset_by_chunk_ids(&store_path, &scene_id, &chunk_ids)
+                    .map_err(|err| {
+                        format!("planetary-store emit-manifest-subset tile chunk selection failed: {err}")
+                    })?
             } else if let Some(chunk_ids) = chunk_ids {
                 read_scene_manifest_subset_by_chunk_ids(&store_path, &scene_id, &chunk_ids)
                     .map_err(|err| {
@@ -2719,6 +2806,8 @@ fn cmd_planetary_store(args: &[String]) -> Result<(), String> {
             let mut chunks_per_shard: usize = 32;
             let mut max_bytes: Option<usize> = None;
             let mut limit: Option<usize> = None;
+            let mut max_streaming_cost: Option<f64> = None;
+            let mut max_estimated_memory_cost: Option<f64> = None;
             let mut require_buildings = false;
             let mut require_terrain = false;
             let mut i = 1;
@@ -2874,6 +2963,25 @@ fn cmd_planetary_store(args: &[String]) -> Result<(), String> {
                         );
                         i += 2;
                     }
+                    "--max-streaming-cost" => {
+                        let value = args
+                            .get(i + 1)
+                            .ok_or("--max-streaming-cost requires a number")?;
+                        max_streaming_cost =
+                            Some(value.parse::<f64>().map_err(|_| {
+                                format!("invalid --max-streaming-cost value: {value}")
+                            })?);
+                        i += 2;
+                    }
+                    "--max-estimated-memory-cost" => {
+                        let value = args
+                            .get(i + 1)
+                            .ok_or("--max-estimated-memory-cost requires a number")?;
+                        max_estimated_memory_cost = Some(value.parse::<f64>().map_err(|_| {
+                            format!("invalid --max-estimated-memory-cost value: {value}")
+                        })?);
+                        i += 2;
+                    }
                     "--require-buildings" => {
                         require_buildings = true;
                         i += 1;
@@ -2901,8 +3009,29 @@ fn cmd_planetary_store(args: &[String]) -> Result<(), String> {
             let output_dir =
                 output_dir.ok_or("planetary-store emit-runtime-lua requires --output-dir PATH")?;
             let subset = if let Some((min_x, min_z, max_x, max_z)) = bbox_studs {
-                read_scene_manifest_subset(&store_path, &scene_id, min_x, min_z, max_x, max_z)
-                    .map_err(|err| format!("planetary-store emit-runtime-lua bbox failed: {err}"))?
+                let chunk_ids = read_scene_chunk_summary_subset(
+                    &store_path,
+                    &scene_id,
+                    min_x,
+                    min_z,
+                    max_x,
+                    max_z,
+                    limit,
+                    require_buildings,
+                    require_terrain,
+                    max_streaming_cost,
+                    max_estimated_memory_cost,
+                )
+                .map_err(|err| format!("planetary-store emit-runtime-lua bbox failed: {err}"))?
+                .into_iter()
+                .map(|chunk| chunk.chunk_id)
+                .collect::<Vec<_>>();
+                read_scene_manifest_subset_by_chunk_ids(&store_path, &scene_id, &chunk_ids)
+                    .map_err(|err| {
+                        format!(
+                            "planetary-store emit-runtime-lua bbox chunk selection failed: {err}"
+                        )
+                    })?
             } else if let Some((focus_x, focus_z)) = around_studs {
                 let radius_studs = radius_studs.ok_or(
                     "planetary-store emit-runtime-lua requires --radius-studs when using --around-studs",
@@ -2916,6 +3045,8 @@ fn cmd_planetary_store(args: &[String]) -> Result<(), String> {
                     limit,
                     require_buildings,
                     require_terrain,
+                    max_streaming_cost,
+                    max_estimated_memory_cost,
                 )
                 .map_err(|err| {
                     format!("planetary-store emit-runtime-lua around-studs failed: {err}")
@@ -2942,11 +3073,33 @@ fn cmd_planetary_store(args: &[String]) -> Result<(), String> {
                     limit,
                     require_buildings,
                     require_terrain,
+                    max_streaming_cost,
+                    max_estimated_memory_cost,
                 )
                 .map_err(|err| format!("planetary-store emit-runtime-lua point failed: {err}"))?
             } else if let Some((zoom, x, y)) = tile {
-                read_scene_manifest_subset_for_tile(&store_path, &scene_id, zoom, x, y)
-                    .map_err(|err| format!("planetary-store emit-runtime-lua tile failed: {err}"))?
+                let chunk_ids = read_scene_chunk_summary_for_tile(
+                    &store_path,
+                    &scene_id,
+                    zoom,
+                    x,
+                    y,
+                    limit,
+                    require_buildings,
+                    require_terrain,
+                    max_streaming_cost,
+                    max_estimated_memory_cost,
+                )
+                .map_err(|err| format!("planetary-store emit-runtime-lua tile failed: {err}"))?
+                .into_iter()
+                .map(|chunk| chunk.chunk_id)
+                .collect::<Vec<_>>();
+                read_scene_manifest_subset_by_chunk_ids(&store_path, &scene_id, &chunk_ids)
+                    .map_err(|err| {
+                        format!(
+                            "planetary-store emit-runtime-lua tile chunk selection failed: {err}"
+                        )
+                    })?
             } else if let Some(chunk_ids) = chunk_ids {
                 read_scene_manifest_subset_by_chunk_ids(&store_path, &scene_id, &chunk_ids)
                     .map_err(|err| {
@@ -3126,6 +3279,8 @@ fn cmd_planetary_store(args: &[String]) -> Result<(), String> {
             let mut tile: Option<(u8, u32, u32)> = None;
             let mut radius_studs: Option<f64> = None;
             let mut limit: Option<usize> = None;
+            let mut max_streaming_cost: Option<f64> = None;
+            let mut max_estimated_memory_cost: Option<f64> = None;
             let mut require_buildings = false;
             let mut require_terrain = false;
             let mut i = 1;
@@ -3188,6 +3343,25 @@ fn cmd_planetary_store(args: &[String]) -> Result<(), String> {
                         );
                         i += 2;
                     }
+                    "--max-streaming-cost" => {
+                        let value = args
+                            .get(i + 1)
+                            .ok_or("--max-streaming-cost requires a number")?;
+                        max_streaming_cost =
+                            Some(value.parse::<f64>().map_err(|_| {
+                                format!("invalid --max-streaming-cost value: {value}")
+                            })?);
+                        i += 2;
+                    }
+                    "--max-estimated-memory-cost" => {
+                        let value = args
+                            .get(i + 1)
+                            .ok_or("--max-estimated-memory-cost requires a number")?;
+                        max_estimated_memory_cost = Some(value.parse::<f64>().map_err(|_| {
+                            format!("invalid --max-estimated-memory-cost value: {value}")
+                        })?);
+                        i += 2;
+                    }
                     "--require-buildings" => {
                         require_buildings = true;
                         i += 1;
@@ -3217,6 +3391,8 @@ fn cmd_planetary_store(args: &[String]) -> Result<(), String> {
                     limit,
                     require_buildings,
                     require_terrain,
+                    max_streaming_cost,
+                    max_estimated_memory_cost,
                 )
             } else if let Some((zoom, x, y)) = tile {
                 build_delivery_window_for_tile(
@@ -3227,6 +3403,8 @@ fn cmd_planetary_store(args: &[String]) -> Result<(), String> {
                     limit,
                     require_buildings,
                     require_terrain,
+                    max_streaming_cost,
+                    max_estimated_memory_cost,
                 )
             } else {
                 return Err(
@@ -4363,6 +4541,42 @@ mod tests {
             "300".to_string(),
             "--limit".to_string(),
             "2".to_string(),
+        ])
+        .unwrap();
+    }
+
+    #[test]
+    fn planetary_store_subset_summary_point_budget_works() {
+        let tempdir = tempfile::tempdir().unwrap();
+        let store_path = tempdir.path().join("planetary.sqlite");
+        let manifest_path = tempdir.path().join("sample.sqlite");
+        let manifest = build_sample_multi_chunk(3, 1);
+        let center = manifest.meta.bbox.center();
+        write_manifest_sqlite(&manifest, &manifest_path).unwrap();
+
+        cmd_planetary_store(&[
+            "ingest-manifest".to_string(),
+            "--store".to_string(),
+            store_path.display().to_string(),
+            "--manifest-sqlite".to_string(),
+            manifest_path.display().to_string(),
+            "--scene".to_string(),
+            "austin".to_string(),
+        ])
+        .unwrap();
+
+        cmd_planetary_store(&[
+            "subset-summary".to_string(),
+            "--store".to_string(),
+            store_path.display().to_string(),
+            "--scene".to_string(),
+            "austin".to_string(),
+            "--point".to_string(),
+            format!("{},{}", center.lat, center.lon),
+            "--radius-studs".to_string(),
+            "300".to_string(),
+            "--max-streaming-cost".to_string(),
+            "24".to_string(),
         ])
         .unwrap();
     }
