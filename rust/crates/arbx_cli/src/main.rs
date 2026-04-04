@@ -10,13 +10,14 @@ use arbx_geo::{
 };
 use arbx_pipeline::{
     write_source_truth_pack_sqlite, write_source_truth_pack_summary, ElevationEnrichmentStage,
-    NormalizeStage, PipelineContext, SourceTruthPack, TriangulateStage, ValidateStage,
+    NormalizeStage, PipelineContext, SourceTruthPack, SourceTruthPackSummary, TriangulateStage,
+    ValidateStage,
 };
 use arbx_planetary_store::{
-    build_delivery_window_around_geo_point, find_scenes_covering_geo_point,
-    find_scenes_covering_tile, find_scenes_intersecting_geo_bbox, ingest_manifest_json,
-    ingest_manifest_sqlite, init_planetary_store, list_scenes, read_chunks_by_ids,
-    read_scene_catalog_entry,
+    attach_truth_pack_summary, build_delivery_window_around_geo_point,
+    find_scenes_covering_geo_point, find_scenes_covering_tile,
+    find_scenes_intersecting_geo_bbox, ingest_manifest_json, ingest_manifest_sqlite,
+    init_planetary_store, list_scenes, read_chunks_by_ids, read_scene_catalog_entry,
     read_scene_chunk_subset, read_scene_chunk_summary_around_geo_point,
     read_scene_chunk_summary_around_point, read_scene_chunk_summary_for_tile,
     read_scene_chunk_summary_subset, read_scene_manifest_subset,
@@ -1855,7 +1856,7 @@ fn cmd_emit_runtime_lua(args: &[String]) -> Result<(), String> {
 fn cmd_planetary_store(args: &[String]) -> Result<(), String> {
     let Some(subcommand) = args.first().map(String::as_str) else {
         return Err(
-            "planetary-store requires a subcommand: init | ingest-manifest | ingest-json | summary | list-scenes | scene | subset | subset-summary | fetch-chunks | emit-manifest-subset | emit-runtime-lua | find-scenes | delivery-window | tile-scenes".to_string(),
+            "planetary-store requires a subcommand: init | ingest-manifest | ingest-json | attach-truth-pack-summary | summary | list-scenes | scene | subset | subset-summary | fetch-chunks | emit-manifest-subset | emit-runtime-lua | find-scenes | delivery-window | tile-scenes".to_string(),
         );
     };
 
@@ -1967,6 +1968,57 @@ fn cmd_planetary_store(args: &[String]) -> Result<(), String> {
                 summary.world_name,
                 summary.chunk_count,
                 summary.total_features,
+                store_path.display()
+            );
+            Ok(())
+        }
+        "attach-truth-pack-summary" => {
+            let mut store_path: Option<PathBuf> = None;
+            let mut scene_id: Option<String> = None;
+            let mut truth_pack_summary_path: Option<PathBuf> = None;
+            let mut i = 1;
+            while i < args.len() {
+                match args[i].as_str() {
+                    "--store" => {
+                        let value = args.get(i + 1).ok_or("--store requires a path")?;
+                        store_path = Some(PathBuf::from(value));
+                        i += 2;
+                    }
+                    "--scene" => {
+                        let value = args.get(i + 1).ok_or("--scene requires a scene id")?;
+                        scene_id = Some(value.clone());
+                        i += 2;
+                    }
+                    "--truth-pack-summary" => {
+                        let value =
+                            args.get(i + 1).ok_or("--truth-pack-summary requires a path")?;
+                        truth_pack_summary_path = Some(PathBuf::from(value));
+                        i += 2;
+                    }
+                    other => {
+                        return Err(format!(
+                            "unknown argument to planetary-store attach-truth-pack-summary: {other}"
+                        ))
+                    }
+                }
+            }
+            let store_path =
+                store_path.ok_or("planetary-store attach-truth-pack-summary requires --store PATH")?;
+            let scene_id =
+                scene_id.ok_or("planetary-store attach-truth-pack-summary requires --scene ID")?;
+            let truth_pack_summary_path = truth_pack_summary_path.ok_or(
+                "planetary-store attach-truth-pack-summary requires --truth-pack-summary PATH",
+            )?;
+            let summary_text = fs::read_to_string(&truth_pack_summary_path)
+                .map_err(|err| format!("failed to read truth-pack summary: {err}"))?;
+            let summary: SourceTruthPackSummary = serde_json::from_str(&summary_text)
+                .map_err(|err| format!("invalid truth-pack summary JSON: {err}"))?;
+            attach_truth_pack_summary(&store_path, &scene_id, &summary)
+                .map_err(|err| format!("planetary-store attach-truth-pack-summary failed: {err}"))?;
+            println!(
+                "Attached truth-pack summary {} to scene {} in {}",
+                truth_pack_summary_path.display(),
+                scene_id,
                 store_path.display()
             );
             Ok(())
@@ -4242,6 +4294,53 @@ mod tests {
             manifest_path.display().to_string(),
             "--scene".to_string(),
             "json_scene".to_string(),
+        ])
+        .unwrap();
+    }
+
+    #[test]
+    fn planetary_store_attach_truth_pack_summary_works() {
+        let tempdir = tempfile::tempdir().unwrap();
+        let store_path = tempdir.path().join("planetary.sqlite");
+        let manifest_path = tempdir.path().join("sample.sqlite");
+        let truth_pack_summary_path = tempdir.path().join("truth-pack-summary.json");
+        let manifest = build_sample_multi_chunk(1, 1);
+        write_manifest_sqlite(&manifest, &manifest_path).unwrap();
+
+        let summary = SourceTruthPackSummary {
+            scene: "austin".to_string(),
+            feature_count: 12,
+            retained_semantic_count: 8,
+            semantic_lineage_count: 6,
+            dropped_semantic_count: 2,
+            collapse_count: 1,
+            source_counts: std::collections::BTreeMap::from([("overpass".to_string(), 5usize)]),
+        };
+        std::fs::write(
+            &truth_pack_summary_path,
+            serde_json::to_string_pretty(&summary).unwrap(),
+        )
+        .unwrap();
+
+        cmd_planetary_store(&[
+            "ingest-manifest".to_string(),
+            "--store".to_string(),
+            store_path.display().to_string(),
+            "--manifest-sqlite".to_string(),
+            manifest_path.display().to_string(),
+            "--scene".to_string(),
+            "austin".to_string(),
+        ])
+        .unwrap();
+
+        cmd_planetary_store(&[
+            "attach-truth-pack-summary".to_string(),
+            "--store".to_string(),
+            store_path.display().to_string(),
+            "--scene".to_string(),
+            "austin".to_string(),
+            "--truth-pack-summary".to_string(),
+            truth_pack_summary_path.display().to_string(),
         ])
         .unwrap();
     }

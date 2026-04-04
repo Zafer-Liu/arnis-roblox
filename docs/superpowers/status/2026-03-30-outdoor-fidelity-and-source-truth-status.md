@@ -2492,3 +2492,18 @@ The compact historical archive index is:
   - `cargo test -p arbx_planetary_store -p arbx_cli planetary_store --quiet`
   - `cargo test -p arbx_planetary_store --quiet`
   - `git diff --check rust/crates/arbx_planetary_store/src/lib.rs rust/crates/arbx_cli/src/main.rs`
+
+## 2026-04-03 20:11 CDT
+
+- Extended the planetary backbone again on `main`:
+  - `arbx_planetary_store`
+    - completed the provenance side of the canonical store by adding an attach/update path for `SourceTruthPackSummary`
+    - scene catalog and scene metadata now have a place to carry source-truth summary counts alongside delivery metadata
+  - `arbx_cli`
+    - added `planetary-store attach-truth-pack-summary --scene ... --truth-pack-summary ...`
+  - `arbx_pipeline`
+    - `SourceTruthPackSummary` is now deserializable as well as serializable, so truth-pack summary JSON can be round-tripped into the planetary backbone cleanly
+- Verification:
+  - `cargo test -p arbx_planetary_store -p arbx_cli planetary_store --quiet`
+  - `cargo test -p arbx_planetary_store --quiet`
+  - `git diff --check rust/crates/arbx_pipeline/src/truth_pack.rs rust/crates/arbx_planetary_store/Cargo.toml rust/crates/arbx_planetary_store/src/lib.rs rust/crates/arbx_cli/src/main.rs`

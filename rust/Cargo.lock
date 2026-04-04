@@ -86,6 +86,7 @@ name = "arbx_planetary_store"
 version = "0.1.0"
 dependencies = [
  "arbx_geo",
+ "arbx_pipeline",
  "arbx_roblox_export",
  "rusqlite",
  "serde",

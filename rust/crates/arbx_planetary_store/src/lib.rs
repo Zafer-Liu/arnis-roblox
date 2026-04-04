@@ -1,7 +1,9 @@
 use std::fs;
 use std::path::Path;
+use std::collections::BTreeMap;
 
 use arbx_geo::{LatLon, Mercator};
+use arbx_pipeline::SourceTruthPackSummary;
 use arbx_roblox_export::{stream_manifest_sqlite_all, StoredChunkRecord, StoredManifestMeta};
 use rusqlite::{params, Connection, OptionalExtension};
 use serde::Serialize;
@@ -25,6 +27,13 @@ pub struct PlanetarySceneCatalogEntry {
     pub chunk_count: usize,
     pub total_features: usize,
     pub manifest_store_path: String,
+    pub truth_pack_scene: Option<String>,
+    pub truth_pack_feature_count: Option<usize>,
+    pub truth_pack_retained_semantic_count: Option<usize>,
+    pub truth_pack_semantic_lineage_count: Option<usize>,
+    pub truth_pack_dropped_semantic_count: Option<usize>,
+    pub truth_pack_collapse_count: Option<usize>,
+    pub truth_pack_source_counts: Option<BTreeMap<String, usize>>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
@@ -140,6 +149,15 @@ fn read_scene_meta(connection: &Connection, scene_id: &str) -> PlanetaryStoreRes
     meta.ok_or_else(|| format!("scene {} is not present in planetary store", scene_id).into())
 }
 
+fn decode_truth_pack_source_counts(
+    value: Option<String>,
+) -> PlanetaryStoreResult<Option<BTreeMap<String, usize>>> {
+    match value {
+        Some(text) => Ok(Some(serde_json::from_str::<BTreeMap<String, usize>>(&text)?)),
+        None => Ok(None),
+    }
+}
+
 fn bbox_intersects(
     min_lat_a: f64,
     min_lon_a: f64,
@@ -229,7 +247,14 @@ fn open_store(path: &Path) -> PlanetaryStoreResult<Connection> {
             bbox_max_lat REAL NOT NULL,
             bbox_max_lon REAL NOT NULL,
             total_features INTEGER NOT NULL,
-            notes_json TEXT NOT NULL
+            notes_json TEXT NOT NULL,
+            truth_pack_scene TEXT,
+            truth_pack_feature_count INTEGER,
+            truth_pack_retained_semantic_count INTEGER,
+            truth_pack_semantic_lineage_count INTEGER,
+            truth_pack_dropped_semantic_count INTEGER,
+            truth_pack_collapse_count INTEGER,
+            truth_pack_source_counts_json TEXT
         );
         CREATE TABLE IF NOT EXISTS chunks (
             scene_id TEXT NOT NULL,
@@ -264,8 +289,36 @@ fn open_store(path: &Path) -> PlanetaryStoreResult<Connection> {
             ON chunks(scene_id, has_terrain, origin_x, origin_z);
         ",
     )?;
+    ensure_scene_truth_pack_columns(&connection)?;
     ensure_chunk_payload_columns(&connection)?;
     Ok(connection)
+}
+
+fn ensure_scene_truth_pack_columns(connection: &Connection) -> PlanetaryStoreResult<()> {
+    let mut existing = std::collections::BTreeSet::new();
+    let mut statement = connection.prepare("PRAGMA table_info(scenes)")?;
+    let rows = statement.query_map([], |row| row.get::<_, String>(1))?;
+    for row in rows {
+        existing.insert(row?);
+    }
+
+    for (column, sql_type) in [
+        ("truth_pack_scene", "TEXT"),
+        ("truth_pack_feature_count", "INTEGER"),
+        ("truth_pack_retained_semantic_count", "INTEGER"),
+        ("truth_pack_semantic_lineage_count", "INTEGER"),
+        ("truth_pack_dropped_semantic_count", "INTEGER"),
+        ("truth_pack_collapse_count", "INTEGER"),
+        ("truth_pack_source_counts_json", "TEXT"),
+    ] {
+        if !existing.contains(column) {
+            connection.execute(
+                &format!("ALTER TABLE scenes ADD COLUMN {column} {sql_type}"),
+                [],
+            )?;
+        }
+    }
+    Ok(())
 }
 
 fn ensure_chunk_payload_columns(connection: &Connection) -> PlanetaryStoreResult<()> {
@@ -727,6 +780,13 @@ pub fn list_scenes(path: &Path) -> PlanetaryStoreResult<Vec<PlanetarySceneCatalo
             scenes.chunk_size_studs,
             scenes.total_features,
             scenes.manifest_store_path,
+            scenes.truth_pack_scene,
+            scenes.truth_pack_feature_count,
+            scenes.truth_pack_retained_semantic_count,
+            scenes.truth_pack_semantic_lineage_count,
+            scenes.truth_pack_dropped_semantic_count,
+            scenes.truth_pack_collapse_count,
+            scenes.truth_pack_source_counts_json,
             COUNT(chunks.chunk_id) AS chunk_count
         FROM scenes
         LEFT JOIN chunks ON chunks.scene_id = scenes.scene_id
@@ -735,18 +795,39 @@ pub fn list_scenes(path: &Path) -> PlanetaryStoreResult<Vec<PlanetarySceneCatalo
             scenes.world_name,
             scenes.chunk_size_studs,
             scenes.total_features,
-            scenes.manifest_store_path
+            scenes.manifest_store_path,
+            scenes.truth_pack_scene,
+            scenes.truth_pack_feature_count,
+            scenes.truth_pack_retained_semantic_count,
+            scenes.truth_pack_semantic_lineage_count,
+            scenes.truth_pack_dropped_semantic_count,
+            scenes.truth_pack_collapse_count,
+            scenes.truth_pack_source_counts_json
         ORDER BY scenes.scene_id ASC
         ",
     )?;
     let rows = statement.query_map([], |row| {
+        let source_counts_json: Option<String> = row.get(11)?;
         Ok(PlanetarySceneCatalogEntry {
             scene_id: row.get(0)?,
             world_name: row.get(1)?,
             chunk_size_studs: row.get(2)?,
             total_features: row.get::<_, i64>(3)? as usize,
             manifest_store_path: row.get(4)?,
-            chunk_count: row.get::<_, i64>(5)? as usize,
+            truth_pack_scene: row.get(5)?,
+            truth_pack_feature_count: row.get::<_, Option<i64>>(6)?.map(|value| value as usize),
+            truth_pack_retained_semantic_count: row.get::<_, Option<i64>>(7)?.map(|value| value as usize),
+            truth_pack_semantic_lineage_count: row.get::<_, Option<i64>>(8)?.map(|value| value as usize),
+            truth_pack_dropped_semantic_count: row.get::<_, Option<i64>>(9)?.map(|value| value as usize),
+            truth_pack_collapse_count: row.get::<_, Option<i64>>(10)?.map(|value| value as usize),
+            truth_pack_source_counts: decode_truth_pack_source_counts(source_counts_json).map_err(|err| {
+                rusqlite::Error::FromSqlConversionFailure(
+                    11,
+                    rusqlite::types::Type::Text,
+                    err,
+                )
+            })?,
+            chunk_count: row.get::<_, i64>(12)? as usize,
         })
     })?;
 
@@ -771,6 +852,13 @@ pub fn read_scene_catalog_entry(
                 scenes.chunk_size_studs,
                 scenes.total_features,
                 scenes.manifest_store_path,
+                scenes.truth_pack_scene,
+                scenes.truth_pack_feature_count,
+                scenes.truth_pack_retained_semantic_count,
+                scenes.truth_pack_semantic_lineage_count,
+                scenes.truth_pack_dropped_semantic_count,
+                scenes.truth_pack_collapse_count,
+                scenes.truth_pack_source_counts_json,
                 COUNT(chunks.chunk_id) AS chunk_count
             FROM scenes
             LEFT JOIN chunks ON chunks.scene_id = scenes.scene_id
@@ -780,22 +868,80 @@ pub fn read_scene_catalog_entry(
                 scenes.world_name,
                 scenes.chunk_size_studs,
                 scenes.total_features,
-                scenes.manifest_store_path
+                scenes.manifest_store_path,
+                scenes.truth_pack_scene,
+                scenes.truth_pack_feature_count,
+                scenes.truth_pack_retained_semantic_count,
+                scenes.truth_pack_semantic_lineage_count,
+                scenes.truth_pack_dropped_semantic_count,
+                scenes.truth_pack_collapse_count,
+                scenes.truth_pack_source_counts_json
             ",
             params![scene_id],
             |row| {
+                let source_counts_json: Option<String> = row.get(11)?;
                 Ok(PlanetarySceneCatalogEntry {
                     scene_id: row.get(0)?,
                     world_name: row.get(1)?,
                     chunk_size_studs: row.get(2)?,
                     total_features: row.get::<_, i64>(3)? as usize,
                     manifest_store_path: row.get(4)?,
-                    chunk_count: row.get::<_, i64>(5)? as usize,
+                    truth_pack_scene: row.get(5)?,
+                    truth_pack_feature_count: row.get::<_, Option<i64>>(6)?.map(|value| value as usize),
+                    truth_pack_retained_semantic_count: row.get::<_, Option<i64>>(7)?.map(|value| value as usize),
+                    truth_pack_semantic_lineage_count: row.get::<_, Option<i64>>(8)?.map(|value| value as usize),
+                    truth_pack_dropped_semantic_count: row.get::<_, Option<i64>>(9)?.map(|value| value as usize),
+                    truth_pack_collapse_count: row.get::<_, Option<i64>>(10)?.map(|value| value as usize),
+                    truth_pack_source_counts: decode_truth_pack_source_counts(source_counts_json).map_err(|err| {
+                        rusqlite::Error::FromSqlConversionFailure(
+                            11,
+                            rusqlite::types::Type::Text,
+                            err,
+                        )
+                    })?,
+                    chunk_count: row.get::<_, i64>(12)? as usize,
                 })
             },
         )
         .optional()
         .map_err(Into::into)
+}
+
+pub fn attach_truth_pack_summary(
+    path: &Path,
+    scene_id: &str,
+    summary: &SourceTruthPackSummary,
+) -> PlanetaryStoreResult<()> {
+    let connection = open_store(path)?;
+    let source_counts_json = serde_json::to_string(&summary.source_counts)?;
+    let updated = connection.execute(
+        "
+        UPDATE scenes
+        SET
+            truth_pack_scene = ?2,
+            truth_pack_feature_count = ?3,
+            truth_pack_retained_semantic_count = ?4,
+            truth_pack_semantic_lineage_count = ?5,
+            truth_pack_dropped_semantic_count = ?6,
+            truth_pack_collapse_count = ?7,
+            truth_pack_source_counts_json = ?8
+        WHERE scene_id = ?1
+        ",
+        params![
+            scene_id,
+            summary.scene,
+            summary.feature_count as i64,
+            summary.retained_semantic_count as i64,
+            summary.semantic_lineage_count as i64,
+            summary.dropped_semantic_count as i64,
+            summary.collapse_count as i64,
+            source_counts_json,
+        ],
+    )?;
+    if updated == 0 {
+        return Err(format!("scene {} is not present in planetary store", scene_id).into());
+    }
+    Ok(())
 }
 
 pub fn find_scenes_intersecting_geo_bbox(
@@ -842,6 +988,13 @@ pub fn find_scenes_intersecting_geo_bbox(
                 chunk_size_studs: row.get(2)?,
                 total_features: row.get::<_, i64>(3)? as usize,
                 manifest_store_path: row.get(4)?,
+                truth_pack_scene: None,
+                truth_pack_feature_count: None,
+                truth_pack_retained_semantic_count: None,
+                truth_pack_semantic_lineage_count: None,
+                truth_pack_dropped_semantic_count: None,
+                truth_pack_collapse_count: None,
+                truth_pack_source_counts: None,
                 chunk_count: row.get::<_, i64>(9)? as usize,
             },
             (
@@ -916,6 +1069,13 @@ fn find_scene_geo_candidates_covering_point(
                 chunk_size_studs: row.get(2)?,
                 total_features: row.get::<_, i64>(3)? as usize,
                 manifest_store_path: row.get(4)?,
+                truth_pack_scene: None,
+                truth_pack_feature_count: None,
+                truth_pack_retained_semantic_count: None,
+                truth_pack_semantic_lineage_count: None,
+                truth_pack_dropped_semantic_count: None,
+                truth_pack_collapse_count: None,
+                truth_pack_source_counts: None,
                 chunk_count: row.get::<_, i64>(10)? as usize,
             },
             bbox: arbx_geo::BoundingBox::new(
@@ -2015,5 +2175,43 @@ mod tests {
 
         let subset = read_scene_manifest_subset_for_tile(&store_path, "sample_austin", zoom, x, y).unwrap();
         assert!(!subset.chunks.is_empty());
+    }
+
+    #[test]
+    fn planetary_store_attaches_truth_pack_summary() {
+        let dir = tempdir().unwrap();
+        let manifest_path = dir.path().join("sample.sqlite");
+        let store_path = dir.path().join("planetary.sqlite");
+
+        let manifest = build_sample_multi_chunk(1, 1);
+        write_manifest_sqlite(&manifest, &manifest_path).unwrap();
+        ingest_manifest_sqlite(&store_path, &manifest_path, Some("sample_austin")).unwrap();
+
+        let mut source_counts = BTreeMap::new();
+        source_counts.insert("overpass".to_string(), 5);
+        let summary = SourceTruthPackSummary {
+            scene: "austin".to_string(),
+            feature_count: 12,
+            retained_semantic_count: 8,
+            semantic_lineage_count: 6,
+            dropped_semantic_count: 2,
+            collapse_count: 1,
+            source_counts,
+        };
+
+        attach_truth_pack_summary(&store_path, "sample_austin", &summary).unwrap();
+        let scene = read_scene_catalog_entry(&store_path, "sample_austin")
+            .unwrap()
+            .unwrap();
+        assert_eq!(scene.truth_pack_scene.as_deref(), Some("austin"));
+        assert_eq!(scene.truth_pack_feature_count, Some(12));
+        assert_eq!(scene.truth_pack_collapse_count, Some(1));
+        assert_eq!(
+            scene.truth_pack_source_counts
+                .as_ref()
+                .and_then(|value| value.get("overpass"))
+                .copied(),
+            Some(5)
+        );
     }
 }

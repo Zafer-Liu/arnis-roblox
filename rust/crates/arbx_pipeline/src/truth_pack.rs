@@ -1,6 +1,6 @@
 use crate::{PipelineError, PipelineResult};
 use rusqlite::{params, Connection};
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 use std::fs;
 use std::path::Path;
@@ -125,7 +125,7 @@ pub struct TruthPackDroppedSemantic {
     pub retained_feature_id: Option<String>,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct SourceTruthPackSummary {
     pub scene: String,
     pub feature_count: usize,
