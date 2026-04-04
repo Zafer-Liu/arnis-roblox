@@ -2769,3 +2769,19 @@ The compact historical archive index is:
   - `cargo test -p arbx_planetary_store planetary_store_ -- --nocapture`
   - `cargo test -p arbx_cli planetary_store_ -- --nocapture`
   - `git diff --check`
+
+## 2026-04-04 01:54 CDT
+
+- Extended the planetary backbone again on `main`:
+  - `arbx_planetary_store`
+    - added hydrated route-session support with per-step delivery windows and transition sets for `entering`, `retained`, and `leaving` chunks
+    - route execution artifacts now preserve moving-focus step truth instead of only a flattened merged prefetch frontier
+  - `arbx_cli`
+    - added `planetary-store hydrate-route-session`
+    - `delivery-bundle` can now persist both the raw route session and the hydrated route artifact via `--route-session-out` and `--hydrated-route-out`
+    - bundle outputs now support downstream consumers that need step-aware route execution artifacts instead of rehydrating traversal from flat merged plans
+- Verification:
+  - `cargo fmt --all`
+  - `cargo test -p arbx_planetary_store planetary_store_ -- --nocapture`
+  - `cargo test -p arbx_cli planetary_store_ -- --nocapture`
+  - `git diff --check`

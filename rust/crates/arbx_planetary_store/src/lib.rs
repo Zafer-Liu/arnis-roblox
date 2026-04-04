@@ -127,6 +127,31 @@ pub struct PlanetaryRouteSession {
     pub steps: Vec<PlanetaryDeliveryPlan>,
 }
 
+#[derive(Debug, Clone, PartialEq, Serialize)]
+pub struct PlanetaryRouteChunkSetSummary {
+    pub chunk_ids: Vec<String>,
+    pub chunk_count: usize,
+    pub total_feature_count: usize,
+    pub total_streaming_cost: f64,
+    pub total_estimated_memory_cost: f64,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize)]
+pub struct PlanetaryHydratedRouteStep {
+    pub step_index: usize,
+    pub plan: PlanetaryDeliveryPlan,
+    pub window: PlanetaryDeliveryWindow,
+    pub entering: PlanetaryRouteChunkSetSummary,
+    pub retained: PlanetaryRouteChunkSetSummary,
+    pub leaving: PlanetaryRouteChunkSetSummary,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize)]
+pub struct PlanetaryHydratedRouteSession {
+    pub session: PlanetaryRouteSession,
+    pub steps: Vec<PlanetaryHydratedRouteStep>,
+}
+
 fn default_source_plan_count() -> usize {
     1
 }
@@ -262,6 +287,29 @@ fn summarize_delivery_chunks(chunks: &[PlanetaryChunkSummary]) -> (usize, usize,
         total_streaming_cost,
         total_estimated_memory_cost,
     )
+}
+
+fn summarize_chunk_set<'a>(
+    chunks: impl IntoIterator<Item = &'a PlanetaryChunkSummary>,
+) -> PlanetaryRouteChunkSetSummary {
+    let chunks = chunks.into_iter().collect::<Vec<_>>();
+    let mut total_feature_count = 0usize;
+    let mut total_streaming_cost = 0.0f64;
+    let mut total_estimated_memory_cost = 0.0f64;
+    let mut chunk_ids = Vec::with_capacity(chunks.len());
+    for chunk in &chunks {
+        total_feature_count += chunk.feature_count;
+        total_streaming_cost += chunk.streaming_cost;
+        total_estimated_memory_cost += chunk.estimated_memory_cost.unwrap_or(chunk.streaming_cost);
+        chunk_ids.push(chunk.chunk_id.clone());
+    }
+    PlanetaryRouteChunkSetSummary {
+        chunk_count: chunk_ids.len(),
+        chunk_ids,
+        total_feature_count,
+        total_streaming_cost,
+        total_estimated_memory_cost,
+    }
 }
 
 fn delivery_plan_from_window(
@@ -2243,6 +2291,68 @@ pub fn build_delivery_window_from_plan(
     }))
 }
 
+pub fn build_hydrated_route_session(
+    path: &Path,
+    session: &PlanetaryRouteSession,
+) -> PlanetaryStoreResult<Option<PlanetaryHydratedRouteSession>> {
+    let mut steps = Vec::with_capacity(session.steps.len());
+    let mut previous_window: Option<PlanetaryDeliveryWindow> = None;
+    for (step_index, plan) in session.steps.iter().enumerate() {
+        let Some(window) = build_delivery_window_from_plan(path, plan)? else {
+            return Ok(None);
+        };
+        let current_chunk_ids = window
+            .chunks
+            .iter()
+            .map(|chunk| chunk.chunk_id.clone())
+            .collect::<HashSet<_>>();
+        let entering = summarize_chunk_set(window.chunks.iter().filter(|chunk| {
+            previous_window
+                .as_ref()
+                .map(|prev| {
+                    prev.chunks
+                        .iter()
+                        .all(|prev_chunk| prev_chunk.chunk_id != chunk.chunk_id)
+                })
+                .unwrap_or(true)
+        }));
+        let retained = summarize_chunk_set(window.chunks.iter().filter(|chunk| {
+            previous_window
+                .as_ref()
+                .map(|prev| {
+                    prev.chunks
+                        .iter()
+                        .any(|prev_chunk| prev_chunk.chunk_id == chunk.chunk_id)
+                })
+                .unwrap_or(false)
+        }));
+        let leaving = summarize_chunk_set(
+            previous_window
+                .as_ref()
+                .map(|prev| {
+                    prev.chunks
+                        .iter()
+                        .filter(|chunk| !current_chunk_ids.contains(&chunk.chunk_id))
+                })
+                .into_iter()
+                .flatten(),
+        );
+        steps.push(PlanetaryHydratedRouteStep {
+            step_index,
+            plan: plan.clone(),
+            window: window.clone(),
+            entering,
+            retained,
+            leaving,
+        });
+        previous_window = Some(window);
+    }
+    Ok(Some(PlanetaryHydratedRouteSession {
+        session: session.clone(),
+        steps,
+    }))
+}
+
 pub fn read_scene_chunk_summary_subset(
     path: &Path,
     scene_id: &str,
@@ -3196,6 +3306,41 @@ mod tests {
             session.total_unique_streaming_cost,
             session.merged_plan.total_streaming_cost
         );
+    }
+
+    #[test]
+    fn planetary_store_builds_hydrated_route_session() {
+        let dir = tempdir().unwrap();
+        let manifest_path = dir.path().join("sample.sqlite");
+        let store_path = dir.path().join("planetary.sqlite");
+
+        let manifest = build_sample_multi_chunk(3, 1);
+        let center = manifest.meta.bbox.center();
+        write_manifest_sqlite(&manifest, &manifest_path).unwrap();
+        ingest_manifest_sqlite(&store_path, &manifest_path, Some("sample_austin")).unwrap();
+
+        let session = build_route_delivery_session_for_geo_points(
+            &store_path,
+            &[(center.lat, center.lon), (center.lat, center.lon + 0.0002)],
+            300.0,
+            Some(1),
+            false,
+            false,
+            None,
+            None,
+        )
+        .unwrap()
+        .unwrap();
+
+        let hydrated = build_hydrated_route_session(&store_path, &session)
+            .unwrap()
+            .unwrap();
+        assert_eq!(hydrated.steps.len(), 2);
+        assert_eq!(hydrated.steps[0].entering.chunk_count, 1);
+        assert_eq!(hydrated.steps[0].retained.chunk_count, 0);
+        assert_eq!(hydrated.steps[0].leaving.chunk_count, 0);
+        assert_eq!(hydrated.steps[1].retained.chunk_count, 1);
+        assert_eq!(hydrated.steps[1].entering.chunk_count, 0);
     }
 
     #[test]
