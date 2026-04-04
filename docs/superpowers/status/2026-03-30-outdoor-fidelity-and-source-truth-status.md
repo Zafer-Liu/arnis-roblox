@@ -2450,3 +2450,16 @@ The compact historical archive index is:
   - `cargo test -p arbx_planetary_store -p arbx_cli planetary_store --quiet`
   - `cargo test -p arbx_planetary_store --quiet`
   - `git diff --check rust/crates/arbx_planetary_store/src/lib.rs rust/crates/arbx_cli/src/main.rs`
+
+## 2026-04-03 19:47 CDT
+
+- Extended the planetary backbone again on `main`:
+  - `arbx_planetary_store`
+    - added `PlanetaryDeliveryWindow`, which packages the chosen scene, geo focus, local focus, radius, and selected chunk summaries as one orchestration result
+    - the canonical store now supports a one-shot geo-point delivery-window query instead of forcing callers to manually compose scene lookup plus point-centered chunk selection
+  - `arbx_cli`
+    - added `planetary-store delivery-window --point LAT,LON --radius-studs R`
+- Verification:
+  - `cargo test -p arbx_planetary_store -p arbx_cli planetary_store --quiet`
+  - `cargo test -p arbx_planetary_store --quiet`
+  - `git diff --check rust/crates/arbx_planetary_store/src/lib.rs rust/crates/arbx_cli/src/main.rs`
