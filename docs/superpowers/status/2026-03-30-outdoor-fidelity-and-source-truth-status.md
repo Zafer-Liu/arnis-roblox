@@ -3075,6 +3075,16 @@ The compact historical archive index is:
   - `python3 -m unittest scripts.tests.test_run_studio_harness_remote scripts.tests.test_run_studio_harness -v`
   - `git diff --check`
 
+## 2026-04-04 10:13 CDT
+
+- Extended the local harness proof lane again on `main`:
+  - `run_studio_harness.sh`
+    - preview probe payloads now carry source kind/name plus route catalog/lane/step selection, not just the emitted scene markers
+    - route-driven proof is now visible in the structured harness payloads that downstream tooling reads first
+- Verification:
+  - `python3 -m unittest scripts.tests.test_run_studio_harness -v`
+  - `git diff --check`
+
 ## 2026-04-04 09:37 CDT
 
 - Extended the runtime consumption path on `main`:

@@ -3434,6 +3434,12 @@ if runPreviewProbe then
                     resultType = existingRoot and "existing" or typeof(previewResult),
                     rootExists = root ~= nil,
                     children = childCount,
+                    manifestSourceKind = Workspace:GetAttribute("VertigoPreviewManifestSourceKind") or "canonical_manifest",
+                    manifestSourceName = Workspace:GetAttribute("VertigoPreviewManifestSourceName")
+                        or CanonicalWorldContract.resolveCanonicalManifestFamily("edit"),
+                    routeCatalogName = Workspace:GetAttribute("VertigoPreviewRouteCatalogName") or route_catalog_name,
+                    routeLane = Workspace:GetAttribute("VertigoPreviewRouteLane") or route_lane_name,
+                    routeStepIndex = Workspace:GetAttribute("VertigoPreviewRouteStepIndex") or route_step_index,
                     sceneSummary = {
                         buildingModelCount = scene and scene.buildingModelCount or 0,
                         buildingModelsWithDirectRoof = scene and scene.buildingModelsWithDirectRoof or 0,
