@@ -93,6 +93,18 @@ struct DeliveryBundleResult {
     runtime: Option<DeliveryBundleRuntimeResult>,
 }
 
+#[derive(Debug, Serialize)]
+struct RouteBundleResult {
+    route_session_out: String,
+    hydrated_route_out: String,
+    schedule_out: String,
+    route_catalog_out: String,
+    lane_dir: String,
+    payload_dir: String,
+    manifest_dir: Option<String>,
+    runtime_dir: Option<String>,
+}
+
 fn srtm_tile_name(lat: f64, lon: f64) -> String {
     let lat_i = lat.floor() as i32;
     let lon_i = lon.floor() as i32;
@@ -2286,10 +2298,89 @@ fn build_route_payload_catalog(
     }
 }
 
+#[allow(clippy::too_many_arguments)]
+fn materialize_route_bundle(
+    store_path: &Path,
+    session: &arbx_planetary_store::PlanetaryRouteSession,
+    out_dir: &Path,
+    manifest_dir: Option<&Path>,
+    runtime_dir: Option<&Path>,
+    runtime_template: Option<RuntimeLuaShardsOptions>,
+    ahead_steps: usize,
+    behind_steps: usize,
+    max_prefetch_streaming_cost: Option<f64>,
+    max_prefetch_estimated_memory_cost: Option<f64>,
+    max_retain_streaming_cost: Option<f64>,
+    max_retain_estimated_memory_cost: Option<f64>,
+    label: &str,
+) -> Result<RouteBundleResult, String> {
+    fs::create_dir_all(out_dir).map_err(|err| format!("{label} create dir failed: {err}"))?;
+
+    let route_session_out = out_dir.join("route-session.json");
+    write_json_file(session, &route_session_out, label)?;
+
+    let hydrated = build_hydrated_route_session(store_path, session)
+        .map_err(|err| format!("{label} failed: {err}"))?
+        .ok_or_else(|| format!("{label} found no matching scene/chunks"))?;
+    let hydrated_route_out = out_dir.join("hydrated-route.json");
+    write_json_file(&hydrated, &hydrated_route_out, label)?;
+
+    let schedule = build_route_delivery_schedule(
+        &hydrated,
+        ahead_steps,
+        behind_steps,
+        max_prefetch_streaming_cost,
+        max_prefetch_estimated_memory_cost,
+        max_retain_streaming_cost,
+        max_retain_estimated_memory_cost,
+    );
+    let schedule_out = out_dir.join("route-schedule.json");
+    write_json_file(&schedule, &schedule_out, label)?;
+
+    let lane_dir = out_dir.join("route-lanes");
+    write_route_schedule_lane_files(&schedule, &lane_dir, label)?;
+
+    let payload_dir = out_dir.join("route-payloads");
+    fs::create_dir_all(&payload_dir).map_err(|err| format!("{label} create dir failed: {err}"))?;
+    let payloads = write_route_schedule_lane_payloads(
+        &schedule,
+        store_path,
+        manifest_dir,
+        runtime_dir,
+        runtime_template,
+        label,
+    )?;
+    let lane_payloads_path = payload_dir.join("lane-payloads.json");
+    write_json_file(&payloads, &lane_payloads_path, label)?;
+
+    let catalog = build_route_payload_catalog(
+        &schedule,
+        Some(schedule_out.as_path()),
+        Some(lane_dir.as_path()),
+        Some(payload_dir.as_path()),
+        manifest_dir,
+        runtime_dir,
+        payloads,
+    );
+    let route_catalog_out = out_dir.join("route-catalog.json");
+    write_json_file(&catalog, &route_catalog_out, label)?;
+
+    Ok(RouteBundleResult {
+        route_session_out: route_session_out.display().to_string(),
+        hydrated_route_out: hydrated_route_out.display().to_string(),
+        schedule_out: schedule_out.display().to_string(),
+        route_catalog_out: route_catalog_out.display().to_string(),
+        lane_dir: lane_dir.display().to_string(),
+        payload_dir: payload_dir.display().to_string(),
+        manifest_dir: manifest_dir.map(|path| path.display().to_string()),
+        runtime_dir: runtime_dir.map(|path| path.display().to_string()),
+    })
+}
+
 fn cmd_planetary_store(args: &[String]) -> Result<(), String> {
     let Some(subcommand) = args.first().map(String::as_str) else {
         return Err(
-            "planetary-store requires a subcommand: init | ingest-manifest | ingest-json | attach-truth-pack-summary | summary | list-scenes | scene | subset | subset-summary | fetch-chunks | emit-manifest-subset | emit-runtime-lua | find-scenes | delivery-window | delivery-plan | route-plan | route-session | hydrate-route-session | schedule-route-session | materialize-route-schedule | merge-delivery-plans | delivery-bundle | tile-scenes".to_string(),
+            "planetary-store requires a subcommand: init | ingest-manifest | ingest-json | attach-truth-pack-summary | summary | list-scenes | scene | subset | subset-summary | fetch-chunks | emit-manifest-subset | emit-runtime-lua | find-scenes | delivery-window | delivery-plan | route-plan | route-session | hydrate-route-session | schedule-route-session | materialize-route-schedule | route-bundle | merge-delivery-plans | delivery-bundle | tile-scenes".to_string(),
         );
     };
 
@@ -5114,6 +5205,276 @@ fn cmd_planetary_store(args: &[String]) -> Result<(), String> {
             println!("Wrote route schedule lane files {}", out_dir.display());
             Ok(())
         }
+        "route-bundle" => {
+            let mut store_path: Option<PathBuf> = None;
+            let mut session_path: Option<PathBuf> = None;
+            let mut points: Vec<(f64, f64)> = Vec::new();
+            let mut radius_studs: Option<f64> = None;
+            let mut out_dir: Option<PathBuf> = None;
+            let mut out_path: Option<PathBuf> = None;
+            let mut manifest_dir: Option<PathBuf> = None;
+            let mut runtime_dir: Option<PathBuf> = None;
+            let mut ahead_steps: usize = 1;
+            let mut behind_steps: usize = 1;
+            let mut max_prefetch_streaming_cost: Option<f64> = None;
+            let mut max_prefetch_estimated_memory_cost: Option<f64> = None;
+            let mut max_retain_streaming_cost: Option<f64> = None;
+            let mut max_retain_estimated_memory_cost: Option<f64> = None;
+            let mut index_name = "PlanetaryManifestIndex".to_string();
+            let mut shard_folder = "PlanetaryManifestChunks".to_string();
+            let mut chunks_per_shard: usize = 32;
+            let mut max_bytes: Option<usize> = None;
+            let mut limit: Option<usize> = None;
+            let mut max_streaming_cost: Option<f64> = None;
+            let mut max_estimated_memory_cost: Option<f64> = None;
+            let mut require_buildings = false;
+            let mut require_terrain = false;
+            let mut i = 1;
+            while i < args.len() {
+                match args[i].as_str() {
+                    "--store" => {
+                        let value = args.get(i + 1).ok_or("--store requires a path")?;
+                        store_path = Some(PathBuf::from(value));
+                        i += 2;
+                    }
+                    "--session" => {
+                        let value = args.get(i + 1).ok_or("--session requires a path")?;
+                        session_path = Some(PathBuf::from(value));
+                        i += 2;
+                    }
+                    "--point" => {
+                        let value = args.get(i + 1).ok_or("--point requires LAT,LON")?;
+                        points.push(parse_lat_lon_pair(value, "--point")?);
+                        i += 2;
+                    }
+                    "--radius-studs" => {
+                        let value = args.get(i + 1).ok_or("--radius-studs requires a number")?;
+                        radius_studs = Some(
+                            value
+                                .parse::<f64>()
+                                .map_err(|_| format!("invalid --radius-studs value: {value}"))?,
+                        );
+                        i += 2;
+                    }
+                    "--out-dir" => {
+                        let value = args.get(i + 1).ok_or("--out-dir requires a path")?;
+                        out_dir = Some(PathBuf::from(value));
+                        i += 2;
+                    }
+                    "--out" => {
+                        let value = args.get(i + 1).ok_or("--out requires a path")?;
+                        out_path = Some(PathBuf::from(value));
+                        i += 2;
+                    }
+                    "--manifest-dir" => {
+                        let value = args.get(i + 1).ok_or("--manifest-dir requires a path")?;
+                        manifest_dir = Some(PathBuf::from(value));
+                        i += 2;
+                    }
+                    "--runtime-dir" => {
+                        let value = args.get(i + 1).ok_or("--runtime-dir requires a path")?;
+                        runtime_dir = Some(PathBuf::from(value));
+                        i += 2;
+                    }
+                    "--ahead-steps" => {
+                        let value = args.get(i + 1).ok_or("--ahead-steps requires a number")?;
+                        ahead_steps = value
+                            .parse::<usize>()
+                            .map_err(|_| format!("invalid --ahead-steps value: {value}"))?;
+                        i += 2;
+                    }
+                    "--behind-steps" => {
+                        let value = args.get(i + 1).ok_or("--behind-steps requires a number")?;
+                        behind_steps = value
+                            .parse::<usize>()
+                            .map_err(|_| format!("invalid --behind-steps value: {value}"))?;
+                        i += 2;
+                    }
+                    "--max-prefetch-streaming-cost" => {
+                        let value = args
+                            .get(i + 1)
+                            .ok_or("--max-prefetch-streaming-cost requires a number")?;
+                        max_prefetch_streaming_cost = Some(value.parse::<f64>().map_err(|_| {
+                            format!("invalid --max-prefetch-streaming-cost value: {value}")
+                        })?);
+                        i += 2;
+                    }
+                    "--max-prefetch-estimated-memory-cost" => {
+                        let value = args
+                            .get(i + 1)
+                            .ok_or("--max-prefetch-estimated-memory-cost requires a number")?;
+                        max_prefetch_estimated_memory_cost =
+                            Some(value.parse::<f64>().map_err(|_| {
+                                format!(
+                                    "invalid --max-prefetch-estimated-memory-cost value: {value}"
+                                )
+                            })?);
+                        i += 2;
+                    }
+                    "--max-retain-streaming-cost" => {
+                        let value = args
+                            .get(i + 1)
+                            .ok_or("--max-retain-streaming-cost requires a number")?;
+                        max_retain_streaming_cost = Some(value.parse::<f64>().map_err(|_| {
+                            format!("invalid --max-retain-streaming-cost value: {value}")
+                        })?);
+                        i += 2;
+                    }
+                    "--max-retain-estimated-memory-cost" => {
+                        let value = args
+                            .get(i + 1)
+                            .ok_or("--max-retain-estimated-memory-cost requires a number")?;
+                        max_retain_estimated_memory_cost =
+                            Some(value.parse::<f64>().map_err(|_| {
+                                format!("invalid --max-retain-estimated-memory-cost value: {value}")
+                            })?);
+                        i += 2;
+                    }
+                    "--index-name" => {
+                        index_name = args
+                            .get(i + 1)
+                            .ok_or("--index-name requires a value")?
+                            .to_string();
+                        i += 2;
+                    }
+                    "--shard-folder" => {
+                        shard_folder = args
+                            .get(i + 1)
+                            .ok_or("--shard-folder requires a value")?
+                            .to_string();
+                        i += 2;
+                    }
+                    "--chunks-per-shard" => {
+                        chunks_per_shard = args
+                            .get(i + 1)
+                            .ok_or("--chunks-per-shard requires a value")?
+                            .parse::<usize>()
+                            .map_err(|err| format!("invalid --chunks-per-shard: {err}"))?;
+                        i += 2;
+                    }
+                    "--max-bytes" => {
+                        max_bytes = Some(
+                            args.get(i + 1)
+                                .ok_or("--max-bytes requires a value")?
+                                .parse::<usize>()
+                                .map_err(|err| format!("invalid --max-bytes: {err}"))?,
+                        );
+                        i += 2;
+                    }
+                    "--limit" => {
+                        let value = args.get(i + 1).ok_or("--limit requires a number")?;
+                        limit = Some(
+                            value
+                                .parse::<usize>()
+                                .map_err(|_| format!("invalid --limit value: {value}"))?,
+                        );
+                        i += 2;
+                    }
+                    "--max-streaming-cost" => {
+                        let value = args
+                            .get(i + 1)
+                            .ok_or("--max-streaming-cost requires a number")?;
+                        max_streaming_cost =
+                            Some(value.parse::<f64>().map_err(|_| {
+                                format!("invalid --max-streaming-cost value: {value}")
+                            })?);
+                        i += 2;
+                    }
+                    "--max-estimated-memory-cost" => {
+                        let value = args
+                            .get(i + 1)
+                            .ok_or("--max-estimated-memory-cost requires a number")?;
+                        max_estimated_memory_cost = Some(value.parse::<f64>().map_err(|_| {
+                            format!("invalid --max-estimated-memory-cost value: {value}")
+                        })?);
+                        i += 2;
+                    }
+                    "--require-buildings" => {
+                        require_buildings = true;
+                        i += 1;
+                    }
+                    "--require-terrain" => {
+                        require_terrain = true;
+                        i += 1;
+                    }
+                    other => {
+                        return Err(format!(
+                            "unknown argument to planetary-store route-bundle: {other}"
+                        ))
+                    }
+                }
+            }
+            let out_dir = out_dir.ok_or("planetary-store route-bundle requires --out-dir PATH")?;
+            let store_path = if let Some(session_path) = session_path.as_ref() {
+                let session = read_route_session(session_path)?;
+                resolve_planetary_store_path(
+                    store_path,
+                    Some(&session.merged_plan),
+                    Some(&session),
+                    "route-bundle",
+                )?
+            } else {
+                resolve_planetary_store_path(store_path, None, None, "route-bundle")?
+            };
+            let session = if let Some(session_path) = session_path.as_ref() {
+                read_route_session(session_path)?
+            } else {
+                if points.is_empty() {
+                    return Err(
+                        "planetary-store route-bundle requires --session PATH or repeated --point LAT,LON"
+                            .to_string(),
+                    );
+                }
+                let radius_studs =
+                    radius_studs.ok_or("planetary-store route-bundle requires --radius-studs R")?;
+                build_route_delivery_session_for_geo_points(
+                    &store_path,
+                    &points,
+                    radius_studs,
+                    limit,
+                    require_buildings,
+                    require_terrain,
+                    max_streaming_cost,
+                    max_estimated_memory_cost,
+                )
+                .map_err(|err| format!("planetary-store route-bundle failed: {err}"))?
+                .ok_or("planetary-store route-bundle found no matching scene/chunks")?
+            };
+            let bundle = materialize_route_bundle(
+                &store_path,
+                &session,
+                &out_dir,
+                manifest_dir.as_deref(),
+                runtime_dir.as_deref(),
+                runtime_dir
+                    .as_ref()
+                    .map(|runtime_dir| RuntimeLuaShardsOptions {
+                        output_dir: runtime_dir.clone(),
+                        index_name: index_name.clone(),
+                        shard_folder: shard_folder.clone(),
+                        chunks_per_shard,
+                        max_bytes,
+                    }),
+                ahead_steps,
+                behind_steps,
+                max_prefetch_streaming_cost,
+                max_prefetch_estimated_memory_cost,
+                max_retain_streaming_cost,
+                max_retain_estimated_memory_cost,
+                "route-bundle",
+            )?;
+            if let Some(out_path) = out_path.as_ref() {
+                write_json_file(&bundle, out_path, "route-bundle")?;
+                println!("Wrote route bundle {}", out_path.display());
+            } else {
+                println!(
+                    "{}",
+                    serde_json::to_string_pretty(&bundle)
+                        .map_err(|err| format!("route-bundle json failed: {err}"))?
+                );
+            }
+            Ok(())
+        }
         "merge-delivery-plans" => {
             let mut plan_paths: Vec<PathBuf> = Vec::new();
             let mut out_path: Option<PathBuf> = None;
@@ -7666,6 +8027,76 @@ mod tests {
         assert!(lane_dir.join("step-000-retain.json").exists());
         assert!(lane_dir.join("lane-payloads.json").exists());
         assert!(lane_dir.join("route-catalog.json").exists());
+        assert!(manifest_dir.join("step-000-active-manifest.json").exists());
+        assert!(runtime_dir
+            .join("step-000-active")
+            .join("PlanetaryManifestIndex.lua")
+            .exists());
+    }
+
+    #[test]
+    fn planetary_store_route_bundle_works() {
+        let tempdir = tempfile::tempdir().unwrap();
+        let store_path = tempdir.path().join("planetary.sqlite");
+        let manifest_path = tempdir.path().join("sample.sqlite");
+        let bundle_dir = tempdir.path().join("route-bundle");
+        let bundle_path = tempdir.path().join("route-bundle.json");
+        let manifest_dir = bundle_dir.join("route-manifests");
+        let runtime_dir = bundle_dir.join("route-runtime");
+        let manifest = build_sample_multi_chunk(3, 1);
+        let center = manifest.meta.bbox.center();
+        write_manifest_sqlite(&manifest, &manifest_path).unwrap();
+
+        cmd_planetary_store(&[
+            "ingest-manifest".to_string(),
+            "--store".to_string(),
+            store_path.display().to_string(),
+            "--manifest-sqlite".to_string(),
+            manifest_path.display().to_string(),
+            "--scene".to_string(),
+            "austin".to_string(),
+        ])
+        .unwrap();
+
+        cmd_planetary_store(&[
+            "route-bundle".to_string(),
+            "--store".to_string(),
+            store_path.display().to_string(),
+            "--point".to_string(),
+            format!("{},{}", center.lat, center.lon),
+            "--point".to_string(),
+            format!("{},{}", center.lat, center.lon + 0.0002),
+            "--radius-studs".to_string(),
+            "300".to_string(),
+            "--out-dir".to_string(),
+            bundle_dir.display().to_string(),
+            "--manifest-dir".to_string(),
+            manifest_dir.display().to_string(),
+            "--runtime-dir".to_string(),
+            runtime_dir.display().to_string(),
+            "--out".to_string(),
+            bundle_path.display().to_string(),
+        ])
+        .unwrap();
+
+        let bundle: Value =
+            serde_json::from_str(&std::fs::read_to_string(&bundle_path).unwrap()).unwrap();
+        assert!(bundle["route_catalog_out"]
+            .as_str()
+            .unwrap()
+            .ends_with("route-catalog.json"));
+        assert!(bundle_dir.join("route-session.json").exists());
+        assert!(bundle_dir.join("hydrated-route.json").exists());
+        assert!(bundle_dir.join("route-schedule.json").exists());
+        assert!(bundle_dir.join("route-catalog.json").exists());
+        assert!(bundle_dir
+            .join("route-lanes")
+            .join("step-000-active.json")
+            .exists());
+        assert!(bundle_dir
+            .join("route-payloads")
+            .join("lane-payloads.json")
+            .exists());
         assert!(manifest_dir.join("step-000-active-manifest.json").exists());
         assert!(runtime_dir
             .join("step-000-active")
