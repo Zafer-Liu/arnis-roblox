@@ -3054,6 +3054,17 @@ The compact historical archive index is:
   - `python3 -m unittest scripts.tests.test_austin_runtime_contract scripts.tests.test_run_studio_harness scripts.tests.test_scene_fidelity_audit scripts.tests.test_scene_parity_audit -v`
   - `git diff --check`
 
+## 2026-04-04 10:10 CDT
+
+- Extended the harness control lane again on `main`:
+  - `run_studio_harness.sh`
+    - added first-class `--route-catalog`, `--route-lane`, and `--route-step-index` controls
+    - edit and play probes now seed the same workspace route-selection attributes before invoking preview/runtime paths
+    - route-driven proof is now an explicit harness control surface instead of hidden state
+- Verification:
+  - `python3 -m unittest scripts.tests.test_run_studio_harness scripts.tests.test_austin_runtime_contract -v`
+  - `git diff --check`
+
 ## 2026-04-04 09:37 CDT
 
 - Extended the runtime consumption path on `main`:

@@ -40,6 +40,9 @@ STUDIO_UI_TIMEOUT_SECONDS="${HARNESS_STUDIO_UI_TIMEOUT_SECONDS:-5}"
 HARNESS_LOCK_DIR="${HARNESS_LOCK_DIR:-/tmp/arnis-studio-harness.lock}"
 HARNESS_LOCK_OWNED=0
 export ARNIS_TELEMETRY_FAMILIES="${ARNIS_TELEMETRY_FAMILIES:-}"
+ROUTE_CATALOG_NAME="${ARNIS_ROUTE_CATALOG_NAME:-}"
+ROUTE_LANE_NAME="${ARNIS_ROUTE_LANE:-}"
+ROUTE_STEP_INDEX="${ARNIS_ROUTE_STEP_INDEX:-}"
 MCP_BINARY="${RBX_STUDIO_MCP_BIN:-}"
 VSYNC_BINARY="${VSYNC_BIN:-}"
 VSYNC_SOURCE_REPO=0
@@ -562,6 +565,9 @@ Options:
   --skip-edit-tests    Force edit-mode RunAll to stay disabled and only validate preview/import behavior.
   --play-tests         Also enable RunAllConfig.lua during Play mode.
   --spec-filter NAME   Run only the named Luau spec module during RunAll, for example StreamingPriority.spec.lua.
+  --route-catalog NAME Route preview/play proof through the named planetary route catalog.
+  --route-lane NAME    Route lane to load. Default: active when route catalog is set.
+  --route-step-index N Route step index to load. Default: 0 when route catalog is set.
   --keep-open          Leave Roblox Studio open when the harness exits.
   --takeover           Allow the harness to take control of an already-running Studio session. By default this now means quit/relaunch for a clean harness-owned session.
   --hard-restart       Force a full Studio quit/relaunch cycle even when reuse would otherwise be allowed.
@@ -951,6 +957,18 @@ while [[ $# -gt 0 ]]; do
       RUNALL_SPEC_FILTER="$2"
       shift 2
       ;;
+    --route-catalog)
+      ROUTE_CATALOG_NAME="$2"
+      shift 2
+      ;;
+    --route-lane)
+      ROUTE_LANE_NAME="$2"
+      shift 2
+      ;;
+    --route-step-index)
+      ROUTE_STEP_INDEX="$2"
+      shift 2
+      ;;
     --keep-open)
       CLOSE_ON_EXIT=0
       shift
@@ -991,6 +1009,16 @@ while [[ $# -gt 0 ]]; do
       ;;
   esac
 done
+
+if [[ -n "$ROUTE_CATALOG_NAME" && -z "$ROUTE_LANE_NAME" ]]; then
+  ROUTE_LANE_NAME="active"
+fi
+if [[ -n "$ROUTE_CATALOG_NAME" && -z "$ROUTE_STEP_INDEX" ]]; then
+  ROUTE_STEP_INDEX="0"
+fi
+export ARNIS_ROUTE_CATALOG_NAME="$ROUTE_CATALOG_NAME"
+export ARNIS_ROUTE_LANE="$ROUTE_LANE_NAME"
+export ARNIS_ROUTE_STEP_INDEX="$ROUTE_STEP_INDEX"
 
 if [[ $PLACE_PATH_CUSTOM -eq 1 && ! -f "$PLACE_PATH" ]]; then
   echo "[harness] place file not found: $PLACE_PATH" >&2
@@ -3204,6 +3232,18 @@ run_preview_probe = (not do_play) and (runall_spec_filter == "" or "Preview" in 
 host_probe_sample = json.loads(os.environ.get("HARNESS_HOST_PROBE_JSON", "{}"))
 requested_telemetry_families = os.environ.get("ARNIS_TELEMETRY_FAMILIES", "")
 requested_telemetry_families_luau = json.dumps(requested_telemetry_families)
+route_catalog_name = os.environ.get("ARNIS_ROUTE_CATALOG_NAME", "")
+route_catalog_name_luau = json.dumps(route_catalog_name)
+route_lane_name = os.environ.get("ARNIS_ROUTE_LANE", "")
+route_lane_name_luau = json.dumps(route_lane_name)
+route_step_index = os.environ.get("ARNIS_ROUTE_STEP_INDEX", "")
+route_step_index_luau = route_step_index if route_step_index not in {"", None} else "nil"
+route_catalog_name = os.environ.get("ARNIS_ROUTE_CATALOG_NAME", "")
+route_catalog_name_luau = json.dumps(route_catalog_name)
+route_lane_name = os.environ.get("ARNIS_ROUTE_LANE", "")
+route_lane_name_luau = json.dumps(route_lane_name)
+route_step_index = os.environ.get("ARNIS_ROUTE_STEP_INDEX", "")
+route_step_index_luau = route_step_index if route_step_index not in {"", None} else "nil"
 
 def on_alarm(_signum, _frame):
     raise TimeoutError(f"run_edit_actions_via_mcp timed out after {wall_clock_timeout}s")
@@ -3275,6 +3315,12 @@ local runAllSpecFilter = """ + json.dumps(runall_spec_filter) + """
 local runPreviewProbe = """ + ("true" if run_preview_probe else "false") + """
 local hostProbeSample = """ + host_probe_sample_luau + """
 local requested_telemetry_families = """ + requested_telemetry_families_luau + """
+local route_catalog_name = """ + route_catalog_name_luau + """
+local route_lane_name = """ + route_lane_name_luau + """
+local route_step_index = """ + route_step_index_luau + """
+local route_catalog_name = """ + route_catalog_name_luau + """
+local route_lane_name = """ + route_lane_name_luau + """
+local route_step_index = """ + route_step_index_luau + """
 
 local function resolvePreviewWorldRootName()
     local canonicalWorldRootName = Workspace:GetAttribute("ArnisWorldRootName")
@@ -3296,6 +3342,9 @@ end
 Workspace:SetAttribute("ArnisStreamingHostProbeAvailableBytes", hostProbeSample.availableBytes)
 Workspace:SetAttribute("ArnisStreamingHostProbePressureLevel", hostProbeSample.pressureLevel)
 Workspace:SetAttribute("ArnisTelemetryFamilies", requested_telemetry_families)
+Workspace:SetAttribute("VertigoRouteCatalogName", route_catalog_name ~= "" and route_catalog_name or nil)
+Workspace:SetAttribute("VertigoRouteLane", route_lane_name ~= "" and route_lane_name or nil)
+Workspace:SetAttribute("VertigoRouteStepIndex", route_step_index)
 payload.hostProbe = hostProbeSample
 
 local function waitForPreviewSyncCompletion(timeoutSeconds)
@@ -3362,7 +3411,11 @@ if runPreviewProbe then
             local previewLoadRadius = AustinPreviewBuilder.LOAD_RADIUS
             if not existingRoot then
                 ok, previewResult = pcall(function()
-                    return AustinPreviewBuilder.Build()
+                    return AustinPreviewBuilder.Build({
+                        routeCatalogName = route_catalog_name ~= "" and route_catalog_name or nil,
+                        routeLane = route_lane_name ~= "" and route_lane_name or nil,
+                        routeStepIndex = route_step_index,
+                    })
                 end)
             end
             if ok then
@@ -3841,6 +3894,9 @@ local function sample()
 end
 
 Workspace:SetAttribute("ArnisTelemetryFamilies", requested_telemetry_families)
+Workspace:SetAttribute("VertigoRouteCatalogName", route_catalog_name ~= "" and route_catalog_name or nil)
+Workspace:SetAttribute("VertigoRouteLane", route_lane_name ~= "" and route_lane_name or nil)
+Workspace:SetAttribute("VertigoRouteStepIndex", route_step_index)
 task.wait(__WAIT_SECONDS__)
 local firstSample = sample()
 if firstSample.generatedExists then
