@@ -1,7 +1,12 @@
+local Workspace = game:GetService("Workspace")
+
 local AustinPreviewRequest = {}
 
 AustinPreviewRequest.MODE_PREVIEW = "preview"
 AustinPreviewRequest.MODE_FULL_BAKE = "full_bake"
+AustinPreviewRequest.ROUTE_CATALOG_ATTR = "VertigoRouteCatalogName"
+AustinPreviewRequest.ROUTE_LANE_ATTR = "VertigoRouteLane"
+AustinPreviewRequest.ROUTE_STEP_INDEX_ATTR = "VertigoRouteStepIndex"
 
 local FULL_BAKE_MODE_ALIASES = table.freeze({
     export = true,
@@ -38,6 +43,27 @@ function AustinPreviewRequest.Normalize(request)
         local requestedRouteStepIndex = request.routeStepIndex or request.stepIndex
         if type(requestedRouteStepIndex) == "number" then
             routeStepIndex = math.floor(requestedRouteStepIndex)
+        end
+    end
+
+    if routeCatalogName == nil then
+        local workspaceRouteCatalogName = Workspace:GetAttribute(AustinPreviewRequest.ROUTE_CATALOG_ATTR)
+        if type(workspaceRouteCatalogName) == "string" and workspaceRouteCatalogName ~= "" then
+            routeCatalogName = workspaceRouteCatalogName
+        end
+    end
+
+    if routeLane == nil then
+        local workspaceRouteLane = Workspace:GetAttribute(AustinPreviewRequest.ROUTE_LANE_ATTR)
+        if type(workspaceRouteLane) == "string" and workspaceRouteLane ~= "" then
+            routeLane = workspaceRouteLane
+        end
+    end
+
+    if routeStepIndex == nil then
+        local workspaceRouteStepIndex = Workspace:GetAttribute(AustinPreviewRequest.ROUTE_STEP_INDEX_ATTR)
+        if type(workspaceRouteStepIndex) == "number" then
+            routeStepIndex = math.floor(workspaceRouteStepIndex)
         end
     end
 

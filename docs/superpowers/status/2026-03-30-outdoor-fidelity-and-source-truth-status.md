@@ -2984,6 +2984,19 @@ The compact historical archive index is:
   - `python3 -m unittest discover -s scripts/tests -p 'test_manifest_loader_route_catalog_contract.py' -v`
   - `git diff --check`
 
+## 2026-04-04 09:54 CDT
+
+- Extended the runtime-facing planetary lane again on `main`:
+  - `RunAustin`
+    - runtime manifest loading now honors workspace route-selection attributes as well as explicit options
+    - play bootstrap can now route through a selected planetary route catalog lane without needing a custom caller shim
+  - `AustinPreviewRequest`
+    - preview normalization now also falls back to workspace route-selection attributes, matching the new runtime behavior
+- Verification:
+  - `stylua roblox/src/ServerScriptService/ImportService/RunAustin.lua`
+  - `python3 -m unittest scripts.tests.test_austin_runtime_contract -v`
+  - `git diff --check`
+
 ## 2026-04-04 09:37 CDT
 
 - Extended the runtime consumption path on `main`:

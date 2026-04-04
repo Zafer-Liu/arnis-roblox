@@ -414,6 +414,17 @@ class AustinRuntimeContractTests(unittest.TestCase):
             "config = runtimeWorldConfig,",
             self.bootstrap_text,
         )
+        self.assertIn('RunAustin.ROUTE_CATALOG_ATTR = "VertigoRouteCatalogName"', self.run_austin_text)
+        self.assertIn('RunAustin.ROUTE_LANE_ATTR = "VertigoRouteLane"', self.run_austin_text)
+        self.assertIn('RunAustin.ROUTE_STEP_INDEX_ATTR = "VertigoRouteStepIndex"', self.run_austin_text)
+        self.assertIn("local function resolveRouteSelectionOptions(options)", self.run_austin_text)
+        self.assertIn("Workspace:GetAttribute(RunAustin.ROUTE_CATALOG_ATTR)", self.run_austin_text)
+        self.assertIn("Workspace:GetAttribute(RunAustin.ROUTE_LANE_ATTR)", self.run_austin_text)
+        self.assertIn("Workspace:GetAttribute(RunAustin.ROUTE_STEP_INDEX_ATTR)", self.run_austin_text)
+        self.assertIn("local routeSelectionOptions = resolveRouteSelectionOptions(options)", self.run_austin_text)
+        self.assertIn("routeCatalogName = routeSelectionOptions.routeCatalogName", self.run_austin_text)
+        self.assertIn("routeLane = routeSelectionOptions.routeLane", self.run_austin_text)
+        self.assertIn("routeStepIndex = routeSelectionOptions.routeStepIndex", self.run_austin_text)
 
     def test_client_world_probe_exposes_support_wall_and_roof_cover_observability(self) -> None:
         self.assertIn("supportSurfaceRole =", self.world_probe_text)

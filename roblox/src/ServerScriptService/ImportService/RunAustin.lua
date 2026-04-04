@@ -13,6 +13,9 @@ RunAustin.FRAME_BUDGET_SECONDS = 1 / 240
 RunAustin.STARTUP_CHUNK_COUNT = 2
 RunAustin.MANIFEST_WAIT_TIMEOUT_SECONDS = 30
 RunAustin.CANONICAL_MANIFEST_INDEX_NAME = CanonicalWorldContract.resolveCanonicalManifestFamily()
+RunAustin.ROUTE_CATALOG_ATTR = "VertigoRouteCatalogName"
+RunAustin.ROUTE_LANE_ATTR = "VertigoRouteLane"
+RunAustin.ROUTE_STEP_INDEX_ATTR = "VertigoRouteStepIndex"
 
 local function reportPhase(options, phase)
     if type(options) ~= "table" then
@@ -72,8 +75,49 @@ function RunAustin.getRuntimeManifestCandidates()
     return CanonicalWorldContract.resolveCanonicalMaterializationCandidates("play")
 end
 
+local function resolveRouteSelectionOptions(options)
+    local resolved = {}
+    options = options or {}
+
+    local routeCatalogName = options.routeCatalogName
+    if type(routeCatalogName) ~= "string" or routeCatalogName == "" then
+        local workspaceRouteCatalogName = Workspace:GetAttribute(RunAustin.ROUTE_CATALOG_ATTR)
+        if type(workspaceRouteCatalogName) == "string" and workspaceRouteCatalogName ~= "" then
+            routeCatalogName = workspaceRouteCatalogName
+        end
+    end
+    if type(routeCatalogName) == "string" and routeCatalogName ~= "" then
+        resolved.routeCatalogName = routeCatalogName
+    end
+
+    local routeLane = options.routeLane
+    if type(routeLane) ~= "string" or routeLane == "" then
+        local workspaceRouteLane = Workspace:GetAttribute(RunAustin.ROUTE_LANE_ATTR)
+        if type(workspaceRouteLane) == "string" and workspaceRouteLane ~= "" then
+            routeLane = workspaceRouteLane
+        end
+    end
+    if type(routeLane) == "string" and routeLane ~= "" then
+        resolved.routeLane = routeLane
+    end
+
+    local routeStepIndex = options.routeStepIndex
+    if type(routeStepIndex) ~= "number" then
+        local workspaceRouteStepIndex = Workspace:GetAttribute(RunAustin.ROUTE_STEP_INDEX_ATTR)
+        if type(workspaceRouteStepIndex) == "number" then
+            routeStepIndex = workspaceRouteStepIndex
+        end
+    end
+    if type(routeStepIndex) == "number" then
+        resolved.routeStepIndex = math.floor(routeStepIndex)
+    end
+
+    return resolved
+end
+
 function RunAustin.loadManifestSource(options)
     options = options or {}
+    local routeSelectionOptions = resolveRouteSelectionOptions(options)
     local materializationFamily = CanonicalWorldContract.resolveCanonicalMaterializationFamily("play")
     print(
         ("[RunAustin] Loading canonical manifest source %s via %s"):format(
@@ -83,9 +127,9 @@ function RunAustin.loadManifestSource(options)
     )
     local manifestSource, resolvedManifestName =
         CanonicalWorldContract.loadCanonicalManifestSource("play", RunAustin.MANIFEST_WAIT_TIMEOUT_SECONDS, {
-            routeCatalogName = options.routeCatalogName,
-            routeLane = options.routeLane,
-            routeStepIndex = options.routeStepIndex,
+            routeCatalogName = routeSelectionOptions.routeCatalogName,
+            routeLane = routeSelectionOptions.routeLane,
+            routeStepIndex = routeSelectionOptions.routeStepIndex,
         })
     return manifestSource, resolvedManifestName
 end
