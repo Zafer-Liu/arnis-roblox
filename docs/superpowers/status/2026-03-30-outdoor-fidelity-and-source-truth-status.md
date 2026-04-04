@@ -3031,6 +3031,18 @@ The compact historical archive index is:
   - `python3 -m unittest scripts.tests.test_austin_runtime_contract scripts.tests.test_run_studio_harness -v`
   - `git diff --check`
 
+## 2026-04-04 10:04 CDT
+
+- Extended the proof/audit lane again on `main`:
+  - `scene_fidelity_audit.py`
+    - reports now retain manifest source kind/name from scene markers
+  - `scene_parity_audit.py`
+    - parity comparisons now include manifest source kind/name, so route-driven versus canonical-manifest mismatches show up directly in parity artifacts
+  - contract tests for scene fidelity/parity now lock the new source metadata path
+- Verification:
+  - `python3 -m unittest scripts.tests.test_austin_runtime_contract scripts.tests.test_run_studio_harness scripts.tests.test_scene_fidelity_audit scripts.tests.test_scene_parity_audit -v`
+  - `git diff --check`
+
 ## 2026-04-04 09:37 CDT
 
 - Extended the runtime consumption path on `main`:

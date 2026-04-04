@@ -315,6 +315,8 @@ class SceneFidelityAuditTests(unittest.TestCase):
                 "radius": 400.0,
                 "rootName": "GeneratedWorld_Austin",
                 "worldIdentity": "AustinManifestIndex",
+                "manifestSourceKind": "canonical_manifest",
+                "manifestSourceName": "AustinManifestIndex",
                 "chunkEnvelopeKind": "runtime_resident",
                 "scene": {
                     "chunkCount": 2,
@@ -446,6 +448,8 @@ class SceneFidelityAuditTests(unittest.TestCase):
             self.assertEqual(report["rootName"], "GeneratedWorld_Austin")
             self.assertEqual(report["worldIdentity"], "AustinManifestIndex")
             self.assertEqual(report["chunkEnvelopeKind"], "runtime_resident")
+            self.assertEqual(report["manifestSourceKind"], "canonical_manifest")
+            self.assertEqual(report["manifestSourceName"], "AustinManifestIndex")
             self.assertEqual(report["scene"]["chunkCount"], 2)
             self.assertEqual(report["scene"]["chunkIds"], ["0_0", "1_0"])
             self.assertEqual(report["scene"]["buildingModelCount"], 1)

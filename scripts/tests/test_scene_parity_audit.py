@@ -28,6 +28,8 @@ class SceneParityAuditTests(unittest.TestCase):
         edit_report = {
             "rootName": "GeneratedWorld_AustinPreview",
             "worldIdentity": "AustinManifestIndex",
+            "manifestSourceKind": "canonical_manifest",
+            "manifestSourceName": "AustinManifestIndex",
             "chunkEnvelopeKind": "bounded_preview",
             "focus": {"x": 0, "z": 0},
             "radius": 256,
@@ -58,6 +60,8 @@ class SceneParityAuditTests(unittest.TestCase):
         play_report = {
             "rootName": "GeneratedWorld_Austin",
             "worldIdentity": "AustinManifestIndex",
+            "manifestSourceKind": "canonical_manifest",
+            "manifestSourceName": "AustinManifestIndex",
             "chunkEnvelopeKind": "runtime_resident",
             "focus": {"x": 0, "z": 0},
             "radius": 256,
@@ -102,6 +106,8 @@ class SceneParityAuditTests(unittest.TestCase):
         edit_report = {
             "rootName": "GeneratedWorld_AustinPreview",
             "worldIdentity": "AustinManifestIndex",
+            "manifestSourceKind": "canonical_manifest",
+            "manifestSourceName": "AustinManifestIndex",
             "chunkEnvelopeKind": "bounded_preview",
             "focus": {"x": 0, "z": 0},
             "radius": 256,
@@ -131,6 +137,8 @@ class SceneParityAuditTests(unittest.TestCase):
         play_report = {
             "rootName": "GeneratedWorld_Austin",
             "worldIdentity": "AustinManifestIndex",
+            "manifestSourceKind": "canonical_manifest",
+            "manifestSourceName": "AustinManifestIndex",
             "chunkEnvelopeKind": "runtime_resident",
             "focus": {"x": 0, "z": 0},
             "radius": 256,
@@ -163,10 +171,12 @@ class SceneParityAuditTests(unittest.TestCase):
 
         self.assertNotIn("world_identity_mismatch", codes)
         self.assertNotIn("chunk_ids_mismatch", codes)
-        self.assertEqual(report["summary"]["matching"], 23)
+        self.assertEqual(report["summary"]["matching"], 25)
         self.assertEqual(report["summary"]["mismatched"], 0)
         self.assertEqual(report["comparisons"]["worldIdentity"]["edit"], "AustinManifestIndex")
         self.assertEqual(report["comparisons"]["worldIdentity"]["play"], "AustinManifestIndex")
+        self.assertEqual(report["comparisons"]["manifestSourceKind"]["edit"], "canonical_manifest")
+        self.assertEqual(report["comparisons"]["manifestSourceName"]["play"], "AustinManifestIndex")
 
     def test_build_report_flags_visible_shell_wall_gap_mismatch(self) -> None:
         audit = load_module()
@@ -512,9 +522,9 @@ class SceneParityAuditTests(unittest.TestCase):
         self.assertIn("wall_material_count_mismatch", codes)
         self.assertIn("roof_material_count_mismatch", codes)
         self.assertIn("road_kind_surface_mismatch", codes)
-        self.assertEqual(report["summary"]["matching"], 3)
+        self.assertEqual(report["summary"]["matching"], 5)
         self.assertEqual(report["summary"]["mismatched"], 20)
-        self.assertEqual(report["summary"]["totalChecks"], 23)
+        self.assertEqual(report["summary"]["totalChecks"], 25)
         self.assertEqual(report["comparisons"]["chunkIds"]["edit"], ["0_0", "1_0"])
         self.assertEqual(report["comparisons"]["chunkIds"]["play"], ["0_0", "2_0"])
         self.assertEqual(report["comparisons"]["worldIdentity"]["edit"], "AustinManifestIndex")
@@ -880,7 +890,7 @@ class SceneParityAuditTests(unittest.TestCase):
             self.assertEqual(exit_code, 0)
             written = json.loads(parity_path.read_text(encoding="utf-8"))
             html = html_path.read_text(encoding="utf-8")
-            self.assertEqual(written["summary"]["matching"], 23)
+            self.assertEqual(written["summary"]["matching"], 25)
             self.assertEqual(written["summary"]["mismatched"], 0)
             self.assertIn("Scene Parity Audit", html)
             self.assertIn("chunkIds", html)

@@ -1735,6 +1735,8 @@ def build_report(
         "rootName": payload.get("rootName"),
         "worldIdentity": payload.get("worldIdentity"),
         "chunkEnvelopeKind": payload.get("chunkEnvelopeKind"),
+        "manifestSourceKind": payload.get("manifestSourceKind"),
+        "manifestSourceName": payload.get("manifestSourceName"),
         "focus": payload.get("focus"),
         "radius": payload.get("radius"),
         "scene": scene,

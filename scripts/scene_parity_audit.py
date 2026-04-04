@@ -327,6 +327,14 @@ def build_report(edit_report: dict[str, Any], play_report: dict[str, Any]) -> di
             "edit": _normalize_world_identity(edit_report),
             "play": _normalize_world_identity(play_report),
         },
+        "manifestSourceKind": {
+            "edit": _normalize_string(edit_report.get("manifestSourceKind")),
+            "play": _normalize_string(play_report.get("manifestSourceKind")),
+        },
+        "manifestSourceName": {
+            "edit": _normalize_string(edit_report.get("manifestSourceName")),
+            "play": _normalize_string(play_report.get("manifestSourceName")),
+        },
         "focus": {
             "edit": _normalize_json_value(edit_report.get("focus")),
             "play": _normalize_json_value(play_report.get("focus")),
@@ -495,6 +503,8 @@ def build_report(edit_report: dict[str, Any], play_report: dict[str, Any]) -> di
 
     code_by_metric = {
         "worldIdentity": "world_identity_mismatch",
+        "manifestSourceKind": "manifest_source_kind_mismatch",
+        "manifestSourceName": "manifest_source_name_mismatch",
         "focus": "focus_mismatch",
         "radius": "radius_mismatch",
         "chunkIds": "chunk_ids_mismatch",
@@ -522,6 +532,8 @@ def build_report(edit_report: dict[str, Any], play_report: dict[str, Any]) -> di
     }
     severity_by_metric = {
         "worldIdentity": "high",
+        "manifestSourceKind": "medium",
+        "manifestSourceName": "medium",
         "focus": "high",
         "radius": "high",
         "chunkIds": "high",
