@@ -51,6 +51,18 @@ struct DeliveryBundleRuntimeResult {
 }
 
 #[derive(Debug, Serialize)]
+struct RouteLanePayloadResult {
+    step_index: usize,
+    lane: String,
+    chunk_count: usize,
+    materializable: bool,
+    scene_id: Option<String>,
+    reason: Option<String>,
+    manifest_out: Option<String>,
+    runtime: Option<DeliveryBundleRuntimeResult>,
+}
+
+#[derive(Debug, Serialize)]
 struct DeliveryBundleResult {
     plan: arbx_planetary_store::PlanetaryDeliveryPlan,
     out: Option<String>,
@@ -59,6 +71,7 @@ struct DeliveryBundleResult {
     hydrated_route_out: Option<String>,
     schedule_out: Option<String>,
     step_lane_dir: Option<String>,
+    step_payload_dir: Option<String>,
     step_summary_dir: Option<String>,
     step_window_dir: Option<String>,
     step_transition_dir: Option<String>,
@@ -2027,6 +2040,37 @@ fn read_manifest_subset_for_plan_single_scene(
         .map_err(|err| format!("planetary-store {command_name} failed: {err}"))
 }
 
+fn read_manifest_subset_for_chunk_refs_single_scene(
+    store_path: &Path,
+    chunk_refs: &[arbx_planetary_store::PlanetaryChunkRef],
+    command_name: &str,
+) -> Result<Option<StoredManifestSubset>, String> {
+    if chunk_refs.is_empty() {
+        return Ok(None);
+    }
+    let mut scene_ids = chunk_refs
+        .iter()
+        .map(|chunk_ref| chunk_ref.scene_id.clone())
+        .collect::<Vec<_>>();
+    scene_ids.sort();
+    scene_ids.dedup();
+    if scene_ids.len() != 1 {
+        return Err(format!(
+            "planetary-store {command_name} requires a single-scene lane; this lane spans {} scenes",
+            scene_ids.len()
+        ));
+    }
+    let scene_id = &scene_ids[0];
+    let chunk_ids = chunk_refs
+        .iter()
+        .filter(|chunk_ref| chunk_ref.scene_id == *scene_id)
+        .map(|chunk_ref| chunk_ref.chunk_id.clone())
+        .collect::<Vec<_>>();
+    read_scene_manifest_subset_by_chunk_ids(store_path, scene_id, &chunk_ids)
+        .map(Some)
+        .map_err(|err| format!("planetary-store {command_name} failed: {err}"))
+}
+
 fn parse_lat_lon_pair(value: &str, flag_name: &str) -> Result<(f64, f64), String> {
     let parts: Vec<f64> = value
         .split(',')
@@ -2107,6 +2151,107 @@ fn write_route_schedule_lane_files(
         write_json_file(&step.retain, &retain_path, label)?;
     }
     Ok(())
+}
+
+fn write_route_schedule_lane_payloads(
+    schedule: &arbx_planetary_store::PlanetaryRouteDeliverySchedule,
+    store_path: &Path,
+    manifest_dir: Option<&Path>,
+    runtime_dir: Option<&Path>,
+    runtime_template: Option<RuntimeLuaShardsOptions>,
+    label: &str,
+) -> Result<Vec<RouteLanePayloadResult>, String> {
+    let mut results = Vec::new();
+    let lanes = ["active", "prefetch", "retain"];
+    for step in &schedule.steps {
+        for lane in lanes {
+            let lane_summary = match lane {
+                "active" => &step.active,
+                "prefetch" => &step.prefetch,
+                "retain" => &step.retain,
+                _ => unreachable!(),
+            };
+            let mut result = RouteLanePayloadResult {
+                step_index: step.step_index,
+                lane: lane.to_string(),
+                chunk_count: lane_summary.chunk_count,
+                materializable: false,
+                scene_id: None,
+                reason: None,
+                manifest_out: None,
+                runtime: None,
+            };
+            if lane_summary.chunk_refs.is_empty() {
+                result.reason = Some("empty lane".to_string());
+                results.push(result);
+                continue;
+            }
+            let mut scene_ids = lane_summary
+                .chunk_refs
+                .iter()
+                .map(|chunk_ref| chunk_ref.scene_id.clone())
+                .collect::<Vec<_>>();
+            scene_ids.sort();
+            scene_ids.dedup();
+            if scene_ids.len() != 1 {
+                result.reason = Some("cross-scene lane".to_string());
+                results.push(result);
+                continue;
+            }
+            let subset = read_manifest_subset_for_chunk_refs_single_scene(
+                store_path,
+                &lane_summary.chunk_refs,
+                label,
+            )?;
+            let Some(subset) = subset else {
+                result.reason = Some("empty lane".to_string());
+                results.push(result);
+                continue;
+            };
+            result.materializable = true;
+            result.scene_id = Some(scene_ids[0].clone());
+
+            if let Some(manifest_dir) = manifest_dir {
+                fs::create_dir_all(manifest_dir)
+                    .map_err(|err| format!("{label} manifest dir create failed: {err}"))?;
+                let out_path = manifest_dir.join(format!(
+                    "step-{:03}-{}-manifest.json",
+                    step.step_index, lane
+                ));
+                let manifest = build_manifest_value_from_stored_subset(subset.clone())?;
+                write_json_file(&manifest, &out_path, label)?;
+                result.manifest_out = Some(out_path.display().to_string());
+            }
+
+            if let (Some(runtime_dir), Some(runtime_template)) =
+                (runtime_dir, runtime_template.as_ref())
+            {
+                let lane_output_dir =
+                    runtime_dir.join(format!("step-{:03}-{}", step.step_index, lane));
+                let stats = write_runtime_lua_shards_from_stored_subset(
+                    &subset,
+                    &RuntimeLuaShardsOptions {
+                        output_dir: lane_output_dir,
+                        index_name: runtime_template.index_name.clone(),
+                        shard_folder: runtime_template.shard_folder.clone(),
+                        chunks_per_shard: runtime_template.chunks_per_shard,
+                        max_bytes: runtime_template.max_bytes,
+                    },
+                )
+                .map_err(|err| format!("{label} runtime failed: {err}"))?;
+                result.runtime = Some(DeliveryBundleRuntimeResult {
+                    chunk_count: stats.chunk_count,
+                    fragment_count: stats.fragment_count,
+                    shard_count: stats.shard_count,
+                    index_path: stats.index_path.display().to_string(),
+                    shard_dir: stats.shard_dir.display().to_string(),
+                });
+            }
+
+            results.push(result);
+        }
+    }
+    Ok(results)
 }
 
 fn cmd_planetary_store(args: &[String]) -> Result<(), String> {
@@ -4677,12 +4822,18 @@ fn cmd_planetary_store(args: &[String]) -> Result<(), String> {
             let mut session_path: Option<PathBuf> = None;
             let mut schedule_path: Option<PathBuf> = None;
             let mut out_dir: Option<PathBuf> = None;
+            let mut manifest_dir: Option<PathBuf> = None;
+            let mut runtime_dir: Option<PathBuf> = None;
             let mut ahead_steps: usize = 1;
             let mut behind_steps: usize = 1;
             let mut max_prefetch_streaming_cost: Option<f64> = None;
             let mut max_prefetch_estimated_memory_cost: Option<f64> = None;
             let mut max_retain_streaming_cost: Option<f64> = None;
             let mut max_retain_estimated_memory_cost: Option<f64> = None;
+            let mut index_name = "PlanetaryManifestIndex".to_string();
+            let mut shard_folder = "PlanetaryManifestChunks".to_string();
+            let mut chunks_per_shard: usize = 32;
+            let mut max_bytes: Option<usize> = None;
             let mut i = 1;
             while i < args.len() {
                 match args[i].as_str() {
@@ -4704,6 +4855,16 @@ fn cmd_planetary_store(args: &[String]) -> Result<(), String> {
                     "--out-dir" => {
                         let value = args.get(i + 1).ok_or("--out-dir requires a path")?;
                         out_dir = Some(PathBuf::from(value));
+                        i += 2;
+                    }
+                    "--manifest-dir" => {
+                        let value = args.get(i + 1).ok_or("--manifest-dir requires a path")?;
+                        manifest_dir = Some(PathBuf::from(value));
+                        i += 2;
+                    }
+                    "--runtime-dir" => {
+                        let value = args.get(i + 1).ok_or("--runtime-dir requires a path")?;
+                        runtime_dir = Some(PathBuf::from(value));
                         i += 2;
                     }
                     "--ahead-steps" => {
@@ -4760,6 +4921,37 @@ fn cmd_planetary_store(args: &[String]) -> Result<(), String> {
                             })?);
                         i += 2;
                     }
+                    "--index-name" => {
+                        index_name = args
+                            .get(i + 1)
+                            .ok_or("--index-name requires a value")?
+                            .to_string();
+                        i += 2;
+                    }
+                    "--shard-folder" => {
+                        shard_folder = args
+                            .get(i + 1)
+                            .ok_or("--shard-folder requires a value")?
+                            .to_string();
+                        i += 2;
+                    }
+                    "--chunks-per-shard" => {
+                        chunks_per_shard = args
+                            .get(i + 1)
+                            .ok_or("--chunks-per-shard requires a value")?
+                            .parse::<usize>()
+                            .map_err(|err| format!("invalid --chunks-per-shard: {err}"))?;
+                        i += 2;
+                    }
+                    "--max-bytes" => {
+                        max_bytes = Some(
+                            args.get(i + 1)
+                                .ok_or("--max-bytes requires a value")?
+                                .parse::<usize>()
+                                .map_err(|err| format!("invalid --max-bytes: {err}"))?,
+                        );
+                        i += 2;
+                    }
                     other => {
                         return Err(format!(
                         "unknown argument to planetary-store materialize-route-schedule: {other}"
@@ -4786,6 +4978,28 @@ fn cmd_planetary_store(args: &[String]) -> Result<(), String> {
                     )
                 })?;
                 write_route_schedule_lane_files(&schedule, &out_dir, "materialize-route-schedule")?;
+                let payloads = write_route_schedule_lane_payloads(
+                    &schedule,
+                    Path::new(&schedule.session.planetary_store_path),
+                    manifest_dir.as_deref(),
+                    runtime_dir.as_deref(),
+                    runtime_dir
+                        .as_ref()
+                        .map(|runtime_dir| RuntimeLuaShardsOptions {
+                            output_dir: runtime_dir.clone(),
+                            index_name: index_name.clone(),
+                            shard_folder: shard_folder.clone(),
+                            chunks_per_shard,
+                            max_bytes,
+                        }),
+                    "materialize-route-schedule",
+                )?;
+                let payload_path = out_dir.join("lane-payloads.json");
+                write_json_file(
+                    &payloads,
+                    &payload_path,
+                    "materialize-route-schedule payloads",
+                )?;
                 println!("Wrote route schedule lane files {}", out_dir.display());
                 return Ok(());
             }
@@ -4813,6 +5027,28 @@ fn cmd_planetary_store(args: &[String]) -> Result<(), String> {
                 max_retain_estimated_memory_cost,
             );
             write_route_schedule_lane_files(&schedule, &out_dir, "materialize-route-schedule")?;
+            let payloads = write_route_schedule_lane_payloads(
+                &schedule,
+                &store_path,
+                manifest_dir.as_deref(),
+                runtime_dir.as_deref(),
+                runtime_dir
+                    .as_ref()
+                    .map(|runtime_dir| RuntimeLuaShardsOptions {
+                        output_dir: runtime_dir.clone(),
+                        index_name: index_name.clone(),
+                        shard_folder: shard_folder.clone(),
+                        chunks_per_shard,
+                        max_bytes,
+                    }),
+                "materialize-route-schedule",
+            )?;
+            let payload_path = out_dir.join("lane-payloads.json");
+            write_json_file(
+                &payloads,
+                &payload_path,
+                "materialize-route-schedule payloads",
+            )?;
             println!("Wrote route schedule lane files {}", out_dir.display());
             Ok(())
         }
@@ -4878,6 +5114,9 @@ fn cmd_planetary_store(args: &[String]) -> Result<(), String> {
             let mut hydrated_route_out: Option<PathBuf> = None;
             let mut schedule_out: Option<PathBuf> = None;
             let mut step_lane_dir: Option<PathBuf> = None;
+            let mut step_payload_dir: Option<PathBuf> = None;
+            let mut step_manifest_dir: Option<PathBuf> = None;
+            let mut step_runtime_dir: Option<PathBuf> = None;
             let mut step_summary_dir: Option<PathBuf> = None;
             let mut step_window_dir: Option<PathBuf> = None;
             let mut step_transition_dir: Option<PathBuf> = None;
@@ -5025,6 +5264,27 @@ fn cmd_planetary_store(args: &[String]) -> Result<(), String> {
                     "--step-lane-dir" => {
                         let value = args.get(i + 1).ok_or("--step-lane-dir requires a path")?;
                         step_lane_dir = Some(PathBuf::from(value));
+                        i += 2;
+                    }
+                    "--step-payload-dir" => {
+                        let value = args
+                            .get(i + 1)
+                            .ok_or("--step-payload-dir requires a path")?;
+                        step_payload_dir = Some(PathBuf::from(value));
+                        i += 2;
+                    }
+                    "--step-manifest-dir" => {
+                        let value = args
+                            .get(i + 1)
+                            .ok_or("--step-manifest-dir requires a path")?;
+                        step_manifest_dir = Some(PathBuf::from(value));
+                        i += 2;
+                    }
+                    "--step-runtime-dir" => {
+                        let value = args
+                            .get(i + 1)
+                            .ok_or("--step-runtime-dir requires a path")?;
+                        step_runtime_dir = Some(PathBuf::from(value));
                         i += 2;
                     }
                     "--step-summary-dir" => {
@@ -5378,6 +5638,29 @@ fn cmd_planetary_store(args: &[String]) -> Result<(), String> {
                         "delivery-bundle step lanes",
                     )?;
                 }
+                if let Some(step_payload_dir) = step_payload_dir.as_ref() {
+                    fs::create_dir_all(step_payload_dir).map_err(|err| {
+                        format!("delivery-bundle step-payload-dir create failed: {err}")
+                    })?;
+                    let payloads = write_route_schedule_lane_payloads(
+                        route_schedule,
+                        &store_path,
+                        step_manifest_dir.as_deref(),
+                        step_runtime_dir.as_deref(),
+                        step_runtime_dir
+                            .as_ref()
+                            .map(|runtime_dir| RuntimeLuaShardsOptions {
+                                output_dir: runtime_dir.clone(),
+                                index_name: index_name.clone(),
+                                shard_folder: shard_folder.clone(),
+                                chunks_per_shard,
+                                max_bytes,
+                            }),
+                        "delivery-bundle step payloads",
+                    )?;
+                    let payload_path = step_payload_dir.join("lane-payloads.json");
+                    write_json_file(&payloads, &payload_path, "delivery-bundle step payloads")?;
+                }
             }
             if let Some(hydrated_route) = hydrated_route.as_ref() {
                 if let Some(step_summary_dir) = step_summary_dir.as_ref() {
@@ -5448,6 +5731,9 @@ fn cmd_planetary_store(args: &[String]) -> Result<(), String> {
                     .map(|path| path.display().to_string()),
                 schedule_out: schedule_out.as_ref().map(|path| path.display().to_string()),
                 step_lane_dir: step_lane_dir
+                    .as_ref()
+                    .map(|path| path.display().to_string()),
+                step_payload_dir: step_payload_dir
                     .as_ref()
                     .map(|path| path.display().to_string()),
                 step_summary_dir: step_summary_dir
@@ -7234,6 +7520,8 @@ mod tests {
         let manifest_path = tempdir.path().join("sample.sqlite");
         let session_path = tempdir.path().join("route-session.json");
         let lane_dir = tempdir.path().join("route-lanes");
+        let manifest_dir = tempdir.path().join("route-manifests");
+        let runtime_dir = tempdir.path().join("route-runtime");
         let manifest = build_sample_multi_chunk(3, 1);
         let center = manifest.meta.bbox.center();
         write_manifest_sqlite(&manifest, &manifest_path).unwrap();
@@ -7270,12 +7558,22 @@ mod tests {
             session_path.display().to_string(),
             "--out-dir".to_string(),
             lane_dir.display().to_string(),
+            "--manifest-dir".to_string(),
+            manifest_dir.display().to_string(),
+            "--runtime-dir".to_string(),
+            runtime_dir.display().to_string(),
         ])
         .unwrap();
 
         assert!(lane_dir.join("step-000-active.json").exists());
         assert!(lane_dir.join("step-000-prefetch.json").exists());
         assert!(lane_dir.join("step-000-retain.json").exists());
+        assert!(lane_dir.join("lane-payloads.json").exists());
+        assert!(manifest_dir.join("step-000-active-manifest.json").exists());
+        assert!(runtime_dir
+            .join("step-000-active")
+            .join("PlanetaryManifestIndex.lua")
+            .exists());
     }
 
     #[test]
@@ -7924,6 +8222,10 @@ mod tests {
         let step_summary_dir = tempdir.path().join("step-summaries");
         let step_window_dir = tempdir.path().join("step-windows");
         let step_transition_dir = tempdir.path().join("step-transitions");
+        let step_lane_dir = tempdir.path().join("step-lanes");
+        let step_payload_dir = tempdir.path().join("step-payloads");
+        let step_manifest_dir = tempdir.path().join("step-manifests");
+        let step_runtime_dir = tempdir.path().join("step-runtime");
         let bundle_path = tempdir.path().join("delivery-bundle.json");
         let manifest = build_sample_multi_chunk(3, 1);
         let center = manifest.meta.bbox.center();
@@ -7956,6 +8258,14 @@ mod tests {
             hydrated_route_path.display().to_string(),
             "--schedule-out".to_string(),
             schedule_path.display().to_string(),
+            "--step-lane-dir".to_string(),
+            step_lane_dir.display().to_string(),
+            "--step-payload-dir".to_string(),
+            step_payload_dir.display().to_string(),
+            "--step-manifest-dir".to_string(),
+            step_manifest_dir.display().to_string(),
+            "--step-runtime-dir".to_string(),
+            step_runtime_dir.display().to_string(),
             "--step-summary-dir".to_string(),
             step_summary_dir.display().to_string(),
             "--step-window-dir".to_string(),
@@ -7978,6 +8288,11 @@ mod tests {
             hydrated_route_path.display().to_string()
         );
         assert_eq!(bundle["schedule_out"], schedule_path.display().to_string());
+        assert_eq!(bundle["step_lane_dir"], step_lane_dir.display().to_string());
+        assert_eq!(
+            bundle["step_payload_dir"],
+            step_payload_dir.display().to_string()
+        );
         assert_eq!(
             bundle["step_summary_dir"],
             step_summary_dir.display().to_string()
@@ -7996,6 +8311,15 @@ mod tests {
         let schedule: Value =
             serde_json::from_str(&std::fs::read_to_string(&schedule_path).unwrap()).unwrap();
         assert_eq!(schedule["steps"].as_array().unwrap().len(), 2);
+        assert!(step_lane_dir.join("step-000-active.json").exists());
+        assert!(step_payload_dir.join("lane-payloads.json").exists());
+        assert!(step_manifest_dir
+            .join("step-000-active-manifest.json")
+            .exists());
+        assert!(step_runtime_dir
+            .join("step-000-active")
+            .join("PlanetaryManifestIndex.lua")
+            .exists());
         assert!(step_summary_dir.join("step-000-summary.json").exists());
         assert!(step_window_dir.join("step-000-window.json").exists());
         assert!(step_transition_dir

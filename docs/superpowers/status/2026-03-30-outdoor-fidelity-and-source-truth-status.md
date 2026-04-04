@@ -2866,3 +2866,21 @@ The compact historical archive index is:
   - `cargo test -p arbx_planetary_store planetary_store_ -- --nocapture`
   - `cargo test -p arbx_cli planetary_store_ -- --nocapture`
   - `git diff --check`
+
+## 2026-04-04 03:33 CDT
+
+- Extended the planetary backbone again on `main`:
+  - `arbx_cli`
+    - `planetary-store materialize-route-schedule` can now emit optional per-lane manifest and runtime payloads for single-scene lanes
+    - `delivery-bundle` can now emit `--step-payload-dir`, `--step-manifest-dir`, and `--step-runtime-dir` from canonical route schedules
+    - per-step lane payload emission now writes explicit materialization metadata instead of forcing runtime to derive payload handoff from lane refs alone
+  - route lane handoff now spans:
+    - lane refs
+    - lane summaries
+    - lane manifests
+    - lane runtime shard outputs
+- Verification:
+  - `cargo fmt --all`
+  - `cargo test -p arbx_planetary_store planetary_store_ -- --nocapture`
+  - `cargo test -p arbx_cli planetary_store_ -- --nocapture`
+  - `git diff --check`
