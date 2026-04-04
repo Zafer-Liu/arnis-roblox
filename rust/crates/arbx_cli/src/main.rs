@@ -6060,6 +6060,8 @@ mod tests {
         let merged: Value =
             serde_json::from_str(&std::fs::read_to_string(&merged_path).unwrap()).unwrap();
         assert_eq!(merged["selection_mode"], "merged");
+        assert_eq!(merged["source_plan_count"], 2);
+        assert_eq!(merged["source_selector_count"], 2);
         assert_eq!(merged["chunk_count"], 2);
     }
 
@@ -6102,6 +6104,8 @@ mod tests {
         let route: Value =
             serde_json::from_str(&std::fs::read_to_string(&route_path).unwrap()).unwrap();
         assert_eq!(route["selection_mode"], "merged");
+        assert_eq!(route["source_plan_count"], 2);
+        assert_eq!(route["source_selector_count"], 2);
         assert!(route["chunk_count"].as_u64().unwrap() >= 1);
     }
 
@@ -6681,6 +6685,8 @@ mod tests {
         let bundle: Value =
             serde_json::from_str(&std::fs::read_to_string(&bundle_path).unwrap()).unwrap();
         assert_eq!(bundle["plan"]["selection_mode"], "merged");
+        assert_eq!(bundle["plan"]["source_plan_count"], 2);
+        assert_eq!(bundle["plan"]["source_selector_count"], 2);
         assert!(bundle["plan"]["chunk_count"].as_u64().unwrap() >= 1);
     }
 
@@ -6723,6 +6729,8 @@ mod tests {
         let bundle: Value =
             serde_json::from_str(&std::fs::read_to_string(&bundle_path).unwrap()).unwrap();
         assert_eq!(bundle["plan"]["selection_mode"], "merged");
+        assert_eq!(bundle["plan"]["source_plan_count"], 2);
+        assert_eq!(bundle["plan"]["source_selector_count"], 2);
         assert!(bundle["plan"]["chunk_count"].as_u64().unwrap() >= 1);
     }
 

@@ -2723,3 +2723,18 @@ The compact historical archive index is:
   - `cargo test -p arbx_planetary_store planetary_store_ -- --nocapture`
   - `cargo test -p arbx_cli planetary_store_ -- --nocapture`
   - `git diff --check`
+
+## 2026-04-04 00:43 CDT
+
+- Extended the planetary backbone again on `main`:
+  - `arbx_planetary_store`
+    - delivery plans now carry composition metadata: source plan count, source selector count, and source selection modes
+    - merged plans now preserve explainable provenance instead of collapsing into opaque chunk-id unions
+  - `arbx_cli`
+    - direct multi-point `delivery-bundle --point ... --point ...` now collapses into the same merged route-prefetch plan semantics as `route-plan`
+    - route and bundle lanes now share richer provenance on their persisted plans/results
+- Verification:
+  - `cargo fmt --all`
+  - `cargo test -p arbx_planetary_store planetary_store_ -- --nocapture`
+  - `cargo test -p arbx_cli planetary_store_ -- --nocapture`
+  - `git diff --check`

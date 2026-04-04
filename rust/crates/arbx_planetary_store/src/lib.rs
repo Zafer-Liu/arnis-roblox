@@ -93,6 +93,12 @@ pub struct PlanetaryDeliveryPlan {
     pub world_name: String,
     pub manifest_store_path: String,
     pub selection_mode: String,
+    #[serde(default = "default_source_plan_count")]
+    pub source_plan_count: usize,
+    #[serde(default = "default_source_selector_count")]
+    pub source_selector_count: usize,
+    #[serde(default)]
+    pub source_selection_modes: Vec<String>,
     pub focus_lat: Option<f64>,
     pub focus_lon: Option<f64>,
     pub focus_x: Option<f64>,
@@ -103,6 +109,14 @@ pub struct PlanetaryDeliveryPlan {
     pub total_streaming_cost: f64,
     pub total_estimated_memory_cost: f64,
     pub chunk_ids: Vec<String>,
+}
+
+fn default_source_plan_count() -> usize {
+    1
+}
+
+fn default_source_selector_count() -> usize {
+    1
 }
 
 #[derive(Debug, Clone)]
@@ -246,6 +260,9 @@ fn delivery_plan_from_window(
         world_name: window.scene.world_name.clone(),
         manifest_store_path: window.scene.manifest_store_path.clone(),
         selection_mode: selection_mode.to_string(),
+        source_plan_count: 1,
+        source_selector_count: 1,
+        source_selection_modes: vec![selection_mode.to_string()],
         focus_lat: if include_geo_focus {
             Some(window.focus_lat)
         } else {
@@ -302,6 +319,15 @@ pub fn merge_delivery_plans(
     let summaries = read_scene_chunk_summary_by_chunk_ids(path, &first.scene_id, &chunks)?;
     let (chunk_count, total_feature_count, total_streaming_cost, total_estimated_memory_cost) =
         summarize_delivery_chunks(&summaries);
+    let mut source_selection_modes = Vec::new();
+    for plan in plans {
+        let modes = if plan.source_selection_modes.is_empty() {
+            vec![plan.selection_mode.clone()]
+        } else {
+            plan.source_selection_modes.clone()
+        };
+        source_selection_modes.extend(modes);
+    }
 
     Ok(Some(PlanetaryDeliveryPlan {
         planetary_store_path: first.planetary_store_path.clone(),
@@ -309,6 +335,9 @@ pub fn merge_delivery_plans(
         world_name: first.world_name.clone(),
         manifest_store_path: first.manifest_store_path.clone(),
         selection_mode: "merged".to_string(),
+        source_plan_count: plans.iter().map(|plan| plan.source_plan_count).sum(),
+        source_selector_count: plans.iter().map(|plan| plan.source_selector_count).sum(),
+        source_selection_modes,
         focus_lat: None,
         focus_lon: None,
         focus_x: None,
@@ -3001,6 +3030,9 @@ mod tests {
         assert_eq!(plan.planetary_store_path, store_path.display().to_string());
         assert_eq!(plan.scene_id, "sample_austin");
         assert_eq!(plan.selection_mode, "tile");
+        assert_eq!(plan.source_plan_count, 1);
+        assert_eq!(plan.source_selector_count, 1);
+        assert_eq!(plan.source_selection_modes, vec!["tile".to_string()]);
         assert_eq!(plan.chunk_count, plan.chunk_ids.len());
     }
 
@@ -3045,6 +3077,12 @@ mod tests {
 
         let merged = merge_delivery_plans(&[plan_a, plan_b]).unwrap().unwrap();
         assert_eq!(merged.selection_mode, "merged");
+        assert_eq!(merged.source_plan_count, 2);
+        assert_eq!(merged.source_selector_count, 2);
+        assert_eq!(
+            merged.source_selection_modes,
+            vec!["geo-point".to_string(), "local-point".to_string()]
+        );
         assert_eq!(merged.chunk_ids, vec!["0_0".to_string(), "1_0".to_string()]);
         assert_eq!(merged.chunk_count, 2);
         assert_eq!(merged.total_feature_count, 4);
