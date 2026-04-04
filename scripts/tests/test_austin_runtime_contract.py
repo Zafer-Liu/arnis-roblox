@@ -383,6 +383,8 @@ class AustinRuntimeContractTests(unittest.TestCase):
         )
         self.assertIn('worldIdentity = CanonicalWorldContract.resolveCanonicalManifestFamily("play")', self.bootstrap_text)
         self.assertIn('chunkEnvelopeKind = "runtime_resident"', self.bootstrap_text)
+        self.assertIn('manifestSourceKind = result.manifestSourceKind or "canonical_manifest"', self.bootstrap_text)
+        self.assertIn('manifestSourceName = result.resolvedManifestName or RunAustin.getManifestName()', self.bootstrap_text)
         self.assertIn('local sceneSummary = SceneAudit.summarizeWorld(worldRoot)', self.bootstrap_text)
 
     def test_preview_and_play_share_one_resolved_world_config_contract(self) -> None:

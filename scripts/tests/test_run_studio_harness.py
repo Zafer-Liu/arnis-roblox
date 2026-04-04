@@ -980,6 +980,8 @@ class RunStudioHarnessTests(unittest.TestCase):
         self.assertIn('emitSceneMarkers(\n        "ARNIS_SCENE_PLAY",\n        "play",', body)
         self.assertIn('worldIdentity = CanonicalWorldContract.resolveCanonicalManifestFamily("play")', body)
         self.assertIn('chunkEnvelopeKind = "runtime_resident"', body)
+        self.assertIn('manifestSourceKind = Workspace:GetAttribute("VertigoAustinManifestSourceKind") or "canonical_manifest"', body)
+        self.assertIn('manifestSourceName = Workspace:GetAttribute("VertigoAustinManifestSourceName") or RunAustin.getManifestName()', body)
 
     def test_play_probe_reports_world_root_candidates_and_counts(self) -> None:
         self.assertIn("local function summarizeWorldRoot(root)", self.text)

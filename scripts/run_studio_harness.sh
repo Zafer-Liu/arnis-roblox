@@ -3800,6 +3800,11 @@ local function sample()
     payload.canonicalWorldRootName = Workspace:GetAttribute("ArnisWorldRootName")
     payload.austinStatus = Workspace:GetAttribute("VertigoAustinStatus")
     payload.austinManifestName = Workspace:GetAttribute("VertigoAustinManifestName")
+    payload.austinManifestSourceName = Workspace:GetAttribute("VertigoAustinManifestSourceName")
+    payload.austinManifestSourceKind = Workspace:GetAttribute("VertigoAustinManifestSourceKind")
+    payload.austinRouteCatalogName = Workspace:GetAttribute("VertigoAustinRouteCatalogName")
+    payload.austinRouteLane = Workspace:GetAttribute("VertigoAustinRouteLane")
+    payload.austinRouteStepIndex = Workspace:GetAttribute("VertigoAustinRouteStepIndex")
     payload.austinWorldRootName = Workspace:GetAttribute("VertigoAustinWorldRootName")
     payload.austinWorldRootExists = Workspace:GetAttribute("VertigoAustinWorldRootExists")
     payload.austinWorldRootChildCount = Workspace:GetAttribute("VertigoAustinWorldRootChildCount")
@@ -3847,6 +3852,8 @@ if firstSample.generatedExists then
         {
             worldIdentity = CanonicalWorldContract.resolveCanonicalManifestFamily("play"),
             chunkEnvelopeKind = "runtime_resident",
+            manifestSourceKind = Workspace:GetAttribute("VertigoAustinManifestSourceKind") or "canonical_manifest",
+            manifestSourceName = Workspace:GetAttribute("VertigoAustinManifestSourceName") or RunAustin.getManifestName(),
         }
     )
 end

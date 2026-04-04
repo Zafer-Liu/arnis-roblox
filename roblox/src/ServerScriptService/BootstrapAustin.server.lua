@@ -405,6 +405,8 @@ task.defer(function()
         {
             worldIdentity = CanonicalWorldContract.resolveCanonicalManifestFamily("play"),
             chunkEnvelopeKind = "runtime_resident",
+            manifestSourceKind = result.manifestSourceKind or "canonical_manifest",
+            manifestSourceName = result.resolvedManifestName or RunAustin.getManifestName(),
         }
     )
 end)

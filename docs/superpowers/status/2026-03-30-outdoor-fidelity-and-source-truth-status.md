@@ -3020,6 +3020,17 @@ The compact historical archive index is:
   - `python3 -m unittest scripts.tests.test_austin_runtime_contract -v`
   - `git diff --check`
 
+## 2026-04-04 10:02 CDT
+
+- Extended the runtime-facing planetary lane again on `main`:
+  - `BootstrapAustin`
+    - play scene markers now carry resolved source kind/name metadata, so route-driven versus canonical-manifest runs are visible in downstream audits
+  - `run_studio_harness.sh`
+    - the play probe now captures the same route/source metadata from workspace attributes and emits it with the authoritative live play marker path
+- Verification:
+  - `python3 -m unittest scripts.tests.test_austin_runtime_contract scripts.tests.test_run_studio_harness -v`
+  - `git diff --check`
+
 ## 2026-04-04 09:37 CDT
 
 - Extended the runtime consumption path on `main`:
