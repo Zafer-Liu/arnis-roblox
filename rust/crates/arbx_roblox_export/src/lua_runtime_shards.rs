@@ -136,7 +136,7 @@ fn write_runtime_lua_shards_from_records(
     }
 
     let index_path = output_dir.join(format!("{}.lua", options.index_name));
-    write_lua_module(
+    write_lua_value_module(
         &index_path,
         &Value::Object(Map::from_iter([
             (
@@ -309,7 +309,7 @@ fn flush_shard_buffer(
         shards.push(Value::String(shard_name.clone()));
     }
 
-    write_lua_module(
+    write_lua_value_module(
         &shard_path,
         &Value::Object(Map::from_iter([(
             "chunks".to_string(),
@@ -548,7 +548,7 @@ fn chunk_id(chunk: &Map<String, Value>) -> ManifestStoreResult<&str> {
         .ok_or_else(|| "runtime chunk is missing string id".to_string().into())
 }
 
-fn write_lua_module(path: &Path, data: &Value) -> ManifestStoreResult<()> {
+pub fn write_lua_value_module(path: &Path, data: &Value) -> ManifestStoreResult<()> {
     if let Some(parent) = path.parent() {
         fs::create_dir_all(parent)?;
     }

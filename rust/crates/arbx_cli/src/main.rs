@@ -30,10 +30,10 @@ use arbx_planetary_store::{
     read_scene_manifest_subset_by_chunk_ids, summarize_planetary_store,
 };
 use arbx_roblox_export::{
-    build_sample_multi_chunk, export_to_chunks, read_manifest_sqlite_all, write_manifest_sqlite,
-    write_runtime_lua_shards_from_sqlite, write_runtime_lua_shards_from_stored_subset,
-    ChunkManifest, ExportConfig, RuntimeLuaShardsOptions, SatelliteTileProvider,
-    StoredManifestSubset,
+    build_sample_multi_chunk, export_to_chunks, read_manifest_sqlite_all, write_lua_value_module,
+    write_manifest_sqlite, write_runtime_lua_shards_from_sqlite,
+    write_runtime_lua_shards_from_stored_subset, ChunkManifest, ExportConfig,
+    RuntimeLuaShardsOptions, SatelliteTileProvider, StoredManifestSubset,
 };
 use rayon::prelude::*;
 use serde::{Deserialize, Serialize};
@@ -2298,6 +2298,19 @@ fn build_route_payload_catalog(
     }
 }
 
+fn write_route_payload_catalog_outputs(
+    catalog: &RoutePayloadCatalog,
+    json_path: &Path,
+    lua_path: &Path,
+    label: &str,
+) -> Result<(), String> {
+    write_json_file(catalog, json_path, label)?;
+    let value =
+        serde_json::to_value(catalog).map_err(|err| format!("{label} json failed: {err}"))?;
+    write_lua_value_module(lua_path, &value).map_err(|err| format!("{label} lua failed: {err}"))?;
+    Ok(())
+}
+
 #[allow(clippy::too_many_arguments)]
 fn materialize_route_bundle(
     store_path: &Path,
@@ -2363,7 +2376,13 @@ fn materialize_route_bundle(
         payloads,
     );
     let route_catalog_out = out_dir.join("route-catalog.json");
-    write_json_file(&catalog, &route_catalog_out, label)?;
+    let route_catalog_lua_out = out_dir.join("route-catalog.lua");
+    write_route_payload_catalog_outputs(
+        &catalog,
+        &route_catalog_out,
+        &route_catalog_lua_out,
+        label,
+    )?;
 
     Ok(RouteBundleResult {
         route_session_out: route_session_out.display().to_string(),
@@ -5133,9 +5152,11 @@ fn cmd_planetary_store(args: &[String]) -> Result<(), String> {
                     payloads,
                 );
                 let catalog_path = out_dir.join("route-catalog.json");
-                write_json_file(
+                let catalog_lua_path = out_dir.join("route-catalog.lua");
+                write_route_payload_catalog_outputs(
                     &catalog,
                     &catalog_path,
+                    &catalog_lua_path,
                     "materialize-route-schedule catalog",
                 )?;
                 println!("Wrote route schedule lane files {}", out_dir.display());
@@ -5197,9 +5218,11 @@ fn cmd_planetary_store(args: &[String]) -> Result<(), String> {
                 payloads,
             );
             let catalog_path = out_dir.join("route-catalog.json");
-            write_json_file(
+            let catalog_lua_path = out_dir.join("route-catalog.lua");
+            write_route_payload_catalog_outputs(
                 &catalog,
                 &catalog_path,
+                &catalog_lua_path,
                 "materialize-route-schedule catalog",
             )?;
             println!("Wrote route schedule lane files {}", out_dir.display());
@@ -6203,7 +6226,13 @@ fn cmd_planetary_store(args: &[String]) -> Result<(), String> {
                         payloads_for_catalog,
                     );
                     let catalog_path = catalog_base.join("route-catalog.json");
-                    write_json_file(&catalog, &catalog_path, "delivery-bundle route catalog")?;
+                    let catalog_lua_path = catalog_base.join("route-catalog.lua");
+                    write_route_payload_catalog_outputs(
+                        &catalog,
+                        &catalog_path,
+                        &catalog_lua_path,
+                        "delivery-bundle route catalog",
+                    )?;
                     result.route_catalog_out = Some(catalog_path.display().to_string());
                 }
             }
@@ -8027,6 +8056,7 @@ mod tests {
         assert!(lane_dir.join("step-000-retain.json").exists());
         assert!(lane_dir.join("lane-payloads.json").exists());
         assert!(lane_dir.join("route-catalog.json").exists());
+        assert!(lane_dir.join("route-catalog.lua").exists());
         assert!(manifest_dir.join("step-000-active-manifest.json").exists());
         assert!(runtime_dir
             .join("step-000-active")
@@ -8089,6 +8119,7 @@ mod tests {
         assert!(bundle_dir.join("hydrated-route.json").exists());
         assert!(bundle_dir.join("route-schedule.json").exists());
         assert!(bundle_dir.join("route-catalog.json").exists());
+        assert!(bundle_dir.join("route-catalog.lua").exists());
         assert!(bundle_dir
             .join("route-lanes")
             .join("step-000-active.json")

@@ -14,8 +14,8 @@ use crate::chunker::{build_empty_chunk, ensure_terrain_materials, Chunker};
 use crate::materials::StyleMapper;
 pub use arbx_geo::satellite::SatelliteTileProvider;
 pub use lua_runtime_shards::{
-    write_runtime_lua_shards_from_sqlite, write_runtime_lua_shards_from_stored_subset,
-    RuntimeLuaShardsOptions, RuntimeLuaShardsStats,
+    write_lua_value_module, write_runtime_lua_shards_from_sqlite,
+    write_runtime_lua_shards_from_stored_subset, RuntimeLuaShardsOptions, RuntimeLuaShardsStats,
 };
 pub use manifest::{
     BarrierSegment, BuildingShell, Chunk, ChunkManifest, Color, GroundPoint, LanduseShell,
