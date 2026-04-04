@@ -2884,3 +2884,22 @@ The compact historical archive index is:
   - `cargo test -p arbx_planetary_store planetary_store_ -- --nocapture`
   - `cargo test -p arbx_cli planetary_store_ -- --nocapture`
   - `git diff --check`
+
+## 2026-04-04 03:48 CDT
+
+- Extended the planetary backbone again on `main`:
+  - `arbx_cli`
+    - route schedule materialization now writes a top-level `route-catalog.json`
+    - bundle route payload emission now writes the same route catalog alongside lane payload metadata
+    - downstream runtime/orchestration can now consume one indexed route handoff artifact instead of walking directories heuristically
+  - route runtime handoff now spans:
+    - route schedule
+    - route catalog
+    - lane refs
+    - lane manifests
+    - lane runtime shard outputs
+- Verification:
+  - `cargo fmt --all`
+  - `cargo test -p arbx_planetary_store planetary_store_ -- --nocapture`
+  - `cargo test -p arbx_cli planetary_store_ -- --nocapture`
+  - `git diff --check`

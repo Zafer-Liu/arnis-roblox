@@ -36,12 +36,12 @@ use arbx_roblox_export::{
     StoredManifestSubset,
 };
 use rayon::prelude::*;
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 
 const SCENE_INDEX_VERSION: u64 = 2;
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, Deserialize)]
 struct DeliveryBundleRuntimeResult {
     chunk_count: usize,
     fragment_count: usize,
@@ -50,7 +50,7 @@ struct DeliveryBundleRuntimeResult {
     shard_dir: String,
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, Deserialize)]
 struct RouteLanePayloadResult {
     step_index: usize,
     lane: String,
@@ -63,6 +63,17 @@ struct RouteLanePayloadResult {
 }
 
 #[derive(Debug, Serialize)]
+struct RoutePayloadCatalog {
+    step_count: usize,
+    schedule_out: Option<String>,
+    lane_dir: Option<String>,
+    payload_dir: Option<String>,
+    manifest_dir: Option<String>,
+    runtime_dir: Option<String>,
+    payloads: Vec<RouteLanePayloadResult>,
+}
+
+#[derive(Debug, Serialize)]
 struct DeliveryBundleResult {
     plan: arbx_planetary_store::PlanetaryDeliveryPlan,
     out: Option<String>,
@@ -70,6 +81,7 @@ struct DeliveryBundleResult {
     route_session_out: Option<String>,
     hydrated_route_out: Option<String>,
     schedule_out: Option<String>,
+    route_catalog_out: Option<String>,
     step_lane_dir: Option<String>,
     step_payload_dir: Option<String>,
     step_summary_dir: Option<String>,
@@ -2252,6 +2264,26 @@ fn write_route_schedule_lane_payloads(
         }
     }
     Ok(results)
+}
+
+fn build_route_payload_catalog(
+    schedule: &arbx_planetary_store::PlanetaryRouteDeliverySchedule,
+    schedule_out: Option<&Path>,
+    lane_dir: Option<&Path>,
+    payload_dir: Option<&Path>,
+    manifest_dir: Option<&Path>,
+    runtime_dir: Option<&Path>,
+    payloads: Vec<RouteLanePayloadResult>,
+) -> RoutePayloadCatalog {
+    RoutePayloadCatalog {
+        step_count: schedule.steps.len(),
+        schedule_out: schedule_out.map(|path| path.display().to_string()),
+        lane_dir: lane_dir.map(|path| path.display().to_string()),
+        payload_dir: payload_dir.map(|path| path.display().to_string()),
+        manifest_dir: manifest_dir.map(|path| path.display().to_string()),
+        runtime_dir: runtime_dir.map(|path| path.display().to_string()),
+        payloads,
+    }
 }
 
 fn cmd_planetary_store(args: &[String]) -> Result<(), String> {
@@ -5000,6 +5032,21 @@ fn cmd_planetary_store(args: &[String]) -> Result<(), String> {
                     &payload_path,
                     "materialize-route-schedule payloads",
                 )?;
+                let catalog = build_route_payload_catalog(
+                    &schedule,
+                    Some(schedule_path.as_path()),
+                    Some(&out_dir),
+                    Some(&out_dir),
+                    manifest_dir.as_deref(),
+                    runtime_dir.as_deref(),
+                    payloads,
+                );
+                let catalog_path = out_dir.join("route-catalog.json");
+                write_json_file(
+                    &catalog,
+                    &catalog_path,
+                    "materialize-route-schedule catalog",
+                )?;
                 println!("Wrote route schedule lane files {}", out_dir.display());
                 return Ok(());
             }
@@ -5048,6 +5095,21 @@ fn cmd_planetary_store(args: &[String]) -> Result<(), String> {
                 &payloads,
                 &payload_path,
                 "materialize-route-schedule payloads",
+            )?;
+            let catalog = build_route_payload_catalog(
+                &schedule,
+                None,
+                Some(&out_dir),
+                Some(&out_dir),
+                manifest_dir.as_deref(),
+                runtime_dir.as_deref(),
+                payloads,
+            );
+            let catalog_path = out_dir.join("route-catalog.json");
+            write_json_file(
+                &catalog,
+                &catalog_path,
+                "materialize-route-schedule catalog",
             )?;
             println!("Wrote route schedule lane files {}", out_dir.display());
             Ok(())
@@ -5730,6 +5792,7 @@ fn cmd_planetary_store(args: &[String]) -> Result<(), String> {
                     .as_ref()
                     .map(|path| path.display().to_string()),
                 schedule_out: schedule_out.as_ref().map(|path| path.display().to_string()),
+                route_catalog_out: None,
                 step_lane_dir: step_lane_dir
                     .as_ref()
                     .map(|path| path.display().to_string()),
@@ -5750,6 +5813,39 @@ fn cmd_planetary_store(args: &[String]) -> Result<(), String> {
                 manifest_out: manifest_out.as_ref().map(|path| path.display().to_string()),
                 runtime: None,
             };
+
+            if let Some(route_schedule) = route_schedule.as_ref() {
+                let payloads_for_catalog = if let Some(step_payload_dir) = step_payload_dir.as_ref()
+                {
+                    let text = fs::read_to_string(step_payload_dir.join("lane-payloads.json"))
+                        .map_err(|err| {
+                            format!("delivery-bundle route catalog read failed: {err}")
+                        })?;
+                    serde_json::from_str::<Vec<RouteLanePayloadResult>>(&text).map_err(|err| {
+                        format!("delivery-bundle route catalog parse failed: {err}")
+                    })?
+                } else {
+                    Vec::new()
+                };
+                if let Some(catalog_base) = step_payload_dir
+                    .as_deref()
+                    .or(step_lane_dir.as_deref())
+                    .or(schedule_out.as_deref().and_then(|path| path.parent()))
+                {
+                    let catalog = build_route_payload_catalog(
+                        route_schedule,
+                        schedule_out.as_deref(),
+                        step_lane_dir.as_deref(),
+                        step_payload_dir.as_deref(),
+                        step_manifest_dir.as_deref(),
+                        step_runtime_dir.as_deref(),
+                        payloads_for_catalog,
+                    );
+                    let catalog_path = catalog_base.join("route-catalog.json");
+                    write_json_file(&catalog, &catalog_path, "delivery-bundle route catalog")?;
+                    result.route_catalog_out = Some(catalog_path.display().to_string());
+                }
+            }
 
             if let Some(manifest_out) = manifest_out.as_ref() {
                 let subset = read_manifest_subset_for_plan_single_scene(
@@ -7569,6 +7665,7 @@ mod tests {
         assert!(lane_dir.join("step-000-prefetch.json").exists());
         assert!(lane_dir.join("step-000-retain.json").exists());
         assert!(lane_dir.join("lane-payloads.json").exists());
+        assert!(lane_dir.join("route-catalog.json").exists());
         assert!(manifest_dir.join("step-000-active-manifest.json").exists());
         assert!(runtime_dir
             .join("step-000-active")
@@ -8288,6 +8385,10 @@ mod tests {
             hydrated_route_path.display().to_string()
         );
         assert_eq!(bundle["schedule_out"], schedule_path.display().to_string());
+        assert!(bundle["route_catalog_out"]
+            .as_str()
+            .unwrap()
+            .ends_with("route-catalog.json"));
         assert_eq!(bundle["step_lane_dir"], step_lane_dir.display().to_string());
         assert_eq!(
             bundle["step_payload_dir"],
@@ -8311,6 +8412,7 @@ mod tests {
         let schedule: Value =
             serde_json::from_str(&std::fs::read_to_string(&schedule_path).unwrap()).unwrap();
         assert_eq!(schedule["steps"].as_array().unwrap().len(), 2);
+        assert!(step_payload_dir.join("route-catalog.json").exists());
         assert!(step_lane_dir.join("step-000-active.json").exists());
         assert!(step_payload_dir.join("lane-payloads.json").exists());
         assert!(step_manifest_dir
