@@ -2611,3 +2611,19 @@ The compact historical archive index is:
   - `cargo test -p arbx_planetary_store planetary_store_ -- --nocapture`
   - `cargo test -p arbx_cli planetary_store_ -- --nocapture`
   - `git diff --check`
+
+## 2026-04-03 22:08 CDT
+
+- Extended the planetary backbone again on `main`:
+  - `arbx_planetary_store`
+    - delivery plans now carry the originating planetary store path so saved plans are self-sufficient for downstream store-backed steps
+    - added delivery-plan hydration back into chunk-summary and delivery-window artifacts
+    - local plans no longer fake geo coordinates; only real geo-selected plans carry geo focus
+  - `arbx_cli`
+    - `fetch-chunks`, `subset-summary`, `delivery-window`, `emit-manifest-subset`, and `emit-runtime-lua` can now consume `--plan PATH` without separately restating `--store`
+    - the saved delivery-plan artifact now round-trips end-to-end without duplicated selector or store arguments
+- Verification:
+  - `cargo fmt --all`
+  - `cargo test -p arbx_planetary_store planetary_store_ -- --nocapture`
+  - `cargo test -p arbx_cli planetary_store_ -- --nocapture`
+  - `git diff --check`

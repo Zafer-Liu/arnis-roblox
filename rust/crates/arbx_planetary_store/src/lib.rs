@@ -88,6 +88,7 @@ pub struct PlanetaryDeliveryWindow {
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct PlanetaryDeliveryPlan {
+    pub planetary_store_path: String,
     pub scene_id: String,
     pub world_name: String,
     pub manifest_store_path: String,
@@ -234,11 +235,13 @@ fn summarize_delivery_chunks(chunks: &[PlanetaryChunkSummary]) -> (usize, usize,
 }
 
 fn delivery_plan_from_window(
+    planetary_store_path: &Path,
     selection_mode: &str,
     window: &PlanetaryDeliveryWindow,
     include_geo_focus: bool,
 ) -> PlanetaryDeliveryPlan {
     PlanetaryDeliveryPlan {
+        planetary_store_path: planetary_store_path.display().to_string(),
         scene_id: window.scene.scene_id.clone(),
         world_name: window.scene.world_name.clone(),
         manifest_store_path: window.scene.manifest_store_path.clone(),
@@ -1475,7 +1478,7 @@ pub fn build_delivery_plan_around_geo_point(
         max_streaming_cost,
         max_estimated_memory_cost,
     )?
-    .map(|window| delivery_plan_from_window("geo-point", &window, true)))
+    .map(|window| delivery_plan_from_window(path, "geo-point", &window, true)))
 }
 
 pub fn build_delivery_window_around_point(
@@ -1546,7 +1549,7 @@ pub fn build_delivery_plan_around_point(
         max_streaming_cost,
         max_estimated_memory_cost,
     )?
-    .map(|window| delivery_plan_from_window("local-point", &window, false)))
+    .map(|window| delivery_plan_from_window(path, "local-point", &window, false)))
 }
 
 pub fn build_delivery_window_for_scene_bbox(
@@ -1624,7 +1627,7 @@ pub fn build_delivery_plan_for_scene_bbox(
         max_streaming_cost,
         max_estimated_memory_cost,
     )?
-    .map(|window| delivery_plan_from_window("scene-bbox", &window, false)))
+    .map(|window| delivery_plan_from_window(path, "scene-bbox", &window, false)))
 }
 
 pub fn build_delivery_window_for_tile(
@@ -1702,7 +1705,7 @@ pub fn build_delivery_plan_for_tile(
         max_streaming_cost,
         max_estimated_memory_cost,
     )?
-    .map(|window| delivery_plan_from_window("tile", &window, true)))
+    .map(|window| delivery_plan_from_window(path, "tile", &window, true)))
 }
 
 pub fn read_scene_chunk_summary_around_geo_point(
@@ -2944,6 +2947,7 @@ mod tests {
         )
         .unwrap()
         .unwrap();
+        assert_eq!(plan.planetary_store_path, store_path.display().to_string());
         assert_eq!(plan.scene_id, "sample_austin");
         assert_eq!(plan.selection_mode, "tile");
         assert_eq!(plan.chunk_count, plan.chunk_ids.len());
