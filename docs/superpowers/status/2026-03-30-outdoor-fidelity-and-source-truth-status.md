@@ -2395,3 +2395,18 @@ The compact historical archive index is:
   - `cargo test -p arbx_planetary_store -p arbx_cli planetary_store --quiet`
   - `cargo test -p arbx_planetary_store --quiet`
   - `git diff --check rust/crates/arbx_planetary_store/src/lib.rs rust/crates/arbx_cli/src/main.rs`
+
+## 2026-04-03 19:15 CDT
+
+- Extended the planetary backbone again on `main`:
+  - `arbx_roblox_export`
+    - added direct runtime shard emission from a stored manifest subset, not just from a standalone manifest SQLite file
+  - `arbx_cli`
+    - added `planetary-store emit-runtime-lua --scene ...`
+    - supports both `--bbox-studs ...` and `--chunk-ids ...` subset selection against the canonical store, then emits Roblox runtime Lua shards directly from that selected subset
+  - `arbx_planetary_store`
+    - the canonical store now has the full minimal delivery loop: discover scenes, select chunk summaries, fetch payloads, materialize manifest subsets, and emit Roblox runtime shards from those subsets
+- Verification:
+  - `cargo test -p arbx_planetary_store -p arbx_cli planetary_store --quiet`
+  - `cargo test -p arbx_roblox_export --quiet`
+  - `git diff --check rust/crates/arbx_planetary_store/src/lib.rs rust/crates/arbx_cli/src/main.rs rust/crates/arbx_roblox_export/src/lua_runtime_shards.rs rust/crates/arbx_roblox_export/src/lib.rs`

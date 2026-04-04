@@ -4,7 +4,10 @@ use std::path::{Path, PathBuf};
 
 use serde_json::{Map, Value};
 
-use crate::manifest_store::{stream_manifest_sqlite_all, ManifestStoreResult, StoredChunkRecord};
+use crate::manifest_store::{
+    stream_manifest_sqlite_all, ManifestStoreResult, StoredChunkRecord, StoredManifestMeta,
+    StoredManifestSubset,
+};
 
 const CHUNK_LIST_FIELDS: [&str; 8] = [
     "roads",
@@ -39,6 +42,26 @@ pub fn write_runtime_lua_shards_from_sqlite(
     manifest_sqlite: &Path,
     options: &RuntimeLuaShardsOptions,
 ) -> ManifestStoreResult<RuntimeLuaShardsStats> {
+    let mut records: Vec<StoredChunkRecord> = Vec::new();
+    let meta = stream_manifest_sqlite_all(manifest_sqlite, |record| {
+        records.push(record);
+        Ok(())
+    })?;
+    write_runtime_lua_shards_from_records(meta, records, options)
+}
+
+pub fn write_runtime_lua_shards_from_stored_subset(
+    subset: &StoredManifestSubset,
+    options: &RuntimeLuaShardsOptions,
+) -> ManifestStoreResult<RuntimeLuaShardsStats> {
+    write_runtime_lua_shards_from_records(subset.meta.clone(), subset.chunks.clone(), options)
+}
+
+fn write_runtime_lua_shards_from_records(
+    meta: StoredManifestMeta,
+    records: Vec<StoredChunkRecord>,
+    options: &RuntimeLuaShardsOptions,
+) -> ManifestStoreResult<RuntimeLuaShardsStats> {
     let output_dir = &options.output_dir;
     let shard_dir = output_dir.join(&options.shard_folder);
     fs::create_dir_all(output_dir)?;
@@ -53,7 +76,7 @@ pub fn write_runtime_lua_shards_from_sqlite(
     let mut next_shard_index: usize = 1;
     let mut fragment_count: usize = 0;
 
-    let meta = stream_manifest_sqlite_all(manifest_sqlite, |record| {
+    for record in records {
         let chunk = parse_chunk_object(&record)?;
         let chunk_id = record.chunk_id.clone();
         let ref_index = chunk_refs.len();
@@ -98,8 +121,7 @@ pub fn write_runtime_lua_shards_from_sqlite(
             shard_bytes = next_shard_bytes;
         }
 
-        Ok(())
-    })?;
+    }
 
     if !shard_buffer.is_empty() {
         flush_shard_buffer(

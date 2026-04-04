@@ -20,8 +20,9 @@ use arbx_planetary_store::{
 };
 use arbx_roblox_export::{
     build_sample_multi_chunk, export_to_chunks, read_manifest_sqlite_all, write_manifest_sqlite,
-    write_runtime_lua_shards_from_sqlite, ChunkManifest, ExportConfig, RuntimeLuaShardsOptions,
-    SatelliteTileProvider, StoredManifestSubset,
+    write_runtime_lua_shards_from_sqlite, write_runtime_lua_shards_from_stored_subset,
+    ChunkManifest, ExportConfig, RuntimeLuaShardsOptions, SatelliteTileProvider,
+    StoredManifestSubset,
 };
 use rayon::prelude::*;
 use serde_json::{json, Value};
@@ -1849,7 +1850,7 @@ fn cmd_emit_runtime_lua(args: &[String]) -> Result<(), String> {
 fn cmd_planetary_store(args: &[String]) -> Result<(), String> {
     let Some(subcommand) = args.first().map(String::as_str) else {
         return Err(
-            "planetary-store requires a subcommand: init | ingest-manifest | ingest-json | summary | list-scenes | scene | subset | subset-summary | fetch-chunks | emit-manifest-subset | find-scenes".to_string(),
+            "planetary-store requires a subcommand: init | ingest-manifest | ingest-json | summary | list-scenes | scene | subset | subset-summary | fetch-chunks | emit-manifest-subset | emit-runtime-lua | find-scenes".to_string(),
         );
     };
 
@@ -2334,6 +2335,143 @@ fn cmd_planetary_store(args: &[String]) -> Result<(), String> {
             } else {
                 println!("{manifest_json}");
             }
+            Ok(())
+        }
+        "emit-runtime-lua" => {
+            let mut store_path: Option<PathBuf> = None;
+            let mut scene_id: Option<String> = None;
+            let mut bbox_studs: Option<(f64, f64, f64, f64)> = None;
+            let mut chunk_ids: Option<Vec<String>> = None;
+            let mut output_dir: Option<PathBuf> = None;
+            let mut index_name = "PlanetaryManifestIndex".to_string();
+            let mut shard_folder = "PlanetaryManifestChunks".to_string();
+            let mut chunks_per_shard: usize = 32;
+            let mut max_bytes: Option<usize> = None;
+            let mut i = 1;
+            while i < args.len() {
+                match args[i].as_str() {
+                    "--store" => {
+                        let value = args.get(i + 1).ok_or("--store requires a path")?;
+                        store_path = Some(PathBuf::from(value));
+                        i += 2;
+                    }
+                    "--scene" => {
+                        let value = args.get(i + 1).ok_or("--scene requires a scene id")?;
+                        scene_id = Some(value.clone());
+                        i += 2;
+                    }
+                    "--bbox-studs" => {
+                        let value = args
+                            .get(i + 1)
+                            .ok_or("--bbox-studs requires MIN_X,MIN_Z,MAX_X,MAX_Z")?;
+                        let parts: Vec<f64> = value
+                            .split(',')
+                            .map(|part| {
+                                part.trim().parse::<f64>().map_err(|_| {
+                                    format!("invalid number in --bbox-studs: {}", part)
+                                })
+                            })
+                            .collect::<Result<Vec<f64>, String>>()?;
+                        if parts.len() != 4 {
+                            return Err(
+                                "--bbox-studs requires four comma-separated numbers".to_string()
+                            );
+                        }
+                        bbox_studs = Some((parts[0], parts[1], parts[2], parts[3]));
+                        i += 2;
+                    }
+                    "--chunk-ids" => {
+                        let value = args
+                            .get(i + 1)
+                            .ok_or("--chunk-ids requires a comma-separated list")?;
+                        chunk_ids = Some(
+                            value
+                                .split(',')
+                                .map(str::trim)
+                                .filter(|value| !value.is_empty())
+                                .map(ToString::to_string)
+                                .collect(),
+                        );
+                        i += 2;
+                    }
+                    "--output-dir" => {
+                        let value = args.get(i + 1).ok_or("--output-dir requires a path")?;
+                        output_dir = Some(PathBuf::from(value));
+                        i += 2;
+                    }
+                    "--index-name" => {
+                        index_name = args
+                            .get(i + 1)
+                            .ok_or("--index-name requires a value")?
+                            .to_string();
+                        i += 2;
+                    }
+                    "--shard-folder" => {
+                        shard_folder = args
+                            .get(i + 1)
+                            .ok_or("--shard-folder requires a value")?
+                            .to_string();
+                        i += 2;
+                    }
+                    "--chunks-per-shard" => {
+                        chunks_per_shard = args
+                            .get(i + 1)
+                            .ok_or("--chunks-per-shard requires a value")?
+                            .parse::<usize>()
+                            .map_err(|err| format!("invalid --chunks-per-shard: {err}"))?;
+                        i += 2;
+                    }
+                    "--max-bytes" => {
+                        max_bytes = Some(
+                            args.get(i + 1)
+                                .ok_or("--max-bytes requires a value")?
+                                .parse::<usize>()
+                                .map_err(|err| format!("invalid --max-bytes: {err}"))?,
+                        );
+                        i += 2;
+                    }
+                    other => {
+                        return Err(format!(
+                            "unknown argument to planetary-store emit-runtime-lua: {other}"
+                        ))
+                    }
+                }
+            }
+            let store_path =
+                store_path.ok_or("planetary-store emit-runtime-lua requires --store PATH")?;
+            let scene_id =
+                scene_id.ok_or("planetary-store emit-runtime-lua requires --scene ID")?;
+            let output_dir =
+                output_dir.ok_or("planetary-store emit-runtime-lua requires --output-dir PATH")?;
+            let subset = if let Some((min_x, min_z, max_x, max_z)) = bbox_studs {
+                read_scene_manifest_subset(&store_path, &scene_id, min_x, min_z, max_x, max_z)
+                    .map_err(|err| format!("planetary-store emit-runtime-lua bbox failed: {err}"))?
+            } else if let Some(chunk_ids) = chunk_ids {
+                read_scene_manifest_subset_by_chunk_ids(&store_path, &scene_id, &chunk_ids)
+                    .map_err(|err| format!("planetary-store emit-runtime-lua chunk-ids failed: {err}"))?
+            } else {
+                return Err(
+                    "planetary-store emit-runtime-lua requires either --bbox-studs or --chunk-ids"
+                        .to_string(),
+                );
+            };
+            let stats = write_runtime_lua_shards_from_stored_subset(
+                &subset,
+                &RuntimeLuaShardsOptions {
+                    output_dir,
+                    index_name,
+                    shard_folder,
+                    chunks_per_shard,
+                    max_bytes,
+                },
+            )
+            .map_err(|err| format!("planetary-store emit-runtime-lua failed: {err}"))?;
+            println!("Wrote index module to {}", stats.index_path.display());
+            println!(
+                "Wrote {} shard modules to {}",
+                stats.shard_count,
+                stats.shard_dir.display()
+            );
             Ok(())
         }
         "find-scenes" => {
@@ -3541,5 +3679,46 @@ mod tests {
         let output = std::fs::read_to_string(&out_path).unwrap();
         let manifest: Value = serde_json::from_str(&output).unwrap();
         assert_eq!(manifest["chunks"].as_array().unwrap().len(), 2);
+    }
+
+    #[test]
+    fn planetary_store_emit_runtime_lua_works() {
+        let tempdir = tempfile::tempdir().unwrap();
+        let store_path = tempdir.path().join("planetary.sqlite");
+        let manifest_path = tempdir.path().join("sample.sqlite");
+        let output_dir = tempdir.path().join("runtime");
+        let manifest = build_sample_multi_chunk(3, 1);
+        write_manifest_sqlite(&manifest, &manifest_path).unwrap();
+
+        cmd_planetary_store(&[
+            "ingest-manifest".to_string(),
+            "--store".to_string(),
+            store_path.display().to_string(),
+            "--manifest-sqlite".to_string(),
+            manifest_path.display().to_string(),
+            "--scene".to_string(),
+            "austin".to_string(),
+        ])
+        .unwrap();
+
+        cmd_planetary_store(&[
+            "emit-runtime-lua".to_string(),
+            "--store".to_string(),
+            store_path.display().to_string(),
+            "--scene".to_string(),
+            "austin".to_string(),
+            "--chunk-ids".to_string(),
+            "0_0,2_0".to_string(),
+            "--output-dir".to_string(),
+            output_dir.display().to_string(),
+            "--index-name".to_string(),
+            "PlanetaryIndex".to_string(),
+            "--shard-folder".to_string(),
+            "PlanetaryChunks".to_string(),
+        ])
+        .unwrap();
+
+        let index_path = output_dir.join("PlanetaryIndex.lua");
+        assert!(index_path.exists());
     }
 }

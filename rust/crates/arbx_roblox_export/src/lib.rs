@@ -23,7 +23,8 @@ pub use manifest_store::{
     StoredManifestSubset,
 };
 pub use lua_runtime_shards::{
-    write_runtime_lua_shards_from_sqlite, RuntimeLuaShardsOptions, RuntimeLuaShardsStats,
+    write_runtime_lua_shards_from_sqlite, write_runtime_lua_shards_from_stored_subset,
+    RuntimeLuaShardsOptions, RuntimeLuaShardsStats,
 };
 use subplans::derive_chunk_ref;
 pub use subplans::{ChunkRef, ChunkSubplan, SubplanBounds, PARTITION_VERSION};
