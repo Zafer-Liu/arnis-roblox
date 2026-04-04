@@ -19,14 +19,15 @@ use arbx_planetary_store::{
     build_delivery_plan_for_tile, build_delivery_window_around_geo_point,
     build_delivery_window_around_point, build_delivery_window_for_scene_bbox,
     build_delivery_window_for_tile, build_delivery_window_from_plan,
-    find_best_scene_covering_geo_point, find_best_scene_covering_tile,
-    find_scenes_covering_geo_point, find_scenes_covering_tile, find_scenes_intersecting_geo_bbox,
-    ingest_manifest_json, ingest_manifest_sqlite, init_planetary_store, list_scenes,
-    merge_delivery_plans, read_chunks_by_ids, read_scene_catalog_entry, read_scene_chunk_subset,
-    read_scene_chunk_summary_around_geo_point, read_scene_chunk_summary_around_point,
-    read_scene_chunk_summary_by_chunk_ids, read_scene_chunk_summary_for_tile,
-    read_scene_chunk_summary_subset, read_scene_manifest_subset_around_geo_point,
-    read_scene_manifest_subset_by_chunk_ids, summarize_planetary_store,
+    build_route_delivery_session_for_geo_points, find_best_scene_covering_geo_point,
+    find_best_scene_covering_tile, find_scenes_covering_geo_point, find_scenes_covering_tile,
+    find_scenes_intersecting_geo_bbox, ingest_manifest_json, ingest_manifest_sqlite,
+    init_planetary_store, list_scenes, merge_delivery_plans, read_chunks_by_ids,
+    read_scene_catalog_entry, read_scene_chunk_subset, read_scene_chunk_summary_around_geo_point,
+    read_scene_chunk_summary_around_point, read_scene_chunk_summary_by_chunk_ids,
+    read_scene_chunk_summary_for_tile, read_scene_chunk_summary_subset,
+    read_scene_manifest_subset_around_geo_point, read_scene_manifest_subset_by_chunk_ids,
+    summarize_planetary_store,
 };
 use arbx_roblox_export::{
     build_sample_multi_chunk, export_to_chunks, read_manifest_sqlite_all, write_manifest_sqlite,
@@ -1934,6 +1935,23 @@ fn read_delivery_plan(
     })
 }
 
+fn read_route_session(
+    session_path: &Path,
+) -> Result<arbx_planetary_store::PlanetaryRouteSession, String> {
+    let text = fs::read_to_string(session_path).map_err(|err| {
+        format!(
+            "failed reading route session {}: {err}",
+            session_path.display()
+        )
+    })?;
+    serde_json::from_str(&text).map_err(|err| {
+        format!(
+            "failed parsing route session {}: {err}",
+            session_path.display()
+        )
+    })
+}
+
 fn parse_lat_lon_pair(value: &str, flag_name: &str) -> Result<(f64, f64), String> {
     let parts: Vec<f64> = value
         .split(',')
@@ -1952,6 +1970,7 @@ fn parse_lat_lon_pair(value: &str, flag_name: &str) -> Result<(f64, f64), String
 fn resolve_planetary_store_path(
     explicit_store_path: Option<PathBuf>,
     plan: Option<&arbx_planetary_store::PlanetaryDeliveryPlan>,
+    session: Option<&arbx_planetary_store::PlanetaryRouteSession>,
     command_name: &str,
 ) -> Result<PathBuf, String> {
     if let Some(path) = explicit_store_path {
@@ -1960,8 +1979,11 @@ fn resolve_planetary_store_path(
     if let Some(plan) = plan {
         return Ok(PathBuf::from(&plan.planetary_store_path));
     }
+    if let Some(session) = session {
+        return Ok(PathBuf::from(&session.planetary_store_path));
+    }
     Err(format!(
-        "planetary-store {command_name} requires --store PATH unless using --plan"
+        "planetary-store {command_name} requires --store PATH unless using --plan or --session"
     ))
 }
 
@@ -1998,7 +2020,7 @@ fn write_json_file<T: serde::Serialize>(
 fn cmd_planetary_store(args: &[String]) -> Result<(), String> {
     let Some(subcommand) = args.first().map(String::as_str) else {
         return Err(
-            "planetary-store requires a subcommand: init | ingest-manifest | ingest-json | attach-truth-pack-summary | summary | list-scenes | scene | subset | subset-summary | fetch-chunks | emit-manifest-subset | emit-runtime-lua | find-scenes | delivery-window | delivery-plan | route-plan | merge-delivery-plans | delivery-bundle | tile-scenes".to_string(),
+            "planetary-store requires a subcommand: init | ingest-manifest | ingest-json | attach-truth-pack-summary | summary | list-scenes | scene | subset | subset-summary | fetch-chunks | emit-manifest-subset | emit-runtime-lua | find-scenes | delivery-window | delivery-plan | route-plan | route-session | merge-delivery-plans | delivery-bundle | tile-scenes".to_string(),
         );
     };
 
@@ -2322,6 +2344,7 @@ fn cmd_planetary_store(args: &[String]) -> Result<(), String> {
             let mut store_path: Option<PathBuf> = None;
             let mut scene_id: Option<String> = None;
             let mut plan_path: Option<PathBuf> = None;
+            let mut session_path: Option<PathBuf> = None;
             let mut bbox_studs: Option<(f64, f64, f64, f64)> = None;
             let mut around_studs: Option<(f64, f64)> = None;
             let mut point: Option<(f64, f64)> = None;
@@ -2348,6 +2371,11 @@ fn cmd_planetary_store(args: &[String]) -> Result<(), String> {
                     "--plan" => {
                         let value = args.get(i + 1).ok_or("--plan requires a path")?;
                         plan_path = Some(PathBuf::from(value));
+                        i += 2;
+                    }
+                    "--session" => {
+                        let value = args.get(i + 1).ok_or("--session requires a path")?;
+                        session_path = Some(PathBuf::from(value));
                         i += 2;
                     }
                     "--bbox-studs" => {
@@ -2477,7 +2505,7 @@ fn cmd_planetary_store(args: &[String]) -> Result<(), String> {
             if let Some(plan_path) = plan_path {
                 let plan = read_delivery_plan(&plan_path)?;
                 let store_path =
-                    resolve_planetary_store_path(store_path, Some(&plan), "subset-summary")?;
+                    resolve_planetary_store_path(store_path, Some(&plan), None, "subset-summary")?;
                 let subset = read_scene_chunk_summary_by_chunk_ids(
                     &store_path,
                     &plan.scene_id,
@@ -2491,7 +2519,29 @@ fn cmd_planetary_store(args: &[String]) -> Result<(), String> {
                 );
                 return Ok(());
             }
-            let store_path = resolve_planetary_store_path(store_path, None, "subset-summary")?;
+            if let Some(session_path) = session_path {
+                let session = read_route_session(&session_path)?;
+                let store_path = resolve_planetary_store_path(
+                    store_path,
+                    Some(&session.merged_plan),
+                    Some(&session),
+                    "subset-summary",
+                )?;
+                let subset = read_scene_chunk_summary_by_chunk_ids(
+                    &store_path,
+                    &session.scene_id,
+                    &session.merged_plan.chunk_ids,
+                )
+                .map_err(|err| format!("planetary-store subset-summary session failed: {err}"))?;
+                println!(
+                    "{}",
+                    serde_json::to_string_pretty(&subset)
+                        .map_err(|err| format!("subset-summary json failed: {err}"))?
+                );
+                return Ok(());
+            }
+            let store_path =
+                resolve_planetary_store_path(store_path, None, None, "subset-summary")?;
             let scene_id = if bbox_studs.is_some() || around_studs.is_some() {
                 scene_id.ok_or(
                     "planetary-store subset-summary requires --scene ID when using --bbox-studs or --around-studs",
@@ -2588,6 +2638,7 @@ fn cmd_planetary_store(args: &[String]) -> Result<(), String> {
             let mut scene_id: Option<String> = None;
             let mut chunk_ids: Option<Vec<String>> = None;
             let mut plan_path: Option<PathBuf> = None;
+            let mut session_path: Option<PathBuf> = None;
             let mut i = 1;
             while i < args.len() {
                 match args[i].as_str() {
@@ -2620,6 +2671,11 @@ fn cmd_planetary_store(args: &[String]) -> Result<(), String> {
                         plan_path = Some(PathBuf::from(value));
                         i += 2;
                     }
+                    "--session" => {
+                        let value = args.get(i + 1).ok_or("--session requires a path")?;
+                        session_path = Some(PathBuf::from(value));
+                        i += 2;
+                    }
                     other => {
                         return Err(format!(
                             "unknown argument to planetary-store fetch-chunks: {other}"
@@ -2630,7 +2686,7 @@ fn cmd_planetary_store(args: &[String]) -> Result<(), String> {
             if let Some(plan_path) = plan_path {
                 let plan = read_delivery_plan(&plan_path)?;
                 let store_path =
-                    resolve_planetary_store_path(store_path, Some(&plan), "fetch-chunks")?;
+                    resolve_planetary_store_path(store_path, Some(&plan), None, "fetch-chunks")?;
                 let subset = read_chunks_by_ids(&store_path, &plan.scene_id, &plan.chunk_ids)
                     .map_err(|err| format!("planetary-store fetch-chunks failed: {err}"))?;
                 println!(
@@ -2640,7 +2696,28 @@ fn cmd_planetary_store(args: &[String]) -> Result<(), String> {
                 );
                 return Ok(());
             }
-            let store_path = resolve_planetary_store_path(store_path, None, "fetch-chunks")?;
+            if let Some(session_path) = session_path {
+                let session = read_route_session(&session_path)?;
+                let store_path = resolve_planetary_store_path(
+                    store_path,
+                    Some(&session.merged_plan),
+                    Some(&session),
+                    "fetch-chunks",
+                )?;
+                let subset = read_chunks_by_ids(
+                    &store_path,
+                    &session.scene_id,
+                    &session.merged_plan.chunk_ids,
+                )
+                .map_err(|err| format!("planetary-store fetch-chunks failed: {err}"))?;
+                println!(
+                    "{}",
+                    serde_json::to_string_pretty(&subset)
+                        .map_err(|err| format!("fetch-chunks json failed: {err}"))?
+                );
+                return Ok(());
+            }
+            let store_path = resolve_planetary_store_path(store_path, None, None, "fetch-chunks")?;
             let scene_id = scene_id.ok_or("planetary-store fetch-chunks requires --scene ID")?;
             let chunk_ids =
                 chunk_ids.ok_or("planetary-store fetch-chunks requires --chunk-ids ID1,ID2,...")?;
@@ -2663,6 +2740,7 @@ fn cmd_planetary_store(args: &[String]) -> Result<(), String> {
             let mut radius_studs: Option<f64> = None;
             let mut chunk_ids: Option<Vec<String>> = None;
             let mut plan_path: Option<PathBuf> = None;
+            let mut session_path: Option<PathBuf> = None;
             let mut out_path: Option<PathBuf> = None;
             let mut limit: Option<usize> = None;
             let mut max_streaming_cost: Option<f64> = None;
@@ -2782,6 +2860,11 @@ fn cmd_planetary_store(args: &[String]) -> Result<(), String> {
                         plan_path = Some(PathBuf::from(value));
                         i += 2;
                     }
+                    "--session" => {
+                        let value = args.get(i + 1).ok_or("--session requires a path")?;
+                        session_path = Some(PathBuf::from(value));
+                        i += 2;
+                    }
                     "--out" => {
                         let value = args.get(i + 1).ok_or("--out requires a path")?;
                         out_path = Some(PathBuf::from(value));
@@ -2832,8 +2915,12 @@ fn cmd_planetary_store(args: &[String]) -> Result<(), String> {
             }
             if let Some(plan_path) = plan_path {
                 let plan = read_delivery_plan(&plan_path)?;
-                let store_path =
-                    resolve_planetary_store_path(store_path, Some(&plan), "emit-manifest-subset")?;
+                let store_path = resolve_planetary_store_path(
+                    store_path,
+                    Some(&plan),
+                    None,
+                    "emit-manifest-subset",
+                )?;
                 let subset = read_scene_manifest_subset_by_chunk_ids(
                     &store_path,
                     &plan.scene_id,
@@ -2859,8 +2946,41 @@ fn cmd_planetary_store(args: &[String]) -> Result<(), String> {
                 }
                 return Ok(());
             }
+            if let Some(session_path) = session_path {
+                let session = read_route_session(&session_path)?;
+                let store_path = resolve_planetary_store_path(
+                    store_path,
+                    Some(&session.merged_plan),
+                    Some(&session),
+                    "emit-manifest-subset",
+                )?;
+                let subset = read_scene_manifest_subset_by_chunk_ids(
+                    &store_path,
+                    &session.scene_id,
+                    &session.merged_plan.chunk_ids,
+                )
+                .map_err(|err| {
+                    format!("planetary-store emit-manifest-subset session failed: {err}")
+                })?;
+                let manifest = build_manifest_value_from_stored_subset(subset)?;
+                let manifest_json = serde_json::to_string_pretty(&manifest)
+                    .map_err(|err| format!("emit-manifest-subset json failed: {err}"))?;
+                if let Some(out_path) = out_path {
+                    if let Some(parent) = out_path.parent() {
+                        fs::create_dir_all(parent).map_err(|err| {
+                            format!("emit-manifest-subset create dir failed: {err}")
+                        })?;
+                    }
+                    fs::write(&out_path, format!("{manifest_json}\n"))
+                        .map_err(|err| format!("emit-manifest-subset write failed: {err}"))?;
+                    println!("Wrote manifest subset {}", out_path.display());
+                } else {
+                    println!("{manifest_json}");
+                }
+                return Ok(());
+            }
             let store_path =
-                resolve_planetary_store_path(store_path, None, "emit-manifest-subset")?;
+                resolve_planetary_store_path(store_path, None, None, "emit-manifest-subset")?;
             let scene_id = resolve_planetary_scene_for_selection(
                 &store_path,
                 scene_id,
@@ -2991,6 +3111,7 @@ fn cmd_planetary_store(args: &[String]) -> Result<(), String> {
             let mut radius_studs: Option<f64> = None;
             let mut chunk_ids: Option<Vec<String>> = None;
             let mut plan_path: Option<PathBuf> = None;
+            let mut session_path: Option<PathBuf> = None;
             let mut output_dir: Option<PathBuf> = None;
             let mut index_name = "PlanetaryManifestIndex".to_string();
             let mut shard_folder = "PlanetaryManifestChunks".to_string();
@@ -3114,6 +3235,11 @@ fn cmd_planetary_store(args: &[String]) -> Result<(), String> {
                         plan_path = Some(PathBuf::from(value));
                         i += 2;
                     }
+                    "--session" => {
+                        let value = args.get(i + 1).ok_or("--session requires a path")?;
+                        session_path = Some(PathBuf::from(value));
+                        i += 2;
+                    }
                     "--output-dir" => {
                         let value = args.get(i + 1).ok_or("--output-dir requires a path")?;
                         output_dir = Some(PathBuf::from(value));
@@ -3197,8 +3323,12 @@ fn cmd_planetary_store(args: &[String]) -> Result<(), String> {
                 output_dir.ok_or("planetary-store emit-runtime-lua requires --output-dir PATH")?;
             if let Some(plan_path) = plan_path {
                 let plan = read_delivery_plan(&plan_path)?;
-                let store_path =
-                    resolve_planetary_store_path(store_path, Some(&plan), "emit-runtime-lua")?;
+                let store_path = resolve_planetary_store_path(
+                    store_path,
+                    Some(&plan),
+                    None,
+                    "emit-runtime-lua",
+                )?;
                 let subset = read_scene_manifest_subset_by_chunk_ids(
                     &store_path,
                     &plan.scene_id,
@@ -3224,7 +3354,41 @@ fn cmd_planetary_store(args: &[String]) -> Result<(), String> {
                 );
                 return Ok(());
             }
-            let store_path = resolve_planetary_store_path(store_path, None, "emit-runtime-lua")?;
+            if let Some(session_path) = session_path {
+                let session = read_route_session(&session_path)?;
+                let store_path = resolve_planetary_store_path(
+                    store_path,
+                    Some(&session.merged_plan),
+                    Some(&session),
+                    "emit-runtime-lua",
+                )?;
+                let subset = read_scene_manifest_subset_by_chunk_ids(
+                    &store_path,
+                    &session.scene_id,
+                    &session.merged_plan.chunk_ids,
+                )
+                .map_err(|err| format!("planetary-store emit-runtime-lua session failed: {err}"))?;
+                let stats = write_runtime_lua_shards_from_stored_subset(
+                    &subset,
+                    &RuntimeLuaShardsOptions {
+                        output_dir,
+                        index_name,
+                        shard_folder,
+                        chunks_per_shard,
+                        max_bytes,
+                    },
+                )
+                .map_err(|err| format!("planetary-store emit-runtime-lua failed: {err}"))?;
+                println!("Wrote index module to {}", stats.index_path.display());
+                println!(
+                    "Wrote {} shard modules to {}",
+                    stats.shard_count,
+                    stats.shard_dir.display()
+                );
+                return Ok(());
+            }
+            let store_path =
+                resolve_planetary_store_path(store_path, None, None, "emit-runtime-lua")?;
             let scene_id = resolve_planetary_scene_for_selection(
                 &store_path,
                 scene_id,
@@ -3500,6 +3664,7 @@ fn cmd_planetary_store(args: &[String]) -> Result<(), String> {
         "delivery-window" => {
             let mut store_path: Option<PathBuf> = None;
             let mut plan_path: Option<PathBuf> = None;
+            let mut session_path: Option<PathBuf> = None;
             let mut scene_id: Option<String> = None;
             let mut bbox_studs: Option<(f64, f64, f64, f64)> = None;
             let mut around_studs: Option<(f64, f64)> = None;
@@ -3527,6 +3692,11 @@ fn cmd_planetary_store(args: &[String]) -> Result<(), String> {
                     "--plan" => {
                         let value = args.get(i + 1).ok_or("--plan requires a path")?;
                         plan_path = Some(PathBuf::from(value));
+                        i += 2;
+                    }
+                    "--session" => {
+                        let value = args.get(i + 1).ok_or("--session requires a path")?;
+                        session_path = Some(PathBuf::from(value));
                         i += 2;
                     }
                     "--bbox-studs" => {
@@ -3656,11 +3826,20 @@ fn cmd_planetary_store(args: &[String]) -> Result<(), String> {
             let window = if let Some(plan_path) = plan_path {
                 let plan = read_delivery_plan(&plan_path)?;
                 let store_path =
-                    resolve_planetary_store_path(store_path, Some(&plan), "delivery-window")?;
+                    resolve_planetary_store_path(store_path, Some(&plan), None, "delivery-window")?;
                 build_delivery_window_from_plan(&store_path, &plan)
+            } else if let Some(session_path) = session_path {
+                let session = read_route_session(&session_path)?;
+                let store_path = resolve_planetary_store_path(
+                    store_path,
+                    Some(&session.merged_plan),
+                    Some(&session),
+                    "delivery-window",
+                )?;
+                build_delivery_window_from_plan(&store_path, &session.merged_plan)
             } else if let Some((min_x, min_z, max_x, max_z)) = bbox_studs {
                 let store_path =
-                    resolve_planetary_store_path(store_path, None, "delivery-window")?;
+                    resolve_planetary_store_path(store_path, None, None, "delivery-window")?;
                 let scene_id = scene_id.ok_or(
                     "planetary-store delivery-window requires --scene ID when using --bbox-studs",
                 )?;
@@ -3679,7 +3858,7 @@ fn cmd_planetary_store(args: &[String]) -> Result<(), String> {
                 )
             } else if let Some((focus_x, focus_z)) = around_studs {
                 let store_path =
-                    resolve_planetary_store_path(store_path, None, "delivery-window")?;
+                    resolve_planetary_store_path(store_path, None, None, "delivery-window")?;
                 let scene_id = scene_id.ok_or(
                     "planetary-store delivery-window requires --scene ID when using --around-studs",
                 )?;
@@ -3700,7 +3879,7 @@ fn cmd_planetary_store(args: &[String]) -> Result<(), String> {
                 )
             } else if let Some((lat, lon)) = point {
                 let store_path =
-                    resolve_planetary_store_path(store_path, None, "delivery-window")?;
+                    resolve_planetary_store_path(store_path, None, None, "delivery-window")?;
                 let radius_studs = radius_studs.ok_or(
                     "planetary-store delivery-window requires --radius-studs R when using --point",
                 )?;
@@ -3717,7 +3896,7 @@ fn cmd_planetary_store(args: &[String]) -> Result<(), String> {
                 )
             } else if let Some((zoom, x, y)) = tile {
                 let store_path =
-                    resolve_planetary_store_path(store_path, None, "delivery-window")?;
+                    resolve_planetary_store_path(store_path, None, None, "delivery-window")?;
                 build_delivery_window_for_tile(
                     &store_path,
                     zoom,
@@ -3899,7 +4078,7 @@ fn cmd_planetary_store(args: &[String]) -> Result<(), String> {
                     }
                 }
             }
-            let store_path = resolve_planetary_store_path(store_path, None, "delivery-plan")?;
+            let store_path = resolve_planetary_store_path(store_path, None, None, "delivery-plan")?;
             let plan = if let Some((min_x, min_z, max_x, max_z)) = bbox_studs {
                 let scene_id = scene_id.ok_or(
                     "planetary-store delivery-plan requires --scene ID when using --bbox-studs",
@@ -4070,34 +4249,23 @@ fn cmd_planetary_store(args: &[String]) -> Result<(), String> {
                     "planetary-store route-plan requires at least one --point LAT,LON".to_string(),
                 );
             }
-            let store_path = resolve_planetary_store_path(store_path, None, "route-plan")?;
+            let store_path = resolve_planetary_store_path(store_path, None, None, "route-plan")?;
             let radius_studs =
                 radius_studs.ok_or("planetary-store route-plan requires --radius-studs R")?;
-            let plans = points
-                .into_iter()
-                .map(|(lat, lon)| {
-                    build_delivery_plan_around_geo_point(
-                        &store_path,
-                        lat,
-                        lon,
-                        radius_studs,
-                        limit,
-                        require_buildings,
-                        require_terrain,
-                        max_streaming_cost,
-                        max_estimated_memory_cost,
-                    )
-                    .map_err(|err| format!("planetary-store route-plan failed: {err}"))?
-                    .ok_or_else(|| {
-                        format!(
-                            "planetary-store route-plan found no matching scene/chunks for point {lat},{lon}"
-                        )
-                    })
-                })
-                .collect::<Result<Vec<_>, String>>()?;
-            let merged = merge_delivery_plans(&plans)
-                .map_err(|err| format!("planetary-store route-plan failed: {err}"))?
-                .ok_or("planetary-store route-plan found no plans to merge")?;
+            let session = build_route_delivery_session_for_geo_points(
+                &store_path,
+                &points,
+                radius_studs,
+                limit,
+                require_buildings,
+                require_terrain,
+                max_streaming_cost,
+                max_estimated_memory_cost,
+            )
+            .map_err(|err| format!("planetary-store route-plan failed: {err}"))?;
+            let merged = session
+                .ok_or("planetary-store route-plan found no plans to merge")?
+                .merged_plan;
             if let Some(out_path) = out_path.as_ref() {
                 write_delivery_plan_json(&merged, out_path)?;
                 println!("Wrote route plan {}", out_path.display());
@@ -4105,6 +4273,119 @@ fn cmd_planetary_store(args: &[String]) -> Result<(), String> {
                 let merged_json = serde_json::to_string_pretty(&merged)
                     .map_err(|err| format!("route-plan json failed: {err}"))?;
                 println!("{merged_json}");
+            }
+            Ok(())
+        }
+        "route-session" => {
+            let mut store_path: Option<PathBuf> = None;
+            let mut points: Vec<(f64, f64)> = Vec::new();
+            let mut radius_studs: Option<f64> = None;
+            let mut out_path: Option<PathBuf> = None;
+            let mut limit: Option<usize> = None;
+            let mut max_streaming_cost: Option<f64> = None;
+            let mut max_estimated_memory_cost: Option<f64> = None;
+            let mut require_buildings = false;
+            let mut require_terrain = false;
+            let mut i = 1;
+            while i < args.len() {
+                match args[i].as_str() {
+                    "--store" => {
+                        let value = args.get(i + 1).ok_or("--store requires a path")?;
+                        store_path = Some(PathBuf::from(value));
+                        i += 2;
+                    }
+                    "--point" => {
+                        let value = args.get(i + 1).ok_or("--point requires LAT,LON")?;
+                        points.push(parse_lat_lon_pair(value, "--point")?);
+                        i += 2;
+                    }
+                    "--radius-studs" => {
+                        let value = args.get(i + 1).ok_or("--radius-studs requires a number")?;
+                        radius_studs = Some(
+                            value
+                                .parse::<f64>()
+                                .map_err(|_| format!("invalid --radius-studs value: {value}"))?,
+                        );
+                        i += 2;
+                    }
+                    "--out" => {
+                        let value = args.get(i + 1).ok_or("--out requires a path")?;
+                        out_path = Some(PathBuf::from(value));
+                        i += 2;
+                    }
+                    "--limit" => {
+                        let value = args.get(i + 1).ok_or("--limit requires a number")?;
+                        limit = Some(
+                            value
+                                .parse::<usize>()
+                                .map_err(|_| format!("invalid --limit value: {value}"))?,
+                        );
+                        i += 2;
+                    }
+                    "--max-streaming-cost" => {
+                        let value = args
+                            .get(i + 1)
+                            .ok_or("--max-streaming-cost requires a number")?;
+                        max_streaming_cost =
+                            Some(value.parse::<f64>().map_err(|_| {
+                                format!("invalid --max-streaming-cost value: {value}")
+                            })?);
+                        i += 2;
+                    }
+                    "--max-estimated-memory-cost" => {
+                        let value = args
+                            .get(i + 1)
+                            .ok_or("--max-estimated-memory-cost requires a number")?;
+                        max_estimated_memory_cost = Some(value.parse::<f64>().map_err(|_| {
+                            format!("invalid --max-estimated-memory-cost value: {value}")
+                        })?);
+                        i += 2;
+                    }
+                    "--require-buildings" => {
+                        require_buildings = true;
+                        i += 1;
+                    }
+                    "--require-terrain" => {
+                        require_terrain = true;
+                        i += 1;
+                    }
+                    other => {
+                        return Err(format!(
+                            "unknown argument to planetary-store route-session: {other}"
+                        ))
+                    }
+                }
+            }
+            if points.is_empty() {
+                return Err(
+                    "planetary-store route-session requires at least one --point LAT,LON"
+                        .to_string(),
+                );
+            }
+            let store_path = resolve_planetary_store_path(store_path, None, None, "route-session")?;
+            let radius_studs =
+                radius_studs.ok_or("planetary-store route-session requires --radius-studs R")?;
+            let session = build_route_delivery_session_for_geo_points(
+                &store_path,
+                &points,
+                radius_studs,
+                limit,
+                require_buildings,
+                require_terrain,
+                max_streaming_cost,
+                max_estimated_memory_cost,
+            )
+            .map_err(|err| format!("planetary-store route-session failed: {err}"))?
+            .ok_or("planetary-store route-session found no plans to merge")?;
+            if let Some(out_path) = out_path.as_ref() {
+                write_json_file(&session, out_path, "route-session")?;
+                println!("Wrote route session {}", out_path.display());
+            } else {
+                println!(
+                    "{}",
+                    serde_json::to_string_pretty(&session)
+                        .map_err(|err| format!("route-session json failed: {err}"))?
+                );
             }
             Ok(())
         }
@@ -4163,6 +4444,7 @@ fn cmd_planetary_store(args: &[String]) -> Result<(), String> {
             let mut tile: Option<(u8, u32, u32)> = None;
             let mut radius_studs: Option<f64> = None;
             let mut plan_paths: Vec<PathBuf> = Vec::new();
+            let mut session_path: Option<PathBuf> = None;
             let mut out_path: Option<PathBuf> = None;
             let mut plan_out: Option<PathBuf> = None;
             let mut summary_out: Option<PathBuf> = None;
@@ -4264,6 +4546,11 @@ fn cmd_planetary_store(args: &[String]) -> Result<(), String> {
                     "--plan" => {
                         let value = args.get(i + 1).ok_or("--plan requires a path")?;
                         plan_paths.push(PathBuf::from(value));
+                        i += 2;
+                    }
+                    "--session" => {
+                        let value = args.get(i + 1).ok_or("--session requires a path")?;
+                        session_path = Some(PathBuf::from(value));
                         i += 2;
                     }
                     "--out" => {
@@ -4371,7 +4658,36 @@ fn cmd_planetary_store(args: &[String]) -> Result<(), String> {
                 }
             }
 
-            let plan = if !plan_paths.is_empty() {
+            let route_session = if let Some(session_path) = session_path.as_ref() {
+                Some(read_route_session(session_path)?)
+            } else if points.len() > 1 {
+                let store_path = resolve_planetary_store_path(
+                    store_path.clone(),
+                    None,
+                    None,
+                    "delivery-bundle",
+                )?;
+                let radius_studs = radius_studs.ok_or(
+                    "planetary-store delivery-bundle requires --radius-studs R when using repeated --point",
+                )?;
+                build_route_delivery_session_for_geo_points(
+                    &store_path,
+                    &points,
+                    radius_studs,
+                    limit,
+                    require_buildings,
+                    require_terrain,
+                    max_streaming_cost,
+                    max_estimated_memory_cost,
+                )
+                .map_err(|err| format!("planetary-store delivery-bundle failed: {err}"))?
+            } else {
+                None
+            };
+
+            let plan = if let Some(session) = route_session.as_ref() {
+                session.merged_plan.clone()
+            } else if !plan_paths.is_empty() {
                 let plans = plan_paths
                     .iter()
                     .map(|path| read_delivery_plan(path))
@@ -4380,8 +4696,12 @@ fn cmd_planetary_store(args: &[String]) -> Result<(), String> {
                     .map_err(|err| format!("planetary-store delivery-bundle failed: {err}"))?
                     .ok_or("planetary-store delivery-bundle found no matching scene/chunks")?
             } else {
-                let store_path =
-                    resolve_planetary_store_path(store_path.clone(), None, "delivery-bundle")?;
+                let store_path = resolve_planetary_store_path(
+                    store_path.clone(),
+                    None,
+                    route_session.as_ref(),
+                    "delivery-bundle",
+                )?;
                 let plan = if let Some((min_x, min_z, max_x, max_z)) = bbox_studs {
                     let scene_id = scene_id.ok_or(
                         "planetary-store delivery-bundle requires --scene ID when using --bbox-studs",
@@ -4434,34 +4754,6 @@ fn cmd_planetary_store(args: &[String]) -> Result<(), String> {
                         max_streaming_cost,
                         max_estimated_memory_cost,
                     )
-                } else if !points.is_empty() {
-                    let radius_studs = radius_studs.ok_or(
-                        "planetary-store delivery-bundle requires --radius-studs R when using repeated --point",
-                    )?;
-                    let sampled_plans = points
-                        .iter()
-                        .map(|(lat, lon)| {
-                            build_delivery_plan_around_geo_point(
-                                &store_path,
-                                *lat,
-                                *lon,
-                                radius_studs,
-                                limit,
-                                require_buildings,
-                                require_terrain,
-                                max_streaming_cost,
-                                max_estimated_memory_cost,
-                            )
-                            .map_err(|err| format!("planetary-store delivery-bundle failed: {err}"))?
-                            .ok_or_else(|| {
-                                format!(
-                                    "planetary-store delivery-bundle found no matching scene/chunks for point {lat},{lon}"
-                                )
-                            })
-                        })
-                        .collect::<Result<Vec<_>, String>>()?;
-                    Ok(merge_delivery_plans(&sampled_plans)
-                        .map_err(|err| format!("planetary-store delivery-bundle failed: {err}"))?)
                 } else if let Some((zoom, x, y)) = tile {
                     build_delivery_plan_for_tile(
                         &store_path,
@@ -4476,7 +4768,7 @@ fn cmd_planetary_store(args: &[String]) -> Result<(), String> {
                     )
                 } else {
                     return Err(
-                        "planetary-store delivery-bundle requires --plan or a selector (--bbox-studs, --around-studs, repeated --point, or --tile)"
+                        "planetary-store delivery-bundle requires --plan, --session, or a selector (--bbox-studs, --around-studs, repeated --point, or --tile)"
                             .to_string(),
                     );
                 }
@@ -4485,8 +4777,12 @@ fn cmd_planetary_store(args: &[String]) -> Result<(), String> {
                 plan
             };
 
-            let store_path =
-                resolve_planetary_store_path(store_path, Some(&plan), "delivery-bundle")?;
+            let store_path = resolve_planetary_store_path(
+                store_path,
+                Some(&plan),
+                route_session.as_ref(),
+                "delivery-bundle",
+            )?;
 
             if let Some(plan_out) = plan_out.as_ref() {
                 write_delivery_plan_json(&plan, plan_out)?;
@@ -6110,6 +6406,49 @@ mod tests {
     }
 
     #[test]
+    fn planetary_store_route_session_works() {
+        let tempdir = tempfile::tempdir().unwrap();
+        let store_path = tempdir.path().join("planetary.sqlite");
+        let manifest_path = tempdir.path().join("sample.sqlite");
+        let session_path = tempdir.path().join("route-session.json");
+        let manifest = build_sample_multi_chunk(3, 1);
+        let center = manifest.meta.bbox.center();
+        write_manifest_sqlite(&manifest, &manifest_path).unwrap();
+
+        cmd_planetary_store(&[
+            "ingest-manifest".to_string(),
+            "--store".to_string(),
+            store_path.display().to_string(),
+            "--manifest-sqlite".to_string(),
+            manifest_path.display().to_string(),
+            "--scene".to_string(),
+            "austin".to_string(),
+        ])
+        .unwrap();
+
+        cmd_planetary_store(&[
+            "route-session".to_string(),
+            "--store".to_string(),
+            store_path.display().to_string(),
+            "--point".to_string(),
+            format!("{},{}", center.lat, center.lon),
+            "--point".to_string(),
+            format!("{},{}", center.lat, center.lon + 0.0002),
+            "--radius-studs".to_string(),
+            "300".to_string(),
+            "--out".to_string(),
+            session_path.display().to_string(),
+        ])
+        .unwrap();
+
+        let session: Value =
+            serde_json::from_str(&std::fs::read_to_string(&session_path).unwrap()).unwrap();
+        assert_eq!(session["step_count"], 2);
+        assert_eq!(session["steps"].as_array().unwrap().len(), 2);
+        assert_eq!(session["merged_plan"]["selection_mode"], "merged");
+    }
+
+    #[test]
     fn planetary_store_emit_manifest_subset_works() {
         let tempdir = tempfile::tempdir().unwrap();
         let store_path = tempdir.path().join("planetary.sqlite");
@@ -6677,6 +7016,60 @@ mod tests {
             "delivery-bundle".to_string(),
             "--plan".to_string(),
             route_path.display().to_string(),
+            "--out".to_string(),
+            bundle_path.display().to_string(),
+        ])
+        .unwrap();
+
+        let bundle: Value =
+            serde_json::from_str(&std::fs::read_to_string(&bundle_path).unwrap()).unwrap();
+        assert_eq!(bundle["plan"]["selection_mode"], "merged");
+        assert_eq!(bundle["plan"]["source_plan_count"], 2);
+        assert_eq!(bundle["plan"]["source_selector_count"], 2);
+        assert!(bundle["plan"]["chunk_count"].as_u64().unwrap() >= 1);
+    }
+
+    #[test]
+    fn planetary_store_delivery_bundle_accepts_route_session() {
+        let tempdir = tempfile::tempdir().unwrap();
+        let store_path = tempdir.path().join("planetary.sqlite");
+        let manifest_path = tempdir.path().join("sample.sqlite");
+        let session_path = tempdir.path().join("route-session.json");
+        let bundle_path = tempdir.path().join("delivery-bundle.json");
+        let manifest = build_sample_multi_chunk(3, 1);
+        let center = manifest.meta.bbox.center();
+        write_manifest_sqlite(&manifest, &manifest_path).unwrap();
+
+        cmd_planetary_store(&[
+            "ingest-manifest".to_string(),
+            "--store".to_string(),
+            store_path.display().to_string(),
+            "--manifest-sqlite".to_string(),
+            manifest_path.display().to_string(),
+            "--scene".to_string(),
+            "austin".to_string(),
+        ])
+        .unwrap();
+
+        cmd_planetary_store(&[
+            "route-session".to_string(),
+            "--store".to_string(),
+            store_path.display().to_string(),
+            "--point".to_string(),
+            format!("{},{}", center.lat, center.lon),
+            "--point".to_string(),
+            format!("{},{}", center.lat, center.lon + 0.0002),
+            "--radius-studs".to_string(),
+            "300".to_string(),
+            "--out".to_string(),
+            session_path.display().to_string(),
+        ])
+        .unwrap();
+
+        cmd_planetary_store(&[
+            "delivery-bundle".to_string(),
+            "--session".to_string(),
+            session_path.display().to_string(),
             "--out".to_string(),
             bundle_path.display().to_string(),
         ])

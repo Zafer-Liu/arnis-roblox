@@ -2753,3 +2753,19 @@ The compact historical archive index is:
   - `cargo test -p arbx_planetary_store planetary_store_ -- --nocapture`
   - `cargo test -p arbx_cli planetary_store_ -- --nocapture`
   - `git diff --check`
+
+## 2026-04-04 01:33 CDT
+
+- Extended the planetary backbone again on `main`:
+  - `arbx_planetary_store`
+    - added a durable `PlanetaryRouteSession` execution artifact with ordered route steps plus the merged prefetch plan
+    - added a canonical geo-point route-session builder so route execution no longer has to flatten multi-stop traversal immediately
+  - `arbx_cli`
+    - added `planetary-store route-session`
+    - `route-plan` now builds on the same route-session builder instead of hand-rolling its own repeated-point merge path
+    - `delivery-window`, `subset-summary`, `fetch-chunks`, `emit-manifest-subset`, `emit-runtime-lua`, and `delivery-bundle` now accept `--session` and consume the merged route session plan directly
+- Verification:
+  - `cargo fmt --all`
+  - `cargo test -p arbx_planetary_store planetary_store_ -- --nocapture`
+  - `cargo test -p arbx_cli planetary_store_ -- --nocapture`
+  - `git diff --check`

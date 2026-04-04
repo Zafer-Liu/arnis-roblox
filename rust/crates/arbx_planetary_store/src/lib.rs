@@ -111,6 +111,22 @@ pub struct PlanetaryDeliveryPlan {
     pub chunk_ids: Vec<String>,
 }
 
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct PlanetaryRouteSession {
+    pub planetary_store_path: String,
+    pub scene_id: String,
+    pub world_name: String,
+    pub manifest_store_path: String,
+    pub step_count: usize,
+    pub source_selector_count: usize,
+    pub unique_chunk_count: usize,
+    pub total_unique_feature_count: usize,
+    pub total_unique_streaming_cost: f64,
+    pub total_unique_estimated_memory_cost: f64,
+    pub merged_plan: PlanetaryDeliveryPlan,
+    pub steps: Vec<PlanetaryDeliveryPlan>,
+}
+
 fn default_source_plan_count() -> usize {
     1
 }
@@ -348,6 +364,28 @@ pub fn merge_delivery_plans(
         total_streaming_cost,
         total_estimated_memory_cost,
         chunk_ids: chunks,
+    }))
+}
+
+pub fn build_route_delivery_session(
+    plans: &[PlanetaryDeliveryPlan],
+) -> PlanetaryStoreResult<Option<PlanetaryRouteSession>> {
+    let Some(merged_plan) = merge_delivery_plans(plans)? else {
+        return Ok(None);
+    };
+    Ok(Some(PlanetaryRouteSession {
+        planetary_store_path: merged_plan.planetary_store_path.clone(),
+        scene_id: merged_plan.scene_id.clone(),
+        world_name: merged_plan.world_name.clone(),
+        manifest_store_path: merged_plan.manifest_store_path.clone(),
+        step_count: plans.len(),
+        source_selector_count: plans.iter().map(|plan| plan.source_selector_count).sum(),
+        unique_chunk_count: merged_plan.chunk_count,
+        total_unique_feature_count: merged_plan.total_feature_count,
+        total_unique_streaming_cost: merged_plan.total_streaming_cost,
+        total_unique_estimated_memory_cost: merged_plan.total_estimated_memory_cost,
+        merged_plan,
+        steps: plans.to_vec(),
     }))
 }
 
@@ -1559,6 +1597,37 @@ pub fn build_delivery_plan_around_geo_point(
         max_estimated_memory_cost,
     )?
     .map(|window| delivery_plan_from_window(path, "geo-point", &window, true)))
+}
+
+pub fn build_route_delivery_session_for_geo_points(
+    path: &Path,
+    points: &[(f64, f64)],
+    radius_studs: f64,
+    limit: Option<usize>,
+    require_buildings: bool,
+    require_terrain: bool,
+    max_streaming_cost: Option<f64>,
+    max_estimated_memory_cost: Option<f64>,
+) -> PlanetaryStoreResult<Option<PlanetaryRouteSession>> {
+    let mut plans = Vec::new();
+    for (lat, lon) in points {
+        let Some(plan) = build_delivery_plan_around_geo_point(
+            path,
+            *lat,
+            *lon,
+            radius_studs,
+            limit,
+            require_buildings,
+            require_terrain,
+            max_streaming_cost,
+            max_estimated_memory_cost,
+        )?
+        else {
+            return Ok(None);
+        };
+        plans.push(plan);
+    }
+    build_route_delivery_session(&plans)
 }
 
 pub fn build_delivery_window_around_point(
@@ -3088,6 +3157,45 @@ mod tests {
         assert_eq!(merged.total_feature_count, 4);
         assert_eq!(merged.total_streaming_cost, 32.0);
         assert!(merged.focus_lat.is_none());
+    }
+
+    #[test]
+    fn planetary_store_builds_route_delivery_session() {
+        let dir = tempdir().unwrap();
+        let manifest_path = dir.path().join("sample.sqlite");
+        let store_path = dir.path().join("planetary.sqlite");
+
+        let manifest = build_sample_multi_chunk(3, 1);
+        let center = manifest.meta.bbox.center();
+        write_manifest_sqlite(&manifest, &manifest_path).unwrap();
+        ingest_manifest_sqlite(&store_path, &manifest_path, Some("sample_austin")).unwrap();
+
+        let session = build_route_delivery_session_for_geo_points(
+            &store_path,
+            &[(center.lat, center.lon), (center.lat, center.lon + 0.0002)],
+            300.0,
+            None,
+            false,
+            false,
+            None,
+            None,
+        )
+        .unwrap()
+        .unwrap();
+
+        assert_eq!(session.step_count, 2);
+        assert_eq!(session.source_selector_count, 2);
+        assert_eq!(session.steps.len(), 2);
+        assert_eq!(session.merged_plan.selection_mode, "merged");
+        assert_eq!(session.unique_chunk_count, session.merged_plan.chunk_count);
+        assert_eq!(
+            session.total_unique_feature_count,
+            session.merged_plan.total_feature_count
+        );
+        assert_eq!(
+            session.total_unique_streaming_cost,
+            session.merged_plan.total_streaming_cost
+        );
     }
 
     #[test]
