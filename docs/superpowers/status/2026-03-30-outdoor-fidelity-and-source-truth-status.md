@@ -2937,3 +2937,16 @@ The compact historical archive index is:
   - `cargo test -p arbx_planetary_store planetary_store_ -- --nocapture`
   - `cargo test -p arbx_cli planetary_store_ -- --nocapture`
   - `git diff --check`
+
+## 2026-04-04 09:29 CDT
+
+- Extended the planetary backbone again on `main`:
+  - `arbx_cli`
+    - route handoff artifacts now emit paired Lua modules for `route-session`, `hydrated-route`, and `route-schedule`, not just JSON siblings
+    - route catalogs now carry module-path metadata for the route session, hydrated route, schedule, lane files, manifest modules, and runtime shard index modules
+    - route-schedule and route-bundle materialization now produce a fully runtime-native catalog instead of making Roblox consumers infer path conventions from directory layout
+- Verification:
+  - `cargo fmt --all`
+  - `cargo test -p arbx_planetary_store planetary_store_ -- --nocapture`
+  - `cargo test -p arbx_cli planetary_store_ -- --nocapture`
+  - `git diff --check`
