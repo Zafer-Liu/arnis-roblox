@@ -2802,3 +2802,19 @@ The compact historical archive index is:
   - `cargo test -p arbx_planetary_store planetary_store_ -- --nocapture`
   - `cargo test -p arbx_cli planetary_store_ -- --nocapture`
   - `git diff --check`
+
+## 2026-04-04 02:31 CDT
+
+- Extended the planetary backbone again on `main`:
+  - `arbx_cli`
+    - `delivery-bundle` can now write per-step route execution artifacts from hydrated route sessions:
+      - `--step-summary-dir`
+      - `--step-window-dir`
+      - `--step-transition-dir`
+    - bundle results now record those durable per-step artifact directories alongside the top-level route/session outputs
+    - route execution no longer has to consume only one large hydrated route JSON when it wants bounded per-step files for scheduling, caching, or runtime handoff
+- Verification:
+  - `cargo fmt --all`
+  - `cargo test -p arbx_cli planetary_store_delivery_bundle_writes_hydrated_route_outputs -- --nocapture`
+  - `cargo test -p arbx_cli planetary_store_ -- --nocapture`
+  - `git diff --check`

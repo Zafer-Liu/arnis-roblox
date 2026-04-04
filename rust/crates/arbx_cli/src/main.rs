@@ -57,6 +57,9 @@ struct DeliveryBundleResult {
     plan_out: Option<String>,
     route_session_out: Option<String>,
     hydrated_route_out: Option<String>,
+    step_summary_dir: Option<String>,
+    step_window_dir: Option<String>,
+    step_transition_dir: Option<String>,
     summary_out: Option<String>,
     window_out: Option<String>,
     manifest_out: Option<String>,
@@ -4588,6 +4591,9 @@ fn cmd_planetary_store(args: &[String]) -> Result<(), String> {
             let mut plan_out: Option<PathBuf> = None;
             let mut route_session_out: Option<PathBuf> = None;
             let mut hydrated_route_out: Option<PathBuf> = None;
+            let mut step_summary_dir: Option<PathBuf> = None;
+            let mut step_window_dir: Option<PathBuf> = None;
+            let mut step_transition_dir: Option<PathBuf> = None;
             let mut summary_out: Option<PathBuf> = None;
             let mut window_out: Option<PathBuf> = None;
             let mut manifest_out: Option<PathBuf> = None;
@@ -4716,6 +4722,25 @@ fn cmd_planetary_store(args: &[String]) -> Result<(), String> {
                             .get(i + 1)
                             .ok_or("--hydrated-route-out requires a path")?;
                         hydrated_route_out = Some(PathBuf::from(value));
+                        i += 2;
+                    }
+                    "--step-summary-dir" => {
+                        let value = args
+                            .get(i + 1)
+                            .ok_or("--step-summary-dir requires a path")?;
+                        step_summary_dir = Some(PathBuf::from(value));
+                        i += 2;
+                    }
+                    "--step-window-dir" => {
+                        let value = args.get(i + 1).ok_or("--step-window-dir requires a path")?;
+                        step_window_dir = Some(PathBuf::from(value));
+                        i += 2;
+                    }
+                    "--step-transition-dir" => {
+                        let value = args
+                            .get(i + 1)
+                            .ok_or("--step-transition-dir requires a path")?;
+                        step_transition_dir = Some(PathBuf::from(value));
                         i += 2;
                     }
                     "--summary-out" => {
@@ -4968,6 +4993,48 @@ fn cmd_planetary_store(args: &[String]) -> Result<(), String> {
                     )?;
                 }
             }
+            if let Some(hydrated_route) = hydrated_route.as_ref() {
+                if let Some(step_summary_dir) = step_summary_dir.as_ref() {
+                    fs::create_dir_all(step_summary_dir).map_err(|err| {
+                        format!("delivery-bundle step-summary-dir create failed: {err}")
+                    })?;
+                    for step in &hydrated_route.steps {
+                        let out_path = step_summary_dir
+                            .join(format!("step-{:03}-summary.json", step.step_index));
+                        write_json_file(
+                            &step.window.chunks,
+                            &out_path,
+                            "delivery-bundle step summary",
+                        )?;
+                    }
+                }
+                if let Some(step_window_dir) = step_window_dir.as_ref() {
+                    fs::create_dir_all(step_window_dir).map_err(|err| {
+                        format!("delivery-bundle step-window-dir create failed: {err}")
+                    })?;
+                    for step in &hydrated_route.steps {
+                        let out_path = step_window_dir
+                            .join(format!("step-{:03}-window.json", step.step_index));
+                        write_json_file(&step.window, &out_path, "delivery-bundle step window")?;
+                    }
+                }
+                if let Some(step_transition_dir) = step_transition_dir.as_ref() {
+                    fs::create_dir_all(step_transition_dir).map_err(|err| {
+                        format!("delivery-bundle step-transition-dir create failed: {err}")
+                    })?;
+                    for step in &hydrated_route.steps {
+                        let out_path = step_transition_dir
+                            .join(format!("step-{:03}-transition.json", step.step_index));
+                        let transition = json!({
+                            "stepIndex": step.step_index,
+                            "entering": step.entering,
+                            "retained": step.retained,
+                            "leaving": step.leaving,
+                        });
+                        write_json_file(&transition, &out_path, "delivery-bundle step transition")?;
+                    }
+                }
+            }
 
             let summary = read_chunk_summary_for_plan(&store_path, &plan)
                 .map_err(|err| format!("planetary-store delivery-bundle summary failed: {err}"))?;
@@ -4991,6 +5058,15 @@ fn cmd_planetary_store(args: &[String]) -> Result<(), String> {
                     .as_ref()
                     .map(|path| path.display().to_string()),
                 hydrated_route_out: hydrated_route_out
+                    .as_ref()
+                    .map(|path| path.display().to_string()),
+                step_summary_dir: step_summary_dir
+                    .as_ref()
+                    .map(|path| path.display().to_string()),
+                step_window_dir: step_window_dir
+                    .as_ref()
+                    .map(|path| path.display().to_string()),
+                step_transition_dir: step_transition_dir
                     .as_ref()
                     .map(|path| path.display().to_string()),
                 summary_out: summary_out.as_ref().map(|path| path.display().to_string()),
@@ -7334,6 +7410,9 @@ mod tests {
         let manifest_path = tempdir.path().join("sample.sqlite");
         let route_session_path = tempdir.path().join("route-session.json");
         let hydrated_route_path = tempdir.path().join("hydrated-route.json");
+        let step_summary_dir = tempdir.path().join("step-summaries");
+        let step_window_dir = tempdir.path().join("step-windows");
+        let step_transition_dir = tempdir.path().join("step-transitions");
         let bundle_path = tempdir.path().join("delivery-bundle.json");
         let manifest = build_sample_multi_chunk(3, 1);
         let center = manifest.meta.bbox.center();
@@ -7364,6 +7443,12 @@ mod tests {
             route_session_path.display().to_string(),
             "--hydrated-route-out".to_string(),
             hydrated_route_path.display().to_string(),
+            "--step-summary-dir".to_string(),
+            step_summary_dir.display().to_string(),
+            "--step-window-dir".to_string(),
+            step_window_dir.display().to_string(),
+            "--step-transition-dir".to_string(),
+            step_transition_dir.display().to_string(),
             "--out".to_string(),
             bundle_path.display().to_string(),
         ])
@@ -7379,9 +7464,26 @@ mod tests {
             bundle["hydrated_route_out"],
             hydrated_route_path.display().to_string()
         );
+        assert_eq!(
+            bundle["step_summary_dir"],
+            step_summary_dir.display().to_string()
+        );
+        assert_eq!(
+            bundle["step_window_dir"],
+            step_window_dir.display().to_string()
+        );
+        assert_eq!(
+            bundle["step_transition_dir"],
+            step_transition_dir.display().to_string()
+        );
         let hydrated: Value =
             serde_json::from_str(&std::fs::read_to_string(&hydrated_route_path).unwrap()).unwrap();
         assert_eq!(hydrated["steps"].as_array().unwrap().len(), 2);
+        assert!(step_summary_dir.join("step-000-summary.json").exists());
+        assert!(step_window_dir.join("step-000-window.json").exists());
+        assert!(step_transition_dir
+            .join("step-000-transition.json")
+            .exists());
     }
 
     #[test]
