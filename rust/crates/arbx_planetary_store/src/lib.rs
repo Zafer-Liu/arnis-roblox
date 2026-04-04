@@ -52,6 +52,54 @@ pub struct PlanetaryChunkSummary {
     pub partition_version: String,
 }
 
+fn read_scene_meta(connection: &Connection, scene_id: &str) -> PlanetaryStoreResult<StoredManifestMeta> {
+    let meta = connection
+        .query_row(
+            "
+            SELECT
+                schema_version,
+                world_name,
+                generator,
+                source,
+                meters_per_stud,
+                chunk_size_studs,
+                bbox_min_lat,
+                bbox_min_lon,
+                bbox_max_lat,
+                bbox_max_lon,
+                total_features,
+                notes_json
+            FROM scenes
+            WHERE scene_id = ?1
+            ",
+            params![scene_id],
+            |row| {
+                let notes_json: String = row.get(11)?;
+                let notes = serde_json::from_str::<Vec<String>>(&notes_json).map_err(|err| {
+                    rusqlite::Error::FromSqlConversionFailure(
+                        11,
+                        rusqlite::types::Type::Text,
+                        Box::new(err),
+                    )
+                })?;
+                Ok(StoredManifestMeta {
+                    schema_version: row.get(0)?,
+                    world_name: row.get(1)?,
+                    generator: row.get(2)?,
+                    source: row.get(3)?,
+                    meters_per_stud: row.get(4)?,
+                    chunk_size_studs: row.get(5)?,
+                    bbox: arbx_geo::BoundingBox::new(row.get(6)?, row.get(7)?, row.get(8)?, row.get(9)?),
+                    total_features: row.get::<_, i64>(10)? as usize,
+                    notes,
+                })
+            },
+        )
+        .optional()
+        .map_err(|err| -> Box<dyn std::error::Error + Send + Sync> { Box::new(err) })?;
+    meta.ok_or_else(|| format!("scene {} is not present in planetary store", scene_id).into())
+}
+
 fn bbox_intersects(
     min_lat_a: f64,
     min_lon_a: f64,
@@ -752,6 +800,108 @@ pub fn read_scene_chunk_subset(
     })
 }
 
+pub fn read_scene_manifest_subset(
+    path: &Path,
+    scene_id: &str,
+    min_x: f64,
+    min_z: f64,
+    max_x: f64,
+    max_z: f64,
+) -> PlanetaryStoreResult<arbx_roblox_export::StoredManifestSubset> {
+    let connection = open_store(path)?;
+    let meta = read_scene_meta(&connection, scene_id)?;
+    let chunk_size_studs = meta.chunk_size_studs as f64;
+    let mut statement = connection.prepare(
+        "
+        SELECT
+            chunk_id,
+            origin_x,
+            origin_y,
+            origin_z,
+            feature_count,
+            streaming_cost,
+            estimated_memory_cost,
+            partition_version,
+            subplans_json,
+            chunk_json
+        FROM chunks
+        WHERE scene_id = ?1
+          AND origin_x <= ?2
+          AND origin_x + ?3 >= ?4
+          AND origin_z <= ?5
+          AND origin_z + ?3 >= ?6
+        ORDER BY chunk_id ASC
+        ",
+    )?;
+    let rows = statement.query_map(
+        params![scene_id, max_x, chunk_size_studs, min_x, max_z, min_z],
+        |row| {
+            Ok(StoredChunkRecord {
+                chunk_id: row.get(0)?,
+                origin_studs: arbx_geo::Vec3::new(row.get(1)?, row.get(2)?, row.get(3)?),
+                feature_count: row.get::<_, i64>(4)? as usize,
+                streaming_cost: row.get(5)?,
+                estimated_memory_cost: row.get(6)?,
+                partition_version: row.get(7)?,
+                subplans_json: row.get(8)?,
+                chunk_json: row.get(9)?,
+            })
+        },
+    )?;
+    let mut chunks = Vec::new();
+    for row in rows {
+        chunks.push(row?);
+    }
+    Ok(arbx_roblox_export::StoredManifestSubset { meta, chunks })
+}
+
+pub fn read_scene_manifest_subset_by_chunk_ids(
+    path: &Path,
+    scene_id: &str,
+    chunk_ids: &[String],
+) -> PlanetaryStoreResult<arbx_roblox_export::StoredManifestSubset> {
+    let connection = open_store(path)?;
+    let meta = read_scene_meta(&connection, scene_id)?;
+    let mut chunks = Vec::new();
+    let mut statement = connection.prepare(
+        "
+        SELECT
+            chunk_id,
+            origin_x,
+            origin_y,
+            origin_z,
+            feature_count,
+            streaming_cost,
+            estimated_memory_cost,
+            partition_version,
+            subplans_json,
+            chunk_json
+        FROM chunks
+        WHERE scene_id = ?1 AND chunk_id = ?2
+        ",
+    )?;
+    for chunk_id in chunk_ids {
+        let row = statement
+            .query_row(params![scene_id, chunk_id], |row| {
+                Ok(StoredChunkRecord {
+                    chunk_id: row.get(0)?,
+                    origin_studs: arbx_geo::Vec3::new(row.get(1)?, row.get(2)?, row.get(3)?),
+                    feature_count: row.get::<_, i64>(4)? as usize,
+                    streaming_cost: row.get(5)?,
+                    estimated_memory_cost: row.get(6)?,
+                    partition_version: row.get(7)?,
+                    subplans_json: row.get(8)?,
+                    chunk_json: row.get(9)?,
+                })
+            })
+            .optional()?;
+        if let Some(chunk) = row {
+            chunks.push(chunk);
+        }
+    }
+    Ok(arbx_roblox_export::StoredManifestSubset { meta, chunks })
+}
+
 pub fn read_scene_chunk_summary_subset(
     path: &Path,
     scene_id: &str,
@@ -1080,5 +1230,39 @@ mod tests {
         .unwrap();
         let ids: Vec<&str> = subset.chunks.iter().map(|chunk| chunk.chunk_id.as_str()).collect();
         assert_eq!(ids, vec!["0_0", "2_0"]);
+    }
+
+    #[test]
+    fn planetary_store_reads_manifest_subset_by_bbox() {
+        let dir = tempdir().unwrap();
+        let manifest_path = dir.path().join("sample.sqlite");
+        let store_path = dir.path().join("planetary.sqlite");
+
+        let manifest = build_sample_multi_chunk(3, 1);
+        write_manifest_sqlite(&manifest, &manifest_path).unwrap();
+        ingest_manifest_sqlite(&store_path, &manifest_path, Some("sample_austin")).unwrap();
+
+        let subset =
+            read_scene_manifest_subset(&store_path, "sample_austin", 200.0, 0.0, 500.0, 200.0).unwrap();
+        assert_eq!(subset.chunks.len(), 2);
+    }
+
+    #[test]
+    fn planetary_store_reads_manifest_subset_by_chunk_ids() {
+        let dir = tempdir().unwrap();
+        let manifest_path = dir.path().join("sample.sqlite");
+        let store_path = dir.path().join("planetary.sqlite");
+
+        let manifest = build_sample_multi_chunk(3, 1);
+        write_manifest_sqlite(&manifest, &manifest_path).unwrap();
+        ingest_manifest_sqlite(&store_path, &manifest_path, Some("sample_austin")).unwrap();
+
+        let subset = read_scene_manifest_subset_by_chunk_ids(
+            &store_path,
+            "sample_austin",
+            &["0_0".to_string(), "2_0".to_string()],
+        )
+        .unwrap();
+        assert_eq!(subset.chunks.len(), 2);
     }
 }

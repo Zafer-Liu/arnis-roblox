@@ -16,7 +16,7 @@ use arbx_planetary_store::{
     find_scenes_covering_geo_point, find_scenes_intersecting_geo_bbox, ingest_manifest_json,
     ingest_manifest_sqlite, init_planetary_store, list_scenes, read_chunks_by_ids,
     read_scene_catalog_entry, read_scene_chunk_subset, read_scene_chunk_summary_subset,
-    summarize_planetary_store,
+    read_scene_manifest_subset, read_scene_manifest_subset_by_chunk_ids, summarize_planetary_store,
 };
 use arbx_roblox_export::{
     build_sample_multi_chunk, export_to_chunks, read_manifest_sqlite_all, write_manifest_sqlite,
@@ -1849,7 +1849,7 @@ fn cmd_emit_runtime_lua(args: &[String]) -> Result<(), String> {
 fn cmd_planetary_store(args: &[String]) -> Result<(), String> {
     let Some(subcommand) = args.first().map(String::as_str) else {
         return Err(
-            "planetary-store requires a subcommand: init | ingest-manifest | ingest-json | summary | list-scenes | scene | subset | subset-summary | fetch-chunks | find-scenes".to_string(),
+            "planetary-store requires a subcommand: init | ingest-manifest | ingest-json | summary | list-scenes | scene | subset | subset-summary | fetch-chunks | emit-manifest-subset | find-scenes".to_string(),
         );
     };
 
@@ -2237,6 +2237,103 @@ fn cmd_planetary_store(args: &[String]) -> Result<(), String> {
                 serde_json::to_string_pretty(&subset)
                     .map_err(|err| format!("fetch-chunks json failed: {err}"))?
             );
+            Ok(())
+        }
+        "emit-manifest-subset" => {
+            let mut store_path: Option<PathBuf> = None;
+            let mut scene_id: Option<String> = None;
+            let mut bbox_studs: Option<(f64, f64, f64, f64)> = None;
+            let mut chunk_ids: Option<Vec<String>> = None;
+            let mut out_path: Option<PathBuf> = None;
+            let mut i = 1;
+            while i < args.len() {
+                match args[i].as_str() {
+                    "--store" => {
+                        let value = args.get(i + 1).ok_or("--store requires a path")?;
+                        store_path = Some(PathBuf::from(value));
+                        i += 2;
+                    }
+                    "--scene" => {
+                        let value = args.get(i + 1).ok_or("--scene requires a scene id")?;
+                        scene_id = Some(value.clone());
+                        i += 2;
+                    }
+                    "--bbox-studs" => {
+                        let value = args
+                            .get(i + 1)
+                            .ok_or("--bbox-studs requires MIN_X,MIN_Z,MAX_X,MAX_Z")?;
+                        let parts: Vec<f64> = value
+                            .split(',')
+                            .map(|part| {
+                                part.trim().parse::<f64>().map_err(|_| {
+                                    format!("invalid number in --bbox-studs: {}", part)
+                                })
+                            })
+                            .collect::<Result<Vec<f64>, String>>()?;
+                        if parts.len() != 4 {
+                            return Err(
+                                "--bbox-studs requires four comma-separated numbers".to_string()
+                            );
+                        }
+                        bbox_studs = Some((parts[0], parts[1], parts[2], parts[3]));
+                        i += 2;
+                    }
+                    "--chunk-ids" => {
+                        let value = args
+                            .get(i + 1)
+                            .ok_or("--chunk-ids requires a comma-separated list")?;
+                        chunk_ids = Some(
+                            value
+                                .split(',')
+                                .map(str::trim)
+                                .filter(|value| !value.is_empty())
+                                .map(ToString::to_string)
+                                .collect(),
+                        );
+                        i += 2;
+                    }
+                    "--out" => {
+                        let value = args.get(i + 1).ok_or("--out requires a path")?;
+                        out_path = Some(PathBuf::from(value));
+                        i += 2;
+                    }
+                    other => {
+                        return Err(format!(
+                            "unknown argument to planetary-store emit-manifest-subset: {other}"
+                        ))
+                    }
+                }
+            }
+            let store_path =
+                store_path.ok_or("planetary-store emit-manifest-subset requires --store PATH")?;
+            let scene_id =
+                scene_id.ok_or("planetary-store emit-manifest-subset requires --scene ID")?;
+            let subset = if let Some((min_x, min_z, max_x, max_z)) = bbox_studs {
+                read_scene_manifest_subset(&store_path, &scene_id, min_x, min_z, max_x, max_z)
+                    .map_err(|err| format!("planetary-store emit-manifest-subset bbox failed: {err}"))?
+            } else if let Some(chunk_ids) = chunk_ids {
+                read_scene_manifest_subset_by_chunk_ids(&store_path, &scene_id, &chunk_ids)
+                    .map_err(|err| format!("planetary-store emit-manifest-subset chunk-ids failed: {err}"))?
+            } else {
+                return Err(
+                    "planetary-store emit-manifest-subset requires either --bbox-studs or --chunk-ids"
+                        .to_string(),
+                );
+            };
+            let manifest = build_manifest_value_from_stored_subset(subset)?;
+            let manifest_json = serde_json::to_string_pretty(&manifest)
+                .map_err(|err| format!("emit-manifest-subset json failed: {err}"))?;
+            if let Some(out_path) = out_path {
+                if let Some(parent) = out_path.parent() {
+                    fs::create_dir_all(parent)
+                        .map_err(|err| format!("emit-manifest-subset create dir failed: {err}"))?;
+                }
+                fs::write(&out_path, format!("{manifest_json}\n"))
+                    .map_err(|err| format!("emit-manifest-subset write failed: {err}"))?;
+                println!("Wrote manifest subset {}", out_path.display());
+            } else {
+                println!("{manifest_json}");
+            }
             Ok(())
         }
         "find-scenes" => {
@@ -3406,5 +3503,43 @@ mod tests {
             "0_0,2_0".to_string(),
         ])
         .unwrap();
+    }
+
+    #[test]
+    fn planetary_store_emit_manifest_subset_works() {
+        let tempdir = tempfile::tempdir().unwrap();
+        let store_path = tempdir.path().join("planetary.sqlite");
+        let manifest_path = tempdir.path().join("sample.sqlite");
+        let out_path = tempdir.path().join("subset.json");
+        let manifest = build_sample_multi_chunk(3, 1);
+        write_manifest_sqlite(&manifest, &manifest_path).unwrap();
+
+        cmd_planetary_store(&[
+            "ingest-manifest".to_string(),
+            "--store".to_string(),
+            store_path.display().to_string(),
+            "--manifest-sqlite".to_string(),
+            manifest_path.display().to_string(),
+            "--scene".to_string(),
+            "austin".to_string(),
+        ])
+        .unwrap();
+
+        cmd_planetary_store(&[
+            "emit-manifest-subset".to_string(),
+            "--store".to_string(),
+            store_path.display().to_string(),
+            "--scene".to_string(),
+            "austin".to_string(),
+            "--chunk-ids".to_string(),
+            "0_0,2_0".to_string(),
+            "--out".to_string(),
+            out_path.display().to_string(),
+        ])
+        .unwrap();
+
+        let output = std::fs::read_to_string(&out_path).unwrap();
+        let manifest: Value = serde_json::from_str(&output).unwrap();
+        assert_eq!(manifest["chunks"].as_array().unwrap().len(), 2);
     }
 }

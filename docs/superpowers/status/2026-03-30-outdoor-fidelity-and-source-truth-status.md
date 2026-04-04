@@ -2381,3 +2381,17 @@ The compact historical archive index is:
   - `cargo test -p arbx_planetary_store -p arbx_cli planetary_store --quiet`
   - `cargo test -p arbx_planetary_store --quiet`
   - `git diff --check rust/crates/arbx_planetary_store/src/lib.rs rust/crates/arbx_cli/src/main.rs`
+
+## 2026-04-03 19:10 CDT
+
+- Extended the planetary backbone again on `main`:
+  - `arbx_planetary_store`
+    - added manifest-subset materialization by bbox and by chunk-id list, so the canonical store can reconstruct downstream-consumable manifest subsets instead of only serving metadata and payload fragments
+  - `arbx_cli`
+    - added `planetary-store emit-manifest-subset --scene ... --bbox-studs ...`
+    - added `planetary-store emit-manifest-subset --scene ... --chunk-ids ...`
+    - supports `--out` so the subset can be written directly to disk for downstream runtime/export/audit flows
+- Verification:
+  - `cargo test -p arbx_planetary_store -p arbx_cli planetary_store --quiet`
+  - `cargo test -p arbx_planetary_store --quiet`
+  - `git diff --check rust/crates/arbx_planetary_store/src/lib.rs rust/crates/arbx_cli/src/main.rs`
