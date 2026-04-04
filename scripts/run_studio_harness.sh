@@ -3397,6 +3397,8 @@ if runPreviewProbe then
                 emitSceneMarkers("ARNIS_SCENE_EDIT", "edit", resolvePreviewWorldRootName(), previewLoadRadius, scene, {
                     worldIdentity = CanonicalWorldContract.resolveCanonicalManifestFamily("edit"),
                     chunkEnvelopeKind = "bounded_preview",
+                    manifestSourceKind = Workspace:GetAttribute("VertigoPreviewManifestSourceKind") or "canonical_manifest",
+                    manifestSourceName = Workspace:GetAttribute("VertigoPreviewManifestSourceName") or CanonicalWorldContract.resolveCanonicalManifestFamily("edit"),
                 })
             else
                 table.insert(payload.errors, "AustinPreviewBuilder: " .. tostring(previewResult))

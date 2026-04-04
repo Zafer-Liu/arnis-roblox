@@ -1021,6 +1021,8 @@ class RunStudioHarnessTests(unittest.TestCase):
         self.assertNotIn('emitSceneMarkers("ARNIS_SCENE_EDIT", "edit", resolvePreviewWorldRootName(), 1024, scene)', self.text)
         self.assertIn('worldIdentity = CanonicalWorldContract.resolveCanonicalManifestFamily("edit")', self.text)
         self.assertIn('chunkEnvelopeKind = "bounded_preview"', self.text)
+        self.assertIn('manifestSourceKind = Workspace:GetAttribute("VertigoPreviewManifestSourceKind") or "canonical_manifest"', self.text)
+        self.assertIn('manifestSourceName = Workspace:GetAttribute("VertigoPreviewManifestSourceName") or CanonicalWorldContract.resolveCanonicalManifestFamily("edit")', self.text)
 
     def test_play_action_path_emits_runtime_load_radius_from_runaustin(self) -> None:
         self.assertIn("local RunAustin = require(ServerScriptService.ImportService.RunAustin)", self.text)

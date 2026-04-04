@@ -40,8 +40,10 @@ local previewPerfState = {}
 local previewPerfLastFlushAt = 0
 local cachedFullManifestHandle = nil
 local cachedFullManifestHash = nil
+local cachedFullManifestName = nil
 local cachedPreviewManifestHandle = nil
 local cachedPreviewManifestHash = nil
+local cachedPreviewManifestName = nil
 local activeManifestHandle = nil
 local activeManifestMode = AustinPreviewRequest.MODE_PREVIEW
 local observedChunkCostById = {}
@@ -280,6 +282,7 @@ local function loadPreviewManifestSource(timeTravelActive, normalizedRequest)
             updatePreviewPerf({
                 ManifestSource = "canonical-preview-cached",
                 ManifestSourceKind = manifestSourceKind,
+                ManifestSourceName = cachedPreviewManifestName or "",
                 RouteCatalogName = normalizedRequest and normalizedRequest.routeCatalogName or "",
                 RouteLane = normalizedRequest and normalizedRequest.routeLane or "",
                 RouteStepIndex = normalizedRequest and normalizedRequest.routeStepIndex or -1,
@@ -288,7 +291,7 @@ local function loadPreviewManifestSource(timeTravelActive, normalizedRequest)
         end
     end
 
-    local previewManifest = CanonicalWorldContract.loadCanonicalManifestSource("preview", nil, {
+    local previewManifest, resolvedManifestName = CanonicalWorldContract.loadCanonicalManifestSource("preview", nil, {
         freshRequire = timeTravelActive,
         routeCatalogName = normalizedRequest and normalizedRequest.routeCatalogName or nil,
         routeLane = normalizedRequest and normalizedRequest.routeLane or nil,
@@ -298,11 +301,13 @@ local function loadPreviewManifestSource(timeTravelActive, normalizedRequest)
     if RunService:IsStudio() and not timeTravelActive then
         cachedPreviewManifestHandle = previewManifest
         cachedPreviewManifestHash = getCurrentSyncHash()
+        cachedPreviewManifestName = resolvedManifestName
     end
 
     updatePreviewPerf({
         ManifestSource = if timeTravelActive then "canonical-preview-frozen" else "canonical-preview",
         ManifestSourceKind = manifestSourceKind,
+        ManifestSourceName = resolvedManifestName or "",
         RouteCatalogName = normalizedRequest and normalizedRequest.routeCatalogName or "",
         RouteLane = normalizedRequest and normalizedRequest.routeLane or "",
         RouteStepIndex = normalizedRequest and normalizedRequest.routeStepIndex or -1,
@@ -324,6 +329,7 @@ local function loadFullManifestSource(timeTravelActive, normalizedRequest)
             updatePreviewPerf({
                 ManifestSource = "canonical-full-cached",
                 ManifestSourceKind = manifestSourceKind,
+                ManifestSourceName = cachedFullManifestName or "",
                 RouteCatalogName = normalizedRequest and normalizedRequest.routeCatalogName or "",
                 RouteLane = normalizedRequest and normalizedRequest.routeLane or "",
                 RouteStepIndex = normalizedRequest and normalizedRequest.routeStepIndex or -1,
@@ -332,14 +338,14 @@ local function loadFullManifestSource(timeTravelActive, normalizedRequest)
         end
     end
 
-    local fullOk, fullManifest = pcall(function()
-        local manifestHandle = CanonicalWorldContract.loadCanonicalManifestSource("full_bake", nil, {
+    local fullOk, fullManifest, resolvedManifestName = pcall(function()
+        local manifestHandle, resolvedName = CanonicalWorldContract.loadCanonicalManifestSource("full_bake", nil, {
             freshRequire = timeTravelActive,
             routeCatalogName = normalizedRequest and normalizedRequest.routeCatalogName or nil,
             routeLane = normalizedRequest and normalizedRequest.routeLane or nil,
             routeStepIndex = normalizedRequest and normalizedRequest.routeStepIndex or nil,
         })
-        return manifestHandle
+        return manifestHandle, resolvedName
     end)
     if not fullOk then
         return nil
@@ -348,11 +354,13 @@ local function loadFullManifestSource(timeTravelActive, normalizedRequest)
     if not timeTravelActive then
         cachedFullManifestHandle = fullManifest
         cachedFullManifestHash = getCurrentSyncHash()
+        cachedFullManifestName = resolvedManifestName
     end
 
     updatePreviewPerf({
         ManifestSource = if timeTravelActive then "full-frozen" else "full",
         ManifestSourceKind = manifestSourceKind,
+        ManifestSourceName = resolvedManifestName or "",
         RouteCatalogName = normalizedRequest and normalizedRequest.routeCatalogName or "",
         RouteLane = normalizedRequest and normalizedRequest.routeLane or "",
         RouteStepIndex = normalizedRequest and normalizedRequest.routeStepIndex or -1,
@@ -1600,8 +1608,10 @@ function AustinPreviewBuilder.Clear()
     AustinPreviewTelemetry.resetWorkspace(Workspace)
     cachedFullManifestHandle = nil
     cachedFullManifestHash = nil
+    cachedFullManifestName = nil
     cachedPreviewManifestHandle = nil
     cachedPreviewManifestHash = nil
+    cachedPreviewManifestName = nil
     activeManifestHandle = nil
     activeManifestMode = AustinPreviewRequest.MODE_PREVIEW
     deferredPreviewInvalidationEpoch = nil

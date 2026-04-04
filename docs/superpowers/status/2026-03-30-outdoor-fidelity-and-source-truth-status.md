@@ -3043,6 +3043,17 @@ The compact historical archive index is:
   - `python3 -m unittest scripts.tests.test_austin_runtime_contract scripts.tests.test_run_studio_harness scripts.tests.test_scene_fidelity_audit scripts.tests.test_scene_parity_audit -v`
   - `git diff --check`
 
+## 2026-04-04 10:06 CDT
+
+- Extended the preview/proof lane again on `main`:
+  - `AustinPreviewBuilder`
+    - preview/full-bake source selection now preserves resolved source name in preview telemetry, including cached reuse paths
+  - `run_studio_harness.sh`
+    - edit markers now emit preview manifest source kind/name so edit and play proof artifacts are symmetric
+- Verification:
+  - `python3 -m unittest scripts.tests.test_austin_runtime_contract scripts.tests.test_run_studio_harness scripts.tests.test_scene_fidelity_audit scripts.tests.test_scene_parity_audit -v`
+  - `git diff --check`
+
 ## 2026-04-04 09:37 CDT
 
 - Extended the runtime consumption path on `main`:
