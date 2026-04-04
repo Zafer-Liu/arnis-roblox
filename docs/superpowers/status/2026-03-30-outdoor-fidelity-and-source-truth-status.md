@@ -2410,3 +2410,16 @@ The compact historical archive index is:
   - `cargo test -p arbx_planetary_store -p arbx_cli planetary_store --quiet`
   - `cargo test -p arbx_roblox_export --quiet`
   - `git diff --check rust/crates/arbx_planetary_store/src/lib.rs rust/crates/arbx_cli/src/main.rs rust/crates/arbx_roblox_export/src/lua_runtime_shards.rs rust/crates/arbx_roblox_export/src/lib.rs`
+
+## 2026-04-03 19:21 CDT
+
+- Extended the planetary backbone again on `main`:
+  - `arbx_planetary_store`
+    - added payload-class metadata per chunk: terrain presence plus road, rail, building, water, prop, landuse, and barrier counts
+    - added filtered lightweight chunk-summary queries so orchestration can ask for windows that specifically require terrain-bearing or building-bearing chunks
+  - `arbx_cli`
+    - `planetary-store subset-summary` now supports `--require-buildings` and `--require-terrain`
+- Verification:
+  - `cargo test -p arbx_planetary_store -p arbx_cli planetary_store --quiet`
+  - `cargo test -p arbx_planetary_store --quiet`
+  - `git diff --check rust/crates/arbx_planetary_store/src/lib.rs rust/crates/arbx_cli/src/main.rs`

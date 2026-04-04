@@ -50,6 +50,26 @@ pub struct PlanetaryChunkSummary {
     pub streaming_cost: f64,
     pub estimated_memory_cost: Option<f64>,
     pub partition_version: String,
+    pub has_terrain: bool,
+    pub road_count: usize,
+    pub rail_count: usize,
+    pub building_count: usize,
+    pub water_count: usize,
+    pub prop_count: usize,
+    pub landuse_count: usize,
+    pub barrier_count: usize,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+struct ChunkPayloadSummary {
+    has_terrain: bool,
+    road_count: usize,
+    rail_count: usize,
+    building_count: usize,
+    water_count: usize,
+    prop_count: usize,
+    landuse_count: usize,
+    barrier_count: usize,
 }
 
 fn read_scene_meta(connection: &Connection, scene_id: &str) -> PlanetaryStoreResult<StoredManifestMeta> {
@@ -158,6 +178,14 @@ fn open_store(path: &Path) -> PlanetaryStoreResult<Connection> {
             partition_version TEXT NOT NULL,
             subplans_json TEXT NOT NULL,
             chunk_json TEXT NOT NULL,
+            has_terrain INTEGER NOT NULL DEFAULT 0,
+            road_count INTEGER NOT NULL DEFAULT 0,
+            rail_count INTEGER NOT NULL DEFAULT 0,
+            building_count INTEGER NOT NULL DEFAULT 0,
+            water_count INTEGER NOT NULL DEFAULT 0,
+            prop_count INTEGER NOT NULL DEFAULT 0,
+            landuse_count INTEGER NOT NULL DEFAULT 0,
+            barrier_count INTEGER NOT NULL DEFAULT 0,
             PRIMARY KEY (scene_id, chunk_id),
             FOREIGN KEY (scene_id) REFERENCES scenes(scene_id) ON DELETE CASCADE
         );
@@ -165,7 +193,37 @@ fn open_store(path: &Path) -> PlanetaryStoreResult<Connection> {
             ON chunks(scene_id, origin_x, origin_z);
         ",
     )?;
+    ensure_chunk_payload_columns(&connection)?;
     Ok(connection)
+}
+
+fn ensure_chunk_payload_columns(connection: &Connection) -> PlanetaryStoreResult<()> {
+    let mut existing = std::collections::BTreeSet::new();
+    let mut statement = connection.prepare("PRAGMA table_info(chunks)")?;
+    let rows = statement.query_map([], |row| row.get::<_, String>(1))?;
+    for row in rows {
+        existing.insert(row?);
+    }
+
+    for (column, sql_type) in [
+        ("has_terrain", "INTEGER NOT NULL DEFAULT 0"),
+        ("road_count", "INTEGER NOT NULL DEFAULT 0"),
+        ("rail_count", "INTEGER NOT NULL DEFAULT 0"),
+        ("building_count", "INTEGER NOT NULL DEFAULT 0"),
+        ("water_count", "INTEGER NOT NULL DEFAULT 0"),
+        ("prop_count", "INTEGER NOT NULL DEFAULT 0"),
+        ("landuse_count", "INTEGER NOT NULL DEFAULT 0"),
+        ("barrier_count", "INTEGER NOT NULL DEFAULT 0"),
+    ] {
+        if !existing.contains(column) {
+            connection.execute(
+                &format!("ALTER TABLE chunks ADD COLUMN {column} {sql_type}"),
+                [],
+            )?;
+        }
+    }
+
+    Ok(())
 }
 
 pub fn init_planetary_store(path: &Path) -> PlanetaryStoreResult<()> {
@@ -455,6 +513,7 @@ fn insert_chunk(
     scene_id: &str,
     chunk: StoredChunkRecord,
 ) -> PlanetaryStoreResult<()> {
+    let payload = summarize_chunk_payload(&chunk.chunk_json)?;
     connection.execute(
         "
         INSERT INTO chunks (
@@ -468,8 +527,16 @@ fn insert_chunk(
             estimated_memory_cost,
             partition_version,
             subplans_json,
-            chunk_json
-        ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)
+            chunk_json,
+            has_terrain,
+            road_count,
+            rail_count,
+            building_count,
+            water_count,
+            prop_count,
+            landuse_count,
+            barrier_count
+        ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19)
         ",
         params![
             scene_id,
@@ -483,9 +550,40 @@ fn insert_chunk(
             chunk.partition_version,
             chunk.subplans_json,
             chunk.chunk_json,
+            if payload.has_terrain { 1 } else { 0 },
+            payload.road_count as i64,
+            payload.rail_count as i64,
+            payload.building_count as i64,
+            payload.water_count as i64,
+            payload.prop_count as i64,
+            payload.landuse_count as i64,
+            payload.barrier_count as i64,
         ],
     )?;
     Ok(())
+}
+
+fn summarize_chunk_payload(chunk_json: &str) -> PlanetaryStoreResult<ChunkPayloadSummary> {
+    let value: Value = serde_json::from_str(chunk_json)?;
+    let object = value
+        .as_object()
+        .ok_or_else(|| "chunk payload is not a JSON object".to_string())?;
+    let count = |key: &str| {
+        object
+            .get(key)
+            .and_then(Value::as_array)
+            .map_or(0usize, Vec::len)
+    };
+    Ok(ChunkPayloadSummary {
+        has_terrain: object.get("terrain").is_some() && !object.get("terrain").unwrap().is_null(),
+        road_count: count("roads"),
+        rail_count: count("rails"),
+        building_count: count("buildings"),
+        water_count: count("water"),
+        prop_count: count("props"),
+        landuse_count: count("landuse"),
+        barrier_count: count("barriers"),
+    })
 }
 
 pub fn ingest_manifest_sqlite(
@@ -910,6 +1008,8 @@ pub fn read_scene_chunk_summary_subset(
     max_x: f64,
     max_z: f64,
     limit: Option<usize>,
+    require_buildings: bool,
+    require_terrain: bool,
 ) -> PlanetaryStoreResult<Vec<PlanetaryChunkSummary>> {
     let connection = open_store(path)?;
     let chunk_size_studs: i32 = connection
@@ -930,13 +1030,23 @@ pub fn read_scene_chunk_summary_subset(
             feature_count,
             streaming_cost,
             estimated_memory_cost,
-            partition_version
+            partition_version,
+            has_terrain,
+            road_count,
+            rail_count,
+            building_count,
+            water_count,
+            prop_count,
+            landuse_count,
+            barrier_count
         FROM chunks
         WHERE scene_id = ?1
           AND origin_x <= ?2
           AND origin_x + ?3 >= ?4
           AND origin_z <= ?5
           AND origin_z + ?3 >= ?6
+          AND (?7 = 0 OR building_count > 0)
+          AND (?8 = 0 OR has_terrain = 1)
         ORDER BY origin_z ASC, origin_x ASC
         ",
     );
@@ -946,7 +1056,16 @@ pub fn read_scene_chunk_summary_subset(
 
     let mut statement = connection.prepare(&sql)?;
     let rows = statement.query_map(
-        params![scene_id, max_x, chunk_size_studs as f64, min_x, max_z, min_z],
+        params![
+            scene_id,
+            max_x,
+            chunk_size_studs as f64,
+            min_x,
+            max_z,
+            min_z,
+            if require_buildings { 1 } else { 0 },
+            if require_terrain { 1 } else { 0 },
+        ],
         |row| {
             Ok(PlanetaryChunkSummary {
                 chunk_id: row.get(0)?,
@@ -956,6 +1075,14 @@ pub fn read_scene_chunk_summary_subset(
                 streaming_cost: row.get(4)?,
                 estimated_memory_cost: row.get(5)?,
                 partition_version: row.get(6)?,
+                has_terrain: row.get::<_, i64>(7)? != 0,
+                road_count: row.get::<_, i64>(8)? as usize,
+                rail_count: row.get::<_, i64>(9)? as usize,
+                building_count: row.get::<_, i64>(10)? as usize,
+                water_count: row.get::<_, i64>(11)? as usize,
+                prop_count: row.get::<_, i64>(12)? as usize,
+                landuse_count: row.get::<_, i64>(13)? as usize,
+                barrier_count: row.get::<_, i64>(14)? as usize,
             })
         },
     )?;
@@ -1154,10 +1281,40 @@ mod tests {
             500.0,
             200.0,
             Some(1),
+            false,
+            false,
         )
         .unwrap();
         assert_eq!(chunks.len(), 1);
         assert_eq!(chunks[0].chunk_id, "0_0");
+    }
+
+    #[test]
+    fn planetary_store_filters_chunk_summary_subset_by_payload_classes() {
+        let dir = tempdir().unwrap();
+        let manifest_path = dir.path().join("sample.sqlite");
+        let store_path = dir.path().join("planetary.sqlite");
+
+        let manifest = build_sample_multi_chunk(3, 1);
+        write_manifest_sqlite(&manifest, &manifest_path).unwrap();
+        ingest_manifest_sqlite(&store_path, &manifest_path, Some("sample_austin")).unwrap();
+
+        let chunks = read_scene_chunk_summary_subset(
+            &store_path,
+            "sample_austin",
+            -10.0,
+            -10.0,
+            800.0,
+            300.0,
+            None,
+            true,
+            true,
+        )
+        .unwrap();
+        assert_eq!(chunks.len(), 1);
+        assert_eq!(chunks[0].chunk_id, "0_0");
+        assert!(chunks[0].has_terrain);
+        assert!(chunks[0].building_count > 0);
     }
 
     #[test]

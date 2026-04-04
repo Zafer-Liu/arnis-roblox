@@ -2117,6 +2117,8 @@ fn cmd_planetary_store(args: &[String]) -> Result<(), String> {
             let mut scene_id: Option<String> = None;
             let mut bbox_studs: Option<(f64, f64, f64, f64)> = None;
             let mut limit: Option<usize> = None;
+            let mut require_buildings = false;
+            let mut require_terrain = false;
             let mut i = 1;
             while i < args.len() {
                 match args[i].as_str() {
@@ -2159,6 +2161,14 @@ fn cmd_planetary_store(args: &[String]) -> Result<(), String> {
                         );
                         i += 2;
                     }
+                    "--require-buildings" => {
+                        require_buildings = true;
+                        i += 1;
+                    }
+                    "--require-terrain" => {
+                        require_terrain = true;
+                        i += 1;
+                    }
                     other => {
                         return Err(format!(
                             "unknown argument to planetary-store subset-summary: {other}"
@@ -2180,6 +2190,8 @@ fn cmd_planetary_store(args: &[String]) -> Result<(), String> {
                 max_x,
                 max_z,
                 limit,
+                require_buildings,
+                require_terrain,
             )
             .map_err(|err| format!("planetary-store subset-summary failed: {err}"))?;
             println!(
@@ -3558,6 +3570,39 @@ mod tests {
             "200,0,500,200".to_string(),
             "--limit".to_string(),
             "1".to_string(),
+        ])
+        .unwrap();
+    }
+
+    #[test]
+    fn planetary_store_subset_summary_filters_payload_classes() {
+        let tempdir = tempfile::tempdir().unwrap();
+        let store_path = tempdir.path().join("planetary.sqlite");
+        let manifest_path = tempdir.path().join("sample.sqlite");
+        let manifest = build_sample_multi_chunk(3, 1);
+        write_manifest_sqlite(&manifest, &manifest_path).unwrap();
+
+        cmd_planetary_store(&[
+            "ingest-manifest".to_string(),
+            "--store".to_string(),
+            store_path.display().to_string(),
+            "--manifest-sqlite".to_string(),
+            manifest_path.display().to_string(),
+            "--scene".to_string(),
+            "austin".to_string(),
+        ])
+        .unwrap();
+
+        cmd_planetary_store(&[
+            "subset-summary".to_string(),
+            "--store".to_string(),
+            store_path.display().to_string(),
+            "--scene".to_string(),
+            "austin".to_string(),
+            "--bbox-studs".to_string(),
+            "-10,-10,800,300".to_string(),
+            "--require-buildings".to_string(),
+            "--require-terrain".to_string(),
         ])
         .unwrap();
     }
