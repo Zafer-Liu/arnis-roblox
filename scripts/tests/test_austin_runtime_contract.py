@@ -1091,6 +1091,42 @@ class AustinRuntimeContractTests(unittest.TestCase):
         self.assertIn("LaneOnewayArrow", lane_body)
         # Must tag with LOD_Detail
         self.assertIn("LOD_Detail", lane_body)
+    # ------------------------------------------------------------------
+    # BuildingBuilder: pipeline field consumption
+    # ------------------------------------------------------------------
+
+    def test_building_builder_consumes_cladding_for_wall_material(self) -> None:
+        """building.cladding must be checked before building.material in getMaterial."""
+        src = self.building_builder_text
+        # The getMaterial function must reference building.cladding
+        self.assertIn("building.cladding", src, "getMaterial must read building.cladding")
+        # cladding block must appear before the material block
+        cladding_idx = src.index("building.cladding")
+        material_idx = src.index("building.material")
+        self.assertLess(
+            cladding_idx,
+            material_idx,
+            "building.cladding must be checked before building.material in getMaterial",
+        )
+
+    def test_building_builder_consumes_roof_direction(self) -> None:
+        """building.roofDirection must be read when orienting gabled roof ridges."""
+        src = self.building_builder_text
+        self.assertIn("building.roofDirection", src, "BuildingBuilder must read building.roofDirection")
+        # It should convert to radians
+        self.assertIn("math.rad(building.roofDirection)", src,
+                       "roofDirection must be converted to radians")
+
+    def test_building_builder_consumes_roof_angle(self) -> None:
+        """building.roofAngle must be read for roof pitch computation."""
+        src = self.building_builder_text
+        self.assertIn("building.roofAngle", src, "BuildingBuilder must read building.roofAngle")
+        # Must clamp to reasonable bounds
+        self.assertIn("math.clamp(building.roofAngle", src,
+                       "roofAngle must be clamped to reasonable bounds")
+        # Must use tan for rise computation
+        self.assertIn("math.tan(math.rad(clampedAngle))", src,
+                       "roofAngle must be converted via tan(rad()) for rise/run")
 
 
 if __name__ == "__main__":
