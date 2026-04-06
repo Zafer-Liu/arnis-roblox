@@ -1121,6 +1121,33 @@ class AustinRuntimeContractTests(unittest.TestCase):
         self.assertIn("math.tan(math.rad(clampedAngle))", src,
                        "roofAngle must be converted via tan(rad()) for rise/run")
 
+    def test_building_builder_supports_merged_window_mesh(self) -> None:
+        """Window panes should be mergeable into EditableMesh via MeshAccumulator."""
+        src = self.building_builder_text
+        self.assertIn("windowAccumulators", src,
+                       "BuildingBuilder must have a windowAccumulators dict for merged window meshes")
+        self.assertIn("getWindowAccumulator", src,
+                       "BuildingBuilder must expose a getWindowAccumulator helper")
+        self.assertIn("addWindowPaneToAccumulator", src,
+                       "BuildingBuilder must have addWindowPaneToAccumulator for quad conversion")
+        # Must support transparency on MeshAccumulator
+        self.assertIn("self.transparency", src,
+                       "MeshAccumulator must support a transparency option")
+        # Fallback path must still exist
+        self.assertIn('Instance.new("Part")', src,
+                       "Part-based fallback path must still exist for windows")
+        self.assertIn("SimpleShellWindowPane", src,
+                       "SimpleShellWindowPane fallback name must be preserved")
+
+    def test_world_config_exposes_merge_windows_knob(self) -> None:
+        """WorldConfig must expose MergeWindowsIntoMesh for the window mesh toggle."""
+        src = self.world_config_text
+        self.assertIn("MergeWindowsIntoMesh", src,
+                       "WorldConfig must have MergeWindowsIntoMesh knob")
+        # Default should be true (merged)
+        self.assertIn("MergeWindowsIntoMesh = true", src,
+                       "MergeWindowsIntoMesh should default to true")
+
 
 if __name__ == "__main__":
     unittest.main()

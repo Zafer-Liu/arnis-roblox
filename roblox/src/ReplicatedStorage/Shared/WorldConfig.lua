@@ -37,6 +37,7 @@ local WorldConfig = {
     -- BUILDING FIDELITY
     -- ═══════════════════════════════════════════════════════════════
     EnableWindowRendering = true,
+    MergeWindowsIntoMesh = true, -- batch window panes into EditableMesh (massive draw call reduction)
     EnableRoomInteriors = true,
     EnableHeroPBR = true,
     WindowSpacing = { -- studs between windows by building usage

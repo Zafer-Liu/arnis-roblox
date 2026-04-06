@@ -54,6 +54,8 @@ function MeshAccumulator.new(parent, materialName, material, color, options)
     self.canCollide = options.canCollide
     self.canQuery = options.canQuery
     self.castShadow = options.castShadow
+    self.transparency = options.transparency
+    self.reflectance = options.reflectance
     self.collisionFidelity = options.collisionFidelity
     self.vertices = {} -- array of Vector3
     self.normals = {} -- array of Vector3
@@ -146,6 +148,12 @@ function MeshAccumulator:flush()
     part.CanCollide = if self.canCollide == nil then true else self.canCollide
     part.CanQuery = if self.canQuery == nil then true else self.canQuery
     part.CastShadow = if self.castShadow == nil then false else self.castShadow
+    if self.transparency ~= nil then
+        part.Transparency = self.transparency
+    end
+    if self.reflectance ~= nil then
+        part.Reflectance = self.reflectance
+    end
     part.Parent = self.parent
 
     -- Reset buffers for next batch
@@ -2541,7 +2549,36 @@ collectSimpleShellReadableEdges = function(worldPts)
     return edges
 end
 
-local function buildSimpleShellOpenings(parent, worldPts, baseY, height, windowBudget, usage, buildingId)
+-------------------------------------------------------------------------------
+-- addWindowPaneToAccumulator: convert a pane CFrame + Size into a front-face
+-- quad and add it to the given MeshAccumulator.  The "front" face is the
+-- +LookVector face of the CFrame (the outward-facing glass surface).
+-------------------------------------------------------------------------------
+local function addWindowPaneToAccumulator(acc, paneCFrame, paneSize)
+    local halfW = paneSize.X * 0.5
+    local halfH = paneSize.Y * 0.5
+    local halfD = paneSize.Z * 0.5
+    local right = paneCFrame.RightVector
+    local up = paneCFrame.UpVector
+    local look = paneCFrame.LookVector
+    local center = paneCFrame.Position + look * halfD -- front face center
+
+    local p1 = center - right * halfW - up * halfH
+    local p2 = center + right * halfW - up * halfH
+    local p3 = center + right * halfW + up * halfH
+    local p4 = center - right * halfW + up * halfH
+    acc:addQuad(p1, p2, p3, p4, look)
+
+    -- Also add the back face so the pane is visible from inside
+    local backCenter = paneCFrame.Position - look * halfD
+    local bp1 = backCenter + right * halfW - up * halfH
+    local bp2 = backCenter - right * halfW - up * halfH
+    local bp3 = backCenter - right * halfW + up * halfH
+    local bp4 = backCenter + right * halfW + up * halfH
+    acc:addQuad(bp1, bp2, bp3, bp4, -look)
+end
+
+local function buildSimpleShellOpenings(parent, worldPts, baseY, height, windowBudget, usage, buildingId, windowAccumulators)
     local edges = collectSimpleShellReadableEdges(worldPts)
     if #edges == 0 then
         return 0, 0
@@ -2597,21 +2634,50 @@ local function buildSimpleShellOpenings(parent, worldPts, baseY, height, windowB
             local paneCenter = edge.mid + edge.dir * offset
             local outward = Vector3.new(-edge.dir.Z, 0, edge.dir.X) * 0.13
             local shellTint = getWindowTint(usage, buildingIdHash, windowPaneCount)
-            local pane = Instance.new("Part")
-            pane.Name = "SimpleShellWindowPane"
-            pane.Size = Vector3.new(math.min(2.1, math.max(1.4, edge.len * 0.08)), 1.65, 0.12)
-            pane.Material = Enum.Material.Glass
-            pane.Color = shellTint.color
-            pane.Anchored = true
-            pane.CanCollide = false
-            pane.CastShadow = false
-            pane.Transparency = shellTint.transparency
-            pane:SetAttribute("BaseTransparency", shellTint.transparency)
-            pane.CFrame = CFrame.lookAt(
+            local paneSize = Vector3.new(math.min(2.1, math.max(1.4, edge.len * 0.08)), 1.65, 0.12)
+            local paneCFrame = CFrame.lookAt(
                 paneCenter + outward + Vector3.new(0, baseY + 2.9, 0),
                 paneCenter + outward + Vector3.new(0, baseY + 2.9, 0) + edge.dir
             )
-            pane.Parent = parent
+            if windowAccumulators then
+                local tintKey = string.format(
+                    "%d:%d:%d:%.2f",
+                    math.floor(shellTint.color.R * 255 + 0.5),
+                    math.floor(shellTint.color.G * 255 + 0.5),
+                    math.floor(shellTint.color.B * 255 + 0.5),
+                    shellTint.transparency
+                )
+                if not windowAccumulators[tintKey] then
+                    windowAccumulators[tintKey] = MeshAccumulator.new(
+                        parent,
+                        "window_glass_" .. tintKey,
+                        Enum.Material.Glass,
+                        shellTint.color,
+                        {
+                            canCollide = false,
+                            canQuery = false,
+                            castShadow = false,
+                            transparency = shellTint.transparency,
+                            reflectance = 0.15,
+                            collisionFidelity = Enum.CollisionFidelity.Box,
+                        }
+                    )
+                end
+                addWindowPaneToAccumulator(windowAccumulators[tintKey], paneCFrame, paneSize)
+            else
+                local pane = Instance.new("Part")
+                pane.Name = "SimpleShellWindowPane"
+                pane.Size = paneSize
+                pane.Material = Enum.Material.Glass
+                pane.Color = shellTint.color
+                pane.Anchored = true
+                pane.CanCollide = false
+                pane.CastShadow = false
+                pane.Transparency = shellTint.transparency
+                pane:SetAttribute("BaseTransparency", shellTint.transparency)
+                pane.CFrame = paneCFrame
+                pane.Parent = parent
+            end
             windowPaneCount += 1
             if windowBudget then
                 windowBudget.used += 1
@@ -3272,6 +3338,37 @@ function BuildingBuilder.MeshBuildAll(parent, buildings, originStuds, chunk, con
             sillAccumulatorOptions
         )
 
+        -- Window pane mesh accumulators: keyed by (color, transparency) so each
+        -- distinct tint gets its own EditableMesh with correct Transparency.
+        local mergeWindows = config.MergeWindowsIntoMesh ~= false
+        local windowAccumulators = if mergeWindows then {} else nil
+        local function getWindowAccumulator(tintColor, tintTransparency)
+            if not windowAccumulators then
+                return nil
+            end
+            local r = math.floor(tintColor.R * 255 + 0.5)
+            local g = math.floor(tintColor.G * 255 + 0.5)
+            local b = math.floor(tintColor.B * 255 + 0.5)
+            local key = string.format("%d:%d:%d:%.2f", r, g, b, tintTransparency)
+            if not windowAccumulators[key] then
+                windowAccumulators[key] = MeshAccumulator.new(
+                    detailFolder,
+                    "window_glass_" .. key,
+                    Enum.Material.Glass,
+                    tintColor,
+                    {
+                        canCollide = false,
+                        canQuery = false,
+                        castShadow = false,
+                        transparency = tintTransparency,
+                        reflectance = 0.15,
+                        collisionFidelity = Enum.CollisionFidelity.Box,
+                    }
+                )
+            end
+            return windowAccumulators[key]
+        end
+
         local buildingId = building.id
         if model and type(buildingId) == "string" and buildingId ~= "" then
             builtModelsById[buildingId] = model
@@ -3453,30 +3550,37 @@ function BuildingBuilder.MeshBuildAll(parent, buildings, originStuds, chunk, con
                             windowBudget.used += 1
                             facadePaneIndex += 1
                             local tint = getWindowTint(usage, meshFacadeBuildingIdHash, facadePaneIndex)
-                            local band = Instance.new("Part")
-                            band.Name = bldgName .. "_facade_" .. i .. "_" .. floor
-                            band.Anchored = true
-                            band.Size = Vector3.new(WALL_THICKNESS * 0.35, BAND_H * 0.8, bandLen)
-                            band.CFrame = CFrame.lookAt(
+                            local bandSize = Vector3.new(WALL_THICKNESS * 0.35, BAND_H * 0.8, bandLen)
+                            local bandCFrame = CFrame.lookAt(
                                 Vector3.new((p1w.X + p2w.X) * 0.5, bandY, (p1w.Z + p2w.Z) * 0.5),
                                 Vector3.new((p1w.X + p2w.X) * 0.5 + edgeUnitX, bandY, (p1w.Z + p2w.Z) * 0.5 + edgeUnitZ)
                             )
-                            band.Material = Enum.Material.Glass
-                            band.Color = tint.color
-                            band.CastShadow = false
-                            band.Transparency = tint.transparency
-                            band:SetAttribute("BaseTransparency", tint.transparency)
-                            band:SetAttribute("ArnisFacadePaneCount", numPanes)
-                            band.Parent = detailFolder
+                            local windowAcc = getWindowAccumulator(tint.color, tint.transparency)
+                            if windowAcc then
+                                addWindowPaneToAccumulator(windowAcc, bandCFrame, bandSize)
+                            else
+                                local band = Instance.new("Part")
+                                band.Name = bldgName .. "_facade_" .. i .. "_" .. floor
+                                band.Anchored = true
+                                band.Size = bandSize
+                                band.CFrame = bandCFrame
+                                band.Material = Enum.Material.Glass
+                                band.Color = tint.color
+                                band.CastShadow = false
+                                band.Transparency = tint.transparency
+                                band:SetAttribute("BaseTransparency", tint.transparency)
+                                band:SetAttribute("ArnisFacadePaneCount", numPanes)
+                                band.Parent = detailFolder
+                            end
 
                             local sillSize = Vector3.new(bandLen + 0.4, 0.2, 0.5)
-                            local sillCenter = (band.CFrame * CFrame.new(0, -BAND_H * 0.4 - 0.1, 0.15)).Position
+                            local sillCenter = (bandCFrame * CFrame.new(0, -BAND_H * 0.4 - 0.1, 0.15)).Position
                             addOrientedBox(
                                 sillAcc,
                                 sillCenter,
-                                band.CFrame.RightVector,
-                                band.CFrame.UpVector,
-                                band.CFrame.LookVector,
+                                bandCFrame.RightVector,
+                                bandCFrame.UpVector,
+                                bandCFrame.LookVector,
                                 sillSize
                             )
                         end
@@ -3523,7 +3627,7 @@ function BuildingBuilder.MeshBuildAll(parent, buildings, originStuds, chunk, con
                         addCornerAccentsToAccumulator(detailAcc, worldPts, baseY, height)
                     )
                     local doorCueCount, windowPaneCount =
-                        buildSimpleShellOpenings(detailFolder, worldPts, baseY, height, windowBudget, usage, buildingId)
+                        buildSimpleShellOpenings(detailFolder, worldPts, baseY, height, windowBudget, usage, buildingId, windowAccumulators)
                     detailFolder:SetAttribute("ArnisSimpleShellDoorCueCount", doorCueCount)
                     detailFolder:SetAttribute("ArnisSimpleShellWindowPaneCount", windowPaneCount)
                 elseif
@@ -3644,6 +3748,22 @@ function BuildingBuilder.MeshBuildAll(parent, buildings, originStuds, chunk, con
         )
         if maybeYield then
             maybeYield(false)
+        end
+        if windowAccumulators then
+            for _, wAcc in pairs(windowAccumulators) do
+                wAcc:flush()
+                recordMeshBuildStats(
+                    buildStats,
+                    wAcc.meshCount,
+                    wAcc.totalVertexCount,
+                    wAcc.totalTriangleCount,
+                    wAcc.totalMeshCreateMs,
+                    0
+                )
+                if maybeYield then
+                    maybeYield(false)
+                end
+            end
         end
     end
 
