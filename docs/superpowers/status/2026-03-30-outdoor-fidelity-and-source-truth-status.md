@@ -1,7 +1,7 @@
 # Outdoor Fidelity And Source-Truth Status
 
 Date: 2026-03-30
-Status: Active
+Status: Completed
 
 ## Purpose
 
@@ -4144,3 +4144,72 @@ The compact historical archive index is:
 - Practical meaning:
   - route play proofs are now self-contained even without `rust/out` manifest inputs on the proof host
   - within the repo/harness boundary, the only remaining blocker is the external macOS display-capture limitation on `tertiary`
+
+## 2026-04-06 12:17 CDT
+
+- The remote screenshot blocker on `tertiary` is now burned down with a repo-owned capture path.
+- What landed:
+  - `scripts/gui_session_capture.py`
+    - new tertiary-local helper that launches a `.command` through the logged-in `Terminal` GUI session
+    - the command activates `Roblox Studio`, runs `screencapture`, and writes the normal screenshot sidecar contract
+  - `scripts/run_studio_harness.sh`
+    - when direct `capture-screenshot` reports `blocker_reason="host_display_capture_blocked"`, the harness now relays the capture through `gui_session_capture.py`
+  - `scripts/run_studio_harness_remote.sh`
+    - remote runs now opt into the GUI-session relay automatically with `ARNIS_GUI_SESSION_CAPTURE=1`
+  - tests added/updated:
+    - `scripts/tests/test_gui_session_capture.py`
+    - `scripts/tests/test_run_studio_harness.py`
+    - `scripts/tests/test_run_studio_harness_remote.py`
+- Direct helper proof on `tertiary`:
+  - `python3 scripts/gui_session_capture.py --target /tmp/arnis-gui-helper-proof.png --root-dir ~/.codex-remote-studio/arnis-roblox --timeout 25`
+  - result:
+    - `success=true`
+    - `capture_method="gui_terminal_display"`
+    - sidecar recorded `guiSessionRelay.method="terminal.command"`
+- End-to-end harness proof on the active step-0 route slice:
+  - remote direct run wrote:
+    - `/tmp/arnis-studio-harness-play.png`
+    - `/tmp/arnis-studio-harness-play.capture.json`
+    - `/tmp/arnis-scene-fidelity-play.json`
+    - `/tmp/arnis-scene-fidelity-play.html`
+  - synced locally to:
+    - `/tmp/arnis-remote-studio-gui-direct/arnis-studio-harness-play.png`
+    - `/tmp/arnis-remote-studio-gui-direct/arnis-studio-harness-play.capture.json`
+    - `/tmp/arnis-remote-studio-gui-direct/arnis-scene-fidelity-play.json`
+    - `/tmp/arnis-remote-studio-gui-direct/arnis-scene-fidelity-play.html`
+  - final proof state:
+    - screenshot sidecar:
+      - `capture_method="gui_terminal_display"`
+      - `success=true`
+      - `guiSessionRelay={"method":"terminal.command","openReturnCode":0,"status":"ok","terminalApp":"Terminal"}`
+    - play fidelity report:
+      - `manifestSourceKind="route_catalog"`
+      - `findingCount=0`
+- Practical meaning:
+  - the host display-capture blocker is no longer a blocker for the harness
+  - route-catalog play proofs on `tertiary` now have a working visual artifact lane plus clean route-runtime-backed fidelity artifacts
+
+## 2026-04-06 12:20 CDT
+
+- Re-proved the final visual lane from the real harness path, not only the direct helper:
+  - remote direct harness run on `tertiary` with:
+    - `ARNIS_ROUTE_BUNDLE_DIR=$HOME/.codex-remote-studio/arnis-roblox/.route-bundles/PlanetaryRouteBundle`
+    - `ARNIS_GUI_SESSION_CAPTURE=1`
+    - `--screenshot /tmp/arnis-studio-harness.png`
+    - `--route-catalog PlanetaryRouteBundle.route-catalog --route-lane active --route-step-index 0`
+- Final remote artifacts now exist on `tertiary` and were pulled back locally:
+  - local synced visual/artifact bundle:
+    - `/tmp/arnis-remote-studio-gui-direct/arnis-studio-harness-play.png`
+    - `/tmp/arnis-remote-studio-gui-direct/arnis-studio-harness-play.capture.json`
+    - `/tmp/arnis-remote-studio-gui-direct/arnis-scene-fidelity-play.json`
+    - `/tmp/arnis-remote-studio-gui-direct/arnis-scene-fidelity-play.html`
+- Final proof facts from that same run:
+  - screenshot sidecar:
+    - `capture_method="gui_terminal_display"`
+    - `success=true`
+    - `guiSessionRelay.method="terminal.command"`
+  - play fidelity report:
+    - `manifestSourceKind="route_catalog"`
+    - `findingCount=0`
+- This closes the last previously open blocker in the remote proof lane:
+  - `tertiary` now has a working screenshot path and a working route-runtime-backed play-fidelity artifact path in the same play run

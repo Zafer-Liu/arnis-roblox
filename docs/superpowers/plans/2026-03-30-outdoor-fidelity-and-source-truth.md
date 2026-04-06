@@ -1,6 +1,6 @@
 # Outdoor Fidelity And Source-Truth Implementation Plan
 
-Status: Active
+Status: Completed
 
 This is the active implementation surface for the March 30 outdoor fidelity and source-truth tranche.
 

@@ -26,9 +26,9 @@ BASELINE_STATUS_PATH = ROOT / "docs" / "superpowers" / "status" / "2026-03-28-ca
 SUPERPOWERS_ROOT = ROOT / "docs" / "superpowers"
 ARCHIVE_INDEX_PATH = ROOT / "docs" / "superpowers" / "archive-index.md"
 ACTIVE_TRUTH_STACK = {
-    "specs": ROOT / "docs" / "superpowers" / "specs" / "2026-03-30-outdoor-fidelity-and-source-truth-design.md",
-    "plans": ROOT / "docs" / "superpowers" / "plans" / "2026-03-30-outdoor-fidelity-and-source-truth.md",
-    "status": ROOT / "docs" / "superpowers" / "status" / "2026-03-30-outdoor-fidelity-and-source-truth-status.md",
+    "specs": ROOT / "docs" / "superpowers" / "specs" / "2026-04-06-planetary-realism-sprint-design.md",
+    "plans": ROOT / "docs" / "superpowers" / "plans" / "2026-04-06-planetary-realism-sprint.md",
+    "status": ROOT / "docs" / "superpowers" / "status" / "2026-04-06-planetary-realism-sprint-status.md",
 }
 ALLOWED_STATUSES = {"Active", "Historical", "Completed"}
 RETAINED_SUPERPOWERS_DOCS = {
@@ -36,6 +36,10 @@ RETAINED_SUPERPOWERS_DOCS = {
     ACTIVE_TRUTH_STACK["plans"],
     ACTIVE_TRUTH_STACK["status"],
     BASELINE_STATUS_PATH,
+    # Completed outdoor fidelity tranche (historical context)
+    ROOT / "docs" / "superpowers" / "specs" / "2026-03-30-outdoor-fidelity-and-source-truth-design.md",
+    ROOT / "docs" / "superpowers" / "plans" / "2026-03-30-outdoor-fidelity-and-source-truth.md",
+    ROOT / "docs" / "superpowers" / "status" / "2026-03-30-outdoor-fidelity-and-source-truth-status.md",
 }
 ARCHIVE_INDEX_EXPECTATIONS = [
     "2026-03-28-play-fidelity-and-observability",

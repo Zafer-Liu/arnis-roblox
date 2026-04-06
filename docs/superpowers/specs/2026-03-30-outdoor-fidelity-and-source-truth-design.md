@@ -1,7 +1,7 @@
 # Outdoor Fidelity And Source-Truth Design
 
 Date: 2026-03-30
-Status: Active
+Status: Completed
 
 This design defines the active outdoor fidelity and source-truth tranche after the March 28 baseline and play-fidelity work.
 
