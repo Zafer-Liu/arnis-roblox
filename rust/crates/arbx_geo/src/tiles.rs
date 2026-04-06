@@ -128,6 +128,87 @@ pub fn fetch_tile(cache_dir: &Path, x: u32, y: u32, zoom: u32) -> Result<Vec<u8>
     Ok(bytes)
 }
 
+/// Composite satellite tiles into a single 512x512 RGB image covering the
+/// given bounding box.
+///
+/// For each output pixel the function maps back to lat/lon, identifies the
+/// source tile pixel, and copies the colour across.  Missing or corrupt tiles
+/// are silently skipped (the output defaults to black).
+pub fn composite_chunk_texture(
+    cache_dir: &Path,
+    min_lat: f64,
+    min_lon: f64,
+    max_lat: f64,
+    max_lon: f64,
+    zoom: u32,
+    output_size: u32,
+) -> Result<image::RgbImage, String> {
+    use image::{GenericImageView, RgbImage};
+
+    let mut output = RgbImage::new(output_size, output_size);
+
+    let tiles = tiles_for_bbox(min_lat, min_lon, max_lat, max_lon, zoom);
+    if tiles.is_empty() {
+        return Ok(output);
+    }
+
+    // Pre-load all needed tiles into memory.
+    let mut tile_images: std::collections::HashMap<(u32, u32), image::DynamicImage> =
+        std::collections::HashMap::new();
+    for &(tx, ty) in &tiles {
+        match fetch_tile(cache_dir, tx, ty, zoom) {
+            Ok(bytes) => {
+                if let Ok(img) = image::load_from_memory(&bytes) {
+                    tile_images.insert((tx, ty), img);
+                }
+            }
+            Err(_) => {
+                // Skip unavailable tiles; output stays black for those pixels.
+            }
+        }
+    }
+
+    let n = 2_u64.pow(zoom) as f64;
+
+    for py in 0..output_size {
+        // Map output pixel row to latitude (top = max_lat, bottom = min_lat).
+        let lat = max_lat - (py as f64 / output_size as f64) * (max_lat - min_lat);
+        let lat_rad = lat.to_radians();
+        let tile_y_frac =
+            (1.0 - (lat_rad.tan() + 1.0 / lat_rad.cos()).ln() / std::f64::consts::PI) / 2.0 * n;
+
+        for px in 0..output_size {
+            // Map output pixel column to longitude (left = min_lon, right = max_lon).
+            let lon = min_lon + (px as f64 / output_size as f64) * (max_lon - min_lon);
+            let tile_x_frac = (lon + 180.0) / 360.0 * n;
+
+            let tx = tile_x_frac as u32;
+            let ty = tile_y_frac as u32;
+
+            if let Some(img) = tile_images.get(&(tx, ty)) {
+                let (tw, th) = img.dimensions();
+                let src_x = ((tile_x_frac - tx as f64) * tw as f64) as u32;
+                let src_y = ((tile_y_frac - ty as f64) * th as f64) as u32;
+                if src_x < tw && src_y < th {
+                    let pixel = img.get_pixel(src_x, src_y);
+                    output.put_pixel(px, py, image::Rgb([pixel[0], pixel[1], pixel[2]]));
+                }
+            }
+        }
+    }
+
+    Ok(output)
+}
+
+/// Build the output path for a chunk's terrain texture PNG.
+///
+/// Layout: `{out_dir}/{scene}-terrain-tiles/{chunk_id}.png`
+pub fn chunk_texture_path(out_dir: &Path, scene: &str, chunk_id: &str) -> PathBuf {
+    out_dir
+        .join(format!("{}-terrain-tiles", scene))
+        .join(format!("{}.png", chunk_id))
+}
+
 // ---------------------------------------------------------------------------
 // Tests
 // ---------------------------------------------------------------------------
@@ -232,6 +313,76 @@ mod tests {
 
         let result = fetch_tile(&tmp, 1, 2, 3).expect("cached fetch should succeed");
         assert_eq!(result, fake_bytes);
+
+        let _ = std::fs::remove_dir_all(&tmp);
+    }
+
+    #[test]
+    fn chunk_texture_path_construction() {
+        let p = chunk_texture_path(Path::new("out"), "Austin", "2_3");
+        assert_eq!(p, PathBuf::from("out/Austin-terrain-tiles/2_3.png"));
+    }
+
+    #[test]
+    fn chunk_texture_path_nested_out_dir() {
+        let p = chunk_texture_path(Path::new("/tmp/export/scenes"), "Downtown", "-1_0");
+        assert_eq!(
+            p,
+            PathBuf::from("/tmp/export/scenes/Downtown-terrain-tiles/-1_0.png")
+        );
+    }
+
+    #[test]
+    fn tiles_for_bbox_deterministic_small() {
+        // A tight bbox that should produce exactly 1 tile at zoom 17.
+        // Pick a point and compute its tile, then build a bbox inside that tile.
+        let (tx, ty) = lat_lon_to_tile(30.267, -97.743, 17);
+        let (nw_lat, nw_lon) = tile_to_lat_lon(tx, ty, 17);
+        let (se_lat, se_lon) = tile_to_lat_lon(tx + 1, ty + 1, 17);
+        // Shrink bbox to be strictly inside the tile.
+        let min_lat = se_lat + 0.0001;
+        let max_lat = nw_lat - 0.0001;
+        let min_lon = nw_lon + 0.0001;
+        let max_lon = se_lon - 0.0001;
+        let tiles = tiles_for_bbox(min_lat, min_lon, max_lat, max_lon, 17);
+        assert_eq!(tiles.len(), 1, "tight bbox should produce exactly 1 tile");
+        assert_eq!(tiles[0], (tx, ty));
+    }
+
+    #[test]
+    fn composite_chunk_texture_returns_correct_size_with_fake_tiles() {
+        // Seed the cache with a fake JPEG tile, then verify compositing
+        // produces the correct output dimensions.
+        let tmp = std::env::temp_dir().join("arbx_geo_composite_fake");
+        let _ = std::fs::remove_dir_all(&tmp);
+        std::fs::create_dir_all(&tmp).unwrap();
+
+        // Pre-populate cache with a real (tiny) 256x256 red PNG encoded as JPEG
+        // so `image::load_from_memory` will parse it.
+        let red_img = image::RgbImage::from_fn(256, 256, |_, _| image::Rgb([255, 0, 0]));
+        let tiles = tiles_for_bbox(30.26, -97.75, 30.27, -97.74, 17);
+        for &(tx, ty) in &tiles {
+            let path = tile_cache_path(&tmp, tx, ty, 17);
+            std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+            // Save as JPEG bytes.
+            let mut buf = std::io::Cursor::new(Vec::new());
+            red_img
+                .write_to(&mut buf, image::ImageFormat::Jpeg)
+                .unwrap();
+            std::fs::write(&path, buf.into_inner()).unwrap();
+        }
+
+        let img = composite_chunk_texture(&tmp, 30.26, -97.75, 30.27, -97.74, 17, 512)
+            .expect("compositing with fake cached tiles should succeed");
+        assert_eq!(img.width(), 512);
+        assert_eq!(img.height(), 512);
+        // Every pixel should be reddish (JPEG compression loses some precision).
+        let sample = img.get_pixel(256, 256);
+        assert!(
+            sample[0] > 200,
+            "red channel should be high, got {}",
+            sample[0]
+        );
 
         let _ = std::fs::remove_dir_all(&tmp);
     }

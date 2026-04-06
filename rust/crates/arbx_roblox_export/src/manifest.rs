@@ -176,6 +176,7 @@ pub struct Chunk {
     pub id: ChunkId,
     pub origin_studs: Vec3,
     pub terrain: Option<TerrainGrid>,
+    pub terrain_texture_path: Option<String>,
     pub roads: Vec<RoadSegment>,
     pub rails: Vec<RailSegment>,
     pub buildings: Vec<BuildingShell>,
@@ -415,6 +416,12 @@ impl Chunk {
             out.push_str(",\n");
             write_key(out, indent + 2, "terrain");
             terrain.write_json(out, indent + 2);
+        }
+
+        if let Some(texture_path) = &self.terrain_texture_path {
+            out.push_str(",\n");
+            write_key(out, indent + 2, "terrainTexturePath");
+            write_string(out, texture_path);
         }
 
         out.push_str(",\n");

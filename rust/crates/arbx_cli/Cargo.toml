@@ -12,6 +12,7 @@ arbx_geo = { path = "../arbx_geo" }
 serde.workspace = true
 serde_json.workspace = true
 rayon.workspace = true
+image = "0.25"
 
 [dev-dependencies]
 tempfile = "3.10"
