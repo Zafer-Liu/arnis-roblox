@@ -188,6 +188,48 @@ Players land on rooftops. They need to feel like real surfaces.
 - MaterialVariant and SurfaceAppearance costs budgeted per chunk within Roblox limits
 - All existing tests remain green (Python 212+, Rust 205+, shell syntax)
 
+## Roblox 2026 Platform Budget Constraints
+
+These hard limits shape every track's design:
+
+- **EditableImage**: max 1024x1024 per image, **32 MB total budget** per experience (all images combined)
+  - 512x512 RGBA = 1 MB each → ~32 images, or ~16 with normal maps
+  - 256x256 RGBA = 0.25 MB each → ~128 images
+- **EditableMesh**: 20,000 triangles per mesh, ~60,000 vertices per mesh
+  - `CreateMeshPartAsync` bakes and frees the editable budget (current approach is correct)
+- **SurfaceAppearance**: no hard instance limit, but each EditableImage-backed texture costs EditableImage budget
+  - Pre-uploaded asset-ID-backed textures have no EditableImage budget cost (only GPU memory, Roblox-managed)
+- **Atmosphere**: single global instance, no per-ring density control
+  - Use per-part Transparency ramping for ring-based depth
+- **BillboardGui labels**: ~50-100 visible simultaneously before frame time impact
+
+## Satellite Imagery Pipeline (Research Validated)
+
+Satellite imagery draping on terrain is viable as of January 2026 via `AssetService:CreateSurfaceAppearanceAsync()`. Architecture:
+
+1. **Offline compilation** (Rust pipeline): fetch satellite tiles from Mapbox Satellite (`mapbox.satellite-v9`, zoom 17-18, 0.3-2m/px global) or ESRI World Imagery during `arbx_cli compile`. Bake per-chunk 512x512 PNG textures into manifest artifacts.
+2. **Runtime import** (Lua): generate flat or height-following EditableMesh grid per chunk (64x64 quads = 8,192 tris at 4-stud grid), assign UVs, create EditableImage from baked PNG via `WritePixelsBuffer()`, bind as SurfaceAppearance ColorMap.
+3. **Normal map generation**: compute per-cell surface normals from DEM heightfield during compilation, encode into EditableImage NormalMap for free PBR hillshading.
+4. **Budget management**: near-ring chunks get satellite overlay (512x512 = 1 MB color + 1 MB normal = 2 MB per chunk, ~8-10 chunks in 32 MB budget). Mid-ring gets MaterialVariant terrain only. Far-ring gets base Enum.Material. Recycle EditableImage on stream-out.
+5. **Hybrid**: keep Terrain voxels underneath for physics/water/collision. EditableMesh overlay is visual only, 0.05 studs above terrain surface.
+
+## Road Marking Architecture
+
+Road markings (crosswalks, lane lines) via thin EditableMesh overlay geometry:
+- White quads 0.02 studs above road surface
+- Crosswalks at `highway=crossing` nodes with `crossing:markings` tags from OSM
+- Center lane lines from `lanes` field (dashed for passing, solid for no-passing)
+- Uses existing MeshAccumulator — a crosswalk costs ~8-16 triangles
+- No EditableImage budget consumed (geometry approach, not texture)
+
+## Label Architecture
+
+Road and building names via BillboardGui:
+- Road names: BillboardGui at road midpoint, `MaxDistance = 150`, semi-transparent background
+- Building names: POI/landmark only (OSM `name=*` tag), `MaxDistance = 80`
+- Street signs: small Part + SurfaceGui at intersections where two named roads meet
+- Budget: ~20-30 BillboardGuis per near-ring chunk, 0 in mid/far
+
 ## What This Does Not Include
 
 - Style resolver infrastructure (the canonical-feature-style-contract is the next tranche after visual quality is proven)
@@ -196,5 +238,5 @@ Players land on rooftops. They need to feel like real surfaces.
 - Traffic simulation or NPC systems
 - New vehicle or aircraft types (those are gameplay, not rendering)
 - Multi-city compilation (pipeline already supports it; this tranche proves Austin quality first)
-- Satellite imagery draping on terrain (EditableImage texture approach — evaluate after MaterialVariant terrain proves out)
-- Road text labels or building address numbers (BillboardGui approach — evaluate after core materials land)
+- Quadtree multi-resolution chunk subdivision (pipeline change for future tranche)
+- Pre-compiled mid-ring LOD variants (future tranche — use StreamingMesh for now)
