@@ -32,6 +32,11 @@ local LOD_UPDATE_INTERVAL = 2 -- seconds
 local LOD_MOVEMENT_REFRESH_THRESHOLD_STUDS = 24
 local lastLODUpdate = 0
 
+-- Ring-based transparency: far-ring chunks get a slight transparency boost
+-- to sell atmospheric depth without per-ring fog (Roblox Atmosphere is global-only).
+local FAR_RING_TRANSPARENCY_BOOST = 0.15
+local MID_RING_TRANSPARENCY_BOOST = 0.05
+
 local LOD_HIGH = "High"
 local LOD_LOW = "Low"
 -- Registry of chunkId -> current LOD level
@@ -1742,6 +1747,45 @@ local function setGroupVisible(group, visible)
     group:SetAttribute("ArnisLodVisible", visible)
 end
 
+-- Apply ring-based transparency boost to all visible BaseParts in a chunk folder.
+-- Parts remember their authored transparency via ArnisBaseTransparency so the boost
+-- is additive and reversible when the chunk moves back to a nearer ring.
+local function applyRingTransparency(chunkEntry, ringName)
+    local folder = chunkEntry and chunkEntry.folder
+    if not folder or not folder.Parent then
+        return
+    end
+
+    local boost = 0
+    if ringName == "far" then
+        boost = FAR_RING_TRANSPARENCY_BOOST
+    elseif ringName == "mid" then
+        boost = MID_RING_TRANSPARENCY_BOOST
+    end
+
+    local currentBoost = folder:GetAttribute("ArnisRingTransparencyBoost") or 0
+    if currentBoost == boost then
+        return
+    end
+
+    for _, descendant in ipairs(folder:GetDescendants()) do
+        if descendant:IsA("BasePart") then
+            local base = descendant:GetAttribute("ArnisBaseTransparency")
+                or descendant:GetAttribute("BaseTransparency")
+            if base == nil then
+                -- First time: snapshot the authored transparency
+                base = descendant.Transparency
+                descendant:SetAttribute("ArnisBaseTransparency", base)
+            end
+            -- Only apply boost to visible parts (not hidden LOD parts)
+            if base < 0.99 then
+                descendant.Transparency = math.min(base + boost, 0.99)
+            end
+        end
+    end
+    folder:SetAttribute("ArnisRingTransparencyBoost", boost)
+end
+
 local function getLodGroupFootprintBounds(group, fallbackPosition)
     if group == nil then
         return nil
@@ -1969,9 +2013,21 @@ local function updateLOD()
     local highDetailRadius = config.HighDetailRadius or 2048
     local interiorRadius = highDetailRadius * 0.25 -- interiors only very close
 
+    local resolvedRings = streamingResolvedRings
     for _, chunkId in ipairs(ChunkLoader.ListLoadedChunks(streamingOptions.worldRootName)) do
         local chunkEntry = ChunkLoader.GetChunkEntry(chunkId, streamingOptions.worldRootName)
         updateChunkEntryLodGroups(chunkEntry, camPos, avatarFocusPos, highDetailRadius, interiorRadius)
+
+        -- Ring-based transparency ramping: far chunks fade slightly to sell depth
+        if resolvedRings and chunkEntry then
+            local chunkRef = streamingChunkRefsById and streamingChunkRefsById[chunkId]
+            if chunkRef then
+                local chunkSizeStuds = config.ChunkSizeStuds or 256
+                local distSq = ChunkPriority.GetChunkFootprintDistanceSq(chunkRef, camPos, chunkSizeStuds)
+                local ringName = getChunkRingName(distSq, resolvedRings)
+                applyRingTransparency(chunkEntry, ringName or "near")
+            end
+        end
     end
 end
 

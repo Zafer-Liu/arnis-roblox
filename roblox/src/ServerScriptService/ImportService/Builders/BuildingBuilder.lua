@@ -2817,6 +2817,7 @@ function BuildingBuilder.FallbackBuild(parent, building, originStuds, chunk, win
 
     local model = Instance.new("Model")
     model.Name = bldgName
+    model.LevelOfDetail = Enum.ModelLevelOfDetail.Automatic
     model.Parent = parent
     setBuildingAuditAttributes(model, building, baseY, height)
     local shellFolder = Instance.new("Folder")
@@ -3147,6 +3148,7 @@ function BuildingBuilder.MeshBuildAll(parent, buildings, originStuds, chunk, con
         -- Per-building model for metadata, detail children, and RoomBuilder
         local model = Instance.new("Model")
         model.Name = bldgName
+        model.LevelOfDetail = Enum.ModelLevelOfDetail.Automatic
         model.Parent = parent
         setBuildingAuditAttributes(model, building, baseY, height)
         local shellFolder = Instance.new("Folder")

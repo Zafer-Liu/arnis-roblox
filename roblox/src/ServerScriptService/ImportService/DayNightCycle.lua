@@ -3,6 +3,7 @@ local Lighting = game:GetService("Lighting")
 local CollectionService = game:GetService("CollectionService")
 
 local WorldStateConfig = require(game:GetService("ReplicatedStorage").Shared.WorldStateConfig)
+local WorldConfig = require(game:GetService("ReplicatedStorage").Shared.WorldConfig)
 local ChunkLoader = require(script.Parent.ChunkLoader)
 
 local DayNightCycle = {}
@@ -195,12 +196,18 @@ local function updateLighting(hour, forceReactiveRefresh)
         currentPhase = phase
     end
 
-    -- Atmosphere
+    -- Atmosphere — phase presets modulated by WorldConfig depth knobs
     local atmosphere = Lighting:FindFirstChildOfClass("Atmosphere")
     if atmosphere then
+        local cfgDensity = WorldConfig.AtmosphereDensity or 0.35
+        local cfgOffset = WorldConfig.AtmosphereOffset or 0.2
+        local cfgHaze = WorldConfig.AtmosphereHaze or 0.15
+        local targetDensity = settings.density + cfgDensity
+        local targetHaze = settings.haze + cfgHaze
         atmosphere.Density = atmosphere.Density
-            + (settings.density - atmosphere.Density) * LERP_SPEED
-        atmosphere.Haze = atmosphere.Haze + (settings.haze - atmosphere.Haze) * LERP_SPEED
+            + (targetDensity - atmosphere.Density) * LERP_SPEED
+        atmosphere.Offset = atmosphere.Offset + (cfgOffset - atmosphere.Offset) * LERP_SPEED
+        atmosphere.Haze = atmosphere.Haze + (targetHaze - atmosphere.Haze) * LERP_SPEED
         atmosphere.Color = lerpColor(atmosphere.Color, settings.atmosphereColor, LERP_SPEED)
         atmosphere.Decay = lerpColor(atmosphere.Decay, settings.decayColor, LERP_SPEED)
     end
