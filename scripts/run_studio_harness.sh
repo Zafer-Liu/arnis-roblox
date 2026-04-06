@@ -7,6 +7,7 @@ APP_BUNDLE_ID="com.Roblox.RobloxStudio"
 APP_PATH="/Applications/RobloxStudio.app"
 APP_EXECUTABLE="$APP_PATH/Contents/MacOS/RobloxStudio"
 STUDIO_UI_CONTROL="$ROOT_DIR/scripts/studio_ui_control.py"
+GUI_SESSION_CAPTURE_HELPER="$ROOT_DIR/scripts/gui_session_capture.py"
 STUDIO_WORKFLOW="$ROOT_DIR/scripts/studio_workflow.py"
 STUDIO_HARNESS_POLICY="$ROOT_DIR/scripts/studio_harness_policy.py"
 LOG_DIR="$HOME/Library/Logs/Roblox"
@@ -40,6 +41,7 @@ STUDIO_RELAUNCH_COOLDOWN_SECONDS=3
 STUDIO_UI_TIMEOUT_SECONDS="${HARNESS_STUDIO_UI_TIMEOUT_SECONDS:-10}"
 STUDIO_WORKFLOW_CONTROL_TIMEOUT_SECONDS="${HARNESS_STUDIO_WORKFLOW_CONTROL_TIMEOUT_SECONDS:-12}"
 PLAY_TRIGGER_CONFIRM_TIMEOUT_SECONDS="${HARNESS_PLAY_TRIGGER_CONFIRM_TIMEOUT_SECONDS:-12}"
+GUI_SESSION_CAPTURE_ENABLED="${ARNIS_GUI_SESSION_CAPTURE:-0}"
 HARNESS_LOCK_DIR="${HARNESS_LOCK_DIR:-/tmp/arnis-studio-harness.lock}"
 HARNESS_LOCK_OWNED=0
 export ARNIS_TELEMETRY_FAMILIES="${ARNIS_TELEMETRY_FAMILIES:-}"
@@ -613,7 +615,7 @@ build_clean_place() {
   local build_project="$roblox_dir/.harness.build.project.json"
   local serve_project="$roblox_dir/.harness.serve.project.json"
 
-  if ! ensure_vsync_binary_fresh; then
+  if ! ensure_vsync_binary_fresh >&2; then
     return 1
   fi
 
@@ -3076,6 +3078,50 @@ print(payload.get("blocker_reason", ""))
 PY
     )"
     if [[ -n "$blocker_reason" ]]; then
+      if [[ "$blocker_reason" == "host_display_capture_blocked" && "$GUI_SESSION_CAPTURE_ENABLED" == "1" && -f "$GUI_SESSION_CAPTURE_HELPER" ]]; then
+        local gui_capture_result=""
+        local gui_capture_method="$capture_method"
+        if gui_capture_result="$(python3 "$GUI_SESSION_CAPTURE_HELPER" --target "$target" --root-dir "$ROOT_DIR" --timeout 30)"; then
+          gui_capture_method="$(
+            CAPTURE_RESULT_JSON="$gui_capture_result" python3 - <<'PY'
+import json
+import os
+
+payload = json.loads(os.environ.get("CAPTURE_RESULT_JSON", "{}") or "{}")
+print(payload.get("capture_method", "gui_session_unknown"))
+PY
+          )"
+          log "captured Studio screenshot: $target method=$gui_capture_method metadata=$capture_metadata_target"
+          return 0
+        elif [[ -f "$capture_metadata_target" ]]; then
+          local relay_blocker_reason=""
+          relay_blocker_reason="$(
+            CAPTURE_METADATA_PATH="$capture_metadata_target" python3 - <<'PY'
+import json
+import os
+from pathlib import Path
+
+metadata_path = Path(os.environ["CAPTURE_METADATA_PATH"])
+payload = json.loads(metadata_path.read_text(encoding="utf-8"))
+print(payload.get("blocker_reason", ""))
+PY
+          )"
+          local relay_capture_method=""
+          relay_capture_method="$(
+            CAPTURE_METADATA_PATH="$capture_metadata_target" python3 - <<'PY'
+import json
+import os
+from pathlib import Path
+
+metadata_path = Path(os.environ["CAPTURE_METADATA_PATH"])
+payload = json.loads(metadata_path.read_text(encoding="utf-8"))
+print(payload.get("capture_method", "gui_session_failed"))
+PY
+          )"
+          log "failed to capture Studio screenshot: $target method=$relay_capture_method blocker=$relay_blocker_reason metadata=$capture_metadata_target"
+          return 0
+        fi
+      fi
       log "failed to capture Studio screenshot: $target method=$capture_method blocker=$blocker_reason metadata=$capture_metadata_target"
       return 0
     fi

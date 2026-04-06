@@ -161,6 +161,7 @@ class RunStudioHarnessRemoteTests(unittest.TestCase):
         self.assertIn('remote_telemetry_families="$1"', self.text)
         self.assertIn('ARNIS_ROUTE_BUNDLE_DIR="$remote_route_bundle_dir"', self.text)
         self.assertIn('ARNIS_TELEMETRY_FAMILIES="$remote_telemetry_families"', self.text)
+        self.assertIn('ARNIS_GUI_SESSION_CAPTURE="${ARNIS_GUI_SESSION_CAPTURE:-1}"', self.text)
 
     def test_supports_remote_profile_host_and_root_flags(self) -> None:
         self.assertIn('--remote-profile PROFILE', self.text)

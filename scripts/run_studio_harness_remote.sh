@@ -567,6 +567,7 @@ VSYNC_REPO_DIR="$remote_vsync_dir" \
 VSYNC_BIN="$remote_vsync_target_dir/debug/vsync" \
 ARNIS_ROUTE_BUNDLE_DIR="$remote_route_bundle_dir" \
 ARNIS_TELEMETRY_FAMILIES="$remote_telemetry_families" \
+ARNIS_GUI_SESSION_CAPTURE="${ARNIS_GUI_SESSION_CAPTURE:-1}" \
 bash "$remote_arnis_dir/scripts/run_studio_harness.sh" "$@" &
 remote_harness_pid=$!
 remote_harness_pgid="$(ps -o pgid= "$remote_harness_pid" | tr -d '[:space:]')"

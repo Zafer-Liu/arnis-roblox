@@ -840,7 +840,7 @@ class RunStudioHarnessTests(unittest.TestCase):
         )
         self.assertIsNotNone(build_block, "build_clean_place function not found")
         body = build_block.group("body")
-        self.assertIn("if ! ensure_vsync_binary_fresh; then", body)
+        self.assertIn("if ! ensure_vsync_binary_fresh >&2; then", body)
         self.assertNotIn('if [[ -z "$VSYNC_BINARY" ]]; then', body)
 
     def test_play_focused_clean_place_failure_refuses_new_template_fallback(self) -> None:
@@ -921,6 +921,11 @@ class RunStudioHarnessTests(unittest.TestCase):
         self.assertIn('log "captured Studio screenshot: $target method=$capture_method metadata=$capture_metadata_target"', self.text)
         self.assertIn('log "failed to capture Studio screenshot: $target method=$capture_method metadata=$capture_metadata_target"', self.text)
         self.assertIn('log "failed to capture Studio screenshot: $target method=$capture_method blocker=$blocker_reason metadata=$capture_metadata_target"', self.text)
+        self.assertIn('if [[ "$blocker_reason" == "host_display_capture_blocked" && "$GUI_SESSION_CAPTURE_ENABLED" == "1" && -f "$GUI_SESSION_CAPTURE_HELPER" ]]; then', self.text)
+        self.assertIn('python3 "$GUI_SESSION_CAPTURE_HELPER" --target "$target" --root-dir "$ROOT_DIR" --timeout 30', self.text)
+        self.assertIn('elif [[ -f "$capture_metadata_target" ]]; then', self.text)
+        self.assertIn('relay_blocker_reason', self.text)
+        self.assertIn('relay_capture_method', self.text)
         self.assertNotIn('if screencapture -x "$target"; then', self.text)
         self.assertIn('CAPTURE_RESULT_JSON="$capture_result" CAPTURE_METADATA_PATH="$capture_metadata_target" python3 - <<\'PY\'', self.text)
         self.assertIn('"capture_method": "invalid_result_json"', self.text)
