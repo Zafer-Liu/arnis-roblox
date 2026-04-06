@@ -158,7 +158,7 @@ class PlayRenderTruthTests(unittest.TestCase):
         import_service_source = IMPORT_SERVICE.read_text(encoding="utf-8")
         streaming_source = STREAMING_SERVICE.read_text(encoding="utf-8")
 
-        self.assertIn("local function resolveNeighborHeightSample(plan, cellX, cellZ)", terrain_source)
+        self.assertIn("local function resolveNeighborHeightSample(terrainGrid, terrainNeighbors, gridW, gridD, cellX, cellZ)", terrain_source)
         self.assertIn("local function buildTerrainNeighborContextByChunkId(chunks)", import_service_source)
         self.assertIn("local function buildTerrainNeighborContextSignature(neighbors)", import_service_source)
         self.assertIn("terrainNeighborContext = terrainNeighborContextByChunkId[chunk.id]", import_service_source)

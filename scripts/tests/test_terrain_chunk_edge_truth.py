@@ -17,8 +17,8 @@ class TerrainChunkEdgeTruthTests(unittest.TestCase):
         self.assertIn("local sampleCellX = rawSampleCellX", source)
         self.assertIn("local sampleCellZ = rawSampleCellZ", source)
         self.assertIn("local function resolveOffsetNeighborIndex(cellIndex, localCount, neighborCount, isPositiveDirection)", source)
-        self.assertIn("resolveOffsetNeighborIndex(cellX, plan.gridW, neighborTerrain.width or 0, true)", source)
-        self.assertIn("resolveOffsetNeighborIndex(cellX, plan.gridW, neighborTerrain.width or 0, false)", source)
+        self.assertIn("resolveOffsetNeighborIndex(cellX, gridW, neighborTerrain.width or 0, true)", source)
+        self.assertIn("resolveOffsetNeighborIndex(cellX, gridW, neighborTerrain.width or 0, false)", source)
         self.assertNotIn(
             "math.max(0, math.min(plan.gridW - 1, math.floor((sampleWorldX - plan.origin.x) / plan.cellSize)))",
             source,
