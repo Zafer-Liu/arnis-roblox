@@ -516,6 +516,41 @@ class PlayRenderTruthTests(unittest.TestCase):
         self.assertIn("ArnisStreamingMovementLookaheadStuds", streaming_source)
         self.assertIn("movement_lookahead", streaming_source)
 
+    def test_terrain_builder_prefers_satellite_materials_over_slope_classification(self) -> None:
+        source = TERRAIN_BUILDER.read_text(encoding="utf-8")
+
+        # getMat must check terrainGrid.materials as the primary source
+        self.assertIn("terrainGrid.materials", source)
+        self.assertIn("hasExplicitCellMaterial", source)
+        self.assertRegex(
+            source,
+            r"if\s+hasExplicitCellMaterial\s+then\s*\n\s*return\s+baseMat",
+            "expected getMat to return satellite-derived material immediately when present, skipping slope logic",
+        )
+
+        # Slope-based fallback must only apply when satellite material is absent
+        self.assertRegex(
+            source,
+            r"if\s+not\s+baseMat\s+then[\s\S]*computeSlope",
+            "expected slope-based classification to be a fallback only when satellite material is absent",
+        )
+
+        # The expanded satellite material palette must be documented in the resolver
+        self.assertIn("SATELLITE_MATERIAL_PALETTE", source)
+        for material_name in ("Sand", "Mud", "Pavement", "Limestone", "Sandstone", "Slate", "Asphalt", "Concrete"):
+            self.assertIn(
+                material_name,
+                source,
+                f"expected TerrainBuilder to include {material_name} in the satellite material palette",
+            )
+
+        # Satellite material resolution must use pcall for safe Enum lookup
+        self.assertRegex(
+            source,
+            r"pcall\(function\(\)\s*\n?\s*return\s+Enum\.Material\[name\]",
+            "expected satellite material resolution to use pcall for safe Enum.Material lookup",
+        )
+
 
 if __name__ == "__main__":
     unittest.main()
