@@ -245,6 +245,7 @@ local MATERIAL_TAG_MAP = {
     render = Enum.Material.SmoothPlastic,
     cladding = Enum.Material.DiamondPlate,
     timber_framing = Enum.Material.WoodPlanks,
+    tile = Enum.Material.Cobblestone,
 }
 
 -- Floor material for Terrain:FillBlock — must be a valid terrain material (no Glass/Metal/Neon)
@@ -386,7 +387,20 @@ local BUILDING_PALETTE = {
 }
 
 local function getMaterial(building)
-    -- First try the manifest material string directly via Enum lookup
+    -- Highest priority: building.cladding from OSM building:cladding tag
+    if building.cladding then
+        local ok, mat = pcall(function()
+            return Enum.Material[building.cladding]
+        end)
+        if ok and mat then
+            return mat
+        end
+        local tagMat = MATERIAL_TAG_MAP[building.cladding:lower()]
+        if tagMat then
+            return tagMat
+        end
+    end
+    -- Next: manifest material string directly via Enum lookup
     if building.material then
         local ok, mat = pcall(function()
             return Enum.Material[building.material]
@@ -1586,11 +1600,33 @@ local function buildRoof(building, footprint, bounds, baseY, height, color, mat,
         buildRoofClosureDeck(bldgName, footprint, bounds.holeWorldLoops, baseY + height, rc, rm, parent)
         -- Ridge runs along the longer axis; panels tilt inward from both shorter edges.
         -- gambrel approximated as gabled (two panels, similar silhouette)
-        local ridgeAxisIsZ = footprintL >= footprintW
+        -- When roofDirection is present (degrees, 0=north clockwise), the ridge
+        -- runs perpendicular to that direction. We project into the Z-dominant or
+        -- X-dominant bucket so the existing two-panel geometry still works.
+        local ridgeAxisIsZ
+        if building.roofDirection then
+            -- roofDirection is the facing direction; ridge is perpendicular.
+            -- 0=north(+Z), 90=east(+X). Ridge perpendicular to north => runs E-W (X axis).
+            local dirRad = math.rad(building.roofDirection)
+            -- Ridge perpendicular: rotate 90 degrees. Dot with Z axis to decide.
+            local ridgeDirZ = math.abs(math.cos(dirRad + math.pi * 0.5))
+            local ridgeDirX = math.abs(math.sin(dirRad + math.pi * 0.5))
+            ridgeAxisIsZ = ridgeDirZ >= ridgeDirX
+        else
+            ridgeAxisIsZ = footprintL >= footprintW
+        end
         local shortExtent = ridgeAxisIsZ and footprintW or footprintL
         local longExtent = ridgeAxisIsZ and footprintL or footprintW
         local halfWidth = shortExtent * 0.5
-        local rise = shortExtent * 0.3
+        -- Compute rise from roofAngle (degrees) when present, clamped to 5-60.
+        -- Otherwise fall back to the existing 0.3 * shortExtent heuristic.
+        local rise
+        if building.roofAngle then
+            local clampedAngle = math.clamp(building.roofAngle, 5, 60)
+            rise = halfWidth * math.tan(math.rad(clampedAngle))
+        else
+            rise = shortExtent * 0.3
+        end
         local angle = math.atan(rise / halfWidth)
         local panelW = halfWidth / math.cos(angle)
         local cy = baseY + height + rise * 0.5
