@@ -1139,6 +1139,40 @@ class AustinRuntimeContractTests(unittest.TestCase):
         self.assertIn("SimpleShellWindowPane", src,
                        "SimpleShellWindowPane fallback name must be preserved")
 
+    def test_water_builder_prefers_water_type_over_kind(self) -> None:
+        """WaterBuilder.resolveKindProperties must check waterType before kind."""
+        src = self.water_builder_text
+        # waterType lookup must appear before the kind fallback
+        wt_idx = src.index("water.waterType")
+        kind_idx = src.index("water.kind", wt_idx)
+        self.assertLess(wt_idx, kind_idx,
+                        "resolveKindProperties must check waterType before kind")
+        # Both feed into the same WATER_KIND_PROPERTIES table
+        self.assertIn("WATER_KIND_PROPERTIES[waterType]", src)
+        self.assertIn("WATER_KIND_PROPERTIES[kind]", src)
+
+    def test_building_builder_uses_structure_type_as_material_hint(self) -> None:
+        """BuildingBuilder.getMaterial must use structureType when material is absent."""
+        src = self.building_builder_text
+        # structureType check must exist in getMaterial
+        self.assertIn("building.structureType", src,
+                       "getMaterial must read building.structureType")
+        # Isolate getMaterial body to verify ordering within the function
+        fn_start = src.index("local function getMaterial(building)")
+        fn_end = src.index("\nend", fn_start) + 4
+        fn_src = src[fn_start:fn_end]
+        mat_idx = fn_src.index("building.material")
+        st_idx = fn_src.index("building.structureType")
+        usage_idx = fn_src.index("building.usage or building.kind")
+        self.assertLess(mat_idx, st_idx,
+                        "structureType check must come after material tag check")
+        self.assertLess(st_idx, usage_idx,
+                        "structureType check must come before usage fallback")
+        # Verify key mappings exist
+        for mapping in ["timber_frame", "steel_frame", "concrete", "masonry", "brick"]:
+            self.assertIn(mapping, src,
+                          f"structureType mapping for '{mapping}' must exist")
+
     def test_world_config_exposes_merge_windows_knob(self) -> None:
         """WorldConfig must expose MergeWindowsIntoMesh for the window mesh toggle."""
         src = self.world_config_text

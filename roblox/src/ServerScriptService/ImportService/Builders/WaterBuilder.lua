@@ -49,7 +49,17 @@ local WATER_KIND_PROPERTIES = {
 }
 WaterBuilder.WATER_KIND_PROPERTIES = WATER_KIND_PROPERTIES
 
-local function resolveKindProperties(kind)
+local function resolveKindProperties(water)
+    -- Prefer the more specific waterType (from OSM `water` tag) over the
+    -- generic kind field.  Both map into the same WATER_KIND_PROPERTIES table.
+    local waterType = water and water.waterType
+    if type(waterType) == "string" and waterType ~= "" then
+        local props = WATER_KIND_PROPERTIES[waterType]
+        if props then
+            return props
+        end
+    end
+    local kind = water and water.kind
     if type(kind) == "string" and kind ~= "" then
         return WATER_KIND_PROPERTIES[kind]
     end
@@ -443,7 +453,7 @@ function WaterBuilder.FallbackBuild(parent, water, originStuds, chunk, sampleGro
     sampleGroundY = sampleGroundY or GroundSampler.createRenderedSurfaceSampler(chunk)
     -- Resolve kind-specific visual defaults (color/transparency/reflectance).
     -- Per-body `color` from the manifest always takes priority over kind defaults.
-    local kindProps = resolveKindProperties(water.kind)
+    local kindProps = resolveKindProperties(water)
     -- Intermittent water bodies (seasonal streambeds) render as dry sand
     local waterMaterial = Enum.Material.Water
     if water.intermittent then

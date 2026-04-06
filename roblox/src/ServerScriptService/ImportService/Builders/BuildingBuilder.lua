@@ -349,9 +349,9 @@ local function getWindowTint(usage, buildingIdHash, paneIndex)
 end
 
 local function getFacadeBandSpacing(usage, facadeStyle)
-    -- NOTE: facadeStyle is not currently populated by the Rust pipeline
-    -- (facade_style is hardcoded None in the chunker). These branches exist
-    -- for future enrichment when the pipeline extracts building:facade tags.
+    -- NOTE: facadeStyle IS now populated by the Rust pipeline from the OSM
+    -- building:facade tag. The branches below consume the extracted value
+    -- directly; no further enrichment step is required.
     if facadeStyle == "curtain_wall" then
         return 3
     elseif facadeStyle == "punched_window" then
@@ -411,6 +411,23 @@ local function getMaterial(building)
         local tagMat = MATERIAL_TAG_MAP[building.material:lower()]
         if tagMat then
             return tagMat
+        end
+    end
+    -- When no explicit material tag exists, use structureType (from OSM
+    -- building:structure) as a material hint before falling back to usage.
+    local st = building.structureType
+    if type(st) == "string" and st ~= "" then
+        local stLower = st:lower()
+        if stLower == "timber_frame" or stLower == "wood" then
+            return Enum.Material.WoodPlanks
+        elseif stLower == "steel_frame" or stLower == "steel" then
+            return Enum.Material.Metal
+        elseif stLower == "concrete" then
+            return Enum.Material.Concrete
+        elseif stLower == "masonry" or stLower == "stone" then
+            return Enum.Material.Cobblestone
+        elseif stLower == "brick" then
+            return Enum.Material.Brick
         end
     end
     -- Fall back to usage/kind lookup
