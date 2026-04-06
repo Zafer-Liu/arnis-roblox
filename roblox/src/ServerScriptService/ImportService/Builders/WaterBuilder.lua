@@ -28,13 +28,26 @@ local function getWaterDetailParent(parent)
     return detailFolder
 end
 
-local function createWaterSurface(parent, cframe, size, name, surfaceType, waterKind, waterId)
+local DEFAULT_WATER_COLOR = Color3.fromRGB(40, 80, 120)
+
+local function resolveWaterColor(colorField)
+    if type(colorField) == "table" and type(colorField.r) == "number" then
+        return Color3.fromRGB(
+            math.clamp(colorField.r, 0, 255),
+            math.clamp(colorField.g or 0, 0, 255),
+            math.clamp(colorField.b or 0, 0, 255)
+        )
+    end
+    return DEFAULT_WATER_COLOR
+end
+
+local function createWaterSurface(parent, cframe, size, name, surfaceType, waterKind, waterId, waterColor)
     local surface = Instance.new("Part")
     surface.Name = name or "WaterSurface"
     surface.Size = size
     surface.CFrame = cframe
     surface.Material = Enum.Material.Glass
-    surface.Color = Color3.fromRGB(40, 80, 120)
+    surface.Color = waterColor or DEFAULT_WATER_COLOR
     surface.Transparency = 0.4
     surface:SetAttribute("BaseTransparency", surface.Transparency)
     surface:SetAttribute("ArnisBaseTransparency", surface.Transparency)
@@ -326,7 +339,8 @@ local function emitPolygonWaterSurfaces(
     surfaceY,
     holePtsList,
     waterKind,
-    waterId
+    waterId,
+    waterColor
 )
     local rows = buildPolygonRows(worldPts, SCAN_STEP, holePtsList)
     for index, rect in ipairs(PolygonBatcher.BuildRectsFromRows(rows, SCAN_STEP)) do
@@ -337,7 +351,8 @@ local function emitPolygonWaterSurfaces(
             string.format("PolygonWaterSurface_%d", index),
             "polygon",
             waterKind,
-            waterId
+            waterId,
+            waterColor
         )
     end
 end
@@ -439,7 +454,8 @@ function WaterBuilder.FallbackBuild(parent, water, originStuds, chunk, sampleGro
                         "RibbonWaterSurface",
                         "ribbon",
                         water.kind,
-                        water.id
+                        water.id,
+                        resolveWaterColor(water.color)
                     )
                 end
             end
@@ -481,7 +497,8 @@ function WaterBuilder.FallbackBuild(parent, water, originStuds, chunk, sampleGro
                 surfaceY,
                 holePtsList,
                 water.kind,
-                water.id
+                water.id,
+                resolveWaterColor(water.color)
             )
         end
     end

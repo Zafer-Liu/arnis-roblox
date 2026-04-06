@@ -32,6 +32,13 @@ TERRAIN_BUILDER_PATH = (
 )
 SCENE_AUDIT_PATH = ROOT / "roblox" / "src" / "ServerScriptService" / "ImportService" / "SceneAudit.lua"
 WORLD_CONFIG_PATH = ROOT / "roblox" / "src" / "ReplicatedStorage" / "Shared" / "WorldConfig.lua"
+ROAD_BUILDER_PATH = (
+    ROOT / "roblox" / "src" / "ServerScriptService" / "ImportService" / "Builders" / "RoadBuilder.lua"
+)
+ROAD_CHUNK_PLAN_PATH = ROOT / "roblox" / "src" / "ServerScriptService" / "ImportService" / "RoadChunkPlan.lua"
+WATER_BUILDER_PATH = (
+    ROOT / "roblox" / "src" / "ServerScriptService" / "ImportService" / "Builders" / "WaterBuilder.lua"
+)
 
 
 class AustinRuntimeContractTests(unittest.TestCase):
@@ -69,6 +76,9 @@ class AustinRuntimeContractTests(unittest.TestCase):
         cls.terrain_builder_text = TERRAIN_BUILDER_PATH.read_text(encoding="utf-8")
         cls.scene_audit_text = SCENE_AUDIT_PATH.read_text(encoding="utf-8")
         cls.world_config_text = WORLD_CONFIG_PATH.read_text(encoding="utf-8")
+        cls.road_builder_text = ROAD_BUILDER_PATH.read_text(encoding="utf-8")
+        cls.road_chunk_plan_text = ROAD_CHUNK_PLAN_PATH.read_text(encoding="utf-8")
+        cls.water_builder_text = WATER_BUILDER_PATH.read_text(encoding="utf-8")
 
     def test_bootstrap_guards_against_duplicate_runtime_execution(self) -> None:
         self.assertIn(
@@ -729,6 +739,49 @@ class AustinRuntimeContractTests(unittest.TestCase):
         self.assertIn("visibleFacadeParts = 0", self.scene_audit_text)
         self.assertIn("scene.buildingVisibleDetailPartCount += visibleDetailParts", self.scene_audit_text)
         self.assertIn("scene.buildingVisibleFacadePartCount += visibleFacadeParts", self.scene_audit_text)
+
+    def test_road_builder_consumes_sidewalk_enum_for_curb_geometry(self) -> None:
+        # RoadChunkPlan reads road.sidewalk enum and falls back to hasSidewalk boolean
+        self.assertIn("if road.sidewalk then", self.road_chunk_plan_text)
+        self.assertIn("return road.sidewalk", self.road_chunk_plan_text)
+        self.assertIn('road.hasSidewalk and "both" or "no"', self.road_chunk_plan_text)
+        # RoadBuilder handles "separate" sidewalk enum value via normalization
+        self.assertIn('"separate"', self.road_builder_text)
+        self.assertIn("normalizeSidewalkMode", self.road_builder_text)
+        # Curb geometry uses the accumulator pattern with CURB_THICKNESS
+        self.assertIn("CURB_THICKNESS", self.road_builder_text)
+        self.assertIn("curbAcc:addRoadStrip(", self.road_builder_text)
+        # Normalized sidewalkMode drives left/right curb placement in the mesh path
+        self.assertIn('normalizedSidewalkMode == "both"', self.road_builder_text)
+        self.assertIn('normalizedSidewalkMode == "left"', self.road_builder_text)
+        self.assertIn('normalizedSidewalkMode == "right"', self.road_builder_text)
+
+    def test_road_builder_consumes_layer_for_vertical_offset(self) -> None:
+        # RoadChunkPlan applies Y offset from road.layer (positive and negative)
+        self.assertIn("road.layer", self.road_chunk_plan_text)
+        self.assertIn("layerElevation", self.road_chunk_plan_text)
+        # Layer supports negative values for underpasses/tunnels
+        self.assertIn("road.layer < 0", self.road_chunk_plan_text)
+        # Layer constant uses ~5 studs per layer
+        self.assertIn("LAYER_ELEVATION_STUDS", self.road_chunk_plan_text)
+
+    def test_road_builder_consumes_subkind_for_visual_material_differentiation(self) -> None:
+        # RoadBuilder reads road.subkind for color tinting
+        self.assertIn("road.subkind", self.road_builder_text)
+        # Subkind-based color map exists for visual differentiation
+        self.assertIn("SUBKIND_COLOR_TINT", self.road_builder_text)
+        # getSubkindColorTint reads road.subkind and returns a tinted color
+        self.assertIn("local function getSubkindColorTint(road)", self.road_builder_text)
+        self.assertIn("SUBKIND_COLOR_TINT[road.subkind]", self.road_builder_text)
+        # getRoadColor integrates subkind tint when available
+        self.assertIn("local subkindTint = getSubkindColorTint(road)", self.road_builder_text)
+
+
+    def test_water_builder_consumes_color_field_for_per_body_water_color(self) -> None:
+        self.assertIn("resolveWaterColor", self.water_builder_text)
+        self.assertIn("water.color", self.water_builder_text)
+        self.assertIn("DEFAULT_WATER_COLOR", self.water_builder_text)
+        self.assertIn("colorField.r", self.water_builder_text)
 
 
 if __name__ == "__main__":
