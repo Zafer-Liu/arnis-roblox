@@ -399,8 +399,9 @@ local BUILDING_PALETTE = {
 local function getMaterial(building)
     -- The Rust pipeline resolves building:cladding → building:material → material_tag
     -- into the single `material` field. No separate cladding field reaches the manifest.
+    -- Priority: material tag → structureType hint → usage-based fallback
     -- Manifest material string directly via Enum lookup
-    if building.material then
+    if type(building.material) == "string" and building.material ~= "" then
         local ok, mat = pcall(function()
             return Enum.Material[building.material]
         end)
@@ -2782,8 +2783,9 @@ local function buildRooftopEquipment(parent, building, baseY, height, worldPts)
     local halfD = math.max(1, (maxZ - minZ) * 0.35)
 
     local unitCount = math.min(3, math.floor(building.levels / 3))
-    local seed = string.len(building.id or "")
-    local equipmentType = hashId(building.id or "") % 3
+    local buildingHash = hashId(building.id or "")
+    local seed = buildingHash
+    local equipmentType = buildingHash % 3
 
     for i = 1, unitCount do
         local offsetX = math.clamp(((seed * 7 + i * 13) % 20) - 10, -halfW / 0.3, halfW / 0.3)

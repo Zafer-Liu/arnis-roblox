@@ -65,6 +65,7 @@ local perfRingTimestampStart = 0
 local perfCachedPartCount = 0
 local perfCachedMeshPartCount = 0
 local perfCachedPartCountStale = true
+local perfLastInstanceCountAt = 0
 local perfLastEmitAt = 0
 local PERF_EMIT_INTERVAL = 5
 local function resolveTelemetryFamilies()
@@ -599,7 +600,11 @@ local function publishPerfTelemetry()
             maxDt = v
         end
     end
-    table.sort(perfSortBuf, nil, sampleCount)
+    -- Push stale slots to end so they don't corrupt p99 calculation
+    for i = sampleCount + 1, PERF_RING_CAPACITY do
+        perfSortBuf[i] = math.huge
+    end
+    table.sort(perfSortBuf)
 
     local avgDt = sumDt / sampleCount
     local p99Index = math.ceil(sampleCount * 0.99)
@@ -608,8 +613,9 @@ local function publishPerfTelemetry()
     end
     local p99Dt = perfSortBuf[p99Index]
 
-    -- Instance counts cached and refreshed only when chunks change
-    if perfCachedPartCountStale then
+    -- Instance counts cached; only recount every 30s (not every emit)
+    local now30 = os.clock()
+    if perfCachedPartCountStale or (now30 - (perfLastInstanceCountAt or 0)) > 30 then
         local worldRoot = Workspace:FindFirstChild(Workspace:GetAttribute(WORLD_ROOT_ATTR) or "")
         perfCachedPartCount = 0
         perfCachedMeshPartCount = 0
@@ -624,6 +630,7 @@ local function publishPerfTelemetry()
             end
         end
         perfCachedPartCountStale = false
+        perfLastInstanceCountAt = now30
     end
     local totalParts = perfCachedPartCount
     local totalMeshParts = perfCachedMeshPartCount
@@ -644,8 +651,6 @@ local function publishPerfTelemetry()
         lastPerfPayloadJson = perfPayloadJson
         print("ARNIS_CLIENT_PERF " .. perfPayloadJson)
     end
-    -- Invalidate instance cache so the next emit recounts (amortized to every 5s)
-    perfCachedPartCountStale = true
 end
 
 local function publishWorldTelemetry()
