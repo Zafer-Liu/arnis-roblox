@@ -556,7 +556,29 @@ local function buildChunkPlan(chunk, options)
         return math.sqrt(dhdx * dhdx + dhdz * dhdz)
     end
 
+    -- Satellite-derived material palette: these are the material names the Rust
+    -- pipeline may emit via ESRI satellite classification into terrainGrid.materials[].
+    -- Any valid Enum.Material name is accepted; this table documents the expected set.
+    local SATELLITE_MATERIAL_PALETTE = {
+        Grass = true,
+        Sand = true,
+        Mud = true,
+        Pavement = true,
+        Limestone = true,
+        Sandstone = true,
+        Slate = true,
+        Asphalt = true,
+        Concrete = true,
+        Rock = true,
+        Ground = true,
+        Snow = true,
+        Ice = true,
+        Glacier = true,
+        LeafyGrass = true,
+    }
+
     local function getMat(x, z)
+        -- Satellite-derived per-cell materials are the PRIMARY source when populated.
         local baseMat
         local hasExplicitCellMaterial = false
         if terrainGrid.materials then
@@ -572,6 +594,13 @@ local function buildChunkPlan(chunk, options)
                 end
             end
         end
+
+        -- When satellite data provides a valid material, use it directly.
+        if hasExplicitCellMaterial then
+            return baseMat
+        end
+
+        -- Fallback: no satellite material available for this cell.
         if not baseMat then
             local name = terrainGrid.material
             local ok, m = pcall(function()
@@ -584,10 +613,7 @@ local function buildChunkPlan(chunk, options)
             end
         end
 
-        if hasExplicitCellMaterial then
-            return baseMat
-        end
-
+        -- Slope-based classification is a fallback when satellite material is absent.
         local slope = computeSlope(x, z)
         if slope > (WorldConfig.SlopeRockThreshold or 1.0) then
             return Enum.Material.Rock
