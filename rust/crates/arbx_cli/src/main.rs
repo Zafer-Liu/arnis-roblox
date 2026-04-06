@@ -1,4 +1,4 @@
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::env;
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -138,6 +138,7 @@ COMMANDS:
   scene-audit Compare Studio scene markers against manifest truth
   emit-runtime-lua Emit bounded runtime Lua shards directly from a manifest SQLite store
   planetary-store Manage the canonical planetary SQLite store
+  audit-signal Audit signal preservation in a compiled manifest
   config     Emit a default world configuration JSON
   explain    Print the full pipeline architecture for agents
 
@@ -170,6 +171,10 @@ SAMPLE OPTIONS:
   --out PATH             Output file (default: stdout)
   --sqlite-out PATH      Also write a SQLite manifest store
   --grid X,Z             Multi-chunk grid dimensions (default: 1,1)
+
+AUDIT-SIGNAL OPTIONS:
+  --manifest PATH        Compiled manifest JSON to audit
+  --format text|json     Output format (default: text)
 
 OTHER:
   --help, -h             Show this help
@@ -2472,6 +2477,342 @@ fn materialize_route_bundle(
         manifest_dir: manifest_dir.map(|path| path.display().to_string()),
         runtime_dir: runtime_dir.map(|path| path.display().to_string()),
     })
+}
+
+// --- Signal Audit Types ---
+
+#[derive(Debug, Serialize)]
+struct FieldSignalCounter {
+    name: String,
+    feature_count: usize,
+    fields: Vec<FieldCoverage>,
+    total_populated: usize,
+    total_possible: usize,
+}
+
+#[derive(Debug, Serialize)]
+struct FieldCoverage {
+    field: String,
+    populated: usize,
+    total: usize,
+}
+
+#[derive(Debug, Serialize)]
+struct TerrainSignal {
+    total_cells: usize,
+    satellite_material_cells: usize,
+    material_distribution: HashMap<String, usize>,
+}
+
+#[derive(Debug, Serialize)]
+struct SignalAuditReport {
+    buildings: FieldSignalCounter,
+    roads: FieldSignalCounter,
+    water: FieldSignalCounter,
+    props: FieldSignalCounter,
+    rails: FieldSignalCounter,
+    landuse: FieldSignalCounter,
+    barriers: FieldSignalCounter,
+    terrain: TerrainSignal,
+}
+
+fn is_populated(val: &Value) -> bool {
+    match val {
+        Value::Null => false,
+        Value::String(s) => !s.is_empty(),
+        Value::Array(a) => !a.is_empty(),
+        Value::Number(_) | Value::Bool(_) | Value::Object(_) => true,
+    }
+}
+
+fn count_feature_fields(features: &[Value], field_names: &[&str]) -> FieldSignalCounter {
+    let mut fields: Vec<FieldCoverage> = field_names
+        .iter()
+        .map(|&f| FieldCoverage {
+            field: f.to_string(),
+            populated: 0,
+            total: 0,
+        })
+        .collect();
+
+    for feature in features {
+        for (i, &field_name) in field_names.iter().enumerate() {
+            fields[i].total += 1;
+            if let Some(val) = feature.get(field_name) {
+                if is_populated(val) {
+                    fields[i].populated += 1;
+                }
+            }
+        }
+    }
+
+    let total_populated: usize = fields.iter().map(|f| f.populated).sum();
+    let total_possible: usize = fields.iter().map(|f| f.total).sum();
+
+    FieldSignalCounter {
+        name: String::new(), // set by caller
+        feature_count: features.len(),
+        fields,
+        total_populated,
+        total_possible,
+    }
+}
+
+fn build_signal_audit(manifest: &Value) -> Result<SignalAuditReport, String> {
+    let chunks = manifest
+        .get("chunks")
+        .and_then(|v| v.as_array())
+        .ok_or_else(|| "manifest has no 'chunks' array".to_string())?;
+
+    let building_fields: &[&str] = &[
+        "id", "footprint", "baseY", "height", "material", "wallColor", "roofColor",
+        "roofShape", "roofMaterial", "usage", "minHeight", "roofHeight", "name",
+        "levels", "facadeStyle", "roofLevels",
+    ];
+    let road_fields: &[&str] = &[
+        "id", "kind", "widthStuds", "points", "material", "hasSidewalk", "elevated",
+        "tunnel", "surface", "oneway", "maxspeed", "lanes", "lit", "sidewalk", "layer",
+        "subkind",
+    ];
+    let water_fields: &[&str] = &[
+        "id", "kind", "material", "surfaceY", "intermittent", "points", "footprint",
+        "widthStuds", "color",
+    ];
+    let prop_fields: &[&str] = &[
+        "id", "kind", "position", "yawDegrees", "scale", "species", "height",
+        "leafType", "circumference",
+    ];
+    let rail_fields: &[&str] = &["id", "kind", "points", "widthStuds", "gauge", "electrified"];
+    let landuse_fields: &[&str] = &["id", "kind", "footprint", "material", "color", "name"];
+    let barrier_fields: &[&str] = &["id", "kind", "points", "height", "material"];
+
+    let mut all_buildings: Vec<Value> = Vec::new();
+    let mut all_roads: Vec<Value> = Vec::new();
+    let mut all_water: Vec<Value> = Vec::new();
+    let mut all_props: Vec<Value> = Vec::new();
+    let mut all_rails: Vec<Value> = Vec::new();
+    let mut all_landuse: Vec<Value> = Vec::new();
+    let mut all_barriers: Vec<Value> = Vec::new();
+
+    let mut terrain_total_cells: usize = 0;
+    let mut terrain_sat_cells: usize = 0;
+    let mut material_dist: HashMap<String, usize> = HashMap::new();
+
+    for chunk in chunks {
+        if let Some(arr) = chunk.get("buildings").and_then(|v| v.as_array()) {
+            all_buildings.extend(arr.iter().cloned());
+        }
+        if let Some(arr) = chunk.get("roads").and_then(|v| v.as_array()) {
+            all_roads.extend(arr.iter().cloned());
+        }
+        if let Some(arr) = chunk.get("water").and_then(|v| v.as_array()) {
+            all_water.extend(arr.iter().cloned());
+        }
+        if let Some(arr) = chunk.get("props").and_then(|v| v.as_array()) {
+            all_props.extend(arr.iter().cloned());
+        }
+        if let Some(arr) = chunk.get("rails").and_then(|v| v.as_array()) {
+            all_rails.extend(arr.iter().cloned());
+        }
+        if let Some(arr) = chunk.get("landuse").and_then(|v| v.as_array()) {
+            all_landuse.extend(arr.iter().cloned());
+        }
+        if let Some(arr) = chunk.get("barriers").and_then(|v| v.as_array()) {
+            all_barriers.extend(arr.iter().cloned());
+        }
+
+        // Terrain: count height cells and satellite material cells
+        if let Some(terrain) = chunk.get("terrain") {
+            if let Some(heights) = terrain.get("heights").and_then(|v| v.as_array()) {
+                for row in heights {
+                    if let Some(row_arr) = row.as_array() {
+                        terrain_total_cells += row_arr.len();
+                    }
+                }
+            }
+            if let Some(materials) = terrain.get("materials").and_then(|v| v.as_array()) {
+                for row in materials {
+                    if let Some(row_arr) = row.as_array() {
+                        for cell in row_arr {
+                            if let Some(s) = cell.as_str() {
+                                if !s.is_empty() {
+                                    terrain_sat_cells += 1;
+                                    *material_dist.entry(s.to_string()).or_insert(0) += 1;
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    let mut buildings = count_feature_fields(&all_buildings, building_fields);
+    buildings.name = "buildings".to_string();
+
+    let mut roads = count_feature_fields(&all_roads, road_fields);
+    roads.name = "roads".to_string();
+
+    let mut water = count_feature_fields(&all_water, water_fields);
+    water.name = "water".to_string();
+
+    let mut props = count_feature_fields(&all_props, prop_fields);
+    props.name = "props".to_string();
+
+    let mut rails = count_feature_fields(&all_rails, rail_fields);
+    rails.name = "rails".to_string();
+
+    let mut landuse = count_feature_fields(&all_landuse, landuse_fields);
+    landuse.name = "landuse".to_string();
+
+    let mut barriers = count_feature_fields(&all_barriers, barrier_fields);
+    barriers.name = "barriers".to_string();
+
+    Ok(SignalAuditReport {
+        buildings,
+        roads,
+        water,
+        props,
+        rails,
+        landuse,
+        barriers,
+        terrain: TerrainSignal {
+            total_cells: terrain_total_cells,
+            satellite_material_cells: terrain_sat_cells,
+            material_distribution: material_dist,
+        },
+    })
+}
+
+fn print_signal_audit_text(report: &SignalAuditReport) {
+    println!("=== Manifest Signal Audit ===");
+    println!();
+    println!(
+        "{:<16}| {:>8} | {:>17} | {:>11}",
+        "Feature Type", "Features", "Populated/Total", "Signal Rate"
+    );
+
+    let sections = [
+        &report.buildings,
+        &report.roads,
+        &report.water,
+        &report.props,
+        &report.rails,
+        &report.landuse,
+        &report.barriers,
+    ];
+
+    for section in &sections {
+        let rate = if section.total_possible > 0 {
+            100.0 * section.total_populated as f64 / section.total_possible as f64
+        } else {
+            0.0
+        };
+        println!(
+            "{:<16}| {:>8} | {:>8}/{:<8} | {:>8.1}%",
+            section.name,
+            section.feature_count,
+            section.total_populated,
+            section.total_possible,
+            rate,
+        );
+    }
+
+    println!();
+    let t = &report.terrain;
+    if t.total_cells > 0 {
+        let cov = 100.0 * t.satellite_material_cells as f64 / t.total_cells as f64;
+        println!(
+            "Terrain: {} cells, {} with satellite materials ({:.1}% coverage)",
+            t.total_cells, t.satellite_material_cells, cov
+        );
+        if !t.material_distribution.is_empty() {
+            let mut mats: Vec<(&String, &usize)> = t.material_distribution.iter().collect();
+            mats.sort_by(|a, b| b.1.cmp(a.1));
+            let parts: Vec<String> = mats.iter().map(|(k, v)| format!("{}={}", k, v)).collect();
+            println!("  {}", parts.join("  "));
+        }
+    } else {
+        println!("Terrain: no height cells found");
+    }
+
+    // Top unpopulated fields
+    let mut unpop: Vec<(String, usize, usize)> = Vec::new();
+    for section in &sections {
+        for fc in &section.fields {
+            if fc.total > 0 && fc.populated < fc.total {
+                unpop.push((
+                    format!("{}.{}", section.name, fc.field),
+                    fc.populated,
+                    fc.total,
+                ));
+            }
+        }
+    }
+    unpop.sort_by(|a, b| {
+        let rate_a = a.1 as f64 / a.2 as f64;
+        let rate_b = b.1 as f64 / b.2 as f64;
+        rate_a
+            .partial_cmp(&rate_b)
+            .unwrap_or(std::cmp::Ordering::Equal)
+    });
+
+    if !unpop.is_empty() {
+        println!();
+        println!("Top unpopulated fields:");
+        for (field, populated, total) in unpop.iter().take(10) {
+            let rate = 100.0 * *populated as f64 / *total as f64;
+            println!("  {}: {:.1}% ({}/{})", field, rate, populated, total);
+        }
+    }
+}
+
+fn cmd_audit_signal(args: &[String]) -> Result<(), String> {
+    let mut manifest_path: Option<String> = None;
+    let mut format = "text".to_string();
+    let mut i = 0;
+    while i < args.len() {
+        match args[i].as_str() {
+            "--manifest" => {
+                i += 1;
+                manifest_path =
+                    Some(args.get(i).ok_or("--manifest requires a path")?.clone());
+            }
+            "--format" => {
+                i += 1;
+                let f = args.get(i).ok_or("--format requires text|json")?;
+                if f != "text" && f != "json" {
+                    return Err(format!("--format must be text or json, got: {f}"));
+                }
+                format = f.clone();
+            }
+            other => return Err(format!("unknown audit-signal option: {other}")),
+        }
+        i += 1;
+    }
+
+    let manifest_path =
+        manifest_path.ok_or("--manifest PATH is required for audit-signal")?;
+
+    let raw = fs::read_to_string(&manifest_path)
+        .map_err(|e| format!("failed to read manifest {manifest_path}: {e}"))?;
+    let manifest: Value =
+        serde_json::from_str(&raw).map_err(|e| format!("invalid JSON: {e}"))?;
+
+    let report = build_signal_audit(&manifest)?;
+
+    match format.as_str() {
+        "json" => {
+            let json_out = serde_json::to_string_pretty(&report)
+                .map_err(|e| format!("JSON serialize error: {e}"))?;
+            println!("{json_out}");
+        }
+        _ => {
+            print_signal_audit_text(&report);
+        }
+    }
+
+    Ok(())
 }
 
 fn cmd_planetary_store(args: &[String]) -> Result<(), String> {
@@ -6509,6 +6850,7 @@ fn main() {
         "scene-index" => cmd_scene_index(&args[1..]),
         "scene-audit" => cmd_scene_audit(&args[1..]),
         "emit-runtime-lua" => cmd_emit_runtime_lua(&args[1..]),
+        "audit-signal" => cmd_audit_signal(&args[1..]),
         "planetary-store" => cmd_planetary_store(&args[1..]),
         "explain" => {
             cmd_explain();
@@ -9579,6 +9921,129 @@ mod tests {
             format!("{zoom},{x},{y}"),
             "--limit".to_string(),
             "2".to_string(),
+        ])
+        .unwrap();
+    }
+
+    // --- Signal Audit tests ---
+
+    fn make_signal_test_manifest(buildings: Vec<Value>, roads: Vec<Value>, terrain: Option<Value>) -> Value {
+        let mut chunk = json!({
+            "chunkId": "test_0_0",
+            "buildings": buildings,
+            "roads": roads,
+            "water": [],
+            "props": [],
+            "rails": [],
+            "landuse": [],
+            "barriers": [],
+        });
+        if let Some(t) = terrain {
+            chunk["terrain"] = t;
+        }
+        json!({ "chunks": [chunk] })
+    }
+
+    #[test]
+    fn audit_signal_reports_field_coverage() {
+        let buildings = vec![
+            json!({
+                "id": "b1", "footprint": [[0,0],[1,0],[1,1]], "baseY": 0, "height": 10,
+                "material": "Concrete", "wallColor": "#aaa", "roofColor": "#555",
+                "roofShape": "flat", "roofMaterial": "Concrete", "usage": "residential",
+                "minHeight": 0, "roofHeight": 10, "name": "Test", "levels": 3,
+                "facadeStyle": null, "roofLevels": null
+            }),
+            json!({
+                "id": "b2", "footprint": [[0,0],[2,0],[2,2]], "baseY": 0, "height": 20,
+                "material": "Brick", "wallColor": "#bbb", "roofColor": "#666",
+                "roofShape": "gabled", "roofMaterial": "SmoothPlastic", "usage": "commercial",
+                "minHeight": 0, "roofHeight": 20, "name": "", "levels": 5,
+                "facadeStyle": "modern", "roofLevels": 1
+            }),
+        ];
+        let roads = vec![
+            json!({
+                "id": "r1", "kind": "residential", "widthStuds": 8, "points": [[0,0,0],[10,0,0]],
+                "material": "Asphalt", "hasSidewalk": true, "elevated": false,
+                "tunnel": false, "surface": "paved", "oneway": false, "maxspeed": 30,
+                "lanes": 2, "lit": true, "sidewalk": "both", "layer": 0, "subkind": null
+            }),
+        ];
+        let terrain = json!({
+            "heights": [[1.0, 2.0], [3.0, 4.0]],
+            "materials": [["Grass", "Sand"], ["Pavement", ""]]
+        });
+        let manifest = make_signal_test_manifest(buildings, roads, Some(terrain));
+        let report = build_signal_audit(&manifest).unwrap();
+
+        assert_eq!(report.buildings.feature_count, 2);
+        assert_eq!(report.roads.feature_count, 1);
+
+        // buildings: 2 features x 16 fields = 32 total
+        // b1 has facadeStyle=null, roofLevels=null -> 14 populated
+        // b2 has name="" (empty), subkind not a building field -> 15 populated
+        // total populated = 14 + 15 = 29
+        assert_eq!(report.buildings.total_possible, 32);
+        assert_eq!(report.buildings.total_populated, 29);
+
+        // roads: 1 feature x 16 fields = 16 total; subkind=null -> 15 populated
+        assert_eq!(report.roads.total_possible, 16);
+        assert_eq!(report.roads.total_populated, 15);
+
+        // terrain: 4 cells total, 3 with materials (one is "")
+        assert_eq!(report.terrain.total_cells, 4);
+        assert_eq!(report.terrain.satellite_material_cells, 3);
+        assert_eq!(report.terrain.material_distribution.get("Grass"), Some(&1));
+        assert_eq!(report.terrain.material_distribution.get("Sand"), Some(&1));
+        assert_eq!(report.terrain.material_distribution.get("Pavement"), Some(&1));
+    }
+
+    #[test]
+    fn audit_signal_empty_manifest() {
+        let manifest = json!({ "chunks": [] });
+        let report = build_signal_audit(&manifest).unwrap();
+
+        assert_eq!(report.buildings.feature_count, 0);
+        assert_eq!(report.buildings.total_populated, 0);
+        assert_eq!(report.buildings.total_possible, 0);
+        assert_eq!(report.roads.feature_count, 0);
+        assert_eq!(report.water.feature_count, 0);
+        assert_eq!(report.props.feature_count, 0);
+        assert_eq!(report.rails.feature_count, 0);
+        assert_eq!(report.landuse.feature_count, 0);
+        assert_eq!(report.barriers.feature_count, 0);
+        assert_eq!(report.terrain.total_cells, 0);
+        assert_eq!(report.terrain.satellite_material_cells, 0);
+        assert!(report.terrain.material_distribution.is_empty());
+    }
+
+    #[test]
+    fn audit_signal_cli_integration() {
+        let manifest = make_signal_test_manifest(
+            vec![json!({"id": "b1", "height": 10})],
+            vec![],
+            None,
+        );
+        let mut tmp = NamedTempFile::new().unwrap();
+        write!(tmp, "{}", serde_json::to_string(&manifest).unwrap()).unwrap();
+        let path = tmp.path().to_str().unwrap().to_string();
+
+        // text format
+        cmd_audit_signal(&[
+            "--manifest".to_string(),
+            path.clone(),
+            "--format".to_string(),
+            "text".to_string(),
+        ])
+        .unwrap();
+
+        // json format
+        cmd_audit_signal(&[
+            "--manifest".to_string(),
+            path,
+            "--format".to_string(),
+            "json".to_string(),
         ])
         .unwrap();
     }
