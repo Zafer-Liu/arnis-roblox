@@ -1422,8 +1422,14 @@ class RunStudioHarnessTests(unittest.TestCase):
         self.assertIn('grep -E "ARNIS_MCP_PLAY_LATE |ARNIS_MCP_PLAY " "$summary_source" | tail -n 1', body)
         self.assertIn('play camera verdict (authoritative client):', self.text)
         self.assertIn('play camera verdict (server fallback):', self.text)
-        self.assertIn('ARNIS_CLIENT_CAMERA|ARNIS_CLIENT_MINIMAP|ARNIS_CLIENT_PERF|ARNIS_MCP_PLAY|ARNIS_MCP_PLAY_LATE', self.text)
         self.assertNotIn('summary_source="$LOG_SLICE_FILE"', body)
+        authoritative_block = re.search(
+            r"authoritative_client_play_proof_present\(\) \{\n(?P<body>.*?)\n\}\n\nvalidate_play_bootstrap_trace",
+            self.text,
+            re.DOTALL,
+        )
+        self.assertIsNotNone(authoritative_block, "authoritative_client_play_proof_present function not found")
+        self.assertIn('rg -q "ARNIS_CLIENT_CAMERA " "$summary_source"', authoritative_block.group("body"))
 
     def test_harness_treats_client_minimap_marker_as_authoritative_play_signal(self) -> None:
         block = re.search(
@@ -1438,8 +1444,14 @@ class RunStudioHarnessTests(unittest.TestCase):
         self.assertIn('grep -E "ARNIS_CLIENT_MINIMAP " "$summary_source" | tail -n 1', body)
         self.assertIn('play minimap verdict (authoritative client):', self.text)
         self.assertIn('play minimap verdict (server fallback):', self.text)
-        self.assertIn('ARNIS_CLIENT_MINIMAP|ARNIS_CLIENT_PERF|ARNIS_MCP_PLAY|ARNIS_MCP_PLAY_LATE', self.text)
         self.assertNotIn('summary_source="$LOG_SLICE_FILE"', body)
+        authoritative_block = re.search(
+            r"authoritative_client_play_proof_present\(\) \{\n(?P<body>.*?)\n\}\n\nvalidate_play_bootstrap_trace",
+            self.text,
+            re.DOTALL,
+        )
+        self.assertIsNotNone(authoritative_block, "authoritative_client_play_proof_present function not found")
+        self.assertIn('rg -q "ARNIS_CLIENT_MINIMAP " "$summary_source"', authoritative_block.group("body"))
 
     def test_harness_treats_client_world_marker_as_authoritative_play_signal(self) -> None:
         block = re.search(
@@ -1457,10 +1469,16 @@ class RunStudioHarnessTests(unittest.TestCase):
         self.assertIn('play world verdict (server fallback):', self.text)
         self.assertIn('nearestNamedBuildingSourceIds', self.text)
         self.assertIn('nearestNamedBuildingNames', self.text)
-        self.assertIn('ARNIS_CLIENT_WORLD_COMPACT|ARNIS_CLIENT_WORLD|ARNIS_CLIENT_LOCAL_EXPERIENCE|ARNIS_CLIENT_CAMERA|ARNIS_CLIENT_MINIMAP|ARNIS_CLIENT_PERF|ARNIS_MCP_PLAY|ARNIS_MCP_PLAY_LATE', self.text)
         self.assertIn('bootstrapStateTrace', self.text)
         self.assertIn('bootstrapDuplicateCount', self.text)
         self.assertNotIn('summary_source="$LOG_SLICE_FILE"', body)
+        authoritative_block = re.search(
+            r"authoritative_client_play_proof_present\(\) \{\n(?P<body>.*?)\n\}\n\nvalidate_play_bootstrap_trace",
+            self.text,
+            re.DOTALL,
+        )
+        self.assertIsNotNone(authoritative_block, "authoritative_client_play_proof_present function not found")
+        self.assertIn('rg -q "ARNIS_CLIENT_WORLD_COMPACT " "$summary_source"', authoritative_block.group("body"))
 
     def test_harness_surfaces_client_local_experience_marker_for_play_observability(self) -> None:
         block = re.search(

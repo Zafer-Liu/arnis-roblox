@@ -347,9 +347,28 @@ local function buildTree(parent, prop, originStuds, baseYOverride)
         trunkR = math.max(0.5, diameterStuds * 0.5)
     end
 
+    -- Known conifer genera/species: used to infer needleleaved canopy shape
+    -- when leafType is not explicitly set in the manifest.
+    local CONIFER_SPECIES_PATTERNS = {
+        "pinus", "picea", "abies", "spruce", "fir", "cedar",
+        "juniper", "cypress", "larch", "hemlock", "yew",
+        "redwood", "sequoia", "conifer", "juniperus",
+    }
+
     -- Palm special case: thin trunk + frond cluster instead of sphere canopy
     local species = prop.species and prop.species:lower() or ""
     local leafType = prop.leafType or ""
+
+    -- Infer needleleaved leafType from known conifer species when not explicit
+    if leafType == "" then
+        for _, pattern in ipairs(CONIFER_SPECIES_PATTERNS) do
+            if species:find(pattern, 1, true) then
+                leafType = "needleleaved"
+                break
+            end
+        end
+    end
+
     if species:find("palm") or leafType == "tropical" then
         local trunk = Instance.new("Part")
         trunk.Name = "Trunk"

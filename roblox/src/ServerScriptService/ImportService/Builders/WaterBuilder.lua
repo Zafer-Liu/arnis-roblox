@@ -30,7 +30,33 @@ end
 
 local DEFAULT_WATER_COLOR = Color3.fromRGB(40, 80, 120)
 
-local function resolveWaterColor(colorField)
+-- Per-kind visual defaults.  Manifest `color` field always takes priority.
+local WATER_KIND_PROPERTIES = {
+    -- Rivers/streams/canals: shallower, more reflective, slightly lighter blue
+    river   = { color = Color3.fromRGB(55, 100, 140), transparency = 0.45, reflectance = 0.35 },
+    stream  = { color = Color3.fromRGB(55, 100, 140), transparency = 0.45, reflectance = 0.35 },
+    canal   = { color = Color3.fromRGB(55, 100, 140), transparency = 0.45, reflectance = 0.35 },
+    -- Lakes/reservoirs/basins: deeper, darker blue, higher reflectance
+    lake      = { color = Color3.fromRGB(30, 60, 105), transparency = 0.35, reflectance = 0.40 },
+    reservoir = { color = Color3.fromRGB(30, 60, 105), transparency = 0.35, reflectance = 0.40 },
+    basin     = { color = Color3.fromRGB(30, 60, 105), transparency = 0.35, reflectance = 0.40 },
+    -- Ponds: greener tint, default transparency
+    pond = { color = Color3.fromRGB(45, 85, 100), transparency = 0.40, reflectance = 0.35 },
+    -- Wetlands/marsh/swamp: dark green-brown, murky
+    wetland = { color = Color3.fromRGB(55, 70, 55), transparency = 0.25, reflectance = 0.15 },
+    marsh   = { color = Color3.fromRGB(55, 70, 55), transparency = 0.25, reflectance = 0.15 },
+    swamp   = { color = Color3.fromRGB(55, 70, 55), transparency = 0.25, reflectance = 0.15 },
+}
+WaterBuilder.WATER_KIND_PROPERTIES = WATER_KIND_PROPERTIES
+
+local function resolveKindProperties(kind)
+    if type(kind) == "string" and kind ~= "" then
+        return WATER_KIND_PROPERTIES[kind]
+    end
+    return nil
+end
+
+local function resolveWaterColor(colorField, kindProps)
     if type(colorField) == "table" and type(colorField.r) == "number" then
         return Color3.fromRGB(
             math.clamp(tonumber(colorField.r) or 0, 0, 255),
@@ -38,17 +64,20 @@ local function resolveWaterColor(colorField)
             math.clamp(tonumber(colorField.b) or 0, 0, 255)
         )
     end
+    if kindProps and kindProps.color then
+        return kindProps.color
+    end
     return DEFAULT_WATER_COLOR
 end
 
-local function createWaterSurface(parent, cframe, size, name, surfaceType, waterKind, waterId, waterColor)
+local function createWaterSurface(parent, cframe, size, name, surfaceType, waterKind, waterId, waterColor, kindProps)
     local surface = Instance.new("Part")
     surface.Name = name or "WaterSurface"
     surface.Size = size
     surface.CFrame = cframe
     surface.Material = Enum.Material.Glass
     surface.Color = waterColor or DEFAULT_WATER_COLOR
-    surface.Transparency = 0.4
+    surface.Transparency = (kindProps and kindProps.transparency) or 0.4
     surface:SetAttribute("BaseTransparency", surface.Transparency)
     surface:SetAttribute("ArnisBaseTransparency", surface.Transparency)
     if type(surfaceType) == "string" and surfaceType ~= "" then
@@ -60,7 +89,7 @@ local function createWaterSurface(parent, cframe, size, name, surfaceType, water
     if type(waterId) == "string" and waterId ~= "" then
         surface:SetAttribute("ArnisWaterSourceId", waterId)
     end
-    surface.Reflectance = 0.35
+    surface.Reflectance = (kindProps and kindProps.reflectance) or 0.35
     surface.Anchored = true
     surface.CanCollide = false
     surface.CastShadow = false
@@ -340,7 +369,8 @@ local function emitPolygonWaterSurfaces(
     holePtsList,
     waterKind,
     waterId,
-    waterColor
+    waterColor,
+    kindProps
 )
     local rows = buildPolygonRows(worldPts, SCAN_STEP, holePtsList)
     for index, rect in ipairs(PolygonBatcher.BuildRectsFromRows(rows, SCAN_STEP)) do
@@ -352,7 +382,8 @@ local function emitPolygonWaterSurfaces(
             "polygon",
             waterKind,
             waterId,
-            waterColor
+            waterColor,
+            kindProps
         )
     end
 end
@@ -410,6 +441,9 @@ end
 function WaterBuilder.FallbackBuild(parent, water, originStuds, chunk, sampleGroundY)
     local terrain = Workspace.Terrain
     sampleGroundY = sampleGroundY or GroundSampler.createRenderedSurfaceSampler(chunk)
+    -- Resolve kind-specific visual defaults (color/transparency/reflectance).
+    -- Per-body `color` from the manifest always takes priority over kind defaults.
+    local kindProps = resolveKindProperties(water.kind)
     -- Intermittent water bodies (seasonal streambeds) render as dry sand
     local waterMaterial = Enum.Material.Water
     if water.intermittent then
@@ -455,7 +489,8 @@ function WaterBuilder.FallbackBuild(parent, water, originStuds, chunk, sampleGro
                         "ribbon",
                         water.kind,
                         water.id,
-                        resolveWaterColor(water.color)
+                        resolveWaterColor(water.color, kindProps),
+                        kindProps
                     )
                 end
             end
@@ -498,7 +533,8 @@ function WaterBuilder.FallbackBuild(parent, water, originStuds, chunk, sampleGro
                 holePtsList,
                 water.kind,
                 water.id,
-                resolveWaterColor(water.color)
+                resolveWaterColor(water.color, kindProps),
+                kindProps
             )
         end
     end
