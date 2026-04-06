@@ -58,10 +58,13 @@ local lastSampleWasMoving = false
 local PERF_RING_CAPACITY = 300
 local PERF_WINDOW_SECONDS = 5
 local perfRing = table.create(PERF_RING_CAPACITY, 0)
+local perfSortBuf = table.create(PERF_RING_CAPACITY, 0)
 local perfRingHead = 0
 local perfRingCount = 0
 local perfRingTimestampStart = 0
-local perfAccumDt = 0
+local perfCachedPartCount = 0
+local perfCachedMeshPartCount = 0
+local perfCachedPartCountStale = true
 local perfLastEmitAt = 0
 local PERF_EMIT_INTERVAL = 5
 local function resolveTelemetryFamilies()
@@ -566,7 +569,6 @@ local function recordFrameTime(dt)
     if perfRingCount < PERF_RING_CAPACITY then
         perfRingCount = perfRingCount + 1
     end
-    perfAccumDt = perfAccumDt + dt
 end
 
 local function publishPerfTelemetry()
@@ -586,41 +588,45 @@ local function publishPerfTelemetry()
     local sumDt = 0
     local maxDt = 0
 
-    -- Compute sorted copy for p99 without per-frame allocation.
-    -- We reuse a single sort buffer allocated once.
-    local sortBuf = table.create(sampleCount, 0)
+    -- Reuse pre-allocated sort buffer (no allocation per emit)
     local ringStart = perfRingHead - sampleCount + 1
     for i = 1, sampleCount do
         local idx = (ringStart + i - 2) % PERF_RING_CAPACITY + 1
         local v = perfRing[idx]
-        sortBuf[i] = v
+        perfSortBuf[i] = v
         sumDt = sumDt + v
         if v > maxDt then
             maxDt = v
         end
     end
-    table.sort(sortBuf)
+    table.sort(perfSortBuf, nil, sampleCount)
 
     local avgDt = sumDt / sampleCount
     local p99Index = math.ceil(sampleCount * 0.99)
     if p99Index < 1 then
         p99Index = 1
     end
-    local p99Dt = sortBuf[p99Index]
+    local p99Dt = perfSortBuf[p99Index]
 
-    local worldRoot = Workspace:FindFirstChild(Workspace:GetAttribute(WORLD_ROOT_ATTR) or "")
-    local totalParts = 0
-    local totalMeshParts = 0
-    if worldRoot then
-        for _, desc in ipairs(worldRoot:GetDescendants()) do
-            if desc:IsA("MeshPart") then
-                totalMeshParts = totalMeshParts + 1
-                totalParts = totalParts + 1
-            elseif desc:IsA("BasePart") then
-                totalParts = totalParts + 1
+    -- Instance counts cached and refreshed only when chunks change
+    if perfCachedPartCountStale then
+        local worldRoot = Workspace:FindFirstChild(Workspace:GetAttribute(WORLD_ROOT_ATTR) or "")
+        perfCachedPartCount = 0
+        perfCachedMeshPartCount = 0
+        if worldRoot then
+            for _, desc in ipairs(worldRoot:GetDescendants()) do
+                if desc:IsA("MeshPart") then
+                    perfCachedMeshPartCount = perfCachedMeshPartCount + 1
+                    perfCachedPartCount = perfCachedPartCount + 1
+                elseif desc:IsA("BasePart") then
+                    perfCachedPartCount = perfCachedPartCount + 1
+                end
             end
         end
+        perfCachedPartCountStale = false
     end
+    local totalParts = perfCachedPartCount
+    local totalMeshParts = perfCachedMeshPartCount
 
     local perfPayload = {
         avgFrameTimeMs = math.round(avgDt * 100000) / 100,
@@ -638,6 +644,8 @@ local function publishPerfTelemetry()
         lastPerfPayloadJson = perfPayloadJson
         print("ARNIS_CLIENT_PERF " .. perfPayloadJson)
     end
+    -- Invalidate instance cache so the next emit recounts (amortized to every 5s)
+    perfCachedPartCountStale = true
 end
 
 local function publishWorldTelemetry()

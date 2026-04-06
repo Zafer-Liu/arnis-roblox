@@ -341,9 +341,16 @@ end
 
 -- Emit a BillboardGui street-name label at the midpoint of a named road.
 -- Created once at import time; zero per-frame cost.
-local function emitStreetLabel(parent, road, midpoint)
+local function emitStreetLabel(parent, road, midpoint, emittedNames)
     if not road.name or road.name == "" then
         return
+    end
+    -- Deduplicate: only one label per unique road name per chunk
+    if emittedNames then
+        if emittedNames[road.name] then
+            return
+        end
+        emittedNames[road.name] = true
     end
 
     local attachment = Instance.new("Attachment")
@@ -1061,7 +1068,7 @@ local function buildChunkPlan(roads, originStuds, chunk)
     })
 end
 
-local function executeRoadPlan(parent, detailParent, roadPlan)
+local function executeRoadPlan(parent, detailParent, roadPlan, emittedNames)
     local road = roadPlan.road
     local width = roadPlan.width
     local material = resolvePlannedRoadMaterial(roadPlan.material)
@@ -1135,7 +1142,7 @@ local function executeRoadPlan(parent, detailParent, roadPlan)
         local midIdx = math.ceil(#roadPlan.segments / 2)
         local midSeg = roadPlan.segments[midIdx]
         local midpoint = (midSeg.p1 + midSeg.p2) * 0.5
-        emitStreetLabel(detailParent, road, midpoint)
+        emitStreetLabel(detailParent, road, midpoint, emittedNames)
     end
 end
 
@@ -1145,9 +1152,10 @@ function RoadBuilder.BuildAll(parent, roads, originStuds, chunk, maybeYield, pre
         return
     end
     local detailParent = getRoadDetailParent(parent)
+    local emittedNames = {} -- dedup: one label per unique road name per chunk
     local chunkPlan = preparedChunkPlan or buildChunkPlan(roads, originStuds, chunk)
     for _, roadPlan in ipairs(chunkPlan.roads) do
-        executeRoadPlan(parent, detailParent, roadPlan)
+        executeRoadPlan(parent, detailParent, roadPlan, emittedNames)
         if maybeYield then
             maybeYield(false)
         end

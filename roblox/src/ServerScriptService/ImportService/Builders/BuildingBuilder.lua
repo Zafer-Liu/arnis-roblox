@@ -2687,13 +2687,24 @@ local function buildRooftopEquipment(parent, building, baseY, height, worldPts)
 
     local roofY = baseY + height
 
+    -- Compute footprint half-extents for offset clamping
+    local minX, maxX, minZ, maxZ = math.huge, -math.huge, math.huge, -math.huge
+    for _, p in ipairs(worldPts) do
+        if p.X < minX then minX = p.X end
+        if p.X > maxX then maxX = p.X end
+        if p.Z < minZ then minZ = p.Z end
+        if p.Z > maxZ then maxZ = p.Z end
+    end
+    local halfW = math.max(1, (maxX - minX) * 0.35)
+    local halfD = math.max(1, (maxZ - minZ) * 0.35)
+
     local unitCount = math.min(3, math.floor(building.levels / 3))
     local seed = string.len(building.id or "")
     local equipmentType = hashId(building.id or "") % 3
 
     for i = 1, unitCount do
-        local offsetX = ((seed * 7 + i * 13) % 20) - 10
-        local offsetZ = ((seed * 11 + i * 17) % 20) - 10
+        local offsetX = math.clamp(((seed * 7 + i * 13) % 20) - 10, -halfW / 0.3, halfW / 0.3)
+        local offsetZ = math.clamp(((seed * 11 + i * 17) % 20) - 10, -halfD / 0.3, halfD / 0.3)
 
         local unit = Instance.new("Part")
         unit.Anchored = true
