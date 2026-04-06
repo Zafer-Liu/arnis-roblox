@@ -479,7 +479,11 @@ end
 local function getColor(building)
     if building.wallColor and building.wallColor.r then
         local r, g, b = building.wallColor.r, building.wallColor.g, building.wallColor.b
-        -- Use the explicit color unless it is the OSM default grey placeholder
+        -- OSM auto-fills building:colour with rgb(170,170,170) when no explicit
+        -- colour tag exists.  We reject ONLY that exact placeholder so the palette
+        -- can provide richer variety for untagged buildings.  Every other value --
+        -- including near-greys like (169,170,171) -- is real upstream data and
+        -- must be preserved faithfully.
         if not (r == 170 and g == 170 and b == 170) then
             return Color3.fromRGB(r, g, b)
         end
@@ -496,6 +500,7 @@ local function getColor(building)
 end
 
 local getRoofMaterial -- forward declaration; defined after ROOF_MATERIAL_LOOKUP tables
+local ROOF_MATERIAL_PALETTE_COLORS -- forward declaration for getRoofColor closure
 
 local function getRoofColor(building, wallColor)
     if building.roofColor and building.roofColor.r then
@@ -556,7 +561,7 @@ local ROOF_MATERIAL_PALETTE = {
     Enum.Material.Brick,
 }
 
-local ROOF_MATERIAL_PALETTE_COLORS = {
+ROOF_MATERIAL_PALETTE_COLORS = {
     [Enum.Material.Slate] = Color3.fromRGB(110, 120, 135),    -- grey-blue slate
     [Enum.Material.Metal] = Color3.fromRGB(170, 172, 175),    -- silver metal
     [Enum.Material.Asphalt] = Color3.fromRGB(80, 80, 85),     -- dark grey asphalt

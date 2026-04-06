@@ -39,6 +39,12 @@ ROAD_CHUNK_PLAN_PATH = ROOT / "roblox" / "src" / "ServerScriptService" / "Import
 WATER_BUILDER_PATH = (
     ROOT / "roblox" / "src" / "ServerScriptService" / "ImportService" / "Builders" / "WaterBuilder.lua"
 )
+PROP_BUILDER_PATH = (
+    ROOT / "roblox" / "src" / "ServerScriptService" / "ImportService" / "Builders" / "PropBuilder.lua"
+)
+RAIL_BUILDER_PATH = (
+    ROOT / "roblox" / "src" / "ServerScriptService" / "ImportService" / "Builders" / "RailBuilder.lua"
+)
 
 
 class AustinRuntimeContractTests(unittest.TestCase):
@@ -79,6 +85,8 @@ class AustinRuntimeContractTests(unittest.TestCase):
         cls.road_builder_text = ROAD_BUILDER_PATH.read_text(encoding="utf-8")
         cls.road_chunk_plan_text = ROAD_CHUNK_PLAN_PATH.read_text(encoding="utf-8")
         cls.water_builder_text = WATER_BUILDER_PATH.read_text(encoding="utf-8")
+        cls.prop_builder_text = PROP_BUILDER_PATH.read_text(encoding="utf-8")
+        cls.rail_builder_text = RAIL_BUILDER_PATH.read_text(encoding="utf-8")
 
     def test_bootstrap_guards_against_duplicate_runtime_execution(self) -> None:
         self.assertIn(
@@ -742,6 +750,13 @@ class AustinRuntimeContractTests(unittest.TestCase):
         self.assertIn("ROOF_MATERIAL_PALETTE", self.building_builder_text)
         self.assertIn("ROOF_MATERIAL_PALETTE_COLORS", self.building_builder_text)
 
+    def test_building_builder_roof_palette_is_forward_declared_for_getroofcolor(self) -> None:
+        self.assertIn(
+            "local ROOF_MATERIAL_PALETTE_COLORS -- forward declaration for getRoofColor closure",
+            self.building_builder_text,
+        )
+        self.assertIn("ROOF_MATERIAL_PALETTE_COLORS = {", self.building_builder_text)
+
     def test_building_builder_window_tint_varies_by_usage(self) -> None:
         """Window glass color varies by building usage (office vs residential vs warehouse)."""
         self.assertIn("WINDOW_TINT_BY_USAGE_CLASS", self.building_builder_text)
@@ -836,6 +851,30 @@ class AustinRuntimeContractTests(unittest.TestCase):
                        self.building_builder_text,
                        "Parapet parts must be tagged LOD_Detail")
 
+    def test_client_world_probe_measures_frame_time_with_zero_per_frame_allocations(self) -> None:
+        # Pre-allocated ring buffer exists with fixed capacity
+        self.assertIn("local PERF_RING_CAPACITY = 300", self.world_probe_text)
+        self.assertIn("local perfRing = table.create(PERF_RING_CAPACITY, 0)", self.world_probe_text)
+        self.assertIn("local perfRingHead = 0", self.world_probe_text)
+        self.assertIn("local perfRingCount = 0", self.world_probe_text)
+        # Frame time recording uses pre-allocated ring, no table or string creation
+        self.assertIn("local function recordFrameTime(dt)", self.world_probe_text)
+        self.assertIn("perfRing[perfRingHead] = dt", self.world_probe_text)
+        # Heartbeat passes dt to recordFrameTime
+        self.assertIn("RunService.Heartbeat:Connect(function(dt)", self.world_probe_text)
+        self.assertIn("recordFrameTime(dt)", self.world_probe_text)
+        # Perf emission is gated behind hotspots telemetry family
+        self.assertIn('WorldProbeTelemetryFlags.isEnabled(telemetryFlags, "hotspots")', self.world_probe_text)
+        # ARNIS_CLIENT_PERF marker is emitted
+        self.assertIn('print("ARNIS_CLIENT_PERF " .. perfPayloadJson)', self.world_probe_text)
+        # Payload contains expected fields
+        self.assertIn("avgFrameTimeMs =", self.world_probe_text)
+        self.assertIn("p99FrameTimeMs =", self.world_probe_text)
+        self.assertIn("maxFrameTimeMs =", self.world_probe_text)
+        self.assertIn("fps =", self.world_probe_text)
+        self.assertIn("instanceCountParts =", self.world_probe_text)
+        self.assertIn("instanceCountMeshParts =", self.world_probe_text)
+
     def test_rooftop_equipment_variety(self) -> None:
         """Rooftop equipment must include antenna and vent box in addition to AC units."""
         self.assertIn("Antenna", self.building_builder_text,
@@ -845,6 +884,134 @@ class AustinRuntimeContractTests(unittest.TestCase):
         # Equipment type selection via hash modulo 3
         self.assertIn("equipmentType % 3", self.building_builder_text,
                        "Equipment type must be selected via hashId modulo 3")
+
+
+    # ------------------------------------------------------------------
+    # PropBuilder leafType: broadleaf vs needleleaf canopy shape
+    # ------------------------------------------------------------------
+
+    def test_prop_builder_infers_needleleaved_from_conifer_species(self) -> None:
+        """Conifer species should infer needleleaved leafType for cone canopy."""
+        self.assertIn("CONIFER_SPECIES_PATTERNS", self.prop_builder_text)
+        # Must include key genera
+        for genus in ("pinus", "picea", "abies", "spruce", "fir", "cedar",
+                      "juniper", "cypress", "redwood", "sequoia"):
+            self.assertIn(
+                f'"{genus}"',
+                self.prop_builder_text,
+                f"CONIFER_SPECIES_PATTERNS must include {genus}",
+            )
+
+    def test_prop_builder_needleleaved_canopy_is_taller_than_wide(self) -> None:
+        """Needleleaved canopy should use a taller-than-wide shape (aspect ~1.5:1+)."""
+        # The needleleaved branch creates a ball with Y dimension > X dimension
+        self.assertIn('leafType == "needleleaved"', self.prop_builder_text)
+        # Cone-like dimensions: canopyR * 2.5 height vs canopyR * 1.2 width
+        self.assertIn("canopyR * 2.5", self.prop_builder_text)
+        self.assertIn("canopyR * 1.2", self.prop_builder_text)
+
+    def test_prop_builder_broadleaved_uses_multi_lobe_canopy(self) -> None:
+        """Broadleaved (default) trees must use the multi-lobe organic canopy."""
+        self.assertIn("buildRealisticCanopy(model, trunkTop, canopyR, canopyColor3", self.prop_builder_text)
+        self.assertIn("CanopyLobe", self.prop_builder_text)
+        self.assertIn("CanopyMain", self.prop_builder_text)
+
+    # ------------------------------------------------------------------
+    # RailBuilder kind differentiation
+    # ------------------------------------------------------------------
+
+    def test_rail_builder_declares_kind_properties_table(self) -> None:
+        """RailBuilder must have a RAIL_KIND_PROPERTIES table for visual differentiation."""
+        self.assertIn("RAIL_KIND_PROPERTIES", self.rail_builder_text)
+        for kind in ("rail", "heavy_rail", "light_rail", "tram", "subway", "metro", "narrow_gauge"):
+            self.assertIn(
+                kind,
+                self.rail_builder_text,
+                f"RAIL_KIND_PROPERTIES must include {kind}",
+            )
+
+    def test_rail_builder_kind_specific_material(self) -> None:
+        """Rail kinds must map to distinct materials."""
+        self.assertIn("Enum.Material.Metal", self.rail_builder_text)
+        self.assertIn("Enum.Material.Concrete", self.rail_builder_text)
+        # Default fallback must remain Cobblestone
+        self.assertIn("Enum.Material.Cobblestone", self.rail_builder_text)
+
+    def test_rail_builder_kind_specific_thickness(self) -> None:
+        """Rail kinds must specify distinct thickness values."""
+        # heavy_rail/rail = 1.5, light_rail/tram = 1.0, subway/metro = 2.0, narrow_gauge = 0.8
+        self.assertIn("thickness = 1.5", self.rail_builder_text)
+        self.assertIn("thickness = 1.0", self.rail_builder_text)
+        self.assertIn("thickness = 2.0", self.rail_builder_text)
+        self.assertIn("thickness = 0.8", self.rail_builder_text)
+
+    def test_rail_builder_resolves_kind_properties_before_painting(self) -> None:
+        """FallbackBuild must resolve kind properties and pass them to paintSegment."""
+        self.assertIn("resolveRailKindProperties(rail.kind)", self.rail_builder_text)
+        self.assertIn("paintSegment(terrain, p1, p2, width, kindProps)", self.rail_builder_text)
+        self.assertIn("kindProps.thickness", self.rail_builder_text)
+        self.assertIn("kindProps.material", self.rail_builder_text)
+
+
+    # ------------------------------------------------------------------
+    # wallColor / roofColor signal fidelity
+    # ------------------------------------------------------------------
+
+    def test_wall_color_preserves_non_placeholder_values(self) -> None:
+        """getColor must return the manifest wallColor when it is not the exact
+        OSM auto-fill placeholder (170,170,170)."""
+        # The guard must be an exact equality check, not a range/threshold.
+        self.assertIn(
+            "if not (r == 170 and g == 170 and b == 170) then",
+            self.building_builder_text,
+            "wallColor rejection must use exact equality on the OSM placeholder",
+        )
+        # The faithful path returns Color3.fromRGB(r, g, b)
+        self.assertIn(
+            "return Color3.fromRGB(r, g, b)",
+            self.building_builder_text,
+            "wallColor must be forwarded faithfully via Color3.fromRGB(r, g, b)",
+        )
+
+    def test_wall_color_rejects_only_exact_osm_placeholder(self) -> None:
+        """Only the exact (170,170,170) grey placeholder should be rejected.
+        No broad range check (e.g. math.abs, threshold, or tolerance) may exist
+        in getColor."""
+        import re
+        get_color_match = re.search(
+            r"local function getColor\(building\)(.*?)^end",
+            self.building_builder_text,
+            re.DOTALL | re.MULTILINE,
+        )
+        self.assertIsNotNone(get_color_match, "getColor function must exist")
+        get_color_body = get_color_match.group(1)  # type: ignore[union-attr]
+        for forbidden in ("math.abs", "tolerance", "threshold", "isGrey", "isGray"):
+            self.assertNotIn(
+                forbidden,
+                get_color_body,
+                f"getColor must not use fuzzy grey detection ({forbidden})",
+            )
+
+    def test_roof_color_preserved_faithfully(self) -> None:
+        """getRoofColor must use the manifest roofColor directly without any
+        placeholder rejection or grey filtering."""
+        import re
+        get_roof_match = re.search(
+            r"local function getRoofColor\(building.*?\)(.*?)^end",
+            self.building_builder_text,
+            re.DOTALL | re.MULTILINE,
+        )
+        self.assertIsNotNone(get_roof_match, "getRoofColor function must exist")
+        roof_body = get_roof_match.group(1)  # type: ignore[union-attr]
+        # roofColor must be returned directly
+        self.assertIn(
+            "return Color3.fromRGB(building.roofColor.r, building.roofColor.g, building.roofColor.b)",
+            roof_body,
+            "roofColor must be forwarded faithfully without any grey rejection",
+        )
+        # No grey placeholder filtering in getRoofColor
+        self.assertNotIn("170", roof_body,
+                         "getRoofColor must not filter any grey placeholder")
 
 
 if __name__ == "__main__":

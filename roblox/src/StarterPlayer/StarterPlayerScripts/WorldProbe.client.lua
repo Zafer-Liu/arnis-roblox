@@ -47,10 +47,23 @@ local lastPayloadJson = nil
 local lastBootstrapPayloadJson = nil
 local lastCompactPayloadJson = nil
 local lastLocalExperiencePayloadJson = nil
+local lastPerfPayloadJson = nil
 local lastSampleAt = 0
 local lastSamplePosition = nil
 local lastSampleWorldRootName = nil
 local lastSampleWasMoving = false
+
+-- Performance counters: zero per-frame allocations.
+-- Pre-allocated ring buffer for frame times (5-second window at 60 fps = 300 slots).
+local PERF_RING_CAPACITY = 300
+local PERF_WINDOW_SECONDS = 5
+local perfRing = table.create(PERF_RING_CAPACITY, 0)
+local perfRingHead = 0
+local perfRingCount = 0
+local perfRingTimestampStart = 0
+local perfAccumDt = 0
+local perfLastEmitAt = 0
+local PERF_EMIT_INTERVAL = 5
 local function resolveTelemetryFamilies()
     local playerTelemetryFamilies = player:GetAttribute(WorldProbeTelemetryFlags.PLAYER_ATTR)
     if type(playerTelemetryFamilies) == "string" and playerTelemetryFamilies ~= "" then
@@ -547,6 +560,86 @@ local function summarizeWorld(rootPart, worldRoot, worldRootName, telemetryFlags
     }
 end
 
+local function recordFrameTime(dt)
+    perfRingHead = perfRingHead % PERF_RING_CAPACITY + 1
+    perfRing[perfRingHead] = dt
+    if perfRingCount < PERF_RING_CAPACITY then
+        perfRingCount = perfRingCount + 1
+    end
+    perfAccumDt = perfAccumDt + dt
+end
+
+local function publishPerfTelemetry()
+    if not WorldProbeTelemetryFlags.isEnabled(telemetryFlags, "hotspots") then
+        return
+    end
+    local now = os.clock()
+    if now - perfLastEmitAt < PERF_EMIT_INTERVAL then
+        return
+    end
+    perfLastEmitAt = now
+    if perfRingCount == 0 then
+        return
+    end
+
+    local sampleCount = perfRingCount
+    local sumDt = 0
+    local maxDt = 0
+
+    -- Compute sorted copy for p99 without per-frame allocation.
+    -- We reuse a single sort buffer allocated once.
+    local sortBuf = table.create(sampleCount, 0)
+    local ringStart = perfRingHead - sampleCount + 1
+    for i = 1, sampleCount do
+        local idx = (ringStart + i - 2) % PERF_RING_CAPACITY + 1
+        local v = perfRing[idx]
+        sortBuf[i] = v
+        sumDt = sumDt + v
+        if v > maxDt then
+            maxDt = v
+        end
+    end
+    table.sort(sortBuf)
+
+    local avgDt = sumDt / sampleCount
+    local p99Index = math.ceil(sampleCount * 0.99)
+    if p99Index < 1 then
+        p99Index = 1
+    end
+    local p99Dt = sortBuf[p99Index]
+
+    local worldRoot = Workspace:FindFirstChild(Workspace:GetAttribute(WORLD_ROOT_ATTR) or "")
+    local totalParts = 0
+    local totalMeshParts = 0
+    if worldRoot then
+        for _, desc in ipairs(worldRoot:GetDescendants()) do
+            if desc:IsA("MeshPart") then
+                totalMeshParts = totalMeshParts + 1
+                totalParts = totalParts + 1
+            elseif desc:IsA("BasePart") then
+                totalParts = totalParts + 1
+            end
+        end
+    end
+
+    local perfPayload = {
+        avgFrameTimeMs = math.round(avgDt * 100000) / 100,
+        p99FrameTimeMs = math.round(p99Dt * 100000) / 100,
+        maxFrameTimeMs = math.round(maxDt * 100000) / 100,
+        fps = math.round(1 / avgDt * 10) / 10,
+        sampleCount = sampleCount,
+        windowSeconds = PERF_WINDOW_SECONDS,
+        instanceCountParts = totalParts,
+        instanceCountMeshParts = totalMeshParts,
+    }
+    WorldProbeTelemetryFlags.annotateMarkerPayload(perfPayload, telemetryFlags)
+    local perfPayloadJson = HttpService:JSONEncode(perfPayload)
+    if perfPayloadJson ~= lastPerfPayloadJson then
+        lastPerfPayloadJson = perfPayloadJson
+        print("ARNIS_CLIENT_PERF " .. perfPayloadJson)
+    end
+end
+
 local function publishWorldTelemetry()
     refreshTelemetryFlags()
     local rootPart = getCharacterRootPart()
@@ -770,7 +863,9 @@ Workspace:GetAttributeChangedSignal(WORLD_ROOT_ATTR):Connect(function()
     publishWorldTelemetry()
 end)
 
-RunService.Heartbeat:Connect(function()
+RunService.Heartbeat:Connect(function(dt)
+    recordFrameTime(dt)
+    publishPerfTelemetry()
     maybeSampleWorldTelemetry()
 end)
 

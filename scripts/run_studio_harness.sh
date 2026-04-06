@@ -4274,9 +4274,6 @@ PY
 
 log_effective_play_camera_state() {
   local summary_source="${1:-$ACTIVE_LOG}"
-  if [[ -n "$LOG_SLICE_FILE" && -f "$LOG_SLICE_FILE" && "$summary_source" == "$ACTIVE_LOG" ]]; then
-    summary_source="$LOG_SLICE_FILE"
-  fi
   if rg -q "ARNIS_CLIENT_CAMERA " "$summary_source"; then
     local latest_client_camera=""
     local camera_json=""
@@ -4352,9 +4349,6 @@ PY
 
 log_effective_play_minimap_state() {
   local summary_source="${1:-$ACTIVE_LOG}"
-  if [[ -n "$LOG_SLICE_FILE" && -f "$LOG_SLICE_FILE" && "$summary_source" == "$ACTIVE_LOG" ]]; then
-    summary_source="$LOG_SLICE_FILE"
-  fi
   if rg -q "ARNIS_CLIENT_MINIMAP " "$summary_source"; then
     local latest_client_minimap=""
     local minimap_json=""
@@ -4410,9 +4404,6 @@ PY
 
 log_effective_play_world_state() {
   local summary_source="${1:-$ACTIVE_LOG}"
-  if [[ -n "$LOG_SLICE_FILE" && -f "$LOG_SLICE_FILE" && "$summary_source" == "$ACTIVE_LOG" ]]; then
-    summary_source="$LOG_SLICE_FILE"
-  fi
   if rg -q "ARNIS_CLIENT_WORLD_COMPACT " "$summary_source"; then
     local world_json=""
     local world_verdict=""
@@ -4498,9 +4489,6 @@ PY
 
 log_effective_play_local_experience_state() {
   local summary_source="${1:-$ACTIVE_LOG}"
-  if [[ -n "$LOG_SLICE_FILE" && -f "$LOG_SLICE_FILE" && "$summary_source" == "$ACTIVE_LOG" ]]; then
-    summary_source="$LOG_SLICE_FILE"
-  fi
   if rg -q "ARNIS_CLIENT_LOCAL_EXPERIENCE " "$summary_source"; then
     local local_experience_json=""
     local local_experience_verdict=""
@@ -4575,9 +4563,6 @@ PY
 
 authoritative_client_play_proof_present() {
   local summary_source="${1:-$ACTIVE_LOG}"
-  if [[ -n "$LOG_SLICE_FILE" && -f "$LOG_SLICE_FILE" && "$summary_source" == "$ACTIVE_LOG" ]]; then
-    summary_source="$LOG_SLICE_FILE"
-  fi
   rg -q "ARNIS_CLIENT_BOOTSTRAP " "$summary_source" \
     && rg -q "ARNIS_CLIENT_CAMERA " "$summary_source" \
     && rg -q "ARNIS_CLIENT_MINIMAP " "$summary_source" \
@@ -4587,9 +4572,6 @@ authoritative_client_play_proof_present() {
 
 validate_play_bootstrap_trace() {
   local summary_source="${1:-$ACTIVE_LOG}"
-  if [[ -n "$LOG_SLICE_FILE" && -f "$LOG_SLICE_FILE" && "$summary_source" == "$ACTIVE_LOG" ]]; then
-    summary_source="$LOG_SLICE_FILE"
-  fi
   local client_bootstrap_json=""
   if rg -q "ARNIS_CLIENT_BOOTSTRAP " "$summary_source"; then
     local latest_client_bootstrap=""
@@ -4684,6 +4666,53 @@ PY
   fi
 }
 
+log_effective_play_perf_state() {
+  local summary_source="${1:-$ACTIVE_LOG}"
+  if rg -q "ARNIS_CLIENT_PERF " "$summary_source"; then
+    local latest_client_perf=""
+    local perf_json=""
+    local perf_verdict=""
+    latest_client_perf="$(grep -E "ARNIS_CLIENT_PERF " "$summary_source" | tail -n 1 || true)"
+    if [[ -n "$latest_client_perf" ]]; then
+      perf_json="${latest_client_perf#*ARNIS_CLIENT_PERF }"
+      perf_verdict="$(python3 - "$perf_json" <<'PY'
+import json
+import sys
+
+payload = json.loads(sys.argv[1])
+parts = ["source=client_perf_marker"]
+avg_ms = payload.get("avgFrameTimeMs")
+p99_ms = payload.get("p99FrameTimeMs")
+max_ms = payload.get("maxFrameTimeMs")
+fps = payload.get("fps")
+parts_count = payload.get("instanceCountParts")
+mesh_count = payload.get("instanceCountMeshParts")
+samples = payload.get("sampleCount")
+
+if isinstance(avg_ms, (int, float)):
+    parts.append(f"avgFrameTimeMs={avg_ms}")
+if isinstance(p99_ms, (int, float)):
+    parts.append(f"p99FrameTimeMs={p99_ms}")
+if isinstance(max_ms, (int, float)):
+    parts.append(f"maxFrameTimeMs={max_ms}")
+if isinstance(fps, (int, float)):
+    parts.append(f"fps={fps}")
+if isinstance(parts_count, int):
+    parts.append(f"instanceCountParts={parts_count}")
+if isinstance(mesh_count, int):
+    parts.append(f"instanceCountMeshParts={mesh_count}")
+if isinstance(samples, int):
+    parts.append(f"sampleCount={samples}")
+
+print(" ".join(parts))
+PY
+)"
+      log "play perf verdict (authoritative client): $perf_verdict"
+      return 0
+    fi
+  fi
+}
+
 summarize_log() {
   local summary_source="$ACTIVE_LOG"
   if [[ -n "$LOG_SLICE_FILE" && -f "$LOG_SLICE_FILE" ]]; then
@@ -4693,8 +4722,9 @@ summarize_log() {
   log_effective_play_minimap_state "$summary_source"
   log_effective_play_world_state "$summary_source"
   log_effective_play_local_experience_state "$summary_source"
+  log_effective_play_perf_state "$summary_source"
   log "summary from $(basename "$ACTIVE_LOG")"
-  grep -E "TestEZ tests complete|PASS |FAIL |Tests failed|BootstrapAustin|RunAustin|AustinPreviewBuilder|ArnisRoblox|VertigoSync|RunAll|Austin anchor|anchor resolved|ARNIS_CLIENT_BOOTSTRAP|ARNIS_CLIENT_WORLD_COMPACT|ARNIS_CLIENT_WORLD|ARNIS_CLIENT_LOCAL_EXPERIENCE|ARNIS_CLIENT_CAMERA|ARNIS_CLIENT_MINIMAP|ARNIS_MCP_PLAY|ARNIS_MCP_PLAY_LATE|ARNIS_MCP_PLAY_SCENE_VALIDATED|ARNIS_MCP_EDIT|ARNIS_SCENE_EDIT|ARNIS_SCENE_PLAY|\\[harness-mcp\\]" "$summary_source" | tail -n 260 || true
+  grep -E "TestEZ tests complete|PASS |FAIL |Tests failed|BootstrapAustin|RunAustin|AustinPreviewBuilder|ArnisRoblox|VertigoSync|RunAll|Austin anchor|anchor resolved|ARNIS_CLIENT_BOOTSTRAP|ARNIS_CLIENT_WORLD_COMPACT|ARNIS_CLIENT_WORLD|ARNIS_CLIENT_LOCAL_EXPERIENCE|ARNIS_CLIENT_CAMERA|ARNIS_CLIENT_MINIMAP|ARNIS_CLIENT_PERF|ARNIS_MCP_PLAY|ARNIS_MCP_PLAY_LATE|ARNIS_MCP_PLAY_SCENE_VALIDATED|ARNIS_MCP_EDIT|ARNIS_SCENE_EDIT|ARNIS_SCENE_PLAY|\\[harness-mcp\\]" "$summary_source" | tail -n 260 || true
 }
 
 resolve_route_runtime_index_for_audits() {
