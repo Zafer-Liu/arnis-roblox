@@ -755,6 +755,17 @@ fn cmd_compile(args: &[String]) -> Result<(), String> {
                         .map_err(|e| format!("PNG save failed for {}: {e}", out_png.display()))?;
                     chunk.terrain_texture_path =
                         Some(out_png.to_string_lossy().into_owned());
+
+                    // Also save raw RGBA bytes for embedding in Lua manifests
+                    let out_rgba = arbx_geo::tiles::chunk_texture_rgba_path(
+                        &texture_base,
+                        &world_name,
+                        &chunk_label,
+                    );
+                    arbx_geo::tiles::save_rgba_raw(&img, &out_rgba)?;
+                    chunk.terrain_texture_rgba_path =
+                        Some(out_rgba.to_string_lossy().into_owned());
+
                     fetched += 1;
                 }
                 Err(e) => {

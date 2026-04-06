@@ -6,9 +6,18 @@ Roblox Studio sync/runtime loading.
 Outputs:
   - <output-dir>/<index-name>.lua
   - <output-dir>/<shard-folder>/<index-name>_NNN.lua
+  - <output-dir>/<texture-folder>/<chunk_id>.lua  (per-chunk satellite RGBA)
 
 The index module includes lightweight chunk refs so runtime code can resolve a
 chunk to its shard modules without loading the entire manifest up front.
+
+Satellite texture embedding:
+  When a chunk carries ``terrainTextureRgbaPath`` (or ``terrainTexturePath``
+  with a companion ``.rgba`` file), the raw RGBA bytes are embedded in a
+  separate Lua ModuleScript that returns a string literal.  Runtime Lua can
+  convert this to a buffer with ``buffer.fromstring(require(module))``.
+  The chunk shard data receives a ``terrainTextureModule`` key pointing to the
+  module name so that TerrainBuilder can locate and load the texture lazily.
 """
 
 import argparse
@@ -24,6 +33,97 @@ from chunk_fragmentation import (
 )
 
 CURRENT_SCHEMA_VERSION = "0.4.0"
+
+# Fields that are build-time filesystem paths and must not appear in runtime Lua shards.
+_BUILD_TIME_TEXTURE_FIELDS = {"terrainTexturePath", "terrainTextureRgbaPath"}
+
+DEFAULT_TEXTURE_FOLDER = "AustinTerrainTextures"
+
+
+def _rgba_bytes_to_lua_module(rgba_bytes: bytes) -> str:
+    """Encode raw RGBA bytes as a Lua ModuleScript returning a string literal.
+
+    Each byte is written as a ``\\xHH`` escape so ``buffer.fromstring()`` can
+    consume the result with zero runtime decoding overhead.
+    """
+    escaped = "".join(f"\\x{b:02x}" for b in rgba_bytes)
+    return f'return "{escaped}"\n'
+
+
+def _resolve_rgba_path(chunk: dict[str, Any], manifest_dir: Path | None) -> Path | None:
+    """Return the Path to the .rgba file for a chunk, or None if unavailable."""
+    rgba_path_str = chunk.get("terrainTextureRgbaPath")
+    if rgba_path_str:
+        p = Path(rgba_path_str)
+        if p.is_absolute():
+            return p if p.exists() else None
+        if manifest_dir:
+            resolved = manifest_dir / p
+            return resolved if resolved.exists() else None
+        return None
+
+    # Fallback: derive from terrainTexturePath by swapping extension
+    png_path_str = chunk.get("terrainTexturePath")
+    if not png_path_str:
+        return None
+    png_path = Path(png_path_str)
+    rgba_candidate = png_path.with_suffix(".rgba")
+    if rgba_candidate.is_absolute():
+        return rgba_candidate if rgba_candidate.exists() else None
+    if manifest_dir:
+        resolved = manifest_dir / rgba_candidate
+        return resolved if resolved.exists() else None
+    return None
+
+
+def _embed_texture_modules(
+    chunks: list[dict[str, Any]],
+    manifest_dir: Path | None,
+    texture_dir: Path,
+    texture_folder: str,
+) -> int:
+    """Read .rgba files for each chunk, write texture ModuleScripts.
+
+    Mutates each chunk dict in-place: removes build-time path fields and adds
+    ``terrainTextureModule`` when a texture was successfully embedded.
+
+    Returns the number of textures embedded.
+    """
+    embedded = 0
+    for chunk in chunks:
+        rgba_path = _resolve_rgba_path(chunk, manifest_dir)
+        # Always strip build-time paths regardless of whether embedding succeeds
+        for field in _BUILD_TIME_TEXTURE_FIELDS:
+            chunk.pop(field, None)
+
+        if rgba_path is None:
+            continue
+
+        rgba_bytes = rgba_path.read_bytes()
+        if len(rgba_bytes) == 0:
+            continue
+
+        chunk_id = chunk["id"]
+        # Sanitize chunk_id for use as a module name (e.g. "-1_2" -> "neg1_2")
+        safe_id = chunk_id.replace("-", "neg")
+        module_name = f"Texture_{safe_id}"
+        module_path = texture_dir / f"{module_name}.lua"
+        module_path.parent.mkdir(parents=True, exist_ok=True)
+        module_path.write_text(_rgba_bytes_to_lua_module(rgba_bytes), encoding="utf-8")
+
+        chunk["terrainTextureModule"] = module_name
+        chunk["terrainTextureFolder"] = texture_folder
+
+        # Derive dimensions from byte count (RGBA = 4 bytes/pixel, square texture)
+        pixel_count = len(rgba_bytes) // 4
+        side = int(pixel_count**0.5)
+        if side * side == pixel_count:
+            chunk["terrainTextureWidth"] = side
+            chunk["terrainTextureHeight"] = side
+
+        embedded += 1
+
+    return embedded
 
 
 def _require_current_schema_version(schema_version: str, source_label: str) -> None:
@@ -268,10 +368,28 @@ def main() -> int:
     parser.add_argument("--shard-folder", default="AustinManifestChunks", help="Shard folder name")
     parser.add_argument("--chunks-per-shard", type=int, default=32, help="Chunks per shard module")
     parser.add_argument("--max-bytes", type=int, default=None, help="Maximum Lua module size in bytes")
+    parser.add_argument(
+        "--manifest-dir",
+        default=None,
+        help="Directory to resolve relative texture paths against (defaults to manifest file parent)",
+    )
+    parser.add_argument(
+        "--texture-folder",
+        default=DEFAULT_TEXTURE_FOLDER,
+        help="Folder name for per-chunk texture ModuleScripts",
+    )
     args = parser.parse_args()
 
     if bool(args.json) == bool(args.sqlite):
         raise SystemExit("provide exactly one of --json or --sqlite")
+
+    manifest_dir: Path | None = None
+    if args.manifest_dir is not None:
+        manifest_dir = Path(args.manifest_dir)
+    elif args.json is not None:
+        manifest_dir = Path(args.json).resolve().parent
+    elif args.sqlite is not None:
+        manifest_dir = Path(args.sqlite).resolve().parent
 
     if args.sqlite is not None:
         data = load_manifest_from_sqlite(Path(args.sqlite))
@@ -298,6 +416,16 @@ def main() -> int:
                 raise SystemExit("chunkRefs entries must be objects with an id")
             chunk_ref_metadata_by_id[chunk_ref["id"]] = chunk_ref
 
+    output_dir = Path(args.output_dir)
+    texture_dir = output_dir / args.texture_folder
+
+    # Embed satellite texture RGBA data as separate Lua ModuleScripts.
+    # This mutates source_chunks in-place: strips build-time paths and adds
+    # terrainTextureModule / terrainTextureFolder / dimension fields.
+    texture_count = _embed_texture_modules(
+        source_chunks, manifest_dir, texture_dir, args.texture_folder,
+    )
+
     chunks: list[dict[str, Any]] = []
     chunk_ref_by_id: dict[str, dict[str, Any]] = {}
     for chunk in source_chunks:
@@ -305,7 +433,6 @@ def main() -> int:
         chunk_ref_by_id[chunk_id] = chunk_ref_metadata(chunk, chunk_ref_metadata_by_id.get(chunk_id))
         chunks.extend(fragment_chunk(chunk, args.max_bytes))
 
-    output_dir = Path(args.output_dir)
     shard_dir = output_dir / args.shard_folder
     clear_existing_shards(shard_dir, args.index_name)
     shard_names = []
@@ -335,6 +462,8 @@ def main() -> int:
 
     print(f"Wrote index module to {output_dir / f'{args.index_name}.lua'}")
     print(f"Wrote {shard_count} shard modules to {shard_dir}")
+    if texture_count > 0:
+        print(f"Wrote {texture_count} texture modules to {texture_dir}")
     return 0
 
 

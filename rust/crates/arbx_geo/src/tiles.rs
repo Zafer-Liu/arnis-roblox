@@ -209,6 +209,33 @@ pub fn chunk_texture_path(out_dir: &Path, scene: &str, chunk_id: &str) -> PathBu
         .join(format!("{}.png", chunk_id))
 }
 
+/// Build the output path for a chunk's raw RGBA terrain texture.
+///
+/// Layout: `{out_dir}/{scene}-terrain-tiles/{chunk_id}.rgba`
+pub fn chunk_texture_rgba_path(out_dir: &Path, scene: &str, chunk_id: &str) -> PathBuf {
+    out_dir
+        .join(format!("{}-terrain-tiles", scene))
+        .join(format!("{}.rgba", chunk_id))
+}
+
+/// Convert an RGB image to raw RGBA bytes (alpha = 255) and write to disk.
+pub fn save_rgba_raw(img: &image::RgbImage, path: &Path) -> Result<(), String> {
+    let (w, h) = img.dimensions();
+    let mut rgba = Vec::with_capacity((w * h * 4) as usize);
+    for pixel in img.pixels() {
+        rgba.push(pixel[0]);
+        rgba.push(pixel[1]);
+        rgba.push(pixel[2]);
+        rgba.push(255);
+    }
+    if let Some(parent) = path.parent() {
+        std::fs::create_dir_all(parent)
+            .map_err(|e| format!("mkdir failed for {}: {e}", parent.display()))?;
+    }
+    std::fs::write(path, &rgba)
+        .map_err(|e| format!("RGBA write failed for {}: {e}", path.display()))
+}
+
 // ---------------------------------------------------------------------------
 // Tests
 // ---------------------------------------------------------------------------
@@ -383,6 +410,43 @@ mod tests {
             "red channel should be high, got {}",
             sample[0]
         );
+
+        let _ = std::fs::remove_dir_all(&tmp);
+    }
+
+    #[test]
+    fn chunk_texture_rgba_path_construction() {
+        let p = chunk_texture_rgba_path(Path::new("out"), "Austin", "2_3");
+        assert_eq!(p, PathBuf::from("out/Austin-terrain-tiles/2_3.rgba"));
+    }
+
+    #[test]
+    fn save_rgba_raw_writes_correct_bytes() {
+        let tmp = std::env::temp_dir().join("arbx_geo_rgba_test");
+        let _ = std::fs::remove_dir_all(&tmp);
+        std::fs::create_dir_all(&tmp).unwrap();
+
+        // Create a 2x2 RGB image: red, green, blue, white
+        let mut img = image::RgbImage::new(2, 2);
+        img.put_pixel(0, 0, image::Rgb([255, 0, 0]));
+        img.put_pixel(1, 0, image::Rgb([0, 255, 0]));
+        img.put_pixel(0, 1, image::Rgb([0, 0, 255]));
+        img.put_pixel(1, 1, image::Rgb([255, 255, 255]));
+
+        let out_path = tmp.join("test.rgba");
+        save_rgba_raw(&img, &out_path).expect("save should succeed");
+
+        let bytes = std::fs::read(&out_path).unwrap();
+        // 2x2 * 4 = 16 bytes
+        assert_eq!(bytes.len(), 16);
+        // Red pixel: R=255, G=0, B=0, A=255
+        assert_eq!(&bytes[0..4], &[255, 0, 0, 255]);
+        // Green pixel
+        assert_eq!(&bytes[4..8], &[0, 255, 0, 255]);
+        // Blue pixel
+        assert_eq!(&bytes[8..12], &[0, 0, 255, 255]);
+        // White pixel
+        assert_eq!(&bytes[12..16], &[255, 255, 255, 255]);
 
         let _ = std::fs::remove_dir_all(&tmp);
     }

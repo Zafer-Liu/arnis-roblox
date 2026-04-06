@@ -17,6 +17,9 @@ CHUNK_LIST_FIELDS = [
 INDEX_ONLY_FIELDS = {
     "partitionVersion",
     "subplans",
+    # Build-time filesystem paths -- never shipped to runtime Lua shards.
+    "terrainTexturePath",
+    "terrainTextureRgbaPath",
 }
 
 

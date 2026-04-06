@@ -334,6 +334,7 @@ mod tests {
                 origin_studs: Vec3::new(0.0, 0.0, 0.0),
                 terrain: None,
                 terrain_texture_path: None,
+                terrain_texture_rgba_path: None,
                 roads: vec![RoadSegment {
                     id: "road_smoke".to_string(),
                     kind: "primary".to_string(),

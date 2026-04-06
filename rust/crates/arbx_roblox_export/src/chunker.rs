@@ -347,6 +347,7 @@ pub(crate) fn build_empty_chunk(
             material: default_material,
         }),
         terrain_texture_path: None,
+        terrain_texture_rgba_path: None,
         roads: Vec::new(),
         rails: Vec::new(),
         buildings: Vec::new(),

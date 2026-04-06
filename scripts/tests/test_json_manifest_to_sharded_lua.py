@@ -856,5 +856,194 @@ class JsonManifestToShardedLuaTests(unittest.TestCase):
             self.assertIn('partitionVersion="subplans.v1"', index_text)
 
 
+    def test_texture_embedding_creates_module_and_strips_paths(self) -> None:
+        """When a chunk has terrainTexturePath with a companion .rgba file,
+        the conversion script should embed the texture as a separate Lua
+        ModuleScript and strip the filesystem path from the shard data."""
+        manifest = {
+            "schemaVersion": "0.4.0",
+            "meta": {
+                "worldName": "TextureEmbedTest",
+                "generator": "test",
+                "source": "test",
+                "metersPerStud": 0.3,
+                "chunkSizeStuds": 256,
+                "bbox": {"minLat": 0, "minLon": 0, "maxLat": 1, "maxLon": 1},
+            },
+            "chunks": [
+                {
+                    "id": "0_0",
+                    "originStuds": {"x": 0, "y": 0, "z": 0},
+                    "terrainTexturePath": "textures/0_0.png",
+                    "roads": [{}],
+                }
+            ],
+        }
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            temp_root = Path(temp_dir)
+            manifest_path = temp_root / "manifest.json"
+            out_dir = temp_root / "out"
+
+            # Create a companion .rgba file (2x2 RGBA = 16 bytes)
+            texture_dir = temp_root / "textures"
+            texture_dir.mkdir()
+            rgba_bytes = bytes([255, 0, 0, 255, 0, 255, 0, 255,
+                                0, 0, 255, 255, 255, 255, 255, 255])
+            (texture_dir / "0_0.rgba").write_bytes(rgba_bytes)
+
+            manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
+
+            subprocess.run(
+                [
+                    "python3",
+                    str(SCRIPT),
+                    "--json",
+                    str(manifest_path),
+                    "--output-dir",
+                    str(out_dir),
+                    "--index-name",
+                    "TestManifestIndex",
+                    "--shard-folder",
+                    "TestManifestChunks",
+                    "--texture-folder",
+                    "TestTextures",
+                    "--manifest-dir",
+                    str(temp_root),
+                ],
+                check=True,
+                cwd=ROOT,
+            )
+
+            # Texture module should exist
+            texture_module_path = out_dir / "TestTextures" / "Texture_0_0.lua"
+            self.assertTrue(texture_module_path.exists(), "Texture module should be created")
+
+            texture_src = texture_module_path.read_text(encoding="utf-8")
+            self.assertTrue(texture_src.startswith('return "'), "Should return a string literal")
+            # Verify it encodes the RGBA bytes as \xHH escapes
+            self.assertIn("\\xff\\x00\\x00\\xff", texture_src)
+
+            # Shard should reference the texture module, not the filesystem path
+            shard_text = (out_dir / "TestManifestChunks" / "TestManifestIndex_001.lua").read_text(encoding="utf-8")
+            self.assertIn('terrainTextureModule="Texture_0_0"', shard_text)
+            self.assertIn('terrainTextureFolder="TestTextures"', shard_text)
+            self.assertIn("terrainTextureWidth=2", shard_text)
+            self.assertIn("terrainTextureHeight=2", shard_text)
+            self.assertNotIn("terrainTexturePath", shard_text)
+            self.assertNotIn("terrainTextureRgbaPath", shard_text)
+
+    def test_texture_embedding_handles_missing_rgba_gracefully(self) -> None:
+        """When terrainTexturePath exists but no companion .rgba file,
+        the path should be stripped and no texture module created."""
+        manifest = {
+            "schemaVersion": "0.4.0",
+            "meta": {
+                "worldName": "TextureMissingTest",
+                "generator": "test",
+                "source": "test",
+                "metersPerStud": 0.3,
+                "chunkSizeStuds": 256,
+                "bbox": {"minLat": 0, "minLon": 0, "maxLat": 1, "maxLon": 1},
+            },
+            "chunks": [
+                {
+                    "id": "0_0",
+                    "originStuds": {"x": 0, "y": 0, "z": 0},
+                    "terrainTexturePath": "nonexistent/0_0.png",
+                    "roads": [{}],
+                }
+            ],
+        }
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            temp_root = Path(temp_dir)
+            manifest_path = temp_root / "manifest.json"
+            out_dir = temp_root / "out"
+            manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
+
+            subprocess.run(
+                [
+                    "python3",
+                    str(SCRIPT),
+                    "--json",
+                    str(manifest_path),
+                    "--output-dir",
+                    str(out_dir),
+                    "--index-name",
+                    "TestManifestIndex",
+                    "--shard-folder",
+                    "TestManifestChunks",
+                ],
+                check=True,
+                cwd=ROOT,
+            )
+
+            shard_text = (out_dir / "TestManifestChunks" / "TestManifestIndex_001.lua").read_text(encoding="utf-8")
+            self.assertNotIn("terrainTexturePath", shard_text)
+            self.assertNotIn("terrainTextureModule", shard_text)
+
+    def test_texture_embedding_with_negative_chunk_id(self) -> None:
+        """Chunk IDs with hyphens (e.g. '-1_2') should produce valid module names."""
+        manifest = {
+            "schemaVersion": "0.4.0",
+            "meta": {
+                "worldName": "NegativeIdTest",
+                "generator": "test",
+                "source": "test",
+                "metersPerStud": 0.3,
+                "chunkSizeStuds": 256,
+                "bbox": {"minLat": 0, "minLon": 0, "maxLat": 1, "maxLon": 1},
+            },
+            "chunks": [
+                {
+                    "id": "-1_2",
+                    "originStuds": {"x": 0, "y": 0, "z": 0},
+                    "terrainTextureRgbaPath": "tiles/-1_2.rgba",
+                    "roads": [{}],
+                }
+            ],
+        }
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            temp_root = Path(temp_dir)
+            manifest_path = temp_root / "manifest.json"
+            out_dir = temp_root / "out"
+
+            # Create the .rgba file
+            tiles_dir = temp_root / "tiles"
+            tiles_dir.mkdir()
+            rgba_bytes = bytes([128, 128, 128, 255]) * 4  # 2x2
+            (tiles_dir / "-1_2.rgba").write_bytes(rgba_bytes)
+
+            manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
+
+            subprocess.run(
+                [
+                    "python3",
+                    str(SCRIPT),
+                    "--json",
+                    str(manifest_path),
+                    "--output-dir",
+                    str(out_dir),
+                    "--index-name",
+                    "TestManifestIndex",
+                    "--shard-folder",
+                    "TestManifestChunks",
+                    "--manifest-dir",
+                    str(temp_root),
+                ],
+                check=True,
+                cwd=ROOT,
+            )
+
+            # Module name should sanitize the hyphen
+            texture_module_path = out_dir / "AustinTerrainTextures" / "Texture_neg1_2.lua"
+            self.assertTrue(texture_module_path.exists(), "Negative-id texture module should exist")
+
+            shard_text = (out_dir / "TestManifestChunks" / "TestManifestIndex_001.lua").read_text(encoding="utf-8")
+            self.assertIn('terrainTextureModule="Texture_neg1_2"', shard_text)
+
+
 if __name__ == "__main__":
     unittest.main()

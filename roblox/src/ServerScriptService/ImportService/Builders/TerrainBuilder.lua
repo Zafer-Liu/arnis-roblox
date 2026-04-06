@@ -703,8 +703,36 @@ function TerrainBuilder.Build(_parent, chunk, preparedPlan)
 
     TerrainBuilder.Clear(chunk, plan)
 
-    -- After voxel terrain is built, attempt satellite texture overlay if data exists
+    -- After voxel terrain is built, attempt satellite texture overlay if data exists.
+    -- Texture data can arrive as:
+    --   (a) chunk.terrainTextureData  -- raw buffer, legacy / test path
+    --   (b) chunk.terrainTextureModule -- name of a sibling ModuleScript that
+    --       returns a Lua string of raw RGBA bytes (produced by the Python
+    --       manifest conversion step).
     local textureData = chunk.terrainTextureData
+    if not textureData and chunk.terrainTextureModule then
+        local ok, loaded = pcall(function()
+            local folderName = chunk.terrainTextureFolder or "AustinTerrainTextures"
+            local parent = script.Parent and script.Parent.Parent -- ImportService
+            local root = parent and parent.Parent              -- ServerScriptService
+            local folder = root and root:FindFirstChild(folderName)
+            if not folder then
+                return nil
+            end
+            local mod = folder:FindFirstChild(chunk.terrainTextureModule)
+            if not mod then
+                return nil
+            end
+            local rawString = require(mod)
+            if type(rawString) == "string" and #rawString > 0 then
+                return buffer.fromstring(rawString)
+            end
+            return nil
+        end)
+        if ok and loaded then
+            textureData = loaded
+        end
+    end
     if textureData and _parent then
         TerrainBuilder.BuildSatelliteOverlay(_parent, chunk, plan, textureData)
     end
