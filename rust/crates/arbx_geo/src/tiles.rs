@@ -10,15 +10,20 @@
 use std::path::{Path, PathBuf};
 
 /// Convert lat/lon to slippy map tile coordinates at a given zoom level.
+/// Clamps latitude to ±85.05112878 (Web Mercator limit) and output to valid tile range.
 pub fn lat_lon_to_tile(lat: f64, lon: f64, zoom: u32) -> (u32, u32) {
-    let n = 2_u64.pow(zoom) as f64;
-    let x = ((lon + 180.0) / 360.0 * n) as u32;
-    let lat_rad = lat.to_radians();
+    let max_tile = 2_u64.pow(zoom);
+    let n = max_tile as f64;
+    let clamped_lat = lat.clamp(-85.05112878, 85.05112878);
+    let clamped_lon = lon.clamp(-180.0, 180.0);
+    let x = ((clamped_lon + 180.0) / 360.0 * n).floor() as u64;
+    let lat_rad = clamped_lat.to_radians();
     let y = ((1.0
         - (lat_rad.tan() + 1.0 / lat_rad.cos()).ln() / std::f64::consts::PI)
         / 2.0
-        * n) as u32;
-    (x, y)
+        * n)
+        .floor() as u64;
+    (x.min(max_tile - 1) as u32, y.min(max_tile - 1) as u32)
 }
 
 /// Convert tile coordinates back to lat/lon (northwest corner of the tile).
