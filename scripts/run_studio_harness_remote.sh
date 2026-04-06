@@ -176,6 +176,8 @@ REMOTE_VSYNC_DIR="$REMOTE_ROOT/vertigo-sync"
 REMOTE_MANIFEST_SUMMARY_PATH="$REMOTE_ARNIS_DIR/rust/out/austin-manifest.scene-index.json"
 REMOTE_HARNESS_PGID_FILE="$REMOTE_ARNIS_DIR/.arnis-remote-harness.pgid"
 REMOTE_HARNESS_LOCK_DIR="$REMOTE_ARNIS_DIR/.arnis-studio-harness.lock"
+REMOTE_HARNESS_STDOUT_LOG="$REMOTE_ARNIS_DIR/.arnis-remote-harness.stdout.log"
+REMOTE_HARNESS_EXIT_FILE="$REMOTE_ARNIS_DIR/.arnis-remote-harness.exit"
 RSYNC_REMOTE_ARNIS_DIR="$(render_rsync_remote_path "$REMOTE_ARNIS_DIR")"
 RSYNC_REMOTE_VSYNC_DIR="$(render_rsync_remote_path "$REMOTE_VSYNC_DIR")"
 REMOTE_HARNESS_ACTIVE=0
@@ -198,7 +200,7 @@ stop_remote_harness_if_active() {
   if [[ $REMOTE_HARNESS_ACTIVE -ne 1 ]]; then
     return 0
   fi
-  ssh "$REMOTE_HOST" 'bash -s' -- "$REMOTE_ARNIS_DIR" "$REMOTE_VSYNC_TARGET_DIR" "$REMOTE_HARNESS_PGID_FILE" "$REMOTE_HARNESS_LOCK_DIR" <<'SH' >/dev/null 2>&1 || true
+  ssh "$REMOTE_HOST" 'bash -s' -- "$REMOTE_ARNIS_DIR" "$REMOTE_VSYNC_TARGET_DIR" "$REMOTE_HARNESS_PGID_FILE" "$REMOTE_HARNESS_LOCK_DIR" "$REMOTE_HARNESS_EXIT_FILE" <<'SH' >/dev/null 2>&1 || true
 set -euo pipefail
 expand_remote_path() {
   case "$1" in
@@ -215,6 +217,7 @@ remote_arnis_dir="$(expand_remote_path "$1")"
 remote_vsync_target_dir="$(expand_remote_path "$2")"
 remote_harness_pgid_file="$(expand_remote_path "$3")"
 remote_harness_lock_dir="$(expand_remote_path "$4")"
+remote_harness_exit_file="$(expand_remote_path "$5")"
 if [[ -f "$remote_harness_pgid_file" ]]; then
   remote_harness_pgid="$(tr -d '[:space:]' < "$remote_harness_pgid_file" || true)"
   if [[ -n "$remote_harness_pgid" ]]; then
@@ -224,6 +227,7 @@ if [[ -f "$remote_harness_pgid_file" ]]; then
   fi
   rm -f "$remote_harness_pgid_file"
 fi
+rm -f "$remote_harness_exit_file"
 rm -rf "$remote_harness_lock_dir"
 SH
 }
@@ -264,6 +268,45 @@ sync_remote_artifacts() {
   for remote_artifact in "${REMOTE_VOLATILE_ARTIFACTS[@]}"; do
     rsync -a "$REMOTE_HOST:$remote_artifact" "$LOCAL_ARTIFACT_DIR/" >/dev/null 2>&1 || true
   done
+}
+
+sync_remote_session_output() {
+  rsync -a "$REMOTE_HOST:$(render_rsync_remote_path "$REMOTE_HARNESS_STDOUT_LOG")" "$REMOTE_SESSION_OUTPUT_LOG" >/dev/null 2>&1 || true
+}
+
+remote_harness_status() {
+  ssh "$REMOTE_HOST" 'bash -s' -- "$REMOTE_HARNESS_PGID_FILE" "$REMOTE_HARNESS_EXIT_FILE" <<'SH'
+set -euo pipefail
+expand_remote_path() {
+  case "$1" in
+    __REMOTE_HOME__/*)
+      printf '%s\n' "$HOME/${1#__REMOTE_HOME__/}"
+      ;;
+    *)
+      printf '%s\n' "$1"
+      ;;
+  esac
+}
+
+remote_harness_pgid_file="$(expand_remote_path "$1")"
+remote_harness_exit_file="$(expand_remote_path "$2")"
+
+if [[ -f "$remote_harness_exit_file" ]]; then
+  exit_code="$(tr -d '[:space:]' < "$remote_harness_exit_file" || true)"
+  printf 'exit:%s\n' "${exit_code:-1}"
+  exit 0
+fi
+
+if [[ -f "$remote_harness_pgid_file" ]]; then
+  remote_harness_pgid="$(tr -d '[:space:]' < "$remote_harness_pgid_file" || true)"
+  if [[ -n "$remote_harness_pgid" ]] && kill -0 -- "-$remote_harness_pgid" >/dev/null 2>&1; then
+    printf 'running\n'
+    exit 0
+  fi
+fi
+
+printf 'missing\n'
+SH
 }
 
 remote_proof_signal_detected() {
@@ -485,7 +528,7 @@ fi
 reset_remote_proof_artifacts
 
 REMOTE_HARNESS_ACTIVE=1
-ssh "$REMOTE_HOST" 'bash -s' -- "$SYNC_STAGE" "$REMOTE_ARNIS_DIR" "$REMOTE_VSYNC_DIR" "$REMOTE_VSYNC_TARGET_DIR" "$REMOTE_ROUTE_BUNDLE_DIR" "$ARNIS_TELEMETRY_FAMILIES" "${HARNESS_ARGS[@]}" > >(tee "$REMOTE_SESSION_OUTPUT_LOG") 2>&1 <<'SH' &
+ssh "$REMOTE_HOST" 'bash -s' -- "$SYNC_STAGE" "$REMOTE_ARNIS_DIR" "$REMOTE_VSYNC_DIR" "$REMOTE_VSYNC_TARGET_DIR" "$REMOTE_ROUTE_BUNDLE_DIR" "$ARNIS_TELEMETRY_FAMILIES" "$REMOTE_HARNESS_PGID_FILE" "$REMOTE_HARNESS_STDOUT_LOG" "$REMOTE_HARNESS_EXIT_FILE" "$REMOTE_HARNESS_LOCK_DIR" "${HARNESS_ARGS[@]}" <<'SH'
 set -euo pipefail
 expand_remote_path() {
   case "$1" in
@@ -510,8 +553,14 @@ remote_route_bundle_dir="$(expand_remote_path "$1")"
 shift
 remote_telemetry_families="$1"
 shift
-remote_harness_pgid_file="$remote_arnis_dir/.arnis-remote-harness.pgid"
-remote_harness_lock_dir="$remote_arnis_dir/.arnis-studio-harness.lock"
+remote_harness_pgid_file="$(expand_remote_path "$1")"
+shift
+remote_harness_stdout_log="$(expand_remote_path "$1")"
+shift
+remote_harness_exit_file="$(expand_remote_path "$1")"
+shift
+remote_harness_lock_dir="$(expand_remote_path "$1")"
+shift
 
 ensure_remote_stage_ready() {
   local arnis_dir="$1"
@@ -561,26 +610,37 @@ CARGO_TARGET_DIR="$remote_vsync_target_dir" \
 fi
 
 cd "$remote_arnis_dir"
+rm -f "$remote_harness_pgid_file" "$remote_harness_stdout_log" "$remote_harness_exit_file"
+cat > "$remote_arnis_dir/.arnis-remote-harness-launch.sh" <<EOF
+#!/usr/bin/env bash
+set -u
+cd "$remote_arnis_dir"
+status=0
+HARNESS_LOCK_DIR="$remote_harness_lock_dir" \\
+VSYNC_REPO_DIR="$remote_vsync_dir" \\
+VSYNC_BIN="$remote_vsync_target_dir/debug/vsync" \\
+ARNIS_ROUTE_BUNDLE_DIR="$remote_route_bundle_dir" \\
+ARNIS_TELEMETRY_FAMILIES="$remote_telemetry_families" \\
+ARNIS_GUI_SESSION_CAPTURE="\${ARNIS_GUI_SESSION_CAPTURE:-1}" \\
+ARNIS_PARENT_WATCHDOG=0 \\
+bash "$remote_arnis_dir/scripts/run_studio_harness.sh" "\$@" || status=\$?
+printf '%s\n' "\$status" > "$remote_harness_exit_file"
 rm -f "$remote_harness_pgid_file"
-HARNESS_LOCK_DIR="$remote_harness_lock_dir" \
-VSYNC_REPO_DIR="$remote_vsync_dir" \
-VSYNC_BIN="$remote_vsync_target_dir/debug/vsync" \
-ARNIS_ROUTE_BUNDLE_DIR="$remote_route_bundle_dir" \
-ARNIS_TELEMETRY_FAMILIES="$remote_telemetry_families" \
-ARNIS_GUI_SESSION_CAPTURE="${ARNIS_GUI_SESSION_CAPTURE:-1}" \
-bash "$remote_arnis_dir/scripts/run_studio_harness.sh" "$@" &
+exit "\$status"
+EOF
+chmod +x "$remote_arnis_dir/.arnis-remote-harness-launch.sh"
+nohup "$remote_arnis_dir/.arnis-remote-harness-launch.sh" "$@" >"$remote_harness_stdout_log" 2>&1 </dev/null &
 remote_harness_pid=$!
 remote_harness_pgid="$(ps -o pgid= "$remote_harness_pid" | tr -d '[:space:]')"
 printf '%s\n' "$remote_harness_pgid" > "$remote_harness_pgid_file"
-wait "$remote_harness_pid"
-rm -f "$remote_harness_pgid_file"
+printf 'launched:%s\n' "$remote_harness_pid"
 SH
-remote_ssh_pid=$!
 proof_signal_seen=0
 completion_signal_seen_at=0
 wrapper_wait_bounded=0
 
-while kill -0 "$remote_ssh_pid" >/dev/null 2>&1; do
+while true; do
+  sync_remote_session_output || true
   if [[ $proof_signal_seen -eq 0 ]] && remote_proof_signal_detected; then
     proof_signal_seen=1
     sync_remote_artifacts || true
@@ -595,20 +655,26 @@ while kill -0 "$remote_ssh_pid" >/dev/null 2>&1; do
     now_epoch="$(date +%s)"
     if (( now_epoch - completion_signal_seen_at >= PROOF_SYNC_TAIL_TIMEOUT_SECONDS )); then
       echo "[remote-harness] bounded remote cleanup tail exceeded ${PROOF_SYNC_TAIL_TIMEOUT_SECONDS}s after proof completion; stopping wrapper wait" >&2
-      kill -TERM "$remote_ssh_pid" >/dev/null 2>&1 || true
       wrapper_wait_bounded=1
       break
     fi
+  fi
+
+  remote_state="$(remote_harness_status)"
+  if [[ "$remote_state" == exit:* || "$remote_state" == "missing" ]]; then
+    break
   fi
 
   sleep 1
 done
 
 remote_exit_code=0
-if wait "$remote_ssh_pid"; then
-  remote_exit_code=0
-else
-  remote_exit_code=$?
+sync_remote_session_output || true
+remote_state="$(remote_harness_status)"
+if [[ "$remote_state" == exit:* ]]; then
+  remote_exit_code="${remote_state#exit:}"
+elif [[ "$remote_state" == "missing" ]]; then
+  remote_exit_code=1
 fi
 
 if [[ $wrapper_wait_bounded -eq 1 ]]; then

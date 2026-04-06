@@ -101,6 +101,8 @@ fn multi_chunk_export_correct() {
             roof_colour: None,
             roof_material: None,
             roof_height: None,
+            roof_direction: None,
+            roof_angle: None,
             name: None,
         }),
         Feature::Building(arbx_pipeline::BuildingFeature {
@@ -126,6 +128,8 @@ fn multi_chunk_export_correct() {
             roof_colour: None,
             roof_material: None,
             roof_height: None,
+            roof_direction: None,
+            roof_angle: None,
             name: None,
         }),
     ];

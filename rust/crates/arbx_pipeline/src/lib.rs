@@ -35,6 +35,7 @@ pub struct RoadFeature {
     pub oneway: Option<bool>,
     pub layer: Option<i32>,
     pub name: Option<String>,
+    pub sidewalk_surface: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -65,6 +66,8 @@ pub struct BuildingFeature {
     pub roof_colour: Option<String>,
     pub roof_material: Option<String>,
     pub roof_height: Option<f64>,
+    pub roof_direction: Option<f64>,
+    pub roof_angle: Option<f64>,
     pub name: Option<String>,
 }
 
@@ -570,6 +573,7 @@ impl SourceAdapter for SyntheticAustinAdapter {
             oneway: None,
             layer: None,
             name: Some("Congress Ave".to_string()),
+            sidewalk_surface: None,
         }));
 
         // Add some buildings in different chunks
@@ -597,6 +601,8 @@ impl SourceAdapter for SyntheticAustinAdapter {
             roof_colour: None,
             roof_material: None,
             roof_height: None,
+            roof_direction: None,
+            roof_angle: None,
             name: None,
         }));
 
@@ -2667,6 +2673,8 @@ fn emit_area_way(
                 .map(|s| s.to_lowercase()),
             roof_material: tags.get("roof:material").map(|s| s.to_lowercase()),
             roof_height: tags.get("roof:height").and_then(|h| h.parse::<f64>().ok()),
+            roof_direction: tags.get("roof:direction").and_then(|v| v.parse::<f64>().ok()),
+            roof_angle: tags.get("roof:angle").and_then(|v| v.parse::<f64>().ok()),
             name: tags.get("name").cloned(),
         }));
     } else if tags.get("natural") == Some(&"water".to_string()) {
@@ -2792,6 +2800,7 @@ fn emit_linear_way(
             oneway: None,
             layer: tags.get("layer").and_then(|s| s.parse().ok()),
             name: tags.get("name").cloned(),
+            sidewalk_surface: None,
         }));
         return;
     }
@@ -2841,6 +2850,12 @@ fn emit_linear_way(
             oneway: tags.get("oneway").map(|s| s == "yes" || s == "1"),
             layer: tags.get("layer").and_then(|s| s.parse().ok()),
             name: tags.get("name").cloned(),
+            sidewalk_surface: tags
+                .get("sidewalk:surface")
+                .or_else(|| tags.get("sidewalk:both:surface"))
+                .or_else(|| tags.get("sidewalk:left:surface"))
+                .or_else(|| tags.get("sidewalk:right:surface"))
+                .cloned(),
         }));
     } else if let Some(railway) = tags.get("railway") {
         features.push(Feature::Rail(RailFeature {
@@ -3002,6 +3017,8 @@ mod tests {
                 roof_colour: None,
                 roof_material: None,
                 roof_height: None,
+                roof_direction: None,
+                roof_angle: None,
                 name: None,
             })])
         }
@@ -3052,6 +3069,8 @@ mod tests {
                 roof_colour: None,
                 roof_material: None,
                 roof_height: None,
+                roof_direction: None,
+                roof_angle: None,
                 name: Some("Courtyard".to_string()),
             })],
             notes: vec![],
@@ -3967,6 +3986,8 @@ mod tests {
             roof_colour: None,
             roof_material: None,
             roof_height: None,
+            roof_direction: None,
+            roof_angle: None,
             name: Some("OSM Truth".to_string()),
         });
 
@@ -3993,6 +4014,8 @@ mod tests {
             roof_colour: None,
             roof_material: None,
             roof_height: None,
+            roof_direction: None,
+            roof_angle: None,
             name: Some("Overture Duplicate".to_string()),
         });
 
@@ -4019,6 +4042,8 @@ mod tests {
             roof_colour: None,
             roof_material: None,
             roof_height: None,
+            roof_direction: None,
+            roof_angle: None,
             name: Some("Gap Fill".to_string()),
         });
 
@@ -4061,6 +4086,8 @@ mod tests {
             roof_colour: None,
             roof_material: None,
             roof_height: None,
+            roof_direction: None,
+            roof_angle: None,
             name: None,
         });
 
@@ -4087,6 +4114,8 @@ mod tests {
             roof_colour: None,
             roof_material: None,
             roof_height: None,
+            roof_direction: None,
+            roof_angle: None,
             name: Some("Backfilled Hall".to_string()),
         });
 
@@ -4143,6 +4172,8 @@ mod tests {
             roof_colour: None,
             roof_material: None,
             roof_height: None,
+            roof_direction: None,
+            roof_angle: None,
             name: None,
         });
 
@@ -4169,6 +4200,8 @@ mod tests {
             roof_colour: None,
             roof_material: None,
             roof_height: None,
+            roof_direction: None,
+            roof_angle: None,
             name: Some("Texas State Capitol".to_string()),
         });
 
@@ -4214,6 +4247,8 @@ mod tests {
             roof_colour: None,
             roof_material: None,
             roof_height: None,
+            roof_direction: None,
+            roof_angle: None,
             name: Some("First Overture".to_string()),
         });
 
@@ -4240,6 +4275,8 @@ mod tests {
             roof_colour: None,
             roof_material: None,
             roof_height: None,
+            roof_direction: None,
+            roof_angle: None,
             name: Some("Second Overture".to_string()),
         });
 
@@ -4291,6 +4328,8 @@ mod tests {
                 roof_colour: None,
                 roof_material: None,
                 roof_height: None,
+                roof_direction: None,
+                roof_angle: None,
                 name: Some("Near".to_string()),
             }),
             Feature::Building(BuildingFeature {
@@ -4316,6 +4355,8 @@ mod tests {
                 roof_colour: None,
                 roof_material: None,
                 roof_height: None,
+                roof_direction: None,
+                roof_angle: None,
                 name: Some("Far".to_string()),
             }),
         ];
@@ -4342,6 +4383,8 @@ mod tests {
             roof_colour: None,
             roof_material: None,
             roof_height: None,
+            roof_direction: None,
+            roof_angle: None,
             name: Some("Candidate".to_string()),
         };
 
@@ -4991,6 +5034,8 @@ mod tests {
                 roof_colour: None,
                 roof_material: None,
                 roof_height: None,
+                roof_direction: None,
+                roof_angle: None,
                 name: None,
             })],
         );
@@ -5023,5 +5068,51 @@ mod tests {
             expected_y,
             enriched.base_y
         );
+    }
+
+    #[test]
+    fn building_preserves_roof_direction_and_angle() {
+        let mut tags = HashMap::new();
+        tags.insert("building".to_string(), "yes".to_string());
+        tags.insert("roof:direction".to_string(), "90".to_string());
+        tags.insert("roof:angle".to_string(), "30".to_string());
+
+        let fp = vec![
+            Vec2::new(0.0, 0.0),
+            Vec2::new(10.0, 0.0),
+            Vec2::new(10.0, 10.0),
+            Vec2::new(0.0, 10.0),
+        ];
+        let mut features = Vec::new();
+        emit_area_way("test_roof_dir", &tags, &fp, vec![], 0.3, &mut features);
+
+        assert_eq!(features.len(), 1);
+        if let Feature::Building(ref b) = features[0] {
+            assert_eq!(b.roof_direction, Some(90.0));
+            assert_eq!(b.roof_angle, Some(30.0));
+        } else {
+            panic!("expected Building feature");
+        }
+    }
+
+    #[test]
+    fn road_preserves_sidewalk_surface() {
+        let mut tags = HashMap::new();
+        tags.insert("highway".to_string(), "residential".to_string());
+        tags.insert("sidewalk:surface".to_string(), "paving_stones".to_string());
+
+        let points = vec![
+            Vec3::new(0.0, 0.0, 0.0),
+            Vec3::new(10.0, 0.0, 0.0),
+        ];
+        let mut features = Vec::new();
+        emit_linear_way(1, &tags, points, 0.3, &mut features);
+
+        assert_eq!(features.len(), 1);
+        if let Feature::Road(ref r) = features[0] {
+            assert_eq!(r.sidewalk_surface, Some("paving_stones".to_string()));
+        } else {
+            panic!("expected Road feature");
+        }
     }
 }

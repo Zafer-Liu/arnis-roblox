@@ -474,6 +474,7 @@ impl Chunker {
                         oneway: f.oneway,
                         layer: f.layer,
                         name: f.name.clone(),
+                        sidewalk_surface: f.sidewalk_surface.clone(),
                     });
                 }
             }
@@ -670,6 +671,8 @@ impl Chunker {
                     roof: f.roof,
                     rooms: Vec::new(),
                     roof_height: f.roof_height.map(|height| height * scale),
+                    roof_direction: f.roof_direction,
+                    roof_angle: f.roof_angle,
                     name: f.name.clone(),
                 });
             }

@@ -641,6 +641,8 @@ class RunStudioHarnessTests(unittest.TestCase):
         self.assertIn("cleanup_orphan_harness_processes()", self.text)
         self.assertIn("start_parent_watchdog()", self.text)
         self.assertIn("stop_parent_watchdog()", self.text)
+        self.assertIn('PARENT_WATCHDOG_ENABLED="${ARNIS_PARENT_WATCHDOG:-1}"', self.text)
+        self.assertIn('if [[ "$PARENT_WATCHDOG_ENABLED" == "0" ]]; then', self.text)
         self.assertIn('if "run_studio_harness.sh" not in command:', self.text)
         self.assertIn('if ppid_text != "1":', self.text)
         self.assertIn('log "cleaning orphaned harness shells: $orphan_pids"', self.text)
