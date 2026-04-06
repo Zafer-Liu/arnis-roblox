@@ -8,6 +8,7 @@ local WorldConfig = require(game:GetService("ReplicatedStorage").Shared.WorldCon
 local RoadChunkPlan = {}
 
 local GROUND_ROAD_CLEARANCE = WorldConfig.GroundRoadClearance or 0.75
+local LAYER_ELEVATION_STUDS = 5
 
 local function offsetPoint(point, origin)
     return Vector3.new(point.x + origin.x, point.y + origin.y, point.z + origin.z)
@@ -57,7 +58,9 @@ function RoadChunkPlan.build(roads, originStuds, chunk, options)
 
     for _, road in ipairs(roads or {}) do
         local width = getEffectiveWidth(road, RoadProfile.getRoadWidth(road))
-        local layerElevation = if road.layer and road.layer > 0 then road.layer * 8 else 0
+        local layerElevation = if road.layer and (road.layer > 0 or road.layer < 0)
+            then road.layer * LAYER_ELEVATION_STUDS
+            else 0
         local roadPlan = {
             road = road,
             chunk = chunk,
@@ -77,7 +80,7 @@ function RoadChunkPlan.build(roads, originStuds, chunk, options)
             local p1 = offsetPoint(road.points[index], originStuds)
             local p2 = offsetPoint(road.points[index + 1], originStuds)
 
-            if layerElevation > 0 then
+            if layerElevation ~= 0 then
                 local surfaceY = (p1.Y + p2.Y) * 0.5 + layerElevation
                 p1 = Vector3.new(p1.X, surfaceY, p1.Z)
                 p2 = Vector3.new(p2.X, surfaceY, p2.Z)

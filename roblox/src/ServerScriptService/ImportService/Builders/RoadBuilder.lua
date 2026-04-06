@@ -181,7 +181,16 @@ local function getRoadDetailParent(parent)
     return detailFolder
 end
 
--- Returns "both", "left", "right", or "no".
+-- Normalizes sidewalk mode: "separate" means sidewalks exist but are not
+-- attached to this road geometry, so treat as "no" for curb generation.
+local function normalizeSidewalkMode(sidewalkMode)
+    if sidewalkMode == "separate" then
+        return "no"
+    end
+    return sidewalkMode or "no"
+end
+
+-- Returns "both", "left", "right", "no", or "separate".
 local function getMaterial(road)
     -- 1. OSM surface tag takes priority (most specific physical description)
     if road.surface then
@@ -231,7 +240,33 @@ local ROAD_COLOR = {
     default = Color3.fromRGB(80, 80, 85),
 }
 
+-- Subkind-based color tint overrides for visual differentiation.
+-- When road.subkind is available, apply a color shift relative to the base kind color.
+-- Motorway/trunk: darker, fresher asphalt. Residential/service: lighter, weathered.
+-- Track/path: warm earth tones.
+local SUBKIND_COLOR_TINT = {
+    motorway = Color3.fromRGB(60, 60, 68),
+    trunk = Color3.fromRGB(65, 65, 72),
+    primary = Color3.fromRGB(80, 80, 85),
+    secondary = Color3.fromRGB(80, 80, 85),
+    residential = Color3.fromRGB(95, 95, 98),
+    service = Color3.fromRGB(100, 98, 92),
+    track = Color3.fromRGB(115, 100, 78),
+    path = Color3.fromRGB(130, 118, 98),
+}
+
+local function getSubkindColorTint(road)
+    if road.subkind and SUBKIND_COLOR_TINT[road.subkind] then
+        return SUBKIND_COLOR_TINT[road.subkind]
+    end
+    return nil
+end
+
 local function getRoadColor(road)
+    local subkindTint = getSubkindColorTint(road)
+    if subkindTint then
+        return subkindTint
+    end
     return ROAD_COLOR[road.kind] or ROAD_COLOR.default
 end
 
@@ -322,10 +357,11 @@ local function paintStrip(terrain, p1, p2, width, thickness, material, surfaceLi
 end
 
 -- Paint one road segment into terrain using FillBlock (ground-level roads).
--- sidewalkMode: "both" | "left" | "right" | "no"
+-- sidewalkMode: "both" | "left" | "right" | "no" | "separate"
 -- Left side  → negative sideOffset (CFrame local X < 0)
 -- Right side → positive sideOffset (CFrame local X > 0)
 local function paintSegment(terrain, p1, p2, road, width, material, sidewalkMode)
+    sidewalkMode = normalizeSidewalkMode(sidewalkMode)
     local sidewalkWidth = RoadProfile.getSidewalkWidth(road, width)
     local edgeBuffer = RoadProfile.getEdgeBufferWidth(road, width)
 
@@ -1318,10 +1354,11 @@ function RoadBuilder.MeshBuildAll(
         roadAcc:registerRoadSource(road.id)
         local sidewalkWidth = RoadProfile.getSidewalkWidth(road, roadPlan.width)
         local edgeBuffer = RoadProfile.getEdgeBufferWidth(road, roadPlan.width)
-        local hasSidewalkLeft = (roadPlan.sidewalkMode == "both" or roadPlan.sidewalkMode == "left")
+        local normalizedSidewalkMode = normalizeSidewalkMode(roadPlan.sidewalkMode)
+        local hasSidewalkLeft = (normalizedSidewalkMode == "both" or normalizedSidewalkMode == "left")
             and sidewalkWidth > 0
         local hasSidewalkRight = (
-            roadPlan.sidewalkMode == "both" or roadPlan.sidewalkMode == "right"
+            normalizedSidewalkMode == "both" or normalizedSidewalkMode == "right"
         ) and sidewalkWidth > 0
         local sidewalkStripWidth = sidewalkWidth + edgeBuffer
         local sidewalkAcc = nil
