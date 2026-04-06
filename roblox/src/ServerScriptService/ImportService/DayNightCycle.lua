@@ -204,8 +204,7 @@ local function updateLighting(hour, forceReactiveRefresh)
         local cfgHaze = WorldConfig.AtmosphereHaze or 0.15
         local targetDensity = settings.density + cfgDensity
         local targetHaze = settings.haze + cfgHaze
-        atmosphere.Density = atmosphere.Density
-            + (targetDensity - atmosphere.Density) * LERP_SPEED
+        atmosphere.Density = atmosphere.Density + (targetDensity - atmosphere.Density) * LERP_SPEED
         atmosphere.Offset = atmosphere.Offset + (cfgOffset - atmosphere.Offset) * LERP_SPEED
         atmosphere.Haze = atmosphere.Haze + (targetHaze - atmosphere.Haze) * LERP_SPEED
         atmosphere.Color = lerpColor(atmosphere.Color, settings.atmosphereColor, LERP_SPEED)
@@ -222,14 +221,12 @@ local function updateLighting(hour, forceReactiveRefresh)
     -- Sun rays
     local sunRays = Lighting:FindFirstChildOfClass("SunRaysEffect")
     if sunRays then
-        sunRays.Intensity = sunRays.Intensity
-            + (settings.sunRaysIntensity - sunRays.Intensity) * LERP_SPEED
+        sunRays.Intensity = sunRays.Intensity + (settings.sunRaysIntensity - sunRays.Intensity) * LERP_SPEED
         sunRays.Spread = sunRays.Spread + (settings.sunRaysSpread - sunRays.Spread) * LERP_SPEED
     end
 
     -- Outdoor ambient
-    Lighting.OutdoorAmbient =
-        lerpColor(Lighting.OutdoorAmbient, settings.outdoorAmbient, LERP_SPEED)
+    Lighting.OutdoorAmbient = lerpColor(Lighting.OutdoorAmbient, settings.outdoorAmbient, LERP_SPEED)
 end
 
 function DayNightCycle.Start(speed)

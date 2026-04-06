@@ -9,9 +9,21 @@ local PropBuilder = {}
 -- Known conifer genera/species: used to infer needleleaved canopy shape
 -- when leafType is not explicitly set in the manifest.
 local CONIFER_SPECIES_PATTERNS = {
-    "pinus", "picea", "abies", "spruce", "fir", "cedar",
-    "juniper", "cypress", "larch", "hemlock", "yew",
-    "redwood", "sequoia", "conifer", "juniperus",
+    "pinus",
+    "picea",
+    "abies",
+    "spruce",
+    "fir",
+    "cedar",
+    "juniper",
+    "cypress",
+    "larch",
+    "hemlock",
+    "yew",
+    "redwood",
+    "sequoia",
+    "conifer",
+    "juniperus",
 }
 
 local pools = {}
@@ -320,11 +332,7 @@ local function buildRealisticCanopy(parent, trunkTop, canopyRadius, canopyColor,
         lobe.Anchored = true
         lobe.CanCollide = false
         lobe.CastShadow = true
-        lobe.CFrame = CFrame.new(
-            trunkTop.X + offsetX,
-            trunkTop.Y + canopyRadius * 0.5 + offsetY,
-            trunkTop.Z + offsetZ
-        )
+        lobe.CFrame = CFrame.new(trunkTop.X + offsetX, trunkTop.Y + canopyRadius * 0.5 + offsetY, trunkTop.Z + offsetZ)
         lobe.Parent = parent
     end
 end
@@ -339,8 +347,7 @@ local function buildTree(parent, prop, originStuds, baseYOverride)
     local yaw = math.rad(prop.yawDegrees or 0)
     -- prop.scale defaults to 1.0 from exporter; use getTreeScale for real height-based scaling
     local scale = getTreeScale(prop)
-    local canopySeed =
-        hashId(prop.id or tostring(prop.position.x) .. ":" .. tostring(prop.position.z))
+    local canopySeed = hashId(prop.id or tostring(prop.position.x) .. ":" .. tostring(prop.position.z))
 
     local model = Instance.new("Model")
     model.Name = prop.id or "Tree"
@@ -375,8 +382,7 @@ local function buildTree(parent, prop, originStuds, baseYOverride)
         trunk.Anchored = true
         trunk.Size = Vector3.new(trunkR * 0.6 * 2, trunkH, trunkR * 0.6 * 2)
         trunk.Shape = Enum.PartType.Cylinder
-        trunk.CFrame = CFrame.new(worldPos + Vector3.new(0, trunkH * 0.5, 0))
-            * CFrame.Angles(0, yaw, math.pi * 0.5)
+        trunk.CFrame = CFrame.new(worldPos + Vector3.new(0, trunkH * 0.5, 0)) * CFrame.Angles(0, yaw, math.pi * 0.5)
         trunk.Material = Enum.Material.Wood
         trunk.Color = Color3.fromRGB(139, 109, 75)
         trunk.CastShadow = false
@@ -413,8 +419,7 @@ local function buildTree(parent, prop, originStuds, baseYOverride)
     baseTrunk.Anchored = true
     baseTrunk.Shape = Enum.PartType.Cylinder
     baseTrunk.Size = Vector3.new(trunkH * 0.3, trunkR * 1.4, trunkR * 1.4)
-    baseTrunk.CFrame = CFrame.new(worldPos + Vector3.new(0, trunkH * 0.15, 0))
-        * CFrame.Angles(0, yaw, math.pi * 0.5)
+    baseTrunk.CFrame = CFrame.new(worldPos + Vector3.new(0, trunkH * 0.15, 0)) * CFrame.Angles(0, yaw, math.pi * 0.5)
     baseTrunk.Material = Enum.Material.WoodPlanks
     baseTrunk.Color = trunkColor
     baseTrunk.CastShadow = false
@@ -426,8 +431,7 @@ local function buildTree(parent, prop, originStuds, baseYOverride)
     upperTrunk.Anchored = true
     upperTrunk.Shape = Enum.PartType.Cylinder
     upperTrunk.Size = Vector3.new(trunkH * 0.7, trunkR, trunkR)
-    upperTrunk.CFrame = CFrame.new(worldPos + Vector3.new(0, trunkH * 0.65, 0))
-        * CFrame.Angles(0, yaw, math.pi * 0.5)
+    upperTrunk.CFrame = CFrame.new(worldPos + Vector3.new(0, trunkH * 0.65, 0)) * CFrame.Angles(0, yaw, math.pi * 0.5)
     upperTrunk.Material = Enum.Material.WoodPlanks
     upperTrunk.Color = trunkColor
     upperTrunk.CastShadow = false
@@ -477,10 +481,7 @@ function PropBuilder.Build(parent, prop, originStuds, chunk)
     local detailParent = getPropDetailParent(parent)
     if prop.kind == "tree" then
         -- Use manifest Y directly; DEM elevation is authoritative
-        return annotatePropRoot(
-            buildTree(detailParent, prop, originStuds, prop.position.y + originStuds.y),
-            prop
-        )
+        return annotatePropRoot(buildTree(detailParent, prop, originStuds, prop.position.y + originStuds.y), prop)
     end
 
     if prop.kind == "street_lamp" or prop.kind == "amenity_street_lamp" then
@@ -518,9 +519,7 @@ function PropBuilder.Build(parent, prop, originStuds, chunk)
         back.Size = Vector3.new(5, 1.2, 0.2)
         back.Material = Enum.Material.WoodPlanks
         back.Color = Color3.fromRGB(110, 72, 40)
-        back.CFrame = CFrame.new(wx, wy + 2.3, wz)
-            * CFrame.Angles(0, yaw, 0)
-            * CFrame.new(0, 0, -0.65)
+        back.CFrame = CFrame.new(wx, wy + 2.3, wz) * CFrame.Angles(0, yaw, 0) * CFrame.new(0, 0, -0.65)
         back.Anchored = true
         back.CanCollide = false
         back.CastShadow = false
@@ -533,9 +532,7 @@ function PropBuilder.Build(parent, prop, originStuds, chunk)
             leg.Size = Vector3.new(0.3, 1.5, 1.5)
             leg.Material = Enum.Material.Metal
             leg.Color = Color3.fromRGB(60, 60, 65)
-            leg.CFrame = CFrame.new(wx, wy + 0.75, wz)
-                * CFrame.Angles(0, yaw, 0)
-                * CFrame.new(legOffset, 0, 0)
+            leg.CFrame = CFrame.new(wx, wy + 0.75, wz) * CFrame.Angles(0, yaw, 0) * CFrame.new(legOffset, 0, 0)
             leg.Anchored = true
             leg.CanCollide = false
             leg.CastShadow = false

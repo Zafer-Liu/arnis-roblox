@@ -691,7 +691,7 @@ class AustinRuntimeContractTests(unittest.TestCase):
         self.assertIn('if not isWithinNearbyBuildingRadius then', self.world_probe_text)
         self.assertIn('nearestNamedBuildingSourceIds = {}', self.world_probe_text)
         self.assertIn('nearestNamedBuildingNames = {}', self.world_probe_text)
-        self.assertIn('setPlayerAttributeIfChanged("ArnisClientNearbyNamedBuildingNames"', self.world_probe_text)
+        self.assertIn('"ArnisClientNearbyNamedBuildingNames"', self.world_probe_text)
 
     def test_client_world_probe_resamples_moving_players_more_aggressively(self) -> None:
         self.assertIn("local IDLE_SAMPLE_INTERVAL = 1.5", self.world_probe_text)

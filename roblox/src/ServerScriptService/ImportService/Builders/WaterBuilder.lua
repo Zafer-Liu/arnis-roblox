@@ -33,19 +33,19 @@ local DEFAULT_WATER_COLOR = Color3.fromRGB(40, 80, 120)
 -- Per-kind visual defaults.  Manifest `color` field always takes priority.
 local WATER_KIND_PROPERTIES = {
     -- Rivers/streams/canals: shallower, more reflective, slightly lighter blue
-    river   = { color = Color3.fromRGB(55, 100, 140), transparency = 0.45, reflectance = 0.35 },
-    stream  = { color = Color3.fromRGB(55, 100, 140), transparency = 0.45, reflectance = 0.35 },
-    canal   = { color = Color3.fromRGB(55, 100, 140), transparency = 0.45, reflectance = 0.35 },
+    river = { color = Color3.fromRGB(55, 100, 140), transparency = 0.45, reflectance = 0.35 },
+    stream = { color = Color3.fromRGB(55, 100, 140), transparency = 0.45, reflectance = 0.35 },
+    canal = { color = Color3.fromRGB(55, 100, 140), transparency = 0.45, reflectance = 0.35 },
     -- Lakes/reservoirs/basins: deeper, darker blue, higher reflectance
-    lake      = { color = Color3.fromRGB(30, 60, 105), transparency = 0.35, reflectance = 0.40 },
+    lake = { color = Color3.fromRGB(30, 60, 105), transparency = 0.35, reflectance = 0.40 },
     reservoir = { color = Color3.fromRGB(30, 60, 105), transparency = 0.35, reflectance = 0.40 },
-    basin     = { color = Color3.fromRGB(30, 60, 105), transparency = 0.35, reflectance = 0.40 },
+    basin = { color = Color3.fromRGB(30, 60, 105), transparency = 0.35, reflectance = 0.40 },
     -- Ponds: greener tint, default transparency
     pond = { color = Color3.fromRGB(45, 85, 100), transparency = 0.40, reflectance = 0.35 },
     -- Wetlands/marsh/swamp: dark green-brown, murky
     wetland = { color = Color3.fromRGB(55, 70, 55), transparency = 0.25, reflectance = 0.15 },
-    marsh   = { color = Color3.fromRGB(55, 70, 55), transparency = 0.25, reflectance = 0.15 },
-    swamp   = { color = Color3.fromRGB(55, 70, 55), transparency = 0.25, reflectance = 0.15 },
+    marsh = { color = Color3.fromRGB(55, 70, 55), transparency = 0.25, reflectance = 0.15 },
+    swamp = { color = Color3.fromRGB(55, 70, 55), transparency = 0.25, reflectance = 0.15 },
 }
 WaterBuilder.WATER_KIND_PROPERTIES = WATER_KIND_PROPERTIES
 
@@ -153,11 +153,7 @@ local function paintRibbonSegment(terrain, p1, p2, width, waterMaterial)
     local endPos = Vector3.new(p2.X, p2.Y - WATER_DEPTH * 0.5, p2.Z)
     local midPos = (startPos + endPos) * 0.5
     local cf = CFrame.lookAt(midPos, endPos)
-    terrain:FillBlock(
-        cf,
-        Vector3.new(width, WATER_DEPTH, length),
-        waterMaterial or Enum.Material.Water
-    )
+    terrain:FillBlock(cf, Vector3.new(width, WATER_DEPTH, length), waterMaterial or Enum.Material.Water)
 end
 
 -- Carve a channel of Air below a ribbon water segment.
@@ -186,10 +182,7 @@ local function mergeRibbonSegments(points, width, material)
         if currentDir:Dot(nextDir) < 0.999 then
             return false
         end
-        if
-            math.abs(current.width - nextSegment.width) > 1e-6
-            or current.material ~= nextSegment.material
-        then
+        if math.abs(current.width - nextSegment.width) > 1e-6 or current.material ~= nextSegment.material then
             return false
         end
         return (current.p2 - nextSegment.p1).Magnitude <= 1e-6
@@ -436,9 +429,7 @@ function WaterBuilder.BuildAll(parent, waters, originStuds, chunk)
     if not waters or #waters == 0 then
         return
     end
-    local sampleGroundY = if chunk and chunk.terrain
-        then GroundSampler.createRenderedSurfaceSampler(chunk)
-        else nil
+    local sampleGroundY = if chunk and chunk.terrain then GroundSampler.createRenderedSurfaceSampler(chunk) else nil
     for _, water in ipairs(waters) do
         WaterBuilder.FallbackBuild(parent, water, originStuds, chunk, sampleGroundY)
     end

@@ -7,13 +7,13 @@ local RAIL_THICKNESS = 1
 -- Kind-specific visual properties for rail types.
 -- Each entry: material, thickness (studs), color (BrickColor name).
 local RAIL_KIND_PROPERTIES = {
-    rail            = { material = Enum.Material.Metal,      thickness = 1.5, color = BrickColor.new("Dark grey").Color },
-    heavy_rail      = { material = Enum.Material.Metal,      thickness = 1.5, color = BrickColor.new("Dark grey").Color },
-    light_rail      = { material = Enum.Material.Metal,      thickness = 1.0, color = BrickColor.new("Medium grey").Color },
-    tram            = { material = Enum.Material.Metal,      thickness = 1.0, color = BrickColor.new("Medium grey").Color },
-    subway          = { material = Enum.Material.Concrete,   thickness = 2.0, color = BrickColor.new("Light grey").Color },
-    metro           = { material = Enum.Material.Concrete,   thickness = 2.0, color = BrickColor.new("Light grey").Color },
-    narrow_gauge    = { material = Enum.Material.Metal,      thickness = 0.8, color = BrickColor.new("Dark grey").Color },
+    rail = { material = Enum.Material.Metal, thickness = 1.5, color = BrickColor.new("Dark grey").Color },
+    heavy_rail = { material = Enum.Material.Metal, thickness = 1.5, color = BrickColor.new("Dark grey").Color },
+    light_rail = { material = Enum.Material.Metal, thickness = 1.0, color = BrickColor.new("Medium grey").Color },
+    tram = { material = Enum.Material.Metal, thickness = 1.0, color = BrickColor.new("Medium grey").Color },
+    subway = { material = Enum.Material.Concrete, thickness = 2.0, color = BrickColor.new("Light grey").Color },
+    metro = { material = Enum.Material.Concrete, thickness = 2.0, color = BrickColor.new("Light grey").Color },
+    narrow_gauge = { material = Enum.Material.Metal, thickness = 0.8, color = BrickColor.new("Dark grey").Color },
 }
 
 local DEFAULT_RAIL_PROPERTIES = { material = Enum.Material.Cobblestone, thickness = RAIL_THICKNESS, color = nil }

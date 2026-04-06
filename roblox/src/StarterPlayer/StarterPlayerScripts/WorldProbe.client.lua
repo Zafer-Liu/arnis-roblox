@@ -405,7 +405,11 @@ local function summarizeWorld(rootPart, worldRoot, worldRootName, telemetryFlags
             end
 
             local buildingName = model:GetAttribute("ArnisImportBuildingName")
-            if type(buildingName) == "string" and buildingName ~= "" and horizontalDistance <= NEARBY_NAMED_BUILDING_RADIUS then
+            if
+                type(buildingName) == "string"
+                and buildingName ~= ""
+                and horizontalDistance <= NEARBY_NAMED_BUILDING_RADIUS
+            then
                 appendNearestNamedBuilding(nearestNamedBuildingDetails, {
                     sourceId = sourceId,
                     buildingName = buildingName,
@@ -793,7 +797,10 @@ local function publishWorldTelemetry()
     setPlayerAttributeIfChanged("ArnisClientOverheadRoofParts", payload.overheadRoofParts)
     setPlayerAttributeIfChanged("ArnisClientGroundMaterial", payload.groundMaterial)
     setPlayerAttributeIfChanged("ArnisClientSupportSurfaceRole", payload.supportSurfaceRole)
-    setPlayerAttributeIfChanged("ArnisClientNearbyNamedBuildingNames", HttpService:JSONEncode(compactPayload.nearestNamedBuildingNames or {}))
+    setPlayerAttributeIfChanged(
+        "ArnisClientNearbyNamedBuildingNames",
+        HttpService:JSONEncode(compactPayload.nearestNamedBuildingNames or {})
+    )
     WorldProbeTelemetryFlags.annotateMarkerPayload(bootstrapPayload, telemetryFlags)
     local bootstrapPayloadJson = HttpService:JSONEncode(bootstrapPayload)
     if bootstrapPayloadJson ~= lastBootstrapPayloadJson then

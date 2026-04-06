@@ -13,10 +13,21 @@ local satelliteOverlayBudget = { used = 0, max = 10 }
 -- via ESRI satellite classification into terrainGrid.materials[].
 -- Any valid Enum.Material name is accepted; this documents the expected set.
 local SATELLITE_MATERIAL_PALETTE = {
-    Grass = true, Sand = true, Mud = true, Pavement = true,
-    Limestone = true, Sandstone = true, Slate = true, Asphalt = true,
-    Concrete = true, Rock = true, Ground = true, Snow = true,
-    Ice = true, Glacier = true, LeafyGrass = true,
+    Grass = true,
+    Sand = true,
+    Mud = true,
+    Pavement = true,
+    Limestone = true,
+    Sandstone = true,
+    Slate = true,
+    Asphalt = true,
+    Concrete = true,
+    Rock = true,
+    Ground = true,
+    Snow = true,
+    Ice = true,
+    Glacier = true,
+    LeafyGrass = true,
 }
 
 TerrainBuilder.DEFAULT_CLEAR_HEIGHT = 512
@@ -561,13 +572,11 @@ local function buildChunkPlan(chunk, options)
         local dhdx = (
             resolveNeighborHeightSample(terrainGrid, terrainNeighbors, gridW, gridD, cx + 1, cz)
             - resolveNeighborHeightSample(terrainGrid, terrainNeighbors, gridW, gridD, cx - 1, cz)
-        )
-            / (2 * cellSize)
+        ) / (2 * cellSize)
         local dhdz = (
             resolveNeighborHeightSample(terrainGrid, terrainNeighbors, gridW, gridD, cx, cz + 1)
             - resolveNeighborHeightSample(terrainGrid, terrainNeighbors, gridW, gridD, cx, cz - 1)
-        )
-            / (2 * cellSize)
+        ) / (2 * cellSize)
         return math.sqrt(dhdx * dhdx + dhdz * dhdz)
     end
 
@@ -714,7 +723,7 @@ function TerrainBuilder.Build(_parent, chunk, preparedPlan)
         local ok, loaded = pcall(function()
             local folderName = chunk.terrainTextureFolder or "AustinTerrainTextures"
             local parent = script.Parent and script.Parent.Parent -- ImportService
-            local root = parent and parent.Parent              -- ServerScriptService
+            local root = parent and parent.Parent -- ServerScriptService
             local folder = root and root:FindFirstChild(folderName)
             if not folder then
                 return nil
@@ -1031,8 +1040,13 @@ function TerrainBuilder.BuildSatelliteOverlay(parent, chunk, plan, textureData)
 
     -- Gate: budget
     if satelliteOverlayBudget.used >= satelliteOverlayBudget.max then
-        warn("[TerrainBuilder] Satellite overlay budget exhausted ("
-            .. tostring(satelliteOverlayBudget.used) .. "/" .. tostring(satelliteOverlayBudget.max) .. ")")
+        warn(
+            "[TerrainBuilder] Satellite overlay budget exhausted ("
+                .. tostring(satelliteOverlayBudget.used)
+                .. "/"
+                .. tostring(satelliteOverlayBudget.max)
+                .. ")"
+        )
         return false
     end
 
@@ -1126,11 +1140,7 @@ function TerrainBuilder.BuildSatelliteOverlay(parent, chunk, plan, textureData)
         local editImage = AssetService:CreateEditableImage({
             Size = Vector2.new(TEXTURE_SIZE, TEXTURE_SIZE),
         })
-        editImage:WritePixelsBuffer(
-            Vector2.new(0, 0),
-            Vector2.new(TEXTURE_SIZE, TEXTURE_SIZE),
-            textureData
-        )
+        editImage:WritePixelsBuffer(Vector2.new(0, 0), Vector2.new(TEXTURE_SIZE, TEXTURE_SIZE), textureData)
 
         -- Create SurfaceAppearance with the texture as ColorMap
         local surfaceAppearance = Instance.new("SurfaceAppearance")

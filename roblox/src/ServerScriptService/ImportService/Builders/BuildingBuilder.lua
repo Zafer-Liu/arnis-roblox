@@ -308,14 +308,25 @@ end
 -- glass panes so that office towers, residential buildings, and warehouses
 -- each have a distinct appearance from street and aerial views.
 local function getUsageClass(usage)
-    if usage == "office" or usage == "commercial" or usage == "bank"
-        or usage == "retail" or usage == "mall" or usage == "hotel" then
+    if
+        usage == "office"
+        or usage == "commercial"
+        or usage == "bank"
+        or usage == "retail"
+        or usage == "mall"
+        or usage == "hotel"
+    then
         return "office"
-    elseif usage == "residential" or usage == "apartments" or usage == "house"
-        or usage == "detached" or usage == "terrace" or usage == "dormitory" then
+    elseif
+        usage == "residential"
+        or usage == "apartments"
+        or usage == "house"
+        or usage == "detached"
+        or usage == "terrace"
+        or usage == "dormitory"
+    then
         return "residential"
-    elseif usage == "warehouse" or usage == "industrial" or usage == "factory"
-        or usage == "garage" then
+    elseif usage == "warehouse" or usage == "industrial" or usage == "factory" or usage == "garage" then
         return "industrial"
     end
     return "office" -- default to office tint for civic/religious/other
@@ -599,10 +610,10 @@ local ROOF_MATERIAL_PALETTE = {
 }
 
 ROOF_MATERIAL_PALETTE_COLORS = {
-    [Enum.Material.Slate] = Color3.fromRGB(110, 120, 135),    -- grey-blue slate
-    [Enum.Material.Metal] = Color3.fromRGB(170, 172, 175),    -- silver metal
-    [Enum.Material.Asphalt] = Color3.fromRGB(80, 80, 85),     -- dark grey asphalt
-    [Enum.Material.Brick] = Color3.fromRGB(165, 95, 65),      -- terracotta tile/brick
+    [Enum.Material.Slate] = Color3.fromRGB(110, 120, 135), -- grey-blue slate
+    [Enum.Material.Metal] = Color3.fromRGB(170, 172, 175), -- silver metal
+    [Enum.Material.Asphalt] = Color3.fromRGB(80, 80, 85), -- dark grey asphalt
+    [Enum.Material.Brick] = Color3.fromRGB(165, 95, 65), -- terracotta tile/brick
 }
 
 getRoofMaterial = function(building, wallMat)
@@ -2596,7 +2607,16 @@ local function addWindowPaneToAccumulator(acc, paneCFrame, paneSize)
     acc:addQuad(bp1, bp2, bp3, bp4, -look)
 end
 
-local function buildSimpleShellOpenings(parent, worldPts, baseY, height, windowBudget, usage, buildingId, windowAccumulators)
+local function buildSimpleShellOpenings(
+    parent,
+    worldPts,
+    baseY,
+    height,
+    windowBudget,
+    usage,
+    buildingId,
+    windowAccumulators
+)
     local edges = collectSimpleShellReadableEdges(worldPts)
     if #edges == 0 then
         return 0, 0
@@ -2666,20 +2686,15 @@ local function buildSimpleShellOpenings(parent, worldPts, baseY, height, windowB
                     shellTint.transparency
                 )
                 if not windowAccumulators[tintKey] then
-                    windowAccumulators[tintKey] = MeshAccumulator.new(
-                        parent,
-                        "window_glass_" .. tintKey,
-                        Enum.Material.Glass,
-                        shellTint.color,
-                        {
+                    windowAccumulators[tintKey] =
+                        MeshAccumulator.new(parent, "window_glass_" .. tintKey, Enum.Material.Glass, shellTint.color, {
                             canCollide = false,
                             canQuery = false,
                             castShadow = false,
                             transparency = shellTint.transparency,
                             reflectance = 0.15,
                             collisionFidelity = Enum.CollisionFidelity.Box,
-                        }
-                    )
+                        })
                 end
                 addWindowPaneToAccumulator(windowAccumulators[tintKey], paneCFrame, paneSize)
             else
@@ -2774,10 +2789,18 @@ local function buildRooftopEquipment(parent, building, baseY, height, worldPts)
     -- Compute footprint half-extents for offset clamping
     local minX, maxX, minZ, maxZ = math.huge, -math.huge, math.huge, -math.huge
     for _, p in ipairs(worldPts) do
-        if p.X < minX then minX = p.X end
-        if p.X > maxX then maxX = p.X end
-        if p.Z < minZ then minZ = p.Z end
-        if p.Z > maxZ then maxZ = p.Z end
+        if p.X < minX then
+            minX = p.X
+        end
+        if p.X > maxX then
+            maxX = p.X
+        end
+        if p.Z < minZ then
+            minZ = p.Z
+        end
+        if p.Z > maxZ then
+            maxZ = p.Z
+        end
     end
     local halfW = math.max(1, (maxX - minX) * 0.35)
     local halfD = math.max(1, (maxZ - minZ) * 0.35)
@@ -3370,20 +3393,15 @@ function BuildingBuilder.MeshBuildAll(parent, buildings, originStuds, chunk, con
             local b = math.floor(tintColor.B * 255 + 0.5)
             local key = string.format("%d:%d:%d:%.2f", r, g, b, tintTransparency)
             if not windowAccumulators[key] then
-                windowAccumulators[key] = MeshAccumulator.new(
-                    detailFolder,
-                    "window_glass_" .. key,
-                    Enum.Material.Glass,
-                    tintColor,
-                    {
+                windowAccumulators[key] =
+                    MeshAccumulator.new(detailFolder, "window_glass_" .. key, Enum.Material.Glass, tintColor, {
                         canCollide = false,
                         canQuery = false,
                         castShadow = false,
                         transparency = tintTransparency,
                         reflectance = 0.15,
                         collisionFidelity = Enum.CollisionFidelity.Box,
-                    }
-                )
+                    })
             end
             return windowAccumulators[key]
         end
@@ -3645,8 +3663,16 @@ function BuildingBuilder.MeshBuildAll(parent, buildings, originStuds, chunk, con
                         "ArnisCornerAccentCount",
                         addCornerAccentsToAccumulator(detailAcc, worldPts, baseY, height)
                     )
-                    local doorCueCount, windowPaneCount =
-                        buildSimpleShellOpenings(detailFolder, worldPts, baseY, height, windowBudget, usage, buildingId, windowAccumulators)
+                    local doorCueCount, windowPaneCount = buildSimpleShellOpenings(
+                        detailFolder,
+                        worldPts,
+                        baseY,
+                        height,
+                        windowBudget,
+                        usage,
+                        buildingId,
+                        windowAccumulators
+                    )
                     detailFolder:SetAttribute("ArnisSimpleShellDoorCueCount", doorCueCount)
                     detailFolder:SetAttribute("ArnisSimpleShellWindowPaneCount", windowPaneCount)
                 elseif

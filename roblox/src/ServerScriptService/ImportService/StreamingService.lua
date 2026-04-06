@@ -1770,8 +1770,7 @@ local function applyRingTransparency(chunkEntry, ringName)
 
     for _, descendant in ipairs(folder:GetDescendants()) do
         if descendant:IsA("BasePart") then
-            local base = descendant:GetAttribute("ArnisBaseTransparency")
-                or descendant:GetAttribute("BaseTransparency")
+            local base = descendant:GetAttribute("ArnisBaseTransparency") or descendant:GetAttribute("BaseTransparency")
             if base == nil then
                 -- First time: snapshot the authored transparency
                 base = descendant.Transparency
