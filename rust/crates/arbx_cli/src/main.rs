@@ -5203,10 +5203,14 @@ fn cmd_planetary_store(args: &[String]) -> Result<(), String> {
                     &lane_dir,
                     "materialize-route-schedule",
                 )?;
+                let mut sched_cr_paths: Vec<&Path> = vec![lane_dir.as_path()];
+                if let Some(ref md) = manifest_dir { sched_cr_paths.push(md.as_path()); }
+                if let Some(ref rd) = runtime_dir { sched_cr_paths.push(rd.as_path()); }
+                let sched_catalog_root = common_path_root(&sched_cr_paths).unwrap_or_else(|| out_dir.clone());
                 let payloads = write_route_schedule_lane_payloads(
                     &schedule,
                     Path::new(&schedule.session.planetary_store_path),
-                    Some(&out_dir),
+                    Some(&sched_catalog_root),
                     Some(&lane_dir),
                     manifest_dir.as_deref(),
                     runtime_dir.as_deref(),
@@ -5279,10 +5283,14 @@ fn cmd_planetary_store(args: &[String]) -> Result<(), String> {
                 &lane_dir,
                 "materialize-route-schedule",
             )?;
+            let mut mrs_catalog_root_paths: Vec<&Path> = vec![lane_dir.as_path()];
+            if let Some(ref md) = manifest_dir { mrs_catalog_root_paths.push(md.as_path()); }
+            if let Some(ref rd) = runtime_dir { mrs_catalog_root_paths.push(rd.as_path()); }
+            let mrs_catalog_root = common_path_root(&mrs_catalog_root_paths).unwrap_or_else(|| out_dir.clone());
             let payloads = write_route_schedule_lane_payloads(
                 &schedule,
                 &store_path,
-                Some(&out_dir),
+                Some(&mrs_catalog_root),
                 Some(&lane_dir),
                 manifest_dir.as_deref(),
                 runtime_dir.as_deref(),
@@ -6177,21 +6185,20 @@ fn cmd_planetary_store(args: &[String]) -> Result<(), String> {
                     )?);
                 }
             }
-            let route_catalog_root = step_payload_dir.clone().or_else(|| {
-                common_path_root(
-                    &[
-                        route_session_out.as_deref().and_then(|path| path.parent()),
-                        hydrated_route_out.as_deref().and_then(|path| path.parent()),
-                        schedule_out.as_deref().and_then(|path| path.parent()),
-                        step_lane_dir.as_deref(),
-                        step_manifest_dir.as_deref(),
-                        step_runtime_dir.as_deref(),
-                    ]
-                    .into_iter()
-                    .flatten()
-                    .collect::<Vec<_>>(),
-                )
-            });
+            let route_catalog_root = common_path_root(
+                &[
+                    step_payload_dir.as_deref(),
+                    route_session_out.as_deref().and_then(|path| path.parent()),
+                    hydrated_route_out.as_deref().and_then(|path| path.parent()),
+                    schedule_out.as_deref().and_then(|path| path.parent()),
+                    step_lane_dir.as_deref(),
+                    step_manifest_dir.as_deref(),
+                    step_runtime_dir.as_deref(),
+                ]
+                .into_iter()
+                .flatten()
+                .collect::<Vec<_>>(),
+            );
             if let Some(route_schedule) = route_schedule.as_ref() {
                 if let Some(step_lane_dir) = step_lane_dir.as_ref() {
                     write_route_schedule_lane_files(
@@ -8195,7 +8202,7 @@ mod tests {
         assert!(catalog["schedule_module_path"].is_null());
         assert_eq!(
             catalog["payloads"][0]["lane_module_path"].as_str(),
-            Some("route-lanes/step-000-active")
+            Some("route-lanes/route-lanes/step-000-active")
         );
         assert_eq!(
             catalog["payloads"][0]["manifest_module_path"].as_str(),
@@ -9024,7 +9031,7 @@ mod tests {
             .ends_with("route-catalog.json"));
         assert_eq!(
             bundle["route_catalog_out"],
-            step_payload_dir
+            tempdir.path()
                 .join("route-catalog.json")
                 .display()
                 .to_string()
@@ -9052,7 +9059,7 @@ mod tests {
         let schedule: Value =
             serde_json::from_str(&std::fs::read_to_string(&schedule_path).unwrap()).unwrap();
         assert_eq!(schedule["steps"].as_array().unwrap().len(), 2);
-        let route_catalog_path = step_payload_dir.join("route-catalog.json");
+        let route_catalog_path = tempdir.path().join("route-catalog.json");
         assert_eq!(
             bundle["route_catalog_out"].as_str(),
             Some(route_catalog_path.display().to_string().as_str())
