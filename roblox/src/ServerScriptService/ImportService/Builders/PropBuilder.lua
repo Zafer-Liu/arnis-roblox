@@ -6,6 +6,14 @@ local SpatialQuery = require(script.Parent.Parent.SpatialQuery)
 
 local PropBuilder = {}
 
+-- Known conifer genera/species: used to infer needleleaved canopy shape
+-- when leafType is not explicitly set in the manifest.
+local CONIFER_SPECIES_PATTERNS = {
+    "pinus", "picea", "abies", "spruce", "fir", "cedar",
+    "juniper", "cypress", "larch", "hemlock", "yew",
+    "redwood", "sequoia", "conifer", "juniperus",
+}
+
 local pools = {}
 local ROADSIDE_EXTRA_OFFSETS = {
     street_lamp = 0.75,
@@ -346,14 +354,6 @@ local function buildTree(parent, prop, originStuds, baseYOverride)
         local diameterStuds = (prop.circumference / math.pi) * METERS_TO_STUDS
         trunkR = math.max(0.5, diameterStuds * 0.5)
     end
-
-    -- Known conifer genera/species: used to infer needleleaved canopy shape
-    -- when leafType is not explicitly set in the manifest.
-    local CONIFER_SPECIES_PATTERNS = {
-        "pinus", "picea", "abies", "spruce", "fir", "cedar",
-        "juniper", "cypress", "larch", "hemlock", "yew",
-        "redwood", "sequoia", "conifer", "juniperus",
-    }
 
     -- Palm special case: thin trunk + frond cluster instead of sphere canopy
     local species = prop.species and prop.species:lower() or ""

@@ -341,7 +341,9 @@ local function getWindowTint(usage, buildingIdHash, paneIndex)
 end
 
 local function getFacadeBandSpacing(usage, facadeStyle)
-    -- facadeStyle overrides default spacing when present
+    -- NOTE: facadeStyle is not currently populated by the Rust pipeline
+    -- (facade_style is hardcoded None in the chunker). These branches exist
+    -- for future enrichment when the pipeline extracts building:facade tags.
     if facadeStyle == "curtain_wall" then
         return 3
     elseif facadeStyle == "punched_window" then
@@ -387,20 +389,9 @@ local BUILDING_PALETTE = {
 }
 
 local function getMaterial(building)
-    -- Highest priority: building.cladding from OSM building:cladding tag
-    if building.cladding then
-        local ok, mat = pcall(function()
-            return Enum.Material[building.cladding]
-        end)
-        if ok and mat then
-            return mat
-        end
-        local tagMat = MATERIAL_TAG_MAP[building.cladding:lower()]
-        if tagMat then
-            return tagMat
-        end
-    end
-    -- Next: manifest material string directly via Enum lookup
+    -- The Rust pipeline resolves building:cladding → building:material → material_tag
+    -- into the single `material` field. No separate cladding field reaches the manifest.
+    -- Manifest material string directly via Enum lookup
     if building.material then
         local ok, mat = pcall(function()
             return Enum.Material[building.material]
@@ -1604,7 +1595,7 @@ local function buildRoof(building, footprint, bounds, baseY, height, color, mat,
         -- runs perpendicular to that direction. We project into the Z-dominant or
         -- X-dominant bucket so the existing two-panel geometry still works.
         local ridgeAxisIsZ
-        if building.roofDirection then
+        if type(building.roofDirection) == "number" then
             -- roofDirection is the facing direction; ridge is perpendicular.
             -- 0=north(+Z), 90=east(+X). Ridge perpendicular to north => runs E-W (X axis).
             local dirRad = math.rad(building.roofDirection)
@@ -1621,7 +1612,7 @@ local function buildRoof(building, footprint, bounds, baseY, height, color, mat,
         -- Compute rise from roofAngle (degrees) when present, clamped to 5-60.
         -- Otherwise fall back to the existing 0.3 * shortExtent heuristic.
         local rise
-        if building.roofAngle then
+        if type(building.roofAngle) == "number" then
             local clampedAngle = math.clamp(building.roofAngle, 5, 60)
             rise = halfWidth * math.tan(math.rad(clampedAngle))
         else

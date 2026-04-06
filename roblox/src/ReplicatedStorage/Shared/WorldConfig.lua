@@ -204,7 +204,7 @@ local WorldConfig = {
     EnableDayNightCycle = true,
     DayNightSpeed = 60, -- 60 = 1 game-day per 24 minutes, 0 = frozen
     DateTime = "auto", -- "auto" = system time at location, or "2024-06-15T14:00" for specific time
-    AtmosphereDensity = 0.35, -- base density multiplier applied to phase presets (world-scale depth cue)
+    AtmosphereDensity = 0.35, -- additive density applied on top of phase presets (world-scale depth cue)
     AtmosphereOffset = 0.2, -- vertical offset for atmosphere gradient start
     AtmosphereHaze = 0.15, -- additive haze layered on top of phase presets for distance fade
 

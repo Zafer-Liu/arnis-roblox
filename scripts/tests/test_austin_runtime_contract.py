@@ -1095,19 +1095,12 @@ class AustinRuntimeContractTests(unittest.TestCase):
     # BuildingBuilder: pipeline field consumption
     # ------------------------------------------------------------------
 
-    def test_building_builder_consumes_cladding_for_wall_material(self) -> None:
-        """building.cladding must be checked before building.material in getMaterial."""
+    def test_building_builder_documents_cladding_resolution_in_pipeline(self) -> None:
+        """getMaterial documents that cladding is resolved into material by the Rust pipeline."""
         src = self.building_builder_text
-        # The getMaterial function must reference building.cladding
-        self.assertIn("building.cladding", src, "getMaterial must read building.cladding")
-        # cladding block must appear before the material block
-        cladding_idx = src.index("building.cladding")
-        material_idx = src.index("building.material")
-        self.assertLess(
-            cladding_idx,
-            material_idx,
-            "building.cladding must be checked before building.material in getMaterial",
-        )
+        # The comment must explain that cladding is merged into material by the pipeline
+        self.assertIn("building:cladding", src,
+                       "getMaterial must document that cladding flows through the pipeline material field")
 
     def test_building_builder_consumes_roof_direction(self) -> None:
         """building.roofDirection must be read when orienting gabled roof ridges."""
