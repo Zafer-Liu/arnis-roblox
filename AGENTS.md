@@ -118,6 +118,8 @@ For every meaningful code change:
   - edit-only screenshot: add `--edit-only`
   - isolated repro: add `--spec-filter <SpecName>`
 - Screenshot artifacts now include a sibling `*.capture.json` sidecar with the capture method, stderr, and window/session diagnostics. Treat that sidecar as the first source of truth when a screenshot is missing or blank.
+- On `tertiary`, remote screenshot capture is now expected to fall back to a GUI-session relay through the logged-in `Terminal` app when direct display capture is blocked. A healthy remote visual proof may therefore report `capture_method="gui_terminal_display"` and `guiSessionRelay.method="terminal.command"` in the sibling `*.capture.json`.
+- Keep screenshot ownership on `tertiary`. `primary` should remain a thin control/sync node only; do not move GUI automation or long-running capture loops onto `primary`.
 - For remote runs, prefer the wrapper-managed artifact directory and synced outputs over manual SSH inspection. The wrapper already pulls back the Studio log, scene-fidelity artifacts, screenshots, and screenshot diagnostics when they exist.
 
 ## Rust-specific guardrails
