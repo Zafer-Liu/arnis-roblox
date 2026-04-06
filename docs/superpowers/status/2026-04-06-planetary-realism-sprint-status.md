@@ -46,6 +46,17 @@ The active implementation plan is:
 
 ## Status Notes
 
+### 2026-04-06: Satellite Imagery Pipeline + Full Builder Enrichment
+
+- **Satellite tile pipeline in Rust**: `arbx_cli compile --satellite-tiles` fetches ESRI World Imagery tiles at zoom 17, composites per-chunk 512x512 PNG textures, writes `terrainTexturePath` to manifest. Tile coordinate math + fetcher with disk cache + 200ms rate limit.
+- **Terrain satellite overlay in Lua**: `TerrainBuilder.BuildSatelliteOverlay` creates EditableMesh heightfield + EditableImage + SurfaceAppearance. Budget-gated to 10 chunks. pcall-wrapped. Ready for integration.
+- **Window pane mesh merge**: ~200 Part instances per building → 3-4 EditableMesh instances per chunk. Gated behind `WorldConfig.MergeWindowsIntoMesh`.
+- **Rust pipeline: facadeStyle + waterType + structureType** extracted from OSM. 7 new tests.
+- **Lua builders consume all new fields**: facadeStyle now live, waterType preferred over kind, structureType as material hint.
+- **Review pass 3**: Fixed table.sort stale data bug (wrong p99), instance count cache defeat, building.material type guard, equipment seed diversity, ureq version pin.
+- 233 Rust + 112 Python tests green.
+- Texture data flow gap identified: PNG file path needs to become embeddable buffer data for Roblox. Agent working on fix.
+
 ### 2026-04-06: Data Fidelity Pass + Profiling Infrastructure
 
 - **Water kind differentiation**: rivers lighter/transparent, lakes deeper/reflective, ponds greener, wetlands murky. Per-body color always takes priority (no trampling).
