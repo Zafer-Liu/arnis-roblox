@@ -473,6 +473,7 @@ impl Chunker {
                         lit: f.lit,
                         oneway: f.oneway,
                         layer: f.layer,
+                        name: f.name.clone(),
                     });
                 }
             }

@@ -115,6 +115,7 @@ pub fn build_sample_multi_chunk(count_x: i32, count_z: i32) -> ChunkManifest {
                     lit: None,
                     oneway: None,
                     layer: None,
+                    name: None,
                 });
                 chunk.buildings.push(BuildingShell {
                     id: "bldg_1".to_string(),
@@ -346,6 +347,7 @@ mod tests {
                     lit: None,
                     oneway: None,
                     layer: None,
+                    name: None,
                 }],
                 rails: vec![],
                 buildings: vec![BuildingShell {
@@ -1080,6 +1082,7 @@ mod tests {
             layer: None,
             elevated: None,
             tunnel: Some(false),
+            name: None,
         })];
 
         let elevation = FlatElevationProvider { height: 0.0 };

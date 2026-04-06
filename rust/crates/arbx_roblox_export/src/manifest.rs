@@ -58,6 +58,7 @@ pub struct RoadSegment {
     pub lit: Option<bool>,
     pub oneway: Option<bool>,
     pub layer: Option<i32>,
+    pub name: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -597,6 +598,11 @@ impl RoadSegment {
             out.push_str(",\n");
             write_key(out, indent + 2, "layer");
             write!(out, "{}", layer).unwrap();
+        }
+        if let Some(ref name) = self.name {
+            out.push_str(",\n");
+            write_key(out, indent + 2, "name");
+            write_string(out, name);
         }
         out.push_str(",\n");
         write_key(out, indent + 2, "points");

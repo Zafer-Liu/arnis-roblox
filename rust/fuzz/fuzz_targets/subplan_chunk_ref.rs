@@ -105,6 +105,7 @@ fn build_chunk(input: ChunkInput) -> Chunk {
             lit: None,
             oneway: None,
             layer: None,
+            name: None,
         })
         .collect();
 

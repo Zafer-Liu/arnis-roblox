@@ -34,6 +34,7 @@ pub struct RoadFeature {
     pub lit: Option<bool>,
     pub oneway: Option<bool>,
     pub layer: Option<i32>,
+    pub name: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -568,6 +569,7 @@ impl SourceAdapter for SyntheticAustinAdapter {
             lit: None,
             oneway: None,
             layer: None,
+            name: Some("Congress Ave".to_string()),
         }));
 
         // Add some buildings in different chunks
@@ -2657,6 +2659,7 @@ fn emit_area_way(
             material_tag: tags
                 .get("building:material")
                 .or_else(|| tags.get("material"))
+                .or_else(|| tags.get("building:cladding"))
                 .map(|s| s.to_lowercase()),
             roof_colour: tags
                 .get("roof:colour")
@@ -2788,6 +2791,7 @@ fn emit_linear_way(
             lit: tags.get("lit").map(|s| s == "yes"),
             oneway: None,
             layer: tags.get("layer").and_then(|s| s.parse().ok()),
+            name: tags.get("name").cloned(),
         }));
         return;
     }
@@ -2836,6 +2840,7 @@ fn emit_linear_way(
             lit: tags.get("lit").map(|s| s == "yes"),
             oneway: tags.get("oneway").map(|s| s == "yes" || s == "1"),
             layer: tags.get("layer").and_then(|s| s.parse().ok()),
+            name: tags.get("name").cloned(),
         }));
     } else if let Some(railway) = tags.get("railway") {
         features.push(Feature::Rail(RailFeature {
@@ -4656,6 +4661,85 @@ mod tests {
             "expected 3.6m width to convert to 12 studs at 0.3 m/stud, got {}",
             road.width_studs
         );
+    }
+
+    #[test]
+    fn emit_linear_way_preserves_road_name() {
+        let mut features = Vec::new();
+        let tags = HashMap::from([
+            ("highway".to_string(), "residential".to_string()),
+            ("name".to_string(), "Congress Avenue".to_string()),
+        ]);
+
+        emit_linear_way(
+            101,
+            &tags,
+            vec![Vec3::new(0.0, 0.0, 0.0), Vec3::new(20.0, 0.0, 0.0)],
+            0.3,
+            &mut features,
+        );
+
+        let road = features
+            .into_iter()
+            .find_map(|feature| match feature {
+                Feature::Road(road) => Some(road),
+                _ => None,
+            })
+            .expect("expected road feature with name");
+
+        assert_eq!(road.name.as_deref(), Some("Congress Avenue"));
+    }
+
+    #[test]
+    fn emit_linear_way_road_name_is_none_when_absent() {
+        let mut features = Vec::new();
+        let tags = HashMap::from([
+            ("highway".to_string(), "tertiary".to_string()),
+        ]);
+
+        emit_linear_way(
+            102,
+            &tags,
+            vec![Vec3::new(0.0, 0.0, 0.0), Vec3::new(15.0, 0.0, 0.0)],
+            0.3,
+            &mut features,
+        );
+
+        let road = features
+            .into_iter()
+            .find_map(|feature| match feature {
+                Feature::Road(road) => Some(road),
+                _ => None,
+            })
+            .expect("expected road feature without name");
+
+        assert_eq!(road.name, None);
+    }
+
+    #[test]
+    fn emit_area_way_uses_building_cladding_as_material_fallback() {
+        let mut features = Vec::new();
+        let tags = HashMap::from([
+            ("building".to_string(), "yes".to_string()),
+            ("building:cladding".to_string(), "brick".to_string()),
+        ]);
+        let fp = vec![
+            Vec2::new(0.0, 0.0),
+            Vec2::new(10.0, 0.0),
+            Vec2::new(10.0, 10.0),
+            Vec2::new(0.0, 10.0),
+        ];
+        emit_area_way("osm_cladding", &tags, &fp, vec![], 0.3, &mut features);
+
+        let building = features
+            .into_iter()
+            .find_map(|f| match f {
+                Feature::Building(b) => Some(b),
+                _ => None,
+            })
+            .expect("expected building with cladding material");
+
+        assert_eq!(building.material_tag.as_deref(), Some("brick"));
     }
 
     #[test]

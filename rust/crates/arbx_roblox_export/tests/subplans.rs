@@ -33,6 +33,7 @@ fn build_test_manifest() -> ChunkManifest {
             lit: Some(true),
             oneway: Some(false),
             layer: Some(0),
+            name: Some("Main St".to_string()),
         }),
         Feature::Building(BuildingFeature {
             id: "building_main".to_string(),
@@ -138,6 +139,7 @@ fn build_test_manifest_with_rails_and_barriers() -> ChunkManifest {
             lit: None,
             oneway: None,
             layer: None,
+            name: None,
         }),
         Feature::Rail(RailFeature {
             id: "rail_main".to_string(),
