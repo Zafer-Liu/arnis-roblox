@@ -58,6 +58,7 @@ dependencies = [
  "arbx_pipeline",
  "arbx_planetary_store",
  "arbx_roblox_export",
+ "image",
  "rayon",
  "serde",
  "serde_json",

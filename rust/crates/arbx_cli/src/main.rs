@@ -413,6 +413,9 @@ fn cmd_compile(args: &[String]) -> Result<(), String> {
     let mut terrain_cell_size: i32 = 2;
     // --world-name: name written into the manifest meta.
     let mut world_name = "ExportedWorld".to_string();
+    // --satellite-tiles: fetch ESRI tiles and composite per-chunk 512x512 textures.
+    let mut satellite_tiles = false;
+    let mut tile_cache_dir = "data/esri-tiles".to_string();
 
     let mut i = 0;
     while i < args.len() {
@@ -528,6 +531,18 @@ fn cmd_compile(args: &[String]) -> Result<(), String> {
                     }
                 }
                 satellite_dir = Some("out/tiles/satellite".to_string());
+                i += 1;
+            }
+            "--satellite-tiles" => {
+                satellite_tiles = true;
+                // Optional cache directory argument (next token that doesn't start with '-').
+                if let Some(next) = args.get(i + 1) {
+                    if !next.starts_with('-') {
+                        tile_cache_dir = next.clone();
+                        i += 2;
+                        continue;
+                    }
+                }
                 i += 1;
             }
             other => {
@@ -683,13 +698,79 @@ fn cmd_compile(args: &[String]) -> Result<(), String> {
     }
 
     let mut sat_provider = satellite_dir.as_deref().map(SatelliteTileProvider::new);
-    let manifest = export_to_chunks(
+    let mut manifest = export_to_chunks(
         ctx.features,
         ctx.bbox,
         &config,
         elevation.as_ref(),
         sat_provider.as_mut(),
     );
+
+    // ── Satellite tile compositing (--satellite-tiles) ───────────────────
+    if satellite_tiles {
+        let tile_cache = PathBuf::from(&tile_cache_dir);
+        // Determine output directory: same parent as --out, or cwd.
+        let texture_base = out_path
+            .as_ref()
+            .and_then(|p| p.parent())
+            .map(PathBuf::from)
+            .unwrap_or_else(|| PathBuf::from("."));
+
+        let center = bbox.center();
+        let chunk_size = config.chunk_size_studs as f64;
+        let zoom: u32 = 17;
+        let mut fetched = 0usize;
+        let mut skipped = 0usize;
+
+        for chunk in &mut manifest.chunks {
+            let origin = chunk.origin_studs;
+            // Chunk covers [origin .. origin + chunk_size] in stud space.
+            let sw = arbx_geo::Mercator::unproject(
+                arbx_geo::Vec3::new(origin.x, 0.0, origin.z + chunk_size),
+                center,
+                config.meters_per_stud,
+            );
+            let ne = arbx_geo::Mercator::unproject(
+                arbx_geo::Vec3::new(origin.x + chunk_size, 0.0, origin.z),
+                center,
+                config.meters_per_stud,
+            );
+
+            let chunk_label = chunk.id.label();
+            let out_png = arbx_geo::tiles::chunk_texture_path(
+                &texture_base,
+                &world_name,
+                &chunk_label,
+            );
+
+            match arbx_geo::tiles::composite_chunk_texture(
+                &tile_cache, sw.lat, sw.lon, ne.lat, ne.lon, zoom, 512,
+            ) {
+                Ok(img) => {
+                    if let Some(parent) = out_png.parent() {
+                        fs::create_dir_all(parent)
+                            .map_err(|e| format!("mkdir failed: {e}"))?;
+                    }
+                    img.save(&out_png)
+                        .map_err(|e| format!("PNG save failed for {}: {e}", out_png.display()))?;
+                    chunk.terrain_texture_path =
+                        Some(out_png.to_string_lossy().into_owned());
+                    fetched += 1;
+                }
+                Err(e) => {
+                    eprintln!(
+                        "Warning: satellite texture for chunk {} failed: {e}",
+                        chunk_label
+                    );
+                    skipped += 1;
+                }
+            }
+        }
+        eprintln!(
+            "Satellite tiles: {fetched} chunks textured, {skipped} skipped (cache: {tile_cache_dir})"
+        );
+    }
+
     let duration = start.elapsed();
     // Rust export remains the single authoritative partition function for additive chunkRefs metadata.
     write_manifest_outputs(
