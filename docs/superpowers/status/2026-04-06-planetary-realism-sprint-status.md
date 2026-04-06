@@ -26,7 +26,12 @@ The active implementation plan is:
 
 ### Local Static
 
-(To be populated as tasks complete)
+- `python3 -m unittest scripts.tests.test_austin_runtime_contract scripts.tests.test_play_render_truth scripts.tests.test_convergence_guardrails -v`
+  - passed on 2026-04-06 (84 tests, up from 76 at tranche start)
+- `cargo test --manifest-path rust/Cargo.toml --workspace`
+  - passed on 2026-04-06 (205 tests)
+- `git diff --check`
+  - passed on 2026-04-06
 
 ### Remote `tertiary`
 
@@ -40,6 +45,14 @@ The active implementation plan is:
 - Regional style packs deferred
 
 ## Status Notes
+
+### 2026-04-06: Tasks 1-4 Landed (Parallel Swarm)
+
+- **Task 1: Terrain satellite materials** — TerrainBuilder now uses satellite-derived per-cell materials as PRIMARY source. Full palette: Sand, Mud, Pavement, Limestone, Sandstone, Slate, Asphalt, Concrete, Snow, Ice, Glacier, LeafyGrass. Slope-based Grass/Rock/Ground is fallback only. Transforms aerial view from green quilt to readable ground cover.
+- **Task 2: Road data consumption** — RoadBuilder now reads `sidewalk` enum (both/left/right/no/separate) for curb placement, `layer` integer for overpass/underpass vertical separation (5 studs/layer, negative for tunnels), and `subkind` for visual material differentiation (motorway=dark asphalt, residential=weathered, track=earth). Curb geometry via EditableMesh accumulator.
+- **Task 3: Building material diversity** — Roof material hash diversification from Slate/Metal/Asphalt/Brick palette (breaks monochrome skyline). Window tint by usage class (office=blue-grey, residential=warm, industrial=opaque dark, 20% night/vacancy darkening). facadeStyle consumed for detail spacing. roofLevels consumed for stepped roof geometry.
+- **Task 4 (partial): Water color** — WaterBuilder now reads `color` RGB from manifest for per-body water color. Falls back to hardcoded blue when absent.
+- Executed via 3 parallel worktree agents + main thread. All merged cleanly. 84 tests passing.
 
 ### 2026-04-06: Tranche Opened
 
