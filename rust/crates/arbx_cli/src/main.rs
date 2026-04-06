@@ -753,8 +753,14 @@ fn cmd_compile(args: &[String]) -> Result<(), String> {
                     }
                     img.save(&out_png)
                         .map_err(|e| format!("PNG save failed for {}: {e}", out_png.display()))?;
-                    chunk.terrain_texture_path =
-                        Some(out_png.to_string_lossy().into_owned());
+                    // Store paths relative to manifest directory so downstream
+                    // tools can resolve them with --manifest-dir
+                    let rel_png = out_png
+                        .strip_prefix(&texture_base)
+                        .unwrap_or(&out_png)
+                        .to_string_lossy()
+                        .into_owned();
+                    chunk.terrain_texture_path = Some(rel_png);
 
                     // Also save raw RGBA bytes for embedding in Lua manifests
                     let out_rgba = arbx_geo::tiles::chunk_texture_rgba_path(
@@ -763,8 +769,12 @@ fn cmd_compile(args: &[String]) -> Result<(), String> {
                         &chunk_label,
                     );
                     arbx_geo::tiles::save_rgba_raw(&img, &out_rgba)?;
-                    chunk.terrain_texture_rgba_path =
-                        Some(out_rgba.to_string_lossy().into_owned());
+                    let rel_rgba = out_rgba
+                        .strip_prefix(&texture_base)
+                        .unwrap_or(&out_rgba)
+                        .to_string_lossy()
+                        .into_owned();
+                    chunk.terrain_texture_rgba_path = Some(rel_rgba);
 
                     fetched += 1;
                 }
