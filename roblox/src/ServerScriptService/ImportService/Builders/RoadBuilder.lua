@@ -321,6 +321,114 @@ local function shouldEmitRoadDecorations(road)
     return kind ~= "footway" and kind ~= "path" and kind ~= "cycleway" and kind ~= "pedestrian"
 end
 
+-- Maps OSM sidewalkSurface tag → Roblox material for distinct sidewalk rendering.
+local SIDEWALK_SURFACE_MATERIAL = {
+    paving_stones = Enum.Material.Cobblestone,
+    concrete = Enum.Material.Concrete,
+    asphalt = Enum.Material.Asphalt,
+    gravel = Enum.Material.Pebble,
+    sett = Enum.Material.Cobblestone,
+}
+
+-- Returns the sidewalk material for a road, falling back to Pavement when
+-- the manifest does not carry a sidewalkSurface tag.
+local function getSidewalkMaterial(road)
+    if road.sidewalkSurface and SIDEWALK_SURFACE_MATERIAL[road.sidewalkSurface] then
+        return SIDEWALK_SURFACE_MATERIAL[road.sidewalkSurface]
+    end
+    return Enum.Material.Pavement
+end
+
+-- Emit a BillboardGui street-name label at the midpoint of a named road.
+-- Created once at import time; zero per-frame cost.
+local function emitStreetLabel(parent, road, midpoint)
+    if not road.name or road.name == "" then
+        return
+    end
+
+    local attachment = Instance.new("Attachment")
+    attachment.Name = "StreetLabel_" .. road.name
+    attachment.WorldCFrame = CFrame.new(midpoint + Vector3.new(0, 3, 0))
+    CollectionService:AddTag(attachment, "LOD_Detail")
+
+    local billboard = Instance.new("BillboardGui")
+    billboard.Name = "StreetNameGui"
+    billboard.MaxDistance = 150
+    billboard.AlwaysOnTop = false
+    billboard.Size = UDim2.new(0, 200, 0, 30)
+    billboard.StudsOffset = Vector3.new(0, 0, 0)
+    billboard.Adornee = attachment
+
+    local label = Instance.new("TextLabel")
+    label.Name = "StreetName"
+    label.Size = UDim2.new(1, 0, 1, 0)
+    label.BackgroundTransparency = 1
+    label.Text = road.name
+    label.TextColor3 = Color3.fromRGB(255, 255, 255)
+    label.TextStrokeTransparency = 0.5
+    label.TextScaled = true
+    label.Font = Enum.Font.GothamBold
+    label.Parent = billboard
+
+    billboard.Parent = attachment
+    attachment.Parent = parent
+end
+
+-- Add lane-marking geometry for multi-lane roads.
+-- Center line: thin white strip (0.15 wide, 0.02 above road) for lanes >= 2.
+-- Oneway arrow: small triangle mesh (1.5 x 2 studs) at midpoint.
+local function paintLaneMarkings(parent, p1, p2, road)
+    local lanes = road.lanes
+    if not lanes or lanes < 2 then
+        return
+    end
+
+    local dir = (p2 - p1)
+    local segLen = dir.Magnitude
+    if segLen < 1 then
+        return
+    end
+
+    -- Center line: continuous thin white strip
+    local midPos = (p1 + p2) * 0.5
+    local y1 = p1.Y + 0.17 -- 0.15 road lift + 0.02 above
+    local y2 = p2.Y + 0.17
+    local startPos = Vector3.new(p1.X, y1, p1.Z)
+    local endPos = Vector3.new(p2.X, y2, p2.Z)
+    local centerPos = (startPos + endPos) * 0.5
+
+    local line = Instance.new("Part")
+    line.Name = "LaneCenterLine"
+    line.Size = Vector3.new(0.15, 0.02, segLen)
+    line.Material = Enum.Material.SmoothPlastic
+    line.Color = Color3.fromRGB(255, 255, 255)
+    line.Anchored = true
+    line.CanCollide = false
+    line.CastShadow = false
+    line.CFrame = CFrame.lookAt(centerPos, endPos)
+    CollectionService:AddTag(line, "LOD_Detail")
+    line.Parent = parent
+
+    -- Oneway directional arrow at midpoint
+    if road.oneway == "yes" or road.oneway == true then
+        local arrowY = (p1.Y + p2.Y) * 0.5 + 0.17
+        local arrowPos = Vector3.new(midPos.X, arrowY, midPos.Z)
+        local arrowTarget = Vector3.new(p2.X, p2.Y + 0.17, p2.Z)
+
+        local arrow = Instance.new("Part")
+        arrow.Name = "LaneOnewayArrow"
+        arrow.Size = Vector3.new(1.5, 0.02, 2)
+        arrow.Material = Enum.Material.SmoothPlastic
+        arrow.Color = Color3.fromRGB(255, 255, 255)
+        arrow.Anchored = true
+        arrow.CanCollide = false
+        arrow.CastShadow = false
+        arrow.CFrame = CFrame.lookAt(arrowPos, arrowTarget)
+        CollectionService:AddTag(arrow, "LOD_Detail")
+        arrow.Parent = parent
+    end
+end
+
 local function classifySegment(road, p1, p2, _chunk)
     if road.elevated then
         return "bridge", p1, p2
@@ -373,7 +481,7 @@ local function paintSegment(terrain, p1, p2, road, width, material, sidewalkMode
     local leftExtra = hasSidewalkLeft and (sidewalkWidth + edgeBuffer) or 0
     local rightExtra = hasSidewalkRight and (sidewalkWidth + edgeBuffer) or 0
     local totalPavedWidth = width + leftExtra + rightExtra
-    local pavementMaterial = (hasSidewalkLeft or hasSidewalkRight) and Enum.Material.Pavement
+    local pavementMaterial = (hasSidewalkLeft or hasSidewalkRight) and getSidewalkMaterial(road)
         or material
 
     -- When one-sided the base slab needs to be off-centre by half the asymmetry.
@@ -1014,6 +1122,21 @@ local function executeRoadPlan(parent, detailParent, roadPlan)
     if width > 15 and roadPlan.lastEndpoint and roadPlan.lastDirection then
         paintCrosswalk(detailParent, roadPlan.lastEndpoint, roadPlan.lastDirection, width)
     end
+
+    -- Lane markings (center line + oneway arrow) per ground segment
+    for _, segment in ipairs(roadPlan.segments) do
+        if segment.mode == "ground" and shouldEmitRoadDecorations(road) then
+            paintLaneMarkings(detailParent, segment.p1, segment.p2, road)
+        end
+    end
+
+    -- Street name label at the road midpoint (once per road, not per segment)
+    if #roadPlan.segments > 0 then
+        local midIdx = math.ceil(#roadPlan.segments / 2)
+        local midSeg = roadPlan.segments[midIdx]
+        local midpoint = (midSeg.p1 + midSeg.p2) * 0.5
+        emitStreetLabel(detailParent, road, midpoint)
+    end
 end
 
 -- Build ALL roads in a chunk by painting them into the terrain.
@@ -1363,9 +1486,10 @@ function RoadBuilder.MeshBuildAll(
         local sidewalkAcc = nil
         local curbAcc = nil
         if hasSidewalkLeft or hasSidewalkRight then
+            local sidewalkMat = getSidewalkMaterial(road)
             sidewalkAcc = getAccumulator(
-                Enum.Material.Pavement,
-                getMaterialColor(Enum.Material.Pavement),
+                sidewalkMat,
+                getMaterialColor(sidewalkMat),
                 CONCRETE_PHYSICS,
                 "sidewalk",
                 kindBucket,
@@ -1501,6 +1625,7 @@ function RoadBuilder.MeshBuildDecorations(parent, roads, originStuds, chunk, pre
                 if shouldEmitRoadDecorations(road) then
                     paintCenterline(detailParent, segment.p1, segment.p2, roadPlan.width)
                     paintOnewayArrows(detailParent, segment.p1, segment.p2, roadPlan.width, road)
+                    paintLaneMarkings(detailParent, segment.p1, segment.p2, road)
                     scatterManholes(detailParent, segment.p1, segment.p2, roadPlan.width, road)
                     scatterDrainGrates(
                         detailParent,
@@ -1541,6 +1666,14 @@ function RoadBuilder.MeshBuildDecorations(parent, roads, originStuds, chunk, pre
                 roadPlan.lastDirection,
                 roadPlan.width
             )
+        end
+
+        -- Street name label at the road midpoint (once per road)
+        if #roadPlan.segments > 0 then
+            local midIdx = math.ceil(#roadPlan.segments / 2)
+            local midSeg = roadPlan.segments[midIdx]
+            local midpoint = (midSeg.p1 + midSeg.p2) * 0.5
+            emitStreetLabel(detailParent, road, midpoint)
         end
     end
 end

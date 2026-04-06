@@ -1020,5 +1020,78 @@ class AustinRuntimeContractTests(unittest.TestCase):
                          "getRoofColor must not filter any grey placeholder")
 
 
+    def test_road_builder_emits_street_name_labels(self) -> None:
+        """RoadBuilder must create BillboardGui street labels for named roads."""
+        import re
+        # emitStreetLabel function must exist and check road.name
+        self.assertIn("function emitStreetLabel(", self.road_builder_text)
+        # Must guard on road.name being present and non-empty
+        self.assertIn("road.name", self.road_builder_text)
+        # Must create a BillboardGui
+        self.assertIn('Instance.new("BillboardGui")', self.road_builder_text)
+        # MaxDistance must be 150
+        self.assertIn("MaxDistance = 150", self.road_builder_text)
+        # AlwaysOnTop must be false
+        self.assertIn("AlwaysOnTop = false", self.road_builder_text)
+        # Must tag attachment with LOD_Detail
+        emit_match = re.search(
+            r"function emitStreetLabel\(.*?\)\n(.*?)^end",
+            self.road_builder_text,
+            re.DOTALL | re.MULTILINE,
+        )
+        self.assertIsNotNone(emit_match, "emitStreetLabel function body must exist")
+        emit_body = emit_match.group(1)  # type: ignore[union-attr]
+        self.assertIn("LOD_Detail", emit_body)
+        self.assertIn("Attachment", emit_body)
+
+    def test_road_builder_consumes_sidewalk_surface_material(self) -> None:
+        """RoadBuilder must read road.sidewalkSurface and map it to Roblox materials."""
+        # Must have the sidewalk surface material mapping table
+        self.assertIn("SIDEWALK_SURFACE_MATERIAL", self.road_builder_text)
+        # Must map paving_stones to Cobblestone
+        self.assertIn("paving_stones = Enum.Material.Cobblestone", self.road_builder_text)
+        # Must map concrete
+        self.assertIn("concrete = Enum.Material.Concrete", self.road_builder_text)
+        # Must map asphalt
+        self.assertIn("asphalt = Enum.Material.Asphalt", self.road_builder_text)
+        # Must map gravel to Pebble
+        self.assertIn("gravel = Enum.Material.Pebble", self.road_builder_text)
+        # Must map sett to Cobblestone
+        self.assertIn("sett = Enum.Material.Cobblestone", self.road_builder_text)
+        # Must have getSidewalkMaterial function that reads road.sidewalkSurface
+        self.assertIn("function getSidewalkMaterial(road)", self.road_builder_text)
+        self.assertIn("road.sidewalkSurface", self.road_builder_text)
+        # getSidewalkMaterial must be called in the sidewalk accumulator path
+        self.assertIn("getSidewalkMaterial(road)", self.road_builder_text)
+
+    def test_road_builder_emits_lane_marking_geometry(self) -> None:
+        """RoadBuilder must emit center lane lines and oneway arrows for multi-lane roads."""
+        import re
+        # paintLaneMarkings function must exist
+        self.assertIn("function paintLaneMarkings(", self.road_builder_text)
+        # Must check road.lanes
+        lane_match = re.search(
+            r"function paintLaneMarkings\(.*?\)\n(.*?)^end",
+            self.road_builder_text,
+            re.DOTALL | re.MULTILINE,
+        )
+        self.assertIsNotNone(lane_match, "paintLaneMarkings function body must exist")
+        lane_body = lane_match.group(1)  # type: ignore[union-attr]
+        # Must guard on lanes >= 2
+        self.assertIn("road.lanes", lane_body)
+        self.assertIn("lanes < 2", lane_body)
+        # Must create center line Part
+        self.assertIn("LaneCenterLine", lane_body)
+        # Must use SmoothPlastic material and white color
+        self.assertIn("Enum.Material.SmoothPlastic", lane_body)
+        self.assertIn("Color3.fromRGB(255, 255, 255)", lane_body)
+        # Must check for oneway
+        self.assertIn("road.oneway", lane_body)
+        # Must create oneway arrow part
+        self.assertIn("LaneOnewayArrow", lane_body)
+        # Must tag with LOD_Detail
+        self.assertIn("LOD_Detail", lane_body)
+
+
 if __name__ == "__main__":
     unittest.main()
