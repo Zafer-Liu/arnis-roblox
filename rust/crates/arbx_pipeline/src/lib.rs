@@ -69,6 +69,8 @@ pub struct BuildingFeature {
     pub roof_direction: Option<f64>,
     pub roof_angle: Option<f64>,
     pub name: Option<String>,
+    pub facade_style: Option<String>,
+    pub structure_type: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -89,6 +91,7 @@ pub struct WaterPolygonFeature {
     pub holes: Vec<Footprint>,
     pub indices: Option<Vec<usize>>,
     pub intermittent: Option<bool>,
+    pub water_type: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -604,6 +607,8 @@ impl SourceAdapter for SyntheticAustinAdapter {
             roof_direction: None,
             roof_angle: None,
             name: None,
+            facade_style: None,
+            structure_type: None,
         }));
 
         // Add a landuse polygon (park)
@@ -2676,6 +2681,12 @@ fn emit_area_way(
             roof_direction: tags.get("roof:direction").and_then(|v| v.parse::<f64>().ok()),
             roof_angle: tags.get("roof:angle").and_then(|v| v.parse::<f64>().ok()),
             name: tags.get("name").cloned(),
+            facade_style: tags
+                .get("building:facade")
+                .or_else(|| tags.get("building:facade:material"))
+                .or_else(|| tags.get("building:cladding:type"))
+                .map(|s| s.to_lowercase()),
+            structure_type: tags.get("building:structure").map(|s| s.to_lowercase()),
         }));
     } else if tags.get("natural") == Some(&"water".to_string()) {
         features.push(Feature::Water(WaterFeature::Polygon(WaterPolygonFeature {
@@ -2685,6 +2696,7 @@ fn emit_area_way(
             holes,
             indices: None,
             intermittent: tags.get("intermittent").map(|s| s == "yes"),
+            water_type: tags.get("water").cloned(),
         })));
     } else if let Some(landuse) = tags.get("landuse") {
         features.push(Feature::Landuse(LanduseFeature {
@@ -2701,6 +2713,7 @@ fn emit_area_way(
                 holes,
                 indices: None,
                 intermittent: None,
+                water_type: None,
             })));
             return;
         }
@@ -2726,6 +2739,7 @@ fn emit_area_way(
                 holes,
                 indices: None,
                 intermittent: None,
+                water_type: None,
             })));
             return;
         }
@@ -3020,6 +3034,8 @@ mod tests {
                 roof_direction: None,
                 roof_angle: None,
                 name: None,
+                facade_style: None,
+                structure_type: None,
             })])
         }
     }
@@ -3072,6 +3088,8 @@ mod tests {
                 roof_direction: None,
                 roof_angle: None,
                 name: Some("Courtyard".to_string()),
+                facade_style: None,
+                structure_type: None,
             })],
             notes: vec![],
             stats: PipelineStats::default(),
@@ -3989,6 +4007,8 @@ mod tests {
             roof_direction: None,
             roof_angle: None,
             name: Some("OSM Truth".to_string()),
+            facade_style: None,
+            structure_type: None,
         });
 
         let overture_duplicate = Feature::Building(BuildingFeature {
@@ -4017,6 +4037,8 @@ mod tests {
             roof_direction: None,
             roof_angle: None,
             name: Some("Overture Duplicate".to_string()),
+            facade_style: None,
+            structure_type: None,
         });
 
         let overture_gap_fill = Feature::Building(BuildingFeature {
@@ -4045,6 +4067,8 @@ mod tests {
             roof_direction: None,
             roof_angle: None,
             name: Some("Gap Fill".to_string()),
+            facade_style: None,
+            structure_type: None,
         });
 
         let mut features = vec![osm_building];
@@ -4089,6 +4113,8 @@ mod tests {
             roof_direction: None,
             roof_angle: None,
             name: None,
+            facade_style: None,
+            structure_type: None,
         });
 
         let overture_duplicate = Feature::Building(BuildingFeature {
@@ -4117,6 +4143,8 @@ mod tests {
             roof_direction: None,
             roof_angle: None,
             name: Some("Backfilled Hall".to_string()),
+            facade_style: None,
+            structure_type: None,
         });
 
         let mut features = vec![osm_building];
@@ -4175,6 +4203,8 @@ mod tests {
             roof_direction: None,
             roof_angle: None,
             name: None,
+            facade_style: None,
+            structure_type: None,
         });
 
         let overture_named_parent = Feature::Building(BuildingFeature {
@@ -4203,6 +4233,8 @@ mod tests {
             roof_direction: None,
             roof_angle: None,
             name: Some("Texas State Capitol".to_string()),
+            facade_style: None,
+            structure_type: None,
         });
 
         let mut features = vec![anonymous_part];
@@ -4250,6 +4282,8 @@ mod tests {
             roof_direction: None,
             roof_angle: None,
             name: Some("First Overture".to_string()),
+            facade_style: None,
+            structure_type: None,
         });
 
         let second_overture = Feature::Building(BuildingFeature {
@@ -4278,6 +4312,8 @@ mod tests {
             roof_direction: None,
             roof_angle: None,
             name: Some("Second Overture".to_string()),
+            facade_style: None,
+            structure_type: None,
         });
 
         let mut features = vec![first_overture];
@@ -4331,6 +4367,8 @@ mod tests {
                 roof_direction: None,
                 roof_angle: None,
                 name: Some("Near".to_string()),
+                facade_style: None,
+                structure_type: None,
             }),
             Feature::Building(BuildingFeature {
                 id: "osm_far".to_string(),
@@ -4358,6 +4396,8 @@ mod tests {
                 roof_direction: None,
                 roof_angle: None,
                 name: Some("Far".to_string()),
+                facade_style: None,
+                structure_type: None,
             }),
         ];
         let candidate = BuildingFeature {
@@ -4386,6 +4426,8 @@ mod tests {
             roof_direction: None,
             roof_angle: None,
             name: Some("Candidate".to_string()),
+            facade_style: None,
+            structure_type: None,
         };
 
         let index = build_osm_building_spatial_index(&features, 256.0);
@@ -5037,6 +5079,8 @@ mod tests {
                 roof_direction: None,
                 roof_angle: None,
                 name: None,
+                facade_style: None,
+                structure_type: None,
             })],
         );
 
@@ -5113,6 +5157,179 @@ mod tests {
             assert_eq!(r.sidewalk_surface, Some("paving_stones".to_string()));
         } else {
             panic!("expected Road feature");
+        }
+    }
+
+    #[test]
+    fn building_extracts_facade_style_from_tags() {
+        let fp = vec![
+            Vec2::new(0.0, 0.0),
+            Vec2::new(10.0, 0.0),
+            Vec2::new(10.0, 10.0),
+            Vec2::new(0.0, 10.0),
+        ];
+        let mut tags = HashMap::new();
+        tags.insert("building".to_string(), "yes".to_string());
+        tags.insert("building:facade".to_string(), "Glass".to_string());
+
+        let mut features = Vec::new();
+        emit_area_way("test_facade", &tags, &fp, vec![], 0.3, &mut features);
+
+        assert_eq!(features.len(), 1);
+        if let Feature::Building(ref b) = features[0] {
+            assert_eq!(b.facade_style, Some("glass".to_string()));
+        } else {
+            panic!("expected Building feature");
+        }
+    }
+
+    #[test]
+    fn building_facade_style_none_when_absent() {
+        let fp = vec![
+            Vec2::new(0.0, 0.0),
+            Vec2::new(10.0, 0.0),
+            Vec2::new(10.0, 10.0),
+            Vec2::new(0.0, 10.0),
+        ];
+        let mut tags = HashMap::new();
+        tags.insert("building".to_string(), "yes".to_string());
+
+        let mut features = Vec::new();
+        emit_area_way("test_no_facade", &tags, &fp, vec![], 0.3, &mut features);
+
+        assert_eq!(features.len(), 1);
+        if let Feature::Building(ref b) = features[0] {
+            assert_eq!(b.facade_style, None);
+        } else {
+            panic!("expected Building feature");
+        }
+    }
+
+    #[test]
+    fn building_extracts_structure_type_from_tags() {
+        let fp = vec![
+            Vec2::new(0.0, 0.0),
+            Vec2::new(10.0, 0.0),
+            Vec2::new(10.0, 10.0),
+            Vec2::new(0.0, 10.0),
+        ];
+        let mut tags = HashMap::new();
+        tags.insert("building".to_string(), "yes".to_string());
+        tags.insert("building:structure".to_string(), "timber_frame".to_string());
+
+        let mut features = Vec::new();
+        emit_area_way("test_structure", &tags, &fp, vec![], 0.3, &mut features);
+
+        assert_eq!(features.len(), 1);
+        if let Feature::Building(ref b) = features[0] {
+            assert_eq!(b.structure_type, Some("timber_frame".to_string()));
+        } else {
+            panic!("expected Building feature");
+        }
+    }
+
+    #[test]
+    fn building_structure_type_none_when_absent() {
+        let fp = vec![
+            Vec2::new(0.0, 0.0),
+            Vec2::new(10.0, 0.0),
+            Vec2::new(10.0, 10.0),
+            Vec2::new(0.0, 10.0),
+        ];
+        let mut tags = HashMap::new();
+        tags.insert("building".to_string(), "yes".to_string());
+
+        let mut features = Vec::new();
+        emit_area_way("test_no_structure", &tags, &fp, vec![], 0.3, &mut features);
+
+        assert_eq!(features.len(), 1);
+        if let Feature::Building(ref b) = features[0] {
+            assert_eq!(b.structure_type, None);
+        } else {
+            panic!("expected Building feature");
+        }
+    }
+
+    #[test]
+    fn water_extracts_water_type_from_tags() {
+        let fp = vec![
+            Vec2::new(0.0, 0.0),
+            Vec2::new(10.0, 0.0),
+            Vec2::new(10.0, 10.0),
+            Vec2::new(0.0, 10.0),
+        ];
+        let mut tags = HashMap::new();
+        tags.insert("natural".to_string(), "water".to_string());
+        tags.insert("water".to_string(), "lake".to_string());
+
+        let mut features = Vec::new();
+        emit_area_way("test_water_type", &tags, &fp, vec![], 0.3, &mut features);
+
+        assert_eq!(features.len(), 1);
+        if let Feature::Water(WaterFeature::Polygon(ref w)) = features[0] {
+            assert_eq!(w.water_type, Some("lake".to_string()));
+        } else {
+            panic!("expected Water Polygon feature");
+        }
+    }
+
+    #[test]
+    fn water_type_none_when_absent() {
+        let fp = vec![
+            Vec2::new(0.0, 0.0),
+            Vec2::new(10.0, 0.0),
+            Vec2::new(10.0, 10.0),
+            Vec2::new(0.0, 10.0),
+        ];
+        let mut tags = HashMap::new();
+        tags.insert("natural".to_string(), "water".to_string());
+
+        let mut features = Vec::new();
+        emit_area_way("test_no_water_type", &tags, &fp, vec![], 0.3, &mut features);
+
+        assert_eq!(features.len(), 1);
+        if let Feature::Water(WaterFeature::Polygon(ref w)) = features[0] {
+            assert_eq!(w.water_type, None);
+        } else {
+            panic!("expected Water Polygon feature");
+        }
+    }
+
+    #[test]
+    fn building_facade_style_fallback_chain() {
+        let fp = vec![
+            Vec2::new(0.0, 0.0),
+            Vec2::new(10.0, 0.0),
+            Vec2::new(10.0, 10.0),
+            Vec2::new(0.0, 10.0),
+        ];
+
+        // Test building:facade:material as second fallback
+        let mut tags = HashMap::new();
+        tags.insert("building".to_string(), "yes".to_string());
+        tags.insert("building:facade:material".to_string(), "Brick".to_string());
+
+        let mut features = Vec::new();
+        emit_area_way("test_facade_mat", &tags, &fp, vec![], 0.3, &mut features);
+
+        if let Feature::Building(ref b) = features[0] {
+            assert_eq!(b.facade_style, Some("brick".to_string()));
+        } else {
+            panic!("expected Building feature");
+        }
+
+        // Test building:cladding:type as third fallback
+        let mut tags = HashMap::new();
+        tags.insert("building".to_string(), "yes".to_string());
+        tags.insert("building:cladding:type".to_string(), "Stucco".to_string());
+
+        let mut features = Vec::new();
+        emit_area_way("test_cladding", &tags, &fp, vec![], 0.3, &mut features);
+
+        if let Feature::Building(ref b) = features[0] {
+            assert_eq!(b.facade_style, Some("stucco".to_string()));
+        } else {
+            panic!("expected Building feature");
         }
     }
 }

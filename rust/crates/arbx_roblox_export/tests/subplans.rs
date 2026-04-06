@@ -62,6 +62,8 @@ fn build_test_manifest() -> ChunkManifest {
             roof_direction: None,
             roof_angle: None,
             name: Some("Tower One".to_string()),
+            facade_style: None,
+            structure_type: None,
         }),
         Feature::Water(WaterFeature::Polygon(WaterPolygonFeature {
             id: "water_pond".to_string(),
@@ -80,6 +82,7 @@ fn build_test_manifest() -> ChunkManifest {
             ])],
             indices: None,
             intermittent: Some(false),
+            water_type: None,
         })),
         Feature::Prop(PropFeature {
             id: "tree_oak".to_string(),
@@ -218,6 +221,8 @@ fn build_heavy_building_manifest() -> ChunkManifest {
                 roof_direction: None,
                 roof_angle: None,
                 name: Some(format!("Hot Building {index}")),
+                facade_style: None,
+                structure_type: None,
             }),
             &style,
             &elevation,

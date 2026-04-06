@@ -142,6 +142,7 @@ pub fn build_sample_multi_chunk(count_x: i32, count_z: i32) -> ChunkManifest {
                     roof_levels: Some(1),
                     roof: "flat".to_string(),
                     facade_style: None,
+                    structure_type: None,
                     rooms: Vec::new(),
                     roof_height: None,
                     roof_direction: None,
@@ -378,6 +379,7 @@ mod tests {
                     roof_levels: None,
                     roof: "flat".to_string(),
                     facade_style: None,
+                    structure_type: None,
                     rooms: Vec::new(),
                     roof_height: None,
                     roof_direction: None,
@@ -552,6 +554,8 @@ mod tests {
             roof_direction: None,
             roof_angle: None,
             name: None,
+            facade_style: None,
+            structure_type: None,
         })];
 
         let elevation = PerlinElevationProvider::default();
@@ -588,6 +592,8 @@ mod tests {
             roof_direction: None,
             roof_angle: None,
             name: Some("Regression Test Building".to_string()),
+            facade_style: None,
+            structure_type: None,
         })];
 
         let elevation = PerlinElevationProvider::default();
@@ -628,6 +634,8 @@ mod tests {
             roof_direction: None,
             roof_angle: None,
             name: None,
+            facade_style: None,
+            structure_type: None,
         })];
 
         let elevation = PerlinElevationProvider::default();
@@ -679,6 +687,8 @@ mod tests {
             roof_direction: None,
             roof_angle: None,
             name: None,
+            facade_style: None,
+            structure_type: None,
         })];
 
         let elevation = FlatElevationProvider { height: 0.0 };
@@ -732,6 +742,8 @@ mod tests {
             roof_direction: None,
             roof_angle: None,
             name: Some("Courtyard Test".to_string()),
+            facade_style: None,
+            structure_type: None,
         })];
 
         let elevation = PerlinElevationProvider::default();
@@ -777,6 +789,8 @@ mod tests {
             roof_direction: None,
             roof_angle: None,
             name: None,
+            facade_style: None,
+            structure_type: None,
         })];
 
         let elevation = FlatElevationProvider { height: 0.0 };
@@ -850,6 +864,8 @@ mod tests {
             roof_direction: None,
             roof_angle: None,
             name: None,
+            facade_style: None,
+            structure_type: None,
         })];
 
         let elevation = FlatElevationProvider { height: 0.0 };
@@ -890,6 +906,8 @@ mod tests {
             roof_direction: None,
             roof_angle: None,
             name: None,
+            facade_style: None,
+            structure_type: None,
         })];
 
         let elevation = FlatElevationProvider { height: 0.0 };
@@ -927,6 +945,8 @@ mod tests {
             roof_direction: None,
             roof_angle: None,
             name: None,
+            facade_style: None,
+            structure_type: None,
         })];
 
         let elevation = FlatElevationProvider { height: 0.0 };
@@ -964,6 +984,8 @@ mod tests {
             roof_direction: None,
             roof_angle: None,
             name: None,
+            facade_style: None,
+            structure_type: None,
         })];
 
         let elevation = FlatElevationProvider { height: 0.0 };

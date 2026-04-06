@@ -2567,7 +2567,7 @@ fn build_signal_audit(manifest: &Value) -> Result<SignalAuditReport, String> {
     let building_fields: &[&str] = &[
         "id", "footprint", "baseY", "height", "material", "wallColor", "roofColor",
         "roofShape", "roofMaterial", "usage", "minHeight", "roofHeight", "name",
-        "levels", "facadeStyle", "roofLevels", "roofDirection", "roofAngle", "cladding",
+        "levels", "facadeStyle", "structureType", "roofLevels", "roofDirection", "roofAngle", "cladding",
     ];
     let road_fields: &[&str] = &[
         "id", "kind", "widthStuds", "points", "material", "hasSidewalk", "elevated",
@@ -2576,7 +2576,7 @@ fn build_signal_audit(manifest: &Value) -> Result<SignalAuditReport, String> {
     ];
     let water_fields: &[&str] = &[
         "id", "kind", "material", "surfaceY", "intermittent", "points", "footprint",
-        "widthStuds", "color",
+        "widthStuds", "color", "waterType",
     ];
     let prop_fields: &[&str] = &[
         "id", "kind", "position", "yawDegrees", "scale", "species", "height",
@@ -9980,12 +9980,12 @@ mod tests {
         assert_eq!(report.buildings.feature_count, 2);
         assert_eq!(report.roads.feature_count, 1);
 
-        // buildings: 2 features x 19 fields = 38 total
-        // (added roofDirection, roofAngle, cladding to field list)
-        // b1 has facadeStyle=null, roofLevels=null, roofDirection=null, roofAngle=null, cladding=null -> 14 populated
-        // b2 has name="" (empty), same nulls -> 15 populated
+        // buildings: 2 features x 20 fields = 40 total
+        // (added roofDirection, roofAngle, cladding, structureType to field list)
+        // b1 has facadeStyle=null, structureType=null, roofLevels=null, roofDirection=null, roofAngle=null, cladding=null -> 14 populated
+        // b2 has name="" (empty), structureType=null, same nulls -> 15 populated
         // total populated = 14 + 15 = 29
-        assert_eq!(report.buildings.total_possible, 38);
+        assert_eq!(report.buildings.total_possible, 40);
         assert_eq!(report.buildings.total_populated, 29);
 
         // roads: 1 feature x 18 fields = 18 total (added name, sidewalkSurface)

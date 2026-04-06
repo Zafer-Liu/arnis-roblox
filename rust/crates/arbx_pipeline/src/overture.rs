@@ -323,6 +323,8 @@ pub fn load_overture_buildings(
             roof_direction: None,
             roof_angle: None,
             name: primary_name,
+            facade_style: None,
+            structure_type: None,
         }));
     }
 

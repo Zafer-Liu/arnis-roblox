@@ -104,6 +104,8 @@ fn multi_chunk_export_correct() {
             roof_direction: None,
             roof_angle: None,
             name: None,
+            facade_style: None,
+            structure_type: None,
         }),
         Feature::Building(arbx_pipeline::BuildingFeature {
             id: "b2".to_string(),
@@ -131,6 +133,8 @@ fn multi_chunk_export_correct() {
             roof_direction: None,
             roof_angle: None,
             name: None,
+            facade_style: None,
+            structure_type: None,
         }),
     ];
 

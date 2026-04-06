@@ -146,6 +146,7 @@ fn build_chunk(input: ChunkInput) -> Chunk {
             roof_levels: Some(0),
             roof: "flat".to_string(),
             facade_style: None,
+            structure_type: None,
             rooms: Vec::new(),
             roof_height: None,
             name: None,
@@ -170,6 +171,7 @@ fn build_chunk(input: ChunkInput) -> Chunk {
             surface_y: Some(0.0),
             width: None,
             intermittent: None,
+            water_type: None,
         })
         .collect();
 

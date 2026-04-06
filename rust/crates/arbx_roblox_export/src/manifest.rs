@@ -93,6 +93,7 @@ pub struct BuildingShell {
     pub roof_levels: Option<u32>,
     pub roof: String,
     pub facade_style: Option<String>,
+    pub structure_type: Option<String>,
     pub rooms: Vec<Room>,
     pub roof_height: Option<f64>,
     pub roof_direction: Option<f64>,
@@ -127,6 +128,7 @@ pub struct WaterFeature {
     pub surface_y: Option<f64>,
     pub width: Option<f64>,
     pub intermittent: Option<bool>,
+    pub water_type: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -740,6 +742,12 @@ impl BuildingShell {
             write_string(out, style);
         }
 
+        if let Some(st) = &self.structure_type {
+            out.push_str(",\n");
+            write_key(out, indent + 2, "structureType");
+            write_string(out, st);
+        }
+
         out.push_str(",\n");
         write_key(out, indent + 2, "roof");
         write_string(out, &self.roof);
@@ -891,6 +899,12 @@ impl WaterFeature {
             out.push_str(",\n");
             write_key(out, indent + 2, "intermittent");
             out.push_str(if intermittent { "true" } else { "false" });
+        }
+
+        if let Some(ref wt) = self.water_type {
+            out.push_str(",\n");
+            write_key(out, indent + 2, "waterType");
+            write_string(out, wt);
         }
 
         out.push('\n');

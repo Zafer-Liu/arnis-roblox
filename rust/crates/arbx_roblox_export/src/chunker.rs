@@ -527,6 +527,7 @@ impl Chunker {
                             surface_y: None,
                             width: r.width,
                             intermittent: r.intermittent,
+                            water_type: None,
                         });
                     }
                 }
@@ -581,7 +582,7 @@ impl Chunker {
                     );
                     chunk.water.push(ManifestWaterFeature {
                         id: p.id,
-                        kind: p.kind,
+                        kind: p.kind.clone(),
                         material,
                         color,
                         width_studs: None,
@@ -592,6 +593,7 @@ impl Chunker {
                         surface_y,
                         width: None,
                         intermittent: p.intermittent,
+                        water_type: p.water_type,
                     });
                 }
             },
@@ -667,7 +669,8 @@ impl Chunker {
                     height_m: f.height_m,
                     levels: f.levels,
                     roof_levels: f.roof_levels,
-                    facade_style: None,
+                    facade_style: f.facade_style.clone(),
+                    structure_type: f.structure_type.clone(),
                     roof: f.roof,
                     rooms: Vec::new(),
                     roof_height: f.roof_height.map(|height| height * scale),
