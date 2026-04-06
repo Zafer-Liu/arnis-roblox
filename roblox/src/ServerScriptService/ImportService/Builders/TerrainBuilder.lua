@@ -4,6 +4,16 @@ local TerrainBuilder = {}
 local BUILD_PLAN_CACHE_KEY = "__terrainBuildPlan"
 local TERRAIN_WRITE_RESOLUTION = 4
 
+-- Satellite-derived material palette: material names the Rust pipeline may emit
+-- via ESRI satellite classification into terrainGrid.materials[].
+-- Any valid Enum.Material name is accepted; this documents the expected set.
+local SATELLITE_MATERIAL_PALETTE = {
+    Grass = true, Sand = true, Mud = true, Pavement = true,
+    Limestone = true, Sandstone = true, Slate = true, Asphalt = true,
+    Concrete = true, Rock = true, Ground = true, Snow = true,
+    Ice = true, Glacier = true, LeafyGrass = true,
+}
+
 TerrainBuilder.DEFAULT_CLEAR_HEIGHT = 512
 TerrainBuilder._fillBlock = function(terrain, cf, size, material)
     terrain:FillBlock(cf, size, material)
@@ -555,27 +565,6 @@ local function buildChunkPlan(chunk, options)
             / (2 * cellSize)
         return math.sqrt(dhdx * dhdx + dhdz * dhdz)
     end
-
-    -- Satellite-derived material palette: these are the material names the Rust
-    -- pipeline may emit via ESRI satellite classification into terrainGrid.materials[].
-    -- Any valid Enum.Material name is accepted; this table documents the expected set.
-    local SATELLITE_MATERIAL_PALETTE = {
-        Grass = true,
-        Sand = true,
-        Mud = true,
-        Pavement = true,
-        Limestone = true,
-        Sandstone = true,
-        Slate = true,
-        Asphalt = true,
-        Concrete = true,
-        Rock = true,
-        Ground = true,
-        Snow = true,
-        Ice = true,
-        Glacier = true,
-        LeafyGrass = true,
-    }
 
     local function getMat(x, z)
         -- Satellite-derived per-cell materials are the PRIMARY source when populated.

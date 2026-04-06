@@ -190,7 +190,6 @@ local function normalizeSidewalkMode(sidewalkMode)
     return sidewalkMode or "no"
 end
 
--- Returns "both", "left", "right", "no", or "separate".
 local function getMaterial(road)
     -- 1. OSM surface tag takes priority (most specific physical description)
     if road.surface then
@@ -240,8 +239,8 @@ local ROAD_COLOR = {
     default = Color3.fromRGB(80, 80, 85),
 }
 
--- Subkind-based color tint overrides for visual differentiation.
--- When road.subkind is available, apply a color shift relative to the base kind color.
+-- Subkind-based color overrides for visual differentiation.
+-- When road.subkind is available, its color fully replaces the kind-based default.
 -- Motorway/trunk: darker, fresher asphalt. Residential/service: lighter, weathered.
 -- Track/path: warm earth tones.
 local SUBKIND_COLOR_TINT = {

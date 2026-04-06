@@ -315,9 +315,17 @@ local WINDOW_TINT_BY_USAGE_CLASS = {
 -- Dark/empty window tint for ~20% of panes (night/vacancy effect)
 local DARK_WINDOW_TINT = { color = Color3.fromRGB(30, 30, 35), transparency = 0.05 }
 
-local function getWindowTint(usage, buildingId, paneIndex)
-    -- ~20% of panes are dark/empty based on hash of building ID + pane index
-    local darkHash = hashId(buildingId .. "_pane_" .. tostring(paneIndex or 0))
+local function hashId(id)
+    local h = 5381
+    for i = 1, #id do
+        h = ((h * 33) + string.byte(id, i)) % 2147483647
+    end
+    return h
+end
+
+local function getWindowTint(usage, buildingIdHash, paneIndex)
+    -- ~20% of panes are dark/empty based on arithmetic hash of building + pane index
+    local darkHash = (buildingIdHash * 31 + (paneIndex or 0)) % 2147483647
     if darkHash % 5 == 0 then
         return DARK_WINDOW_TINT
     end
@@ -355,14 +363,6 @@ local function getFacadeInset(usage)
     else
         return 0.7
     end
-end
-
-local function hashId(id)
-    local h = 5381
-    for i = 1, #id do
-        h = ((h * 33) + string.byte(id, i)) % 2147483647
-    end
-    return h
 end
 
 -- Realistic building color palette for deterministic variety when OSM lacks colour tags
@@ -570,7 +570,13 @@ local function getRoofMaterial(building, wallMat)
     if building.roofMaterial then
         return ROOF_MATERIAL_LOOKUP[building.roofMaterial] or Enum.Material.Concrete
     end
-    -- Hash-diversified fallback: select from ROOF_MATERIAL_PALETTE using building ID
+    -- Usage-based fallback preserves semantic intent (hospitals=Concrete, warehouses=Metal)
+    local usage = string.lower(tostring(building.usage or building.kind or "default"))
+    local usageMat = DEFAULT_ROOF_MATERIAL_BY_USAGE[usage]
+    if usageMat then
+        return usageMat
+    end
+    -- Hash-diversified palette for unknown/default usages: prevents monochrome skylines
     local id = building.id or tostring(building)
     local paletteIndex = (hashId(id) % #ROOF_MATERIAL_PALETTE) + 1
     return ROOF_MATERIAL_PALETTE[paletteIndex]
@@ -1806,6 +1812,7 @@ local function buildRoof(building, footprint, bounds, baseY, height, color, mat,
             stepPart.Color = rc
             stepPart.Size = Vector3.new(stepW, ROOF_THICKNESS, stepL)
             stepPart.CFrame = CFrame.new(centerX, stepY + ROOF_THICKNESS * 0.5, centerZ)
+            CollectionService:AddTag(stepPart, "LOD_Detail")
             stepPart.Parent = parent
         end
     end
@@ -2553,7 +2560,7 @@ local function buildSimpleShellOpenings(parent, worldPts, baseY, height, windowB
 
             local paneCenter = edge.mid + edge.dir * offset
             local outward = Vector3.new(-edge.dir.Z, 0, edge.dir.X) * 0.13
-            local shellTint = getWindowTint(usage, buildingId or "", windowPaneCount)
+            local shellTint = getWindowTint(usage, hashId(buildingId or ""), windowPaneCount)
             local pane = Instance.new("Part")
             pane.Name = "SimpleShellWindowPane"
             pane.Size = Vector3.new(math.min(2.1, math.max(1.4, edge.len * 0.08)), 1.65, 0.12)
@@ -2899,7 +2906,7 @@ function BuildingBuilder.FallbackBuild(parent, building, originStuds, chunk, win
                         windowBudget.used += 1
                     end
                     facadePaneIndex += 1
-                    local tint = getWindowTint(usage, buildingId, facadePaneIndex)
+                    local tint = getWindowTint(usage, hashId(buildingId or ""), facadePaneIndex)
                     local band = Instance.new("Part")
                     band.Name = bldgName .. "_facade_" .. i .. "_" .. floor
                     band.Anchored = true
@@ -3341,7 +3348,7 @@ function BuildingBuilder.MeshBuildAll(parent, buildings, originStuds, chunk, con
                             end
                             windowBudget.used += 1
                             facadePaneIndex += 1
-                            local tint = getWindowTint(usage, buildingId, facadePaneIndex)
+                            local tint = getWindowTint(usage, hashId(buildingId or ""), facadePaneIndex)
                             local band = Instance.new("Part")
                             band.Name = bldgName .. "_facade_" .. i .. "_" .. floor
                             band.Anchored = true

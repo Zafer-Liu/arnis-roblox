@@ -33,9 +33,9 @@ local DEFAULT_WATER_COLOR = Color3.fromRGB(40, 80, 120)
 local function resolveWaterColor(colorField)
     if type(colorField) == "table" and type(colorField.r) == "number" then
         return Color3.fromRGB(
-            math.clamp(colorField.r, 0, 255),
-            math.clamp(colorField.g or 0, 0, 255),
-            math.clamp(colorField.b or 0, 0, 255)
+            math.clamp(tonumber(colorField.r) or 0, 0, 255),
+            math.clamp(tonumber(colorField.g) or 0, 0, 255),
+            math.clamp(tonumber(colorField.b) or 0, 0, 255)
         )
     end
     return DEFAULT_WATER_COLOR
