@@ -495,6 +495,8 @@ local function getColor(building)
     return BUILDING_PALETTE[(hashId(id) % #BUILDING_PALETTE) + 1]
 end
 
+local getRoofMaterial -- forward declaration; defined after ROOF_MATERIAL_LOOKUP tables
+
 local function getRoofColor(building, wallColor)
     if building.roofColor and building.roofColor.r then
         return Color3.fromRGB(building.roofColor.r, building.roofColor.g, building.roofColor.b)
@@ -561,12 +563,7 @@ local ROOF_MATERIAL_PALETTE_COLORS = {
     [Enum.Material.Brick] = Color3.fromRGB(165, 95, 65),      -- terracotta tile/brick
 }
 
-local function getDefaultRoofMaterial(building)
-    local usage = string.lower(tostring(building.usage or building.kind or "default"))
-    return DEFAULT_ROOF_MATERIAL_BY_USAGE[usage] or DEFAULT_ROOF_MATERIAL_BY_USAGE.default
-end
-
-local function getRoofMaterial(building, wallMat)
+getRoofMaterial = function(building, wallMat)
     if building.roofMaterial then
         return ROOF_MATERIAL_LOOKUP[building.roofMaterial] or Enum.Material.Concrete
     end
@@ -2536,6 +2533,7 @@ local function buildSimpleShellOpenings(parent, worldPts, baseY, height, windowB
     doorCue.Parent = parent
     doorCueCount += 1
 
+    local buildingIdHash = hashId(buildingId or "")
     local maxWindowEdges = math.min(#edges, 2)
     local maxWindows = if windowBudget and windowBudget.max then windowBudget.max else math.huge
     for edgeIndex = 1, maxWindowEdges do
@@ -2560,7 +2558,7 @@ local function buildSimpleShellOpenings(parent, worldPts, baseY, height, windowB
 
             local paneCenter = edge.mid + edge.dir * offset
             local outward = Vector3.new(-edge.dir.Z, 0, edge.dir.X) * 0.13
-            local shellTint = getWindowTint(usage, hashId(buildingId or ""), windowPaneCount)
+            local shellTint = getWindowTint(usage, buildingIdHash, windowPaneCount)
             local pane = Instance.new("Part")
             pane.Name = "SimpleShellWindowPane"
             pane.Size = Vector3.new(math.min(2.1, math.max(1.4, edge.len * 0.08)), 1.65, 0.12)
@@ -2867,6 +2865,7 @@ function BuildingBuilder.FallbackBuild(parent, building, originStuds, chunk, win
         or (WorldConfig.InstanceBudget and WorldConfig.InstanceBudget.MaxWindowsPerChunk)
         or 10000
     local facadePaneIndex = 0
+    local facadeBuildingIdHash = hashId(buildingId or "")
     if
         not preferSimpleShellDetail
         and renderGlassFacadeBands
@@ -2906,7 +2905,7 @@ function BuildingBuilder.FallbackBuild(parent, building, originStuds, chunk, win
                         windowBudget.used += 1
                     end
                     facadePaneIndex += 1
-                    local tint = getWindowTint(usage, hashId(buildingId or ""), facadePaneIndex)
+                    local tint = getWindowTint(usage, facadeBuildingIdHash, facadePaneIndex)
                     local band = Instance.new("Part")
                     band.Name = bldgName .. "_facade_" .. i .. "_" .. floor
                     band.Anchored = true
@@ -3310,6 +3309,7 @@ function BuildingBuilder.MeshBuildAll(parent, buildings, originStuds, chunk, con
             local numFloors = math.floor(height / FLOOR_H)
             local maxWindows = windowBudget.max
             local facadePaneIndex = 0
+            local meshFacadeBuildingIdHash = hashId(buildingId or "")
             if
                 not preferSimpleShellDetail
                 and renderGlassFacadeBands
@@ -3348,7 +3348,7 @@ function BuildingBuilder.MeshBuildAll(parent, buildings, originStuds, chunk, con
                             end
                             windowBudget.used += 1
                             facadePaneIndex += 1
-                            local tint = getWindowTint(usage, hashId(buildingId or ""), facadePaneIndex)
+                            local tint = getWindowTint(usage, meshFacadeBuildingIdHash, facadePaneIndex)
                             local band = Instance.new("Part")
                             band.Name = bldgName .. "_facade_" .. i .. "_" .. floor
                             band.Anchored = true
