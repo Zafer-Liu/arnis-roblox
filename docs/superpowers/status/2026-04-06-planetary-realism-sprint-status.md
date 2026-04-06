@@ -26,8 +26,8 @@ The active implementation plan is:
 
 ### Local Static
 
-- `python3 -m unittest scripts.tests.test_austin_runtime_contract scripts.tests.test_play_render_truth scripts.tests.test_convergence_guardrails -v`
-  - passed on 2026-04-06 (84 tests, up from 76 at tranche start)
+- `python3 -m unittest scripts.tests.test_austin_runtime_contract scripts.tests.test_play_render_truth scripts.tests.test_convergence_guardrails scripts.tests.test_run_studio_harness -v`
+  - passed on 2026-04-06 (236 tests, up from 76 at tranche start)
 - `cargo test --manifest-path rust/Cargo.toml --workspace`
   - passed on 2026-04-06 (205 tests)
 - `git diff --check`
@@ -45,6 +45,28 @@ The active implementation plan is:
 - Regional style packs deferred
 
 ## Status Notes
+
+### 2026-04-06: Data Fidelity Pass + Profiling Infrastructure
+
+- **Water kind differentiation**: rivers lighter/transparent, lakes deeper/reflective, ponds greener, wetlands murky. Per-body color always takes priority (no trampling).
+- **Rail kind differentiation**: heavy rail=Metal thick, light rail=Metal thin, subway=Concrete wide. Previously all Cobblestone.
+- **Prop leafType**: conifer species list (15 genera) triggers needleleaved canopy. Previously only palms got distinct geometry.
+- **WallColor confirmed faithful**: grey rejection is exact (170,170,170) placeholder check only, no broad trampling.
+- **Frame time profiling**: zero-alloc ring buffer in WorldProbe, ARNIS_CLIENT_PERF marker with avgFrameTime/p99/fps/instanceCount. Harness extraction ready.
+- **Building LOD**: Model.LevelOfDetail=Automatic on all shells for skyline preservation.
+- **Atmosphere depth**: WorldConfig knobs for density/offset/haze, additive on phase presets.
+- **Ring transparency**: additive fade per ring (far=0.15, mid=0.05) with authored-value snapshot.
+- **Rooftop gameplay**: parapets on flat roofs, equipment variety (AC/antenna/vent), threshold lowered to 3 levels.
+- **Senior code review**: 3 passes, all issues resolved (forward reference crash, hashId caching, usage-based roof fallback, LOD tagging).
+- 236 Python + 205 Rust tests all green.
+
+Pipeline enrichment research complete — top Rust additions identified:
+1. roof:direction + roof:angle (oriented gabled roofs)
+2. sidewalk:surface + sidewalk:width (distinct sidewalk materials)
+3. building:cladding + building:structure (precise facade materials)
+4. road name (one-line Rust addition)
+5. Overture roof_shape (available but not extracted)
+6. arbx_cli audit-signal subcommand (designed, implementation lost to worktree cleanup — ready for next session)
 
 ### 2026-04-06: Tasks 1-4 Landed (Parallel Swarm)
 
