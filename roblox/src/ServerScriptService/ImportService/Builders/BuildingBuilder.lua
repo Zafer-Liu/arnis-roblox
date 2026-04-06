@@ -2601,8 +2601,41 @@ local function buildPilasters(parent, worldPts, baseY, height, material, color)
     end
 end
 
+local function buildRooftopParapet(parent, baseY, height, worldPts)
+    local roofY = baseY + height
+    local parapetHeight = 0.9
+    local parapetThickness = 0.3
+
+    for i = 1, #worldPts do
+        local p1 = worldPts[i]
+        local p2 = worldPts[(i % #worldPts) + 1]
+        local edgeLen = (p2 - p1).Magnitude
+        if edgeLen < 0.5 then
+            continue
+        end
+
+        local mid = (p1 + p2) * 0.5
+        local dir = (p2 - p1).Unit
+
+        local parapet = Instance.new("Part")
+        parapet.Name = "Parapet"
+        parapet.Size = Vector3.new(edgeLen, parapetHeight, parapetThickness)
+        parapet.Material = Enum.Material.Concrete
+        parapet.Color = Color3.fromRGB(180, 175, 168)
+        parapet.Anchored = true
+        parapet.CanCollide = true
+        parapet.CastShadow = false
+        parapet.CFrame = CFrame.lookAt(
+            mid + Vector3.new(0, roofY + parapetHeight * 0.5, 0),
+            mid + Vector3.new(0, roofY + parapetHeight * 0.5, 0) + dir
+        )
+        CollectionService:AddTag(parapet, "LOD_Detail")
+        parapet.Parent = parent
+    end
+end
+
 local function buildRooftopEquipment(parent, building, baseY, height, worldPts)
-    if not building.levels or building.levels < 5 then
+    if not building.levels or building.levels < 3 then
         return
     end
 
@@ -2618,19 +2651,39 @@ local function buildRooftopEquipment(parent, building, baseY, height, worldPts)
 
     local unitCount = math.min(3, math.floor(building.levels / 3))
     local seed = string.len(building.id or "")
+    local equipmentType = hashId(building.id or "") % 3
 
     for i = 1, unitCount do
         local offsetX = ((seed * 7 + i * 13) % 20) - 10
         local offsetZ = ((seed * 11 + i * 17) % 20) - 10
 
         local unit = Instance.new("Part")
-        unit.Name = "ACUnit"
-        unit.Size = Vector3.new(3, 2, 3)
-        unit.Material = Enum.Material.Metal
-        unit.Color = Color3.fromRGB(160, 160, 165)
-        unit.CFrame = CFrame.new(cx + offsetX * 0.3, roofY + 1, cz + offsetZ * 0.3)
         unit.Anchored = true
         unit.CanCollide = true
+
+        if equipmentType % 3 == 1 then
+            -- Antenna: thin vertical mast for taller buildings
+            unit.Name = "Antenna"
+            unit.Size = Vector3.new(0.3, 3, 0.3)
+            unit.Material = Enum.Material.Metal
+            unit.Color = Color3.fromRGB(140, 140, 145)
+            unit.CFrame = CFrame.new(cx + offsetX * 0.3, roofY + 1.5, cz + offsetZ * 0.3)
+        elseif equipmentType % 3 == 2 then
+            -- Vent box: squat exhaust housing
+            unit.Name = "VentBox"
+            unit.Size = Vector3.new(1.5, 1, 1.5)
+            unit.Material = Enum.Material.DiamondPlate
+            unit.Color = Color3.fromRGB(150, 150, 155)
+            unit.CFrame = CFrame.new(cx + offsetX * 0.3, roofY + 0.5, cz + offsetZ * 0.3)
+        else
+            -- AC unit (default)
+            unit.Name = "ACUnit"
+            unit.Size = Vector3.new(3, 2, 3)
+            unit.Material = Enum.Material.Metal
+            unit.Color = Color3.fromRGB(160, 160, 165)
+            unit.CFrame = CFrame.new(cx + offsetX * 0.3, roofY + 1, cz + offsetZ * 0.3)
+        end
+
         unit.Parent = parent
     end
 end
@@ -3473,6 +3526,7 @@ function BuildingBuilder.MeshBuildAll(parent, buildings, originStuds, chunk, con
 
             if not preferSimpleShellDetail then
                 local rooftopDetailStartedAt = os.clock()
+                buildRooftopParapet(detailFolder, baseY, height, worldPts)
                 buildRooftopEquipment(detailFolder, building, baseY, height, worldPts)
                 recordBuildingDetailPhase(buildStats, "rooftopDetailMs", (os.clock() - rooftopDetailStartedAt) * 1000)
             end

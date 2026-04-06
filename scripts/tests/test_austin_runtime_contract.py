@@ -815,6 +815,37 @@ class AustinRuntimeContractTests(unittest.TestCase):
         self.assertIn("DEFAULT_WATER_COLOR", self.water_builder_text)
         self.assertIn("colorField.r", self.water_builder_text)
 
+    # ------------------------------------------------------------------
+    # Rooftop gameplay surfaces (Task 6 – Planetary Realism Sprint)
+    # ------------------------------------------------------------------
+
+    def test_rooftop_equipment_threshold_is_three_levels(self) -> None:
+        """Rooftop equipment should generate on buildings with 3+ levels, not 5+."""
+        self.assertIn("building.levels < 3", self.building_builder_text,
+                       "Rooftop equipment threshold must be lowered to 3 levels")
+        self.assertNotIn("building.levels < 5", self.building_builder_text,
+                         "Old 5-level threshold must be removed")
+
+    def test_flat_roof_parapet_geometry(self) -> None:
+        """Flat-roof buildings must have a parapet (edge lip) around the perimeter."""
+        self.assertIn("buildRooftopParapet", self.building_builder_text,
+                       "buildRooftopParapet function must exist")
+        self.assertIn("Parapet", self.building_builder_text,
+                       "Parapet parts must be named 'Parapet'")
+        self.assertIn('CollectionService:AddTag(parapet, "LOD_Detail")',
+                       self.building_builder_text,
+                       "Parapet parts must be tagged LOD_Detail")
+
+    def test_rooftop_equipment_variety(self) -> None:
+        """Rooftop equipment must include antenna and vent box in addition to AC units."""
+        self.assertIn("Antenna", self.building_builder_text,
+                       "Antenna equipment type must exist")
+        self.assertIn("VentBox", self.building_builder_text,
+                       "VentBox equipment type must exist")
+        # Equipment type selection via hash modulo 3
+        self.assertIn("equipmentType % 3", self.building_builder_text,
+                       "Equipment type must be selected via hashId modulo 3")
+
 
 if __name__ == "__main__":
     unittest.main()
