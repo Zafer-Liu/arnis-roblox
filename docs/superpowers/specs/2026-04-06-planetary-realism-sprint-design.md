@@ -207,7 +207,7 @@ These hard limits shape every track's design:
 
 Satellite imagery draping on terrain is viable as of January 2026 via `AssetService:CreateSurfaceAppearanceAsync()`. Architecture:
 
-1. **Offline compilation** (Rust pipeline): fetch satellite tiles from Mapbox Satellite (`mapbox.satellite-v9`, zoom 17-18, 0.3-2m/px global) or ESRI World Imagery during `arbx_cli compile`. Bake per-chunk 512x512 PNG textures into manifest artifacts.
+1. **Offline compilation** (Rust pipeline): fetch satellite tiles from ESRI World Imagery (free, zoom 17-18, 0.3-2m/px global coverage, no API key required) during `arbx_cli compile`. Bake per-chunk 512x512 PNG textures into manifest artifacts.
 2. **Runtime import** (Lua): generate flat or height-following EditableMesh grid per chunk (64x64 quads = 8,192 tris at 4-stud grid), assign UVs, create EditableImage from baked PNG via `WritePixelsBuffer()`, bind as SurfaceAppearance ColorMap.
 3. **Normal map generation**: compute per-cell surface normals from DEM heightfield during compilation, encode into EditableImage NormalMap for free PBR hillshading.
 4. **Budget management**: near-ring chunks get satellite overlay (512x512 = 1 MB color + 1 MB normal = 2 MB per chunk, ~8-10 chunks in 32 MB budget). Mid-ring gets MaterialVariant terrain only. Far-ring gets base Enum.Material. Recycle EditableImage on stream-out.
