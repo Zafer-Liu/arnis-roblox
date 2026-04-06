@@ -1,4 +1,5 @@
 pub mod satellite;
+pub mod tiles;
 
 use serde::{Deserialize, Serialize};
 use std::fs::File;
