@@ -4213,3 +4213,55 @@ The compact historical archive index is:
     - `findingCount=0`
 - This closes the last previously open blocker in the remote proof lane:
   - `tertiary` now has a working screenshot path and a working route-runtime-backed play-fidelity artifact path in the same play run
+
+## 2026-04-06 13:48 CDT
+
+- Burned down the last wrapper-owned remote proof instability on `tertiary`.
+- What landed:
+  - `scripts/run_studio_harness.sh`
+    - added `ARNIS_PARENT_WATCHDOG` so wrapper-managed detached runs can disable the SSH-parent watchdog without weakening the normal direct-harness safety path
+  - `scripts/run_studio_harness_remote.sh`
+    - remote harness runs are now launched through a detached wrapper-owned runner instead of a long-lived foreground SSH parent
+    - the wrapper now polls:
+      - `.arnis-remote-harness.stdout.log`
+      - `.arnis-remote-harness.exit`
+      - `.arnis-remote-harness.pgid`
+    - proof detection and artifact sync now read from the synced remote stdout log instead of depending on a live SSH stream
+  - `roblox/src/ServerScriptService/ImportService/Builders/BuildingBuilder.lua`
+    - guarded `Model.LevelOfDetail` writes behind a capability-safe helper so play/runtime import no longer trips plugin-only property writes
+  - tests updated:
+    - `scripts/tests/test_run_studio_harness.py`
+    - `scripts/tests/test_run_studio_harness_remote.py`
+    - `scripts/tests/test_austin_runtime_contract.py`
+- Root-cause sequence from the failing wrapper repro:
+  - first failure mode:
+    - the remote wrapper still tied harness lifetime to the SSH parent, so transport loss caused `harness parent disappeared; terminating to keep the machine clean`
+  - second failure mode after transport hardening:
+    - live runtime import hit:
+      - `ServerScriptService.ImportService.Builders.BuildingBuilder:3156`
+      - `The current thread cannot write 'LevelOfDetail' (lacking capability Plugin)`
+- Fresh wrapper proof after both fixes:
+  - local command:
+    - `ARNIS_REMOTE_STUDIO_ARTIFACT_DIR=/tmp/arnis-remote-studio-wrapper-green4 ARNIS_TELEMETRY_FAMILIES=terrain,roads,structures,player_local bash scripts/run_studio_harness_remote.sh --remote-host 100.65.24.39 -- --takeover --hard-restart --skip-edit-tests --play-wait 35 --pattern-wait 180 --screenshot /tmp/arnis-studio-harness.png --route-catalog PlanetaryRouteBundle.route-catalog --route-lane active --route-step-index 0`
+  - wrapper result:
+    - exited `0`
+    - bounded completion tail fired intentionally:
+      - `bounded remote cleanup tail exceeded 20s after proof completion; stopping wrapper wait`
+  - synced local artifacts:
+    - `/tmp/arnis-remote-studio-wrapper-green4/0.715.1.7151119_20260406T183944Z_Studio_9e719_last.log`
+    - `/tmp/arnis-remote-studio-wrapper-green4/arnis-studio-harness-play.png`
+    - `/tmp/arnis-remote-studio-wrapper-green4/arnis-studio-harness-play.capture.json`
+    - `/tmp/arnis-remote-studio-wrapper-green4/arnis-scene-fidelity-play.json`
+    - `/tmp/arnis-remote-studio-wrapper-green4/arnis-scene-fidelity-play.html`
+  - proof facts:
+    - screenshot sidecar:
+      - `success=true`
+      - `capture_method="gui_terminal_display"`
+      - `blocker_reason=null`
+      - `guiSessionRelay.method="terminal.command"`
+    - play fidelity report:
+      - `manifestSourceKind="route_catalog"`
+      - `findings=[]`
+- Practical meaning:
+  - the standard remote wrapper path is now green on the same route-catalog visual proof lane that was previously only solid from direct harness execution
+  - the remaining localhost `44755` connection-refused chatter is now correctly non-blocking background MCP-plugin noise for play-focused runs, not a proof blocker

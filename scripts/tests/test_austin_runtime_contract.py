@@ -739,6 +739,12 @@ class AustinRuntimeContractTests(unittest.TestCase):
         self.assertIn('if type(building.name) == "string" and building.name ~= "" then', self.building_builder_text)
         self.assertIn('model:SetAttribute("ArnisImportBuildingName", building.name)', self.building_builder_text)
 
+    def test_building_builder_guards_lod_assignment_outside_plugin_capability(self) -> None:
+        self.assertIn("local function trySetModelLevelOfDetail(model, levelOfDetail)", self.building_builder_text)
+        self.assertIn("pcall(function()", self.building_builder_text)
+        self.assertIn("trySetModelLevelOfDetail(model, Enum.ModelLevelOfDetail.Automatic)", self.building_builder_text)
+        self.assertNotIn("model.LevelOfDetail = Enum.ModelLevelOfDetail.Automatic", self.building_builder_text)
+
     def test_building_builder_roof_material_hash_diversification(self) -> None:
         """Roof material is selected via hash diversification, not inherited from wall."""
         self.assertIn("ROOF_MATERIAL_PALETTE", self.building_builder_text)

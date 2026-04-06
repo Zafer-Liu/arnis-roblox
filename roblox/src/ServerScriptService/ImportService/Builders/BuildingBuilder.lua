@@ -12,6 +12,12 @@ local function markShellWallEvidence(part)
     part:SetAttribute("ArnisShellWallEvidence", true)
 end
 
+local function trySetModelLevelOfDetail(model, levelOfDetail)
+    pcall(function()
+        model.LevelOfDetail = levelOfDetail
+    end)
+end
+
 BuildingBuilder._fillTerrainBlock = function(cf, size, material)
     Workspace.Terrain:FillBlock(cf, size, material)
 end
@@ -2822,7 +2828,7 @@ function BuildingBuilder.FallbackBuild(parent, building, originStuds, chunk, win
 
     local model = Instance.new("Model")
     model.Name = bldgName
-    model.LevelOfDetail = Enum.ModelLevelOfDetail.Automatic
+    trySetModelLevelOfDetail(model, Enum.ModelLevelOfDetail.Automatic)
     model.Parent = parent
     setBuildingAuditAttributes(model, building, baseY, height)
     local shellFolder = Instance.new("Folder")
@@ -3153,7 +3159,7 @@ function BuildingBuilder.MeshBuildAll(parent, buildings, originStuds, chunk, con
         -- Per-building model for metadata, detail children, and RoomBuilder
         local model = Instance.new("Model")
         model.Name = bldgName
-        model.LevelOfDetail = Enum.ModelLevelOfDetail.Automatic
+        trySetModelLevelOfDetail(model, Enum.ModelLevelOfDetail.Automatic)
         model.Parent = parent
         setBuildingAuditAttributes(model, building, baseY, height)
         local shellFolder = Instance.new("Folder")
