@@ -1,8 +1,13 @@
+local AssetService = game:GetService("AssetService")
 local Workspace = game:GetService("Workspace")
 
 local TerrainBuilder = {}
 local BUILD_PLAN_CACHE_KEY = "__terrainBuildPlan"
 local TERRAIN_WRITE_RESOLUTION = 4
+
+-- Budget tracker for satellite overlay EditableImages.
+-- 512x512 RGBA = 1MB each; 10 chunks = ~10MB well within 32MB limit.
+local satelliteOverlayBudget = { used = 0, max = 10 }
 
 -- Satellite-derived material palette: material names the Rust pipeline may emit
 -- via ESRI satellite classification into terrainGrid.materials[].
@@ -698,6 +703,12 @@ function TerrainBuilder.Build(_parent, chunk, preparedPlan)
 
     TerrainBuilder.Clear(chunk, plan)
 
+    -- After voxel terrain is built, attempt satellite texture overlay if data exists
+    local textureData = chunk.terrainTextureData
+    if textureData and _parent then
+        TerrainBuilder.BuildSatelliteOverlay(_parent, chunk, plan, textureData)
+    end
+
     local terrain = Workspace.Terrain
     local cellSize = plan.cellSize
     local origin = plan.origin
@@ -950,6 +961,175 @@ function TerrainBuilder.ImprintRoads(roads, originStuds, _chunk)
     if activeSegment then
         emitImprint(activeSegment)
     end
+end
+
+-- ═══════════════════════════════════════════════════════════════════════════════
+-- Satellite texture overlay: visual-only EditableMesh heightfield with
+-- SurfaceAppearance derived from per-chunk satellite imagery.
+-- ═══════════════════════════════════════════════════════════════════════════════
+
+TerrainBuilder._satelliteOverlayBudget = satelliteOverlayBudget
+
+--[[
+    BuildSatelliteOverlay(parent, chunk, plan, textureData)
+
+    Creates an EditableMesh heightfield grid positioned just above the voxel
+    terrain, with a SurfaceAppearance whose ColorMap is an EditableImage built
+    from the supplied raw RGBA pixel buffer.
+
+    Parameters:
+        parent       — Instance to parent the overlay MeshPart into
+        chunk        — The chunk table (must have .terrain with heights)
+        plan         — Prepared terrain build plan from PrepareChunk
+        textureData  — Raw RGBA pixel buffer (512*512*4 bytes) or nil to skip
+
+    Returns true on success, false/nil on skip or failure.
+]]
+function TerrainBuilder.BuildSatelliteOverlay(parent, chunk, plan, textureData)
+    -- Gate: config knob
+    if WorldConfig.EnableTerrainSatelliteOverlay == false then
+        return false
+    end
+
+    -- Gate: need actual texture data
+    if not textureData then
+        return false
+    end
+
+    -- Gate: need a valid plan with height data
+    if not plan or not plan.heights or not plan.gridW or not plan.gridD then
+        return false
+    end
+
+    -- Gate: budget
+    if satelliteOverlayBudget.used >= satelliteOverlayBudget.max then
+        warn("[TerrainBuilder] Satellite overlay budget exhausted ("
+            .. tostring(satelliteOverlayBudget.used) .. "/" .. tostring(satelliteOverlayBudget.max) .. ")")
+        return false
+    end
+
+    local ok, err = pcall(function()
+        local gridW = plan.gridW
+        local gridD = plan.gridD
+        local cellSize = plan.cellSize
+        local origin = plan.origin
+        local heights = plan.heights
+        local sampleInterpolatedHeight = plan.sampleInterpolatedHeight
+
+        -- Overlay mesh resolution: clamp to at most 64x64 for draw-call sanity.
+        local meshResW = math.min(gridW, 64)
+        local meshResD = math.min(gridD, 64)
+
+        -- Create the EditableMesh
+        local editMesh = AssetService:CreateEditableMesh()
+
+        -- Build vertex grid: (meshResW+1) x (meshResD+1) vertices
+        local vertexIds = table.create((meshResW + 1) * (meshResD + 1))
+        local stepX = (gridW * cellSize) / meshResW
+        local stepZ = (gridD * cellSize) / meshResD
+
+        for iz = 0, meshResD do
+            for ix = 0, meshResW do
+                local worldX = origin.x + ix * stepX
+                local worldZ = origin.z + iz * stepZ
+
+                -- Sample terrain height at this position
+                local fracX = ix / meshResW * (gridW - 1)
+                local fracZ = iz / meshResD * (gridD - 1)
+                local surfaceY = 0
+                if sampleInterpolatedHeight then
+                    surfaceY = sampleInterpolatedHeight(plan, fracX, fracZ) or 0
+                else
+                    -- Fallback: nearest-neighbor from heights array
+                    local cx = math.floor(fracX + 0.5)
+                    local cz = math.floor(fracZ + 0.5)
+                    cx = math.clamp(cx, 0, gridW - 1)
+                    cz = math.clamp(cz, 0, gridD - 1)
+                    surfaceY = heights[cz * gridW + cx + 1] or 0
+                end
+
+                local worldY = origin.y + surfaceY + 0.05 -- just above voxel surface
+
+                local vertId = editMesh:AddVertex(Vector3.new(worldX, worldY, worldZ))
+                editMesh:SetVertexNormal(vertId, Vector3.new(0, 1, 0))
+
+                -- UV: 0..1 linearly across the chunk (NW = 0,0; SE = 1,1)
+                local u = ix / meshResW
+                local v = iz / meshResD
+                editMesh:SetUV(vertId, Vector2.new(u, v))
+
+                vertexIds[iz * (meshResW + 1) + ix + 1] = vertId
+            end
+        end
+
+        -- Build triangle faces from the vertex grid
+        for iz = 0, meshResD - 1 do
+            for ix = 0, meshResW - 1 do
+                local topLeft = vertexIds[iz * (meshResW + 1) + ix + 1]
+                local topRight = vertexIds[iz * (meshResW + 1) + (ix + 1) + 1]
+                local bottomLeft = vertexIds[(iz + 1) * (meshResW + 1) + ix + 1]
+                local bottomRight = vertexIds[(iz + 1) * (meshResW + 1) + (ix + 1) + 1]
+
+                -- Two triangles per quad (CCW winding for upward-facing normals)
+                editMesh:AddTriangle(topLeft, bottomLeft, topRight)
+                editMesh:AddTriangle(topRight, bottomLeft, bottomRight)
+            end
+        end
+
+        -- Create MeshPart from the EditableMesh
+        local meshContent = Content.fromEditableMesh(editMesh)
+        local meshPart = Instance.new("MeshPart")
+        meshPart.Name = "SatelliteOverlay"
+        meshPart.Anchored = true
+        meshPart.CanCollide = false
+        meshPart.CanQuery = false
+        meshPart.CanTouch = false
+        meshPart.CastShadow = false
+        meshPart.MeshContent = meshContent
+
+        -- Position at chunk center
+        local centerX = origin.x + (gridW * cellSize) * 0.5
+        local centerZ = origin.z + (gridD * cellSize) * 0.5
+        local centerY = origin.y + (plan.rMaxY - plan.rMinY) * 0.5
+        meshPart.CFrame = CFrame.new(centerX, centerY, centerZ)
+
+        -- Create EditableImage and write the satellite texture
+        local TEXTURE_SIZE = 512
+        local editImage = AssetService:CreateEditableImage({
+            Size = Vector2.new(TEXTURE_SIZE, TEXTURE_SIZE),
+        })
+        editImage:WritePixelsBuffer(
+            Vector2.new(0, 0),
+            Vector2.new(TEXTURE_SIZE, TEXTURE_SIZE),
+            textureData
+        )
+
+        -- Create SurfaceAppearance with the texture as ColorMap
+        local surfaceAppearance = Instance.new("SurfaceAppearance")
+        surfaceAppearance.Name = "SatelliteTexture"
+        surfaceAppearance.ColorMap = Content.fromEditableImage(editImage)
+        surfaceAppearance.Parent = meshPart
+
+        meshPart.Parent = parent
+
+        satelliteOverlayBudget.used += 1
+    end)
+
+    if not ok then
+        warn("[TerrainBuilder] Satellite overlay failed: " .. tostring(err))
+        return false
+    end
+
+    return true
+end
+
+--[[
+    ResetSatelliteOverlayBudget()
+
+    Resets the budget counter. Useful when unloading chunks frees overlay slots.
+]]
+function TerrainBuilder.ResetSatelliteOverlayBudget()
+    satelliteOverlayBudget.used = 0
 end
 
 return TerrainBuilder

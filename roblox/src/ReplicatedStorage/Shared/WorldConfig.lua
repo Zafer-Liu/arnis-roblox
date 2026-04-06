@@ -32,6 +32,7 @@ local WorldConfig = {
     TerrainThickness = 8, -- studs below surface to fill with solid terrain
     SlopeRockThreshold = 1.0, -- rise/run ratio above which terrain becomes Rock (≈45°)
     SlopeGroundThreshold = 0.47, -- rise/run ratio above which terrain becomes Ground (≈25°)
+    EnableTerrainSatelliteOverlay = true, -- overlay EditableMesh with satellite texture when available
 
     -- ═══════════════════════════════════════════════════════════════
     -- BUILDING FIDELITY

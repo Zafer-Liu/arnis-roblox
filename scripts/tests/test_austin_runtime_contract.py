@@ -1182,6 +1182,40 @@ class AustinRuntimeContractTests(unittest.TestCase):
         self.assertIn("MergeWindowsIntoMesh = true", src,
                        "MergeWindowsIntoMesh should default to true")
 
+    def test_world_config_exposes_satellite_overlay_knob(self) -> None:
+        """WorldConfig must expose EnableTerrainSatelliteOverlay for satellite texture toggle."""
+        src = self.world_config_text
+        self.assertIn("EnableTerrainSatelliteOverlay", src,
+                       "WorldConfig must have EnableTerrainSatelliteOverlay knob")
+        self.assertIn("EnableTerrainSatelliteOverlay = true", src,
+                       "EnableTerrainSatelliteOverlay should default to true")
+
+    def test_terrain_builder_supports_satellite_overlay(self) -> None:
+        """TerrainBuilder must expose BuildSatelliteOverlay and check WorldConfig."""
+        src = self.terrain_builder_text
+        self.assertIn("function TerrainBuilder.BuildSatelliteOverlay", src,
+                       "TerrainBuilder must have BuildSatelliteOverlay function")
+        self.assertIn("WorldConfig.EnableTerrainSatelliteOverlay", src,
+                       "BuildSatelliteOverlay must check WorldConfig knob")
+        self.assertIn("satelliteOverlayBudget", src,
+                       "BuildSatelliteOverlay must enforce budget tracking")
+        self.assertIn("pcall", src,
+                       "Overlay API calls must be pcall-wrapped")
+        # Budget constants
+        self.assertIn("max = 10", src,
+                       "Budget max should be 10 chunks")
+        # The overlay must be wired into Build
+        self.assertIn("BuildSatelliteOverlay", src)
+        # Must create EditableMesh and SurfaceAppearance
+        self.assertIn("CreateEditableMesh", src,
+                       "Must use EditableMesh for heightfield overlay")
+        self.assertIn("SurfaceAppearance", src,
+                       "Must use SurfaceAppearance for satellite texture")
+        self.assertIn("CreateEditableImage", src,
+                       "Must use EditableImage for texture data")
+        self.assertIn("WritePixelsBuffer", src,
+                       "Must use WritePixelsBuffer to fill texture")
+
 
 if __name__ == "__main__":
     unittest.main()
