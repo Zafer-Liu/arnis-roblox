@@ -35,7 +35,28 @@ The active implementation plan is:
 
 ### Remote `tertiary`
 
-(To be populated as tasks complete)
+- `cargo test --manifest-path rust/Cargo.toml --workspace`
+  - passed on 2026-04-06 (235 tests on tertiary)
+- Austin compile with enriched pipeline:
+  - `cargo run -p arbx_cli --release -- compile --source data/austin_overpass.json --bbox 30.245,-97.765,30.305,-97.715 --profile high --out out/austin-manifest.json`
+  - compiled in 3.5s, 25,322 buildings, 46,374 roads
+- Austin compile with satellite tiles:
+  - `--satellite-tiles data/esri-tiles` at zoom 17
+  - 7,400 chunks textured, 16MB ESRI tiles cached, compiled in 5.5 minutes
+- Amsterdam live compile:
+  - `--live --bbox 52.370,4.890,52.375,4.895 --world-name Amsterdam`
+  - compiled in 8.2s from Overpass, 514 buildings, 619 roads, 160 rails
+- `audit-signal` on real Austin manifest:
+  - buildings: 45.1% signal rate (25,322 features)
+  - roads: 42.9% signal rate (46,374 features)
+  - water: 62.9% signal rate (1,462 features)
+  - specialized fields (facadeStyle, roofDirection, etc.) 0% — tags don't exist in Austin OSM
+- Studio play proof on tertiary:
+  - `bootstrapState: "gameplay_ready"` — world loaded and running
+  - Roof material diversity confirmed: concrete(16), brick(4), limestone(2), metal(2)
+  - 38 readable facade cue parts, 21 wall parts, 6 nearby buildings
+  - Route catalog streaming active
+  - Screenshot captured Terminal window (not Studio viewport) — known display-capture limitation
 
 ## Residual Gaps
 
