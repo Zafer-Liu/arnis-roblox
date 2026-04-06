@@ -289,7 +289,53 @@ local function getFloorMaterial(building)
     return USAGE_FLOOR_MATERIAL[usage] or USAGE_FLOOR_MATERIAL.default
 end
 
-local function getFacadeBandSpacing(usage)
+-- Window tint variation by building usage class. Adds visual diversity to
+-- glass panes so that office towers, residential buildings, and warehouses
+-- each have a distinct appearance from street and aerial views.
+local function getUsageClass(usage)
+    if usage == "office" or usage == "commercial" or usage == "bank"
+        or usage == "retail" or usage == "mall" or usage == "hotel" then
+        return "office"
+    elseif usage == "residential" or usage == "apartments" or usage == "house"
+        or usage == "detached" or usage == "terrace" or usage == "dormitory" then
+        return "residential"
+    elseif usage == "warehouse" or usage == "industrial" or usage == "factory"
+        or usage == "garage" then
+        return "industrial"
+    end
+    return "office" -- default to office tint for civic/religious/other
+end
+
+local WINDOW_TINT_BY_USAGE_CLASS = {
+    office = { color = Color3.fromRGB(140, 160, 180), transparency = 0.3 },
+    residential = { color = Color3.fromRGB(180, 170, 150), transparency = 0.35 },
+    industrial = { color = Color3.fromRGB(60, 60, 70), transparency = 0.1 },
+}
+
+-- Dark/empty window tint for ~20% of panes (night/vacancy effect)
+local DARK_WINDOW_TINT = { color = Color3.fromRGB(30, 30, 35), transparency = 0.05 }
+
+local function getWindowTint(usage, buildingId, paneIndex)
+    -- ~20% of panes are dark/empty based on hash of building ID + pane index
+    local darkHash = hashId(buildingId .. "_pane_" .. tostring(paneIndex or 0))
+    if darkHash % 5 == 0 then
+        return DARK_WINDOW_TINT
+    end
+    local usageClass = getUsageClass(usage or "default")
+    return WINDOW_TINT_BY_USAGE_CLASS[usageClass] or WINDOW_TINT_BY_USAGE_CLASS.office
+end
+
+local function getFacadeBandSpacing(usage, facadeStyle)
+    -- facadeStyle overrides default spacing when present
+    if facadeStyle == "curtain_wall" then
+        return 3
+    elseif facadeStyle == "punched_window" then
+        return 5
+    elseif facadeStyle == "strip_window" then
+        return 4
+    elseif facadeStyle == "sparse" then
+        return 10
+    end
     if usage == "office" then
         return 4
     elseif usage == "residential" or usage == "apartments" or usage == "house" then
@@ -453,6 +499,12 @@ local function getRoofColor(building, wallColor)
     if building.roofColor and building.roofColor.r then
         return Color3.fromRGB(building.roofColor.r, building.roofColor.g, building.roofColor.b)
     end
+    -- Use palette color matching the hash-diversified roof material when available
+    local roofMat = getRoofMaterial(building, nil)
+    local paletteColor = ROOF_MATERIAL_PALETTE_COLORS[roofMat]
+    if paletteColor then
+        return paletteColor
+    end
     -- Fallback: darken wall color by 20%
     if wallColor then
         return Color3.new(wallColor.R * 0.8, wallColor.G * 0.8, wallColor.B * 0.8)
@@ -492,6 +544,23 @@ local DEFAULT_ROOF_MATERIAL_BY_USAGE = {
     warehouse = Enum.Material.Metal,
 }
 
+-- Hash-diversified roof material palette: prevents monochrome skylines by
+-- selecting roof material from a diverse palette when no explicit roofMaterial
+-- is present. Each entry has a corresponding color for visual coherence.
+local ROOF_MATERIAL_PALETTE = {
+    Enum.Material.Slate,
+    Enum.Material.Metal,
+    Enum.Material.Asphalt,
+    Enum.Material.Brick,
+}
+
+local ROOF_MATERIAL_PALETTE_COLORS = {
+    [Enum.Material.Slate] = Color3.fromRGB(110, 120, 135),    -- grey-blue slate
+    [Enum.Material.Metal] = Color3.fromRGB(170, 172, 175),    -- silver metal
+    [Enum.Material.Asphalt] = Color3.fromRGB(80, 80, 85),     -- dark grey asphalt
+    [Enum.Material.Brick] = Color3.fromRGB(165, 95, 65),      -- terracotta tile/brick
+}
+
 local function getDefaultRoofMaterial(building)
     local usage = string.lower(tostring(building.usage or building.kind or "default"))
     return DEFAULT_ROOF_MATERIAL_BY_USAGE[usage] or DEFAULT_ROOF_MATERIAL_BY_USAGE.default
@@ -501,10 +570,10 @@ local function getRoofMaterial(building, wallMat)
     if building.roofMaterial then
         return ROOF_MATERIAL_LOOKUP[building.roofMaterial] or Enum.Material.Concrete
     end
-    if wallMat == Enum.Material.Glass then
-        return getDefaultRoofMaterial(building)
-    end
-    return wallMat or getDefaultRoofMaterial(building)
+    -- Hash-diversified fallback: select from ROOF_MATERIAL_PALETTE using building ID
+    local id = building.id or tostring(building)
+    local paletteIndex = (hashId(id) % #ROOF_MATERIAL_PALETTE) + 1
+    return ROOF_MATERIAL_PALETTE[paletteIndex]
 end
 
 local GLAZED_FACADE_USAGES = {
@@ -1715,6 +1784,31 @@ local function buildRoof(building, footprint, bounds, baseY, height, color, mat,
 
     -- Default / flat → flat slab
     buildFlatRoofFromFootprint(bldgName, footprint, bounds.holeWorldLoops, baseY + height, color, mat, parent, rc, rm)
+
+    -- roofLevels > 1: add a stepped center section for multi-level roof complexity
+    local roofLevels = tonumber(building.roofLevels) or 1
+    if roofLevels > 1 and rectangularFootprint then
+        local stepHeight = 1.2
+        local insetFraction = 0.2
+        for level = 2, math.min(roofLevels, 4) do
+            local inset = insetFraction * (level - 1)
+            local stepW = footprintW * (1 - inset * 2)
+            local stepL = footprintL * (1 - inset * 2)
+            if stepW < 2 or stepL < 2 then
+                break
+            end
+            local stepY = baseY + height + ROOF_THICKNESS + stepHeight * (level - 1)
+            local stepPart = Instance.new("Part")
+            stepPart.Name = string.format("%s_roof_step_%d", bldgName, level)
+            stepPart.Anchored = true
+            stepPart.CastShadow = false
+            stepPart.Material = rm
+            stepPart.Color = rc
+            stepPart.Size = Vector3.new(stepW, ROOF_THICKNESS, stepL)
+            stepPart.CFrame = CFrame.new(centerX, stepY + ROOF_THICKNESS * 0.5, centerZ)
+            stepPart.Parent = parent
+        end
+    end
 end
 
 local function isRoofOnlyStructure(building)
@@ -2405,7 +2499,7 @@ collectSimpleShellReadableEdges = function(worldPts)
     return edges
 end
 
-local function buildSimpleShellOpenings(parent, worldPts, baseY, height, windowBudget)
+local function buildSimpleShellOpenings(parent, worldPts, baseY, height, windowBudget, usage, buildingId)
     local edges = collectSimpleShellReadableEdges(worldPts)
     if #edges == 0 then
         return 0, 0
@@ -2459,16 +2553,17 @@ local function buildSimpleShellOpenings(parent, worldPts, baseY, height, windowB
 
             local paneCenter = edge.mid + edge.dir * offset
             local outward = Vector3.new(-edge.dir.Z, 0, edge.dir.X) * 0.13
+            local shellTint = getWindowTint(usage, buildingId or "", windowPaneCount)
             local pane = Instance.new("Part")
             pane.Name = "SimpleShellWindowPane"
             pane.Size = Vector3.new(math.min(2.1, math.max(1.4, edge.len * 0.08)), 1.65, 0.12)
             pane.Material = Enum.Material.Glass
-            pane.Color = Color3.fromRGB(58, 74, 96)
+            pane.Color = shellTint.color
             pane.Anchored = true
             pane.CanCollide = false
             pane.CastShadow = false
-            pane.Transparency = 0.35
-            pane:SetAttribute("BaseTransparency", 0.35)
+            pane.Transparency = shellTint.transparency
+            pane:SetAttribute("BaseTransparency", shellTint.transparency)
             pane.CFrame = CFrame.lookAt(
                 paneCenter + outward + Vector3.new(0, baseY + 2.9, 0),
                 paneCenter + outward + Vector3.new(0, baseY + 2.9, 0) + edge.dir
@@ -2755,15 +2850,16 @@ function BuildingBuilder.FallbackBuild(parent, building, originStuds, chunk, win
     local usage = building.usage or building.kind or "default"
     local WIN_SPACING = (WorldConfig.WindowSpacing and WorldConfig.WindowSpacing[usage])
         or (WorldConfig.WindowSpacing and WorldConfig.WindowSpacing.default)
-        or getFacadeBandSpacing(usage)
+        or getFacadeBandSpacing(usage, building.facadeStyle)
     local FACADE_INSET = getFacadeInset(usage)
-    local WIN_COLOR = Color3.fromRGB(40, 50, 70) -- dark blue-grey glass tint
+    local buildingId = building.id or bldgName
     local FLOOR_H = 5
     local BAND_H = 2.5
     local numFloors = math.floor(height / FLOOR_H)
     local maxWindows = windowBudget and windowBudget.max
         or (WorldConfig.InstanceBudget and WorldConfig.InstanceBudget.MaxWindowsPerChunk)
         or 10000
+    local facadePaneIndex = 0
     if
         not preferSimpleShellDetail
         and renderGlassFacadeBands
@@ -2802,6 +2898,8 @@ function BuildingBuilder.FallbackBuild(parent, building, originStuds, chunk, win
                         end
                         windowBudget.used += 1
                     end
+                    facadePaneIndex += 1
+                    local tint = getWindowTint(usage, buildingId, facadePaneIndex)
                     local band = Instance.new("Part")
                     band.Name = bldgName .. "_facade_" .. i .. "_" .. floor
                     band.Anchored = true
@@ -2811,10 +2909,10 @@ function BuildingBuilder.FallbackBuild(parent, building, originStuds, chunk, win
                         Vector3.new((p1w.X + p2w.X) * 0.5 + edgeUnitX, bandY, (p1w.Z + p2w.Z) * 0.5 + edgeUnitZ)
                     )
                     band.Material = Enum.Material.Glass
-                    band.Color = WIN_COLOR
+                    band.Color = tint.color
                     band.CastShadow = false
-                    band.Transparency = 0.35
-                    band:SetAttribute("BaseTransparency", 0.35)
+                    band.Transparency = tint.transparency
+                    band:SetAttribute("BaseTransparency", tint.transparency)
                     band:SetAttribute("ArnisFacadePaneCount", numPanes)
                     band.Parent = detailFolder
 
@@ -2845,7 +2943,7 @@ function BuildingBuilder.FallbackBuild(parent, building, originStuds, chunk, win
         )
         detailFolder:SetAttribute("ArnisCornerAccentCount", buildCornerAccents(detailFolder, worldPts, baseY, height))
         local doorCueCount, windowPaneCount =
-            buildSimpleShellOpenings(detailFolder, worldPts, baseY, height, windowBudget)
+            buildSimpleShellOpenings(detailFolder, worldPts, baseY, height, windowBudget, usage, buildingId)
         detailFolder:SetAttribute("ArnisSimpleShellDoorCueCount", doorCueCount)
         detailFolder:SetAttribute("ArnisSimpleShellWindowPaneCount", windowPaneCount)
     end
@@ -3196,14 +3294,15 @@ function BuildingBuilder.MeshBuildAll(parent, buildings, originStuds, chunk, con
             local usage = building.usage or building.kind or "default"
             local WIN_SPACING = (config.WindowSpacing and config.WindowSpacing[usage])
                 or (config.WindowSpacing and config.WindowSpacing.default)
-                or getFacadeBandSpacing(usage)
+                or getFacadeBandSpacing(usage, building.facadeStyle)
             local FACADE_INSET = getFacadeInset(usage)
-            local WIN_COLOR = Color3.fromRGB(40, 50, 70)
+            local buildingId = building.id or bldgName
             local FLOOR_H = 5
             local BAND_H = 2.5
             local n = #worldPts
             local numFloors = math.floor(height / FLOOR_H)
             local maxWindows = windowBudget.max
+            local facadePaneIndex = 0
             if
                 not preferSimpleShellDetail
                 and renderGlassFacadeBands
@@ -3241,6 +3340,8 @@ function BuildingBuilder.MeshBuildAll(parent, buildings, originStuds, chunk, con
                                 break
                             end
                             windowBudget.used += 1
+                            facadePaneIndex += 1
+                            local tint = getWindowTint(usage, buildingId, facadePaneIndex)
                             local band = Instance.new("Part")
                             band.Name = bldgName .. "_facade_" .. i .. "_" .. floor
                             band.Anchored = true
@@ -3250,10 +3351,10 @@ function BuildingBuilder.MeshBuildAll(parent, buildings, originStuds, chunk, con
                                 Vector3.new((p1w.X + p2w.X) * 0.5 + edgeUnitX, bandY, (p1w.Z + p2w.Z) * 0.5 + edgeUnitZ)
                             )
                             band.Material = Enum.Material.Glass
-                            band.Color = WIN_COLOR
+                            band.Color = tint.color
                             band.CastShadow = false
-                            band.Transparency = 0.35
-                            band:SetAttribute("BaseTransparency", 0.35)
+                            band.Transparency = tint.transparency
+                            band:SetAttribute("BaseTransparency", tint.transparency)
                             band:SetAttribute("ArnisFacadePaneCount", numPanes)
                             band.Parent = detailFolder
 
@@ -3311,7 +3412,7 @@ function BuildingBuilder.MeshBuildAll(parent, buildings, originStuds, chunk, con
                         addCornerAccentsToAccumulator(detailAcc, worldPts, baseY, height)
                     )
                     local doorCueCount, windowPaneCount =
-                        buildSimpleShellOpenings(detailFolder, worldPts, baseY, height, windowBudget)
+                        buildSimpleShellOpenings(detailFolder, worldPts, baseY, height, windowBudget, usage, buildingId)
                     detailFolder:SetAttribute("ArnisSimpleShellDoorCueCount", doorCueCount)
                     detailFolder:SetAttribute("ArnisSimpleShellWindowPaneCount", windowPaneCount)
                 elseif

@@ -731,6 +731,38 @@ class AustinRuntimeContractTests(unittest.TestCase):
         self.assertIn('if type(building.name) == "string" and building.name ~= "" then', self.building_builder_text)
         self.assertIn('model:SetAttribute("ArnisImportBuildingName", building.name)', self.building_builder_text)
 
+    def test_building_builder_roof_material_hash_diversification(self) -> None:
+        """Roof material is selected via hash diversification, not inherited from wall."""
+        self.assertIn("ROOF_MATERIAL_PALETTE", self.building_builder_text)
+        self.assertIn("Enum.Material.Slate", self.building_builder_text)
+        self.assertIn("Enum.Material.Asphalt", self.building_builder_text)
+        # The palette should be used in getRoofMaterial via hash
+        self.assertIn("hashId(", self.building_builder_text)
+        # getRoofMaterial should use the palette as a fallback instead of wallMat
+        self.assertIn("ROOF_MATERIAL_PALETTE", self.building_builder_text)
+        self.assertIn("ROOF_MATERIAL_PALETTE_COLORS", self.building_builder_text)
+
+    def test_building_builder_window_tint_varies_by_usage(self) -> None:
+        """Window glass color varies by building usage (office vs residential vs warehouse)."""
+        self.assertIn("WINDOW_TINT_BY_USAGE_CLASS", self.building_builder_text)
+        self.assertIn("local function getUsageClass(usage)", self.building_builder_text)
+        # Verify the tint table has at least office, residential, and industrial entries
+        self.assertIn('"office"', self.building_builder_text)
+        self.assertIn('"residential"', self.building_builder_text)
+        self.assertIn('"industrial"', self.building_builder_text)
+        # Verify the tint is applied in window generation
+        self.assertIn("getWindowTint(", self.building_builder_text)
+
+    def test_building_builder_reads_facade_style_field(self) -> None:
+        """BuildingBuilder reads facadeStyle field when available."""
+        self.assertIn("building.facadeStyle", self.building_builder_text)
+        self.assertIn("facadeStyle", self.building_builder_text)
+
+    def test_building_builder_reads_roof_levels_field(self) -> None:
+        """BuildingBuilder reads roofLevels field when available."""
+        self.assertIn("building.roofLevels", self.building_builder_text)
+        self.assertIn("roofLevels", self.building_builder_text)
+
     def test_scene_audit_tracks_visible_detail_and_facade_truth_separately_from_total_parts(self) -> None:
         self.assertIn('instance.Name == "MergedShellWindowPaneCue"', self.scene_audit_text)
         self.assertIn("buildingVisibleDetailPartCount", self.scene_audit_text)
