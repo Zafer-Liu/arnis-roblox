@@ -33,6 +33,7 @@ fn build_test_manifest() -> ChunkManifest {
             lit: Some(true),
             oneway: Some(false),
             layer: Some(0),
+            sidewalk_surface: None,
         }),
         Feature::Building(BuildingFeature {
             id: "building_main".to_string(),
@@ -57,6 +58,8 @@ fn build_test_manifest() -> ChunkManifest {
             roof_colour: Some("#223344".to_string()),
             roof_material: Some("Slate".to_string()),
             roof_height: Some(2.0),
+            roof_direction: None,
+            roof_angle: None,
             name: Some("Tower One".to_string()),
         }),
         Feature::Water(WaterFeature::Polygon(WaterPolygonFeature {
@@ -138,6 +141,7 @@ fn build_test_manifest_with_rails_and_barriers() -> ChunkManifest {
             lit: None,
             oneway: None,
             layer: None,
+            sidewalk_surface: None,
         }),
         Feature::Rail(RailFeature {
             id: "rail_main".to_string(),
@@ -209,6 +213,8 @@ fn build_heavy_building_manifest() -> ChunkManifest {
                 roof_colour: None,
                 roof_material: None,
                 roof_height: None,
+                roof_direction: None,
+                roof_angle: None,
                 name: Some(format!("Hot Building {index}")),
             }),
             &style,

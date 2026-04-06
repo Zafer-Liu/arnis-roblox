@@ -115,6 +115,7 @@ pub fn build_sample_multi_chunk(count_x: i32, count_z: i32) -> ChunkManifest {
                     lit: None,
                     oneway: None,
                     layer: None,
+                    sidewalk_surface: None,
                 });
                 chunk.buildings.push(BuildingShell {
                     id: "bldg_1".to_string(),
@@ -142,6 +143,8 @@ pub fn build_sample_multi_chunk(count_x: i32, count_z: i32) -> ChunkManifest {
                     facade_style: None,
                     rooms: Vec::new(),
                     roof_height: None,
+                    roof_direction: None,
+                    roof_angle: None,
                     name: None,
                 });
             }
@@ -346,6 +349,7 @@ mod tests {
                     lit: None,
                     oneway: None,
                     layer: None,
+                    sidewalk_surface: None,
                 }],
                 rails: vec![],
                 buildings: vec![BuildingShell {
@@ -374,6 +378,8 @@ mod tests {
                     facade_style: None,
                     rooms: Vec::new(),
                     roof_height: None,
+                    roof_direction: None,
+                    roof_angle: None,
                     name: None,
                 }],
                 water: vec![],
@@ -541,6 +547,8 @@ mod tests {
             roof_colour: None,
             roof_material: None,
             roof_height: None,
+            roof_direction: None,
+            roof_angle: None,
             name: None,
         })];
 
@@ -575,6 +583,8 @@ mod tests {
             roof_colour: None,
             roof_material: None,
             roof_height: None,
+            roof_direction: None,
+            roof_angle: None,
             name: Some("Regression Test Building".to_string()),
         })];
 
@@ -613,6 +623,8 @@ mod tests {
             roof_colour: None,
             roof_material: None,
             roof_height: None,
+            roof_direction: None,
+            roof_angle: None,
             name: None,
         })];
 
@@ -662,6 +674,8 @@ mod tests {
             roof_colour: None,
             roof_material: None,
             roof_height: Some(1.5),
+            roof_direction: None,
+            roof_angle: None,
             name: None,
         })];
 
@@ -713,6 +727,8 @@ mod tests {
             roof_colour: None,
             roof_material: None,
             roof_height: None,
+            roof_direction: None,
+            roof_angle: None,
             name: Some("Courtyard Test".to_string()),
         })];
 
@@ -756,6 +772,8 @@ mod tests {
             roof_colour: None,
             roof_material: None,
             roof_height: None,
+            roof_direction: None,
+            roof_angle: None,
             name: None,
         })];
 
@@ -827,6 +845,8 @@ mod tests {
             roof_colour: None,
             roof_material: None,
             roof_height: None,
+            roof_direction: None,
+            roof_angle: None,
             name: None,
         })];
 
@@ -865,6 +885,8 @@ mod tests {
             roof_colour: None,
             roof_material: None,
             roof_height: None,
+            roof_direction: None,
+            roof_angle: None,
             name: None,
         })];
 
@@ -900,6 +922,8 @@ mod tests {
             roof_colour: None,
             roof_material: None,
             roof_height: None,
+            roof_direction: None,
+            roof_angle: None,
             name: None,
         })];
 
@@ -935,6 +959,8 @@ mod tests {
             roof_colour: None,
             roof_material: None,
             roof_height: None,
+            roof_direction: None,
+            roof_angle: None,
             name: None,
         })];
 
@@ -1080,6 +1106,7 @@ mod tests {
             layer: None,
             elevated: None,
             tunnel: Some(false),
+            sidewalk_surface: None,
         })];
 
         let elevation = FlatElevationProvider { height: 0.0 };

@@ -58,6 +58,7 @@ pub struct RoadSegment {
     pub lit: Option<bool>,
     pub oneway: Option<bool>,
     pub layer: Option<i32>,
+    pub sidewalk_surface: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -93,6 +94,8 @@ pub struct BuildingShell {
     pub facade_style: Option<String>,
     pub rooms: Vec<Room>,
     pub roof_height: Option<f64>,
+    pub roof_direction: Option<f64>,
+    pub roof_angle: Option<f64>,
     pub name: Option<String>,
 }
 
@@ -598,6 +601,11 @@ impl RoadSegment {
             write_key(out, indent + 2, "layer");
             write!(out, "{}", layer).unwrap();
         }
+        if let Some(ref s) = self.sidewalk_surface {
+            out.push_str(",\n");
+            write_key(out, indent + 2, "sidewalkSurface");
+            write_string(out, s);
+        }
         out.push_str(",\n");
         write_key(out, indent + 2, "points");
         write_vec3_array(out, &self.points, indent + 2);
@@ -742,6 +750,18 @@ impl BuildingShell {
             out.push_str(",\n");
             write_key(out, indent + 2, "roofHeight");
             write_number(out, rh);
+        }
+
+        if let Some(rd) = self.roof_direction {
+            out.push_str(",\n");
+            write_key(out, indent + 2, "roofDirection");
+            write_number(out, rd);
+        }
+
+        if let Some(ra) = self.roof_angle {
+            out.push_str(",\n");
+            write_key(out, indent + 2, "roofAngle");
+            write_number(out, ra);
         }
 
         if let Some(ref n) = self.name {

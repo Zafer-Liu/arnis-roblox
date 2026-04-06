@@ -320,6 +320,8 @@ pub fn load_overture_buildings(
                 .filter(|value| !value.is_empty())
                 .map(|value| value.to_lowercase()),
             roof_height: None,
+            roof_direction: None,
+            roof_angle: None,
             name: primary_name,
         }));
     }
