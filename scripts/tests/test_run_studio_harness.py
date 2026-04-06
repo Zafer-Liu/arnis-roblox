@@ -392,6 +392,12 @@ class RunStudioHarnessTests(unittest.TestCase):
         self.assertIn('enter_play_mode success=menu-play', body)
         self.assertIn('enter_play_mode trigger=keycode-96', body)
         self.assertIn('enter_play_mode success=keycode-96', body)
+        self.assertIn('local workflow_timeout="${1:-$PLAY_TRIGGER_CONFIRM_TIMEOUT_SECONDS}"', body)
+        self.assertIn('enter_play_mode trigger=workflow-ensure-playing timeout=${workflow_timeout}s', body)
+        self.assertIn('ARNIS_STUDIO_WORKFLOW_CONTROL_TIMEOUT_SECONDS="$STUDIO_WORKFLOW_CONTROL_TIMEOUT_SECONDS" \\', body)
+        self.assertIn('ARNIS_STUDIO_UI_CONTROL_TIMEOUT_SECONDS="$STUDIO_UI_TIMEOUT_SECONDS" \\', body)
+        self.assertIn('python3 "$STUDIO_WORKFLOW" ensure-playing --timeout "$workflow_timeout" >/dev/null 2>&1', body)
+        self.assertIn('enter_play_mode success=workflow-ensure-playing', body)
         self.assertIn('confirm_play_trigger_observed "ui-start-test-session"', body)
         self.assertIn('confirm_play_trigger_observed "menu-play"', body)
         self.assertIn('confirm_play_trigger_observed "keycode-96"', body)
@@ -417,6 +423,7 @@ class RunStudioHarnessTests(unittest.TestCase):
         )
         self.assertIsNotNone(confirm_block, "confirm_play_trigger_observed function not found")
         confirm_body = confirm_block.group("body")
+        self.assertIn('local timeout="${2:-$PLAY_TRIGGER_CONFIRM_TIMEOUT_SECONDS}"', confirm_body)
         self.assertIn('log "enter_play_mode observed transition trigger=$trigger_name', confirm_body)
         self.assertIn('log "enter_play_mode no transition observed trigger=$trigger_name', confirm_body)
         self.assertIn("dismiss_startup_dialogs", confirm_body)
@@ -436,6 +443,14 @@ class RunStudioHarnessTests(unittest.TestCase):
         self.assertIn('filtered play-only proof play-transition retrying play trigger', body)
         self.assertIn('enter_play_mode || true', body)
         self.assertIn('filtered play-only proof play-transition waiting elapsed=', body)
+
+    def test_workflow_wait_helpers_bound_ui_control_timeouts(self) -> None:
+        self.assertIn("wait_for_editor_ready()", self.text)
+        self.assertIn("wait_for_playing()", self.text)
+        self.assertIn('ARNIS_STUDIO_WORKFLOW_CONTROL_TIMEOUT_SECONDS="$STUDIO_WORKFLOW_CONTROL_TIMEOUT_SECONDS" \\', self.text)
+        self.assertIn('ARNIS_STUDIO_UI_CONTROL_TIMEOUT_SECONDS="$STUDIO_UI_TIMEOUT_SECONDS" \\', self.text)
+        self.assertIn('python3 "$STUDIO_WORKFLOW" ensure-editor-ready --timeout "$timeout" >/dev/null 2>&1', self.text)
+        self.assertIn('python3 "$STUDIO_WORKFLOW" ensure-playing --timeout "$timeout" >/dev/null 2>&1', self.text)
 
     def test_filtered_non_preview_play_tests_use_spec_aware_log_pattern(self) -> None:
         self.assertIn("build_filtered_play_runall_log_pattern()", self.text)
@@ -534,8 +549,42 @@ class RunStudioHarnessTests(unittest.TestCase):
 
     def test_edit_mode_reuses_settled_preview_instead_of_forcing_rebuild(self) -> None:
         self.assertIn("local function currentPreviewSyncIsSettled()", self.text)
+        self.assertIn("local function currentPreviewMatchesRequestedRoute()", self.text)
         self.assertIn("local existingRoot = currentPreviewSyncIsSettled()", self.text)
-        self.assertIn('resultType = existingRoot and "existing" or typeof(previewResult)', self.text)
+        self.assertIn("local canReuseExistingPreview = existingRoot and currentPreviewMatchesRequestedRoute()", self.text)
+        self.assertIn("if not canReuseExistingPreview then", self.text)
+        self.assertIn('resultType = canReuseExistingPreview and "existing" or typeof(previewResult)', self.text)
+
+    def test_route_catalog_runs_prepare_and_restore_sample_data_bundle(self) -> None:
+        self.assertIn('ROUTE_BUNDLE_DIR="${ARNIS_ROUTE_BUNDLE_DIR:-}"', self.text)
+        self.assertIn("prepare_route_bundle_sample_data()", self.text)
+        self.assertIn("restore_route_bundle_sample_data()", self.text)
+        self.assertIn('if [[ -n "$ROUTE_CATALOG_NAME" && "$ROUTE_CATALOG_NAME" == *.route-catalog ]]; then', self.text)
+        self.assertIn('if [[ "$bundle_name" == "PlanetaryRouteBundle" && -d "/tmp/arnis-local-route-bundle" ]]; then', self.text)
+        self.assertIn('route catalog $ROUTE_CATALOG_NAME requested but no route bundle source dir is available', self.text)
+        self.assertIn('local target_dir="$ROOT_DIR/roblox/src/ServerStorage/SampleData/$bundle_name"', self.text)
+        self.assertIn("--prune-empty-dirs", self.text)
+        self.assertIn("--include='*/'", self.text)
+        self.assertIn("--include='*.lua'", self.text)
+        self.assertIn("--exclude='*'", self.text)
+        self.assertIn("run_cleanup_helper_if_defined restore_route_bundle_sample_data", self.text)
+        self.assertIn("prepare_route_bundle_sample_data", self.text)
+
+    def test_route_catalog_runs_prepare_and_restore_harness_route_config(self) -> None:
+        self.assertIn('HARNESS_ROUTE_CONFIG="$ROOT_DIR/roblox/src/ServerScriptService/ImportService/HarnessRouteConfig.lua"', self.text)
+        self.assertIn("prepare_harness_route_config()", self.text)
+        self.assertIn("restore_harness_route_config()", self.text)
+        self.assertIn(
+            'python3 - "$HARNESS_ROUTE_CONFIG" "$ROUTE_CATALOG_NAME" "$ROUTE_LANE_NAME" "$ROUTE_STEP_INDEX" "$ARNIS_TELEMETRY_FAMILIES" <<\'PY\'',
+            self.text,
+        )
+        self.assertIn("routeCatalogName =", self.text)
+        self.assertIn("routeLane =", self.text)
+        self.assertIn("routeStepIndex =", self.text)
+        self.assertIn("telemetryFamilies =", self.text)
+        self.assertIn("enabled = true", self.text)
+        self.assertIn("run_cleanup_helper_if_defined restore_harness_route_config", self.text)
+        self.assertIn("prepare_harness_route_config", self.text)
 
     def test_harness_runs_persistent_mcp_sidecar_for_plugin_relay(self) -> None:
         self.assertIn("is_isolated_non_preview_edit_proof()", self.text)
@@ -605,7 +654,9 @@ class RunStudioHarnessTests(unittest.TestCase):
         self.assertIn("stop_parent_watchdog", self.text)
 
     def test_ui_status_probes_are_bounded_by_shell_timeout_helper(self) -> None:
-        self.assertIn('STUDIO_UI_TIMEOUT_SECONDS="${HARNESS_STUDIO_UI_TIMEOUT_SECONDS:-5}"', self.text)
+        self.assertIn('STUDIO_UI_TIMEOUT_SECONDS="${HARNESS_STUDIO_UI_TIMEOUT_SECONDS:-10}"', self.text)
+        self.assertIn('STUDIO_WORKFLOW_CONTROL_TIMEOUT_SECONDS="${HARNESS_STUDIO_WORKFLOW_CONTROL_TIMEOUT_SECONDS:-12}"', self.text)
+        self.assertIn('PLAY_TRIGGER_CONFIRM_TIMEOUT_SECONDS="${HARNESS_PLAY_TRIGGER_CONFIRM_TIMEOUT_SECONDS:-12}"', self.text)
         self.assertIn("run_studio_ui_control_with_timeout()", self.text)
         self.assertIn('local timeout_seconds="${1:-$STUDIO_UI_TIMEOUT_SECONDS}"', self.text)
         self.assertIn('ARNIS_STUDIO_UI_CONTROL_TIMEOUT_SECONDS="$timeout_seconds" python3 "$STUDIO_UI_CONTROL" "$@" >"$output_file" 2>/dev/null &', self.text)
@@ -781,6 +832,32 @@ class RunStudioHarnessTests(unittest.TestCase):
         self.assertIn('if should_require_vsync_plugin; then', self.text)
         self.assertIn('log "skipping Vertigo Sync plugin install for play-focused harness run"', self.text)
 
+    def test_build_clean_place_bootstraps_vsync_binary_before_build(self) -> None:
+        build_block = re.search(
+            r"build_clean_place\(\) \{\n(?P<body>.*?)\n\}\n\nvsync_repo_dir_looks_usable",
+            self.text,
+            re.DOTALL,
+        )
+        self.assertIsNotNone(build_block, "build_clean_place function not found")
+        body = build_block.group("body")
+        self.assertIn("if ! ensure_vsync_binary_fresh; then", body)
+        self.assertNotIn('if [[ -z "$VSYNC_BINARY" ]]; then', body)
+
+    def test_play_focused_clean_place_failure_refuses_new_template_fallback(self) -> None:
+        auto_prepare_block = re.search(
+            r"auto_prepare_place\(\) \{\n(?P<body>.*?)\n\}\n\nwhile \[\[ \$# -gt 0 \]\]; do",
+            self.text,
+            re.DOTALL,
+        )
+        self.assertIsNotNone(auto_prepare_block, "auto_prepare_place function not found")
+        body = auto_prepare_block.group("body")
+        self.assertIn("if should_skip_edit_mode_actions_for_play; then", body)
+        self.assertIn(
+            'echo "[harness] play-focused harness run requires a buildable clean place; refusing to fall back to Studio New template" >&2',
+            body,
+        )
+        self.assertIn('log "clean place build unavailable; falling back to Studio New template workflow"', body)
+
     def test_vsync_repo_ownership_survives_prebuilt_binary_override(self) -> None:
         self.assertIn('if [[ -f "$VSYNC_REPO_DIR/Cargo.toml" ]] && command -v cargo >/dev/null 2>&1; then', self.text)
         self.assertIn('local repo_binary="$VSYNC_REPO_DIR/target/debug/vsync"', self.text)
@@ -843,7 +920,12 @@ class RunStudioHarnessTests(unittest.TestCase):
         self.assertIn('capture_metadata_target="${target%.png}.capture.json"', self.text)
         self.assertIn('log "captured Studio screenshot: $target method=$capture_method metadata=$capture_metadata_target"', self.text)
         self.assertIn('log "failed to capture Studio screenshot: $target method=$capture_method metadata=$capture_metadata_target"', self.text)
+        self.assertIn('log "failed to capture Studio screenshot: $target method=$capture_method blocker=$blocker_reason metadata=$capture_metadata_target"', self.text)
         self.assertNotIn('if screencapture -x "$target"; then', self.text)
+        self.assertIn('CAPTURE_RESULT_JSON="$capture_result" CAPTURE_METADATA_PATH="$capture_metadata_target" python3 - <<\'PY\'', self.text)
+        self.assertIn('"capture_method": "invalid_result_json"', self.text)
+        self.assertIn('if [[ "$capture_method" == "invalid_result_json" && ! -f "$target" ]]; then', self.text)
+        self.assertIn('payload.get("blocker_reason", "")', self.text)
 
     def test_harness_defaults_to_clean_preview_without_edit_mode_runall(self) -> None:
         self.assertIn("--edit-tests", self.text)
@@ -1045,6 +1127,9 @@ class RunStudioHarnessTests(unittest.TestCase):
     def test_play_action_path_emits_runtime_load_radius_from_runaustin(self) -> None:
         self.assertIn("local RunAustin = require(ServerScriptService.ImportService.RunAustin)", self.text)
         self.assertIn('local runtimeLoadRadius = RunAustin.LOAD_RADIUS', self.text)
+        self.assertIn('route_catalog_name = os.environ.get("ARNIS_ROUTE_CATALOG_NAME", "")', self.text)
+        self.assertIn('route_lane_name = os.environ.get("ARNIS_ROUTE_LANE", "")', self.text)
+        self.assertIn('route_step_index = os.environ.get("ARNIS_ROUTE_STEP_INDEX", "")', self.text)
         self.assertIn('Workspace:SetAttribute("VertigoRouteCatalogName", route_catalog_name ~= "" and route_catalog_name or nil)', self.text)
         self.assertIn('Workspace:SetAttribute("VertigoRouteLane", route_lane_name ~= "" and route_lane_name or nil)', self.text)
         self.assertIn('Workspace:SetAttribute("VertigoRouteStepIndex", route_step_index)', self.text)
@@ -1167,12 +1252,24 @@ class RunStudioHarnessTests(unittest.TestCase):
         focused_branch_start = play_block.index("elif should_skip_edit_mode_actions_for_play; then")
         focused_branch_end = play_block.index("elif run_play_probe_via_mcp; then", focused_branch_start)
         focused_branch = play_block[focused_branch_start:focused_branch_end]
-        self.assertIn('if run_play_probe_via_mcp; then', focused_branch)
-        self.assertIn("play_probe_completed_via_mcp=1", focused_branch)
+        self.assertIn('if authoritative_client_play_proof_present "$ACTIVE_LOG"; then', focused_branch)
+        self.assertIn('log "skipping play-mode MCP probe because authoritative client proof is already present"', focused_branch)
+        self.assertIn('elif run_play_probe_via_mcp; then', play_block)
+        self.assertIn("play_probe_completed_via_mcp=1", play_block)
+        self.assertIn('elif [[ "${PLAY_PROBE_MCP_LAST_RESULT:-}" == "nonauthoritative" ]]; then', play_block)
+        self.assertIn('log "play-mode MCP probe was non-authoritative; continuing with client/log proof"', play_block)
         self.assertLess(
             focused_branch.index('wait_for_log_pattern "\\\\[BootstrapAustin\\\\] Starting Austin, TX import|\\\\[RunAustin\\\\]|\\\\[BootstrapAustin\\\\] Done\\\\." "$PATTERN_WAIT_SECONDS"'),
-            focused_branch.index('if run_play_probe_via_mcp; then'),
+            focused_branch.index('if authoritative_client_play_proof_present "$ACTIVE_LOG"; then'),
         )
+
+    def test_authoritative_client_play_proof_helper_requires_full_client_marker_set(self) -> None:
+        self.assertIn("authoritative_client_play_proof_present()", self.text)
+        self.assertIn('rg -q "ARNIS_CLIENT_BOOTSTRAP " "$summary_source"', self.text)
+        self.assertIn('rg -q "ARNIS_CLIENT_CAMERA " "$summary_source"', self.text)
+        self.assertIn('rg -q "ARNIS_CLIENT_MINIMAP " "$summary_source"', self.text)
+        self.assertIn('rg -q "ARNIS_CLIENT_WORLD_COMPACT " "$summary_source"', self.text)
+        self.assertIn('rg -q "ARNIS_CLIENT_LOCAL_EXPERIENCE " "$summary_source"', self.text)
 
     def test_play_probe_keeps_play_session_alive_until_harness_capture(self) -> None:
         play_probe_block = re.search(
@@ -1246,9 +1343,13 @@ class RunStudioHarnessTests(unittest.TestCase):
         )
         self.assertIsNotNone(play_probe_block, "run_play_probe_via_mcp function not found")
         body = play_probe_block.group("body")
+        self.assertIn('PLAY_PROBE_MCP_LAST_RESULT="unavailable"', body)
         self.assertIn('if line.startswith("[OUTPUT] ARNIS_MCP_PLAY "):', body)
         self.assertIn('if play_payload.get("generatedExists") is False:', body)
         self.assertIn("run_code resolved against edit context instead of the live play session", body)
+        self.assertIn('print("[harness-mcp] phase=play nonauthoritative=" + json.dumps({', body)
+        self.assertIn('raise SystemExit(2)', body)
+        self.assertIn('PLAY_PROBE_MCP_LAST_RESULT="nonauthoritative"', body)
 
     def test_play_probe_only_emits_scene_markers_when_a_live_world_root_exists(self) -> None:
         play_probe_block = re.search(
@@ -1305,16 +1406,24 @@ class RunStudioHarnessTests(unittest.TestCase):
     def test_harness_treats_client_world_marker_as_authoritative_play_signal(self) -> None:
         self.assertIn('log_effective_play_world_state()', self.text)
         self.assertIn('rg -q "ARNIS_CLIENT_WORLD_COMPACT " "$summary_source"', self.text)
-        self.assertIn('grep -E "ARNIS_CLIENT_WORLD_COMPACT " "$summary_source" | tail -n 1', self.text)
+        self.assertIn('prefix = "ARNIS_CLIENT_WORLD_COMPACT "', self.text)
+        self.assertIn("candidate_lines = deque(maxlen=24)", self.text)
         self.assertIn('play world verdict (authoritative client):', self.text)
         self.assertIn('play world verdict (server fallback):', self.text)
+        self.assertIn('nearestNamedBuildingSourceIds', self.text)
+        self.assertIn('nearestNamedBuildingNames', self.text)
         self.assertIn('ARNIS_CLIENT_WORLD_COMPACT|ARNIS_CLIENT_WORLD|ARNIS_CLIENT_LOCAL_EXPERIENCE|ARNIS_CLIENT_CAMERA|ARNIS_CLIENT_MINIMAP|ARNIS_MCP_PLAY|ARNIS_MCP_PLAY_LATE', self.text)
         self.assertIn('bootstrapStateTrace', self.text)
         self.assertIn('bootstrapDuplicateCount', self.text)
 
     def test_harness_surfaces_client_local_experience_marker_for_play_observability(self) -> None:
         self.assertIn('rg -q "ARNIS_CLIENT_LOCAL_EXPERIENCE " "$summary_source"', self.text)
-        self.assertIn('grep -E "ARNIS_CLIENT_LOCAL_EXPERIENCE " "$summary_source" | tail -n 1', self.text)
+        self.assertIn('prefix = "ARNIS_CLIENT_LOCAL_EXPERIENCE "', self.text)
+        self.assertIn("from collections import deque", self.text)
+        self.assertIn("candidate_lines = deque(maxlen=24)", self.text)
+        self.assertIn('with summary_path.open(encoding="utf-8", errors="replace") as handle:', self.text)
+        self.assertIn("for payload_text in reversed(candidate_lines):", self.text)
+        self.assertIn("except json.JSONDecodeError:", self.text)
         self.assertIn('play local experience verdict (authoritative client):', self.text)
         self.assertIn('localTerrainStatus', self.text)
         self.assertIn('localTerrainMaxStepStuds', self.text)
@@ -1505,6 +1614,17 @@ class RunStudioHarnessTests(unittest.TestCase):
         self.assertIn('if [[ -f "$manifest_summary_path" ]]; then', self.text)
         self.assertIn('log "using precomputed manifest scene index: $manifest_summary_path"', self.text)
         self.assertIn('scene fidelity audit unavailable; missing manifest summary and source manifest inputs', self.text)
+        self.assertIn('route_runtime_index="$(resolve_route_runtime_index_for_audits || true)"', self.text)
+        self.assertIn('log "scene fidelity audit using route runtime index fallback: $route_runtime_index"', self.text)
+
+    def test_scene_fidelity_audits_can_build_route_runtime_play_artifact_without_manifest_summary(self) -> None:
+        self.assertIn("resolve_route_runtime_index_for_audits()", self.text)
+        self.assertIn("write_route_runtime_scene_fidelity_artifact()", self.text)
+        self.assertIn('route_manifest_json="$scene_audit_dir/arnis-route-slice-manifest.json"', self.text)
+        self.assertIn('write_scene_fidelity_artifact_from_route_runtime "$marker" "$audit_log" "$route_manifest_json" "$report_json" "$report_html"', self.text)
+        self.assertIn('log "writing scene fidelity play artifact from route runtime index"', self.text)
+        self.assertIn('log "writing scene fidelity edit artifact from route runtime index"', self.text)
+        self.assertIn('candidate="$base_dir/route-runtime/$step_suffix/PlanetaryManifestIndex.lua"', self.text)
 
     def test_scene_fidelity_audits_emit_edit_play_parity_when_both_reports_exist(self) -> None:
         self.assertIn('local parity_script="$ROOT_DIR/scripts/scene_parity_audit.py"', self.text)

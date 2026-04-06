@@ -103,6 +103,79 @@ The compact historical archive index is:
 
 ## Status Notes
 
+### 2026-04-05 18:23 CDT: Edit Route-Step Preview Now Loads The Real Route Bundle Instead Of Canonical Fallback
+
+- Continued the `tertiary` step-1 edit parity lane after the earlier false-root reuse and preview API fixes.
+- Root-cause chain burned down in this slice:
+  - route-scoped edit proofs were not provisioning the external route bundle into `ServerStorage.SampleData`, so Studio silently stayed on canonical preview content
+  - after provisioning the bundle, preview route selection still failed because route lane summaries carried scene-qualified chunk ids such as `austin:1_-1`
+  - after normalizing those ids, the route-scoped preview finally loaded the real step-1 runtime handle and exposed a latent terrain-neighbor sampling bug in `TerrainBuilder`
+  - fixing that terrain path yielded a clean authoritative route-step edit proof
+- Landed product/harness fixes in:
+  - `scripts/run_studio_harness.sh`
+    - route-aware preview-root reuse gate
+    - route-bundle sample-data preparation/restoration for route-catalog proofs
+  - `scripts/run_studio_harness_remote.sh`
+    - route-bundle sync into the remote stage
+    - remote `ARNIS_ROUTE_BUNDLE_DIR` handoff into the harness
+  - `roblox/src/ServerScriptService/ImportService/CanonicalWorldContract.lua`
+    - route runtime handles now preserve `LoadLaneSummary(...)` access for preview selection
+  - `roblox/src/ServerScriptService/StudioPreview/AustinPreviewRequest.lua`
+    - route lane chunk ids are normalized from scene-qualified ids to plain chunk ids
+  - `roblox/src/ServerScriptService/StudioPreview/AustinPreviewBuilder.lua`
+    - route manifest caching is now route-request aware and route requests bypass canonical cache reuse
+  - `roblox/src/ServerScriptService/ImportService/Builders/TerrainBuilder.lua`
+    - neighbor sampling no longer depends on a partially constructed plan object
+- Fresh authoritative remote proof from `0.715.1.7151119_20260405T182109Z_Studio_e3c82_last.log` now shows:
+  - `prepared route bundle sample-data: PlanetaryRouteBundle`
+  - explicit edit rebuild loaded `ServerStorage.SampleData.PlanetaryRouteBundle.route-runtime.step-001-active.PlanetaryManifestIndex`
+  - `Prepared handle for PlanetaryManifestIndex with 10 chunkRefs`
+  - final authoritative edit action:
+    - `manifestSourceName="PlanetaryRouteBundle.route-catalog"`
+    - `manifestSourceKind="route_catalog"`
+    - `routeStepIndex=1`
+    - `children=10`
+    - `sceneSummary.buildingModelCount=16`
+    - `sceneSummary.roadSurfacePartCount=31`
+    - `sceneSummary.propInstanceCount=50`
+- This materially changes the parity state:
+  - edit mode is no longer stuck on the canonical 80-chunk preview when the user asked for route step 1
+  - the remaining parity question is now the real product comparison between this 10-chunk edit route slice and the matching play/runtime route slice, not the older false mismatch caused by canonical edit fallback
+- Local verification passed after the fixes:
+  - `python3 -m unittest scripts.tests.test_run_studio_harness scripts.tests.test_run_studio_harness_remote scripts.tests.test_austin_runtime_contract scripts.tests.test_scene_fidelity_audit scripts.tests.test_scene_parity_audit -v`
+  - `bash -n scripts/run_studio_harness.sh scripts/run_studio_harness_remote.sh`
+  - `git diff --check`
+
+### 2026-04-05 18:23 CDT: Step-1 Edit Route Proof Is Now A Clean 10-Chunk Slice
+
+- Continued the same `tertiary` edit parity lane after the route-runtime id normalization and terrain-neighbor builder fixes.
+- Fresh authoritative remote proof from `0.715.1.7151119_20260405T182109Z_Studio_e3c82_last.log` now confirms the step-1 edit route slice completes cleanly end to end:
+  - `Prepared handle for PlanetaryManifestIndex with 10 chunkRefs`
+  - `sync complete ... imported=10 skipped=0 targetChunks=10 unloaded=70`
+  - `ARNIS_SCENE_EDIT_CHUNKS` now contains exactly:
+    - `1_-1`
+    - `1_-2`
+    - `1_0`
+    - `1_1`
+    - `2_-1`
+    - `2_-2`
+    - `2_0`
+    - `2_1`
+    - `3_-1`
+    - `3_0`
+  - final authoritative edit action:
+    - `manifestSourceName="PlanetaryRouteBundle.route-catalog"`
+    - `manifestSourceKind="route_catalog"`
+    - `routeStepIndex=1`
+    - `children=10`
+    - `buildingModelCount=16`
+    - `roadSurfacePartCount=31`
+    - `propInstanceCount=50`
+    - `waterSurfacePartCount=0`
+- This removes the last known false parity blocker on the edit side. The next critical path is the matching step-1 play/runtime proof plus a fresh parity audit between:
+  - edit step-1 route slice
+  - play step-1 route slice
+
 ### 2026-04-03 13:34 CDT: Local-Safe Swarm Tightened Footprint Admission, Sparse Cliffs, And Street-Level Building Cues
 
 - Landed another product tranche on `main` without local Studio:
@@ -3121,3 +3194,953 @@ The compact historical archive index is:
   - `python3 -m unittest scripts.tests.test_manifest_loader_route_catalog_contract scripts.tests.test_austin_runtime_contract -v`
   - `stylua --check roblox/src/ServerScriptService/ImportService/ManifestLoader.lua roblox/src/ServerScriptService/Tests/ManifestSubplans.spec.lua`
   - `git diff --check`
+
+## 2026-04-05 14:15 CDT
+
+- Burned down the remaining step-1 play-route parity blockers on `main`:
+  - `run_studio_harness.sh`
+    - route-catalog play proofs now persist route selection through a file-backed `ImportService/HarnessRouteConfig.lua` instead of relying on transient edit-session `Workspace` attributes
+    - route-bundle sample-data staging now copies Luau module artifacts only, so sibling JSON files cannot shadow route modules inside `ServerStorage.SampleData`
+    - play MCP probe now injects route request env vars into the Luau snippet explicitly
+  - `BootstrapAustin.server.lua`
+    - play bootstrap now reads the harness route config before calling `RunAustin.run(...)`
+    - route selection is re-published onto `Workspace` for downstream telemetry/probe visibility
+  - `TerrainBuilder.lua`
+    - fixed the last stale `plan.gridD` reference inside `resolveNeighborHeightSample(...)`; that bug was still crashing route-step startup import on `tertiary`
+- Remote proof progression on `tertiary`:
+  - `0.715.1.7151119_20260405T185821Z_Studio_4553b_last.log`
+    - route bootstrap became active, but `ServerStorage.SampleData.PlanetaryRouteBundle.route-catalog` resolved to JSON-shadowed content and failed with `Expected identifier when parsing expression, got '{'`
+  - `0.715.1.7151119_20260405T190317Z_Studio_645cf_last.log`
+    - route catalog and step-1 runtime handle loaded correctly, but startup import then failed in `TerrainBuilder:318` with `attempt to index nil with 'gridD'`
+  - `0.715.1.7151119_20260405T191106Z_Studio_c9728_last.log`
+    - authoritative play bootstrap now loads the real route slice:
+      - `Prepared handle for PlanetaryManifestIndex with 10 chunkRefs`
+      - `Manifest source loaded from PlanetaryRouteBundle.route-catalog`
+      - bootstrap/client trace reaches `loading_manifest,importing_startup,world_ready,streaming_ready,minimap_ready,gameplay_ready`
+      - `ARNIS_SCENE_PLAY` reports:
+        - `rootName="GeneratedWorld_Austin"`
+        - `manifestSourceKind="route_catalog"`
+        - `manifestSourceName="PlanetaryRouteBundle.route-catalog"`
+        - `chunkEnvelopeKind="runtime_resident"`
+      - `ARNIS_CLIENT_WORLD_COMPACT` reports:
+        - `worldRootExists=true`
+        - `worldRootName="GeneratedWorld_Austin"`
+        - `bootstrapState="gameplay_ready"`
+        - `groundMaterial="Enum.Material.Asphalt"`
+        - `supportSurfaceRole="road"`
+        - `nearbyBuildingModels=3`
+        - `overheadRoofParts=5`
+- Verification:
+  - `python3 -m unittest scripts.tests.test_run_studio_harness scripts.tests.test_run_studio_harness_remote scripts.tests.test_austin_runtime_contract scripts.tests.test_scene_fidelity_audit scripts.tests.test_scene_parity_audit -v`
+  - `bash -n scripts/run_studio_harness.sh scripts/run_studio_harness_remote.sh`
+  - `git diff --check`
+- Remaining live risk after this slice:
+  - direct MCP play probe is still non-authoritative and can resolve against edit context even after the real play bootstrap succeeds
+  - broader parity/fidelity work is still open; this proof closes the step-1 route play-selection/bootstrap blockers, not the full scene-quality burndown
+
+## 2026-04-05 14:25 CDT
+
+- Materialized direct step-1 route parity snapshots locally from the authoritative edit/play logs:
+  - edit source: `/tmp/arnis-remote-studio/0.715.1.7151119_20260405T182109Z_Studio_e3c82_last.log`
+  - play source: `/tmp/arnis-remote-studio/0.715.1.7151119_20260405T191106Z_Studio_c9728_last.log`
+  - extracted marker artifacts under `/tmp/arnis-route-step1-parity/`
+    - `step1-edit-scene.json`
+    - `step1-edit-action.json`
+    - `step1-play-scene.json`
+    - `step1-play-bootstrap.json`
+    - `step1-play-world-compact.json`
+    - `step1-summary.json`
+- Current direct parity summary from those authoritative markers:
+  - edit:
+    - `manifestSourceKind="route_catalog"`
+    - `manifestSourceName="PlanetaryRouteBundle.route-catalog"`
+    - `children=10`
+    - `buildingModelCount=16`
+    - `roadSurfacePartCount=31`
+    - `propInstanceCount=50`
+  - play:
+    - `manifestSourceKind="route_catalog"`
+    - `manifestSourceName="PlanetaryRouteBundle.route-catalog"`
+    - `bootstrapState="gameplay_ready"`
+    - `worldRootExists=true`
+    - `supportSurfaceRole="road"`
+    - `groundMaterial="Enum.Material.Asphalt"`
+    - `nearbyBuildingModels=3`
+    - `nearbyRoofParts=15`
+    - `overheadRoofParts=5`
+- Attempted to regenerate full `scene-audit` JSON directly from the remote proof repo’s `austin-manifest.sqlite`, but the remote `cargo run --quiet -p arbx_cli -- scene-audit ...` jobs did not materialize outputs in bounded time, so that path was explicitly killed instead of leaving stale remote workers running.
+- Verification:
+  - `python3 -m unittest scripts.tests.test_run_studio_harness scripts.tests.test_run_studio_harness_remote scripts.tests.test_austin_runtime_contract scripts.tests.test_scene_fidelity_audit scripts.tests.test_scene_parity_audit -v`
+  - `bash -n scripts/run_studio_harness.sh scripts/run_studio_harness_remote.sh`
+  - `git diff --check`
+
+## 2026-04-05 23:30 CDT
+
+- Added a permanent bounded route-slice artifact lane on `main`:
+  - [route_slice_parity_artifacts.py](/Users/adpena/Projects/arnis-roblox/scripts/route_slice_parity_artifacts.py)
+    - builds a bounded route-slice manifest JSON from either:
+      - `--manifest-sqlite`
+      - or a local `--route-runtime-index` Lua bundle fallback
+    - then runs the existing `scene_fidelity_audit.py` and `scene_parity_audit.py` surfaces to emit:
+      - `scene-fidelity-edit.json/html`
+      - `scene-fidelity-play.json/html`
+      - `scene-parity.json/html`
+      - plus a compact summary JSON
+  - [test_route_slice_parity_artifacts.py](/Users/adpena/Projects/arnis-roblox/scripts/tests/test_route_slice_parity_artifacts.py)
+    - locks both the SQLite-backed and route-runtime-Lua-backed paths
+- Used that new local route-runtime fallback to generate real step-1 parity artifacts without depending on the remote proof repo’s SQLite reachability:
+  - artifact dir:
+    - `/tmp/arnis-route-step1-parity-report/`
+  - source logs:
+    - `/tmp/arnis-route-proof-inputs/0.715.1.7151119_20260405T182109Z_Studio_e3c82_last.log`
+    - `/tmp/arnis-route-proof-inputs/0.715.1.7151119_20260405T191106Z_Studio_c9728_last.log`
+  - source route-runtime subset:
+    - `/tmp/arnis-local-route-bundle/route-runtime/step-001-active/PlanetaryManifestIndex.lua`
+- Current bounded route-step findings from those generated artifacts:
+  - edit fidelity:
+    - `shaped_roof_closure_gap`
+  - play fidelity:
+    - `shaped_roof_closure_gap`
+    - `client_local_enclosure_gap`
+    - `client_local_roof_cover_gap`
+  - parity:
+    - one remaining mismatch: `client_world_mismatch`
+    - edit/play manifest source parity is now clean: both `route_catalog`
+- Root cause for the current `client_world_mismatch` is narrower than geometry parity:
+  - the route-step play proof requested `player_local`, but `ARNIS_CLIENT_LOCAL_EXPERIENCE` still emitted `playerLocalTelemetryEnabled=false`
+  - this happens because `ArnisTelemetryFamilies` was being seeded late in the MCP play-probe path, after bootstrap/client telemetry had already started
+- Burned down that propagation defect locally:
+  - [run_studio_harness.sh](/Users/adpena/Projects/arnis-roblox/scripts/run_studio_harness.sh)
+    - `prepare_harness_route_config()` now persists `ARNIS_TELEMETRY_FAMILIES` into `HarnessRouteConfig.lua`
+  - [HarnessRouteConfig.lua](/Users/adpena/Projects/arnis-roblox/roblox/src/ServerScriptService/ImportService/HarnessRouteConfig.lua)
+    - now carries `telemetryFamilies`
+  - [BootstrapAustin.server.lua](/Users/adpena/Projects/arnis-roblox/roblox/src/ServerScriptService/BootstrapAustin.server.lua)
+    - seeds `Workspace:SetAttribute("ArnisTelemetryFamilies", harnessRouteSelection.telemetryFamilies)` before runtime bootstrap, so client-world telemetry families can be active from the first bootstrap/play markers
+- Verification:
+  - `python3 -m unittest scripts.tests.test_route_slice_parity_artifacts scripts.tests.test_run_studio_harness scripts.tests.test_austin_runtime_contract -v`
+  - `bash -n scripts/run_studio_harness.sh`
+  - `git diff --check`
+- Remaining risk after this slice:
+  - the telemetry-family bootstrap fix still needs a fresh remote re-proof to confirm `playerLocalTelemetryEnabled=true` and collapse the remaining `client_world_mismatch`
+  - route-step building/roof fidelity pressure is now narrowed to:
+    - shaped-roof closure coverage
+    - player-local enclosure / overhead roof cover near the spawned route slice
+
+## 2026-04-05 23:58 CDT
+
+- Closed the step-1 route parity mismatch on `tertiary` and narrowed the remaining fidelity work:
+  - remote wrapper / telemetry propagation:
+    - `run_studio_harness_remote.sh` now passes `ARNIS_TELEMETRY_FAMILIES` as an explicit remote argument
+    - `BootstrapAustin.server.lua` now resolves `harnessRouteSelection` before `onPlayer()` closes over it
+    - telemetry families now propagate through:
+      - `ReplicatedStorage`
+      - `Workspace`
+      - `Player`
+    - `WorldProbe.client.lua` resolves telemetry families in that order instead of relying on `Workspace` only
+  - local-experience marker shaping:
+    - `WorldProbeTelemetryFlags.shapeLocalExperiencePayload(...)` now compacts enabled `player_local` payloads to the fields the audits actually consume
+  - parity audit hygiene:
+    - `scene_parity_audit.py` now skips `client_world_mismatch` when only play provides client-world telemetry and edit correctly provides none
+- Fresh authoritative remote proof from `0.715.1.7151119_20260406T044217Z_Studio_157f5_last.log`:
+  - route/runtime source is still correct:
+    - `Manifest source kind=route_catalog name=PlanetaryRouteBundle.route-catalog`
+    - `ARNIS_SCENE_PLAY ... manifestSourceKind="route_catalog"`
+  - `player_local` telemetry is now genuinely active:
+    - early bootstrap marker already shows:
+      - `telemetryFamilies=["terrain","roads","structures","player_local"]`
+      - `playerLocalTelemetryEnabled=true`
+    - late gameplay marker carries compact local payloads:
+      - `localSupport`
+      - `localTerrain`
+      - `localEnclosure`
+      - `localRoofCover`
+- Fresh bounded artifact regeneration from:
+  - `/tmp/arnis-route-step1-parity-report-20260406T044217Z/`
+- Current bounded step-1 result from those artifacts:
+  - parity:
+    - `mismatched=0`
+    - `findingCount=0`
+  - play fidelity:
+    - one remaining finding:
+      - `shaped_roof_closure_gap`
+- Also landed a local fix for the likely root cause of that remaining fidelity gap:
+  - `BuildingBuilder.lua`
+    - non-flat roof fallback branches now add the invisible roof-closure deck before degrading to a flat visible roof
+    - this covers fallback paths for:
+      - `gabled` / `gambrel`
+      - `hipped` / `pyramidal` fallback
+      - `skillion`
+      - `mansard`
+- Verification:
+  - `python3 -m unittest scripts.tests.test_austin_runtime_contract scripts.tests.test_scene_parity_audit scripts.tests.test_route_slice_parity_artifacts scripts.tests.test_run_studio_harness_remote scripts.tests.test_run_studio_harness -v`
+  - `bash -n scripts/run_studio_harness_remote.sh scripts/run_studio_harness.sh`
+  - `git diff --check`
+- Remaining live pressure:
+  - step-1 route parity is now clean
+  - the remaining bounded slice issue is shaped-roof closure fidelity; the next remote proof should confirm whether the new fallback closure-deck fix eliminates that last finding
+
+## 2026-04-06 07:40 CDT
+
+- Closed the remaining bounded step-1 route fidelity finding on `tertiary`:
+  - fresh remote proof from `0.715.1.7151119_20260406T123331Z_Studio_bb674_last.log`
+    - route/runtime source still correct:
+      - `manifestSourceKind="route_catalog"`
+      - `manifestSourceName="PlanetaryRouteBundle.route-catalog"`
+    - `player_local` telemetry remains active from the first bootstrap markers:
+      - `telemetryFamilies=["terrain","roads","structures","player_local"]`
+      - `playerLocalTelemetryEnabled=true`
+    - late gameplay markers now stay compact and useful enough for downstream parsing:
+      - `localSupport`
+      - `localTerrain`
+      - `localEnclosure`
+      - `localRoofCover`
+      - increasing facade/wall counts as the player moves through the slice
+  - regenerated bounded artifact set:
+    - `/tmp/arnis-route-step1-parity-report-20260406T123331Z/`
+  - current result from that artifact set:
+    - play fidelity:
+      - `findingCount=0`
+    - parity:
+      - `mismatched=0`
+      - `findingCount=0`
+- The final blocker that had been masking this was a harness-summary sharp edge, not a world bug:
+  - `run_studio_harness.sh`
+    - `log_effective_play_local_experience_state()` now scans a bounded deque of candidate marker lines and selects the last valid JSON payload instead of slurping the whole log or trusting the very last line blindly
+- The local roof-closure fix is now proven good enough on this step-1 slice:
+  - non-flat roof fallback branches in `BuildingBuilder.lua` no longer leave this route slice with a `shaped_roof_closure_gap`
+- Verification:
+  - `python3 -m unittest scripts.tests.test_austin_runtime_contract scripts.tests.test_scene_parity_audit scripts.tests.test_route_slice_parity_artifacts scripts.tests.test_run_studio_harness_remote scripts.tests.test_run_studio_harness -v`
+  - `bash -n scripts/run_studio_harness.sh scripts/run_studio_harness_remote.sh`
+  - `git diff --check`
+- New active widening tranche:
+  - step-1 route slice is clean
+  - next useful work is widening coverage to another route step/window and re-running the same bounded artifact flow to surface the next real building/surface fidelity defect
+
+## 2026-04-06 07:48 CDT
+
+- Started widening beyond the clean step-1 slice by re-proving step `0` on the same `active` lane.
+- Fresh remote proof from `0.715.1.7151119_20260406T123331Z_Studio_bb674_last.log` remains materially stronger than the prior baseline:
+  - route/runtime source still correct on the widened slice
+  - `player_local` telemetry remains active end to end
+  - late gameplay client-local markers now stay parseable and continue to expose:
+    - `localSupport`
+    - `localTerrain`
+    - `localEnclosure`
+    - `localRoofCover`
+  - the player-local metrics on this widened slice became richer as the player moved:
+    - `localEnclosure.nearbyWallParts` rose into the teens
+    - `localEnclosure.readableFacadeCueParts` rose into the twenties
+    - `localRoofCover.overheadRoofParts` stayed at `5`
+- Generated a bounded step-0 play-fidelity artifact from that proof at:
+  - `/tmp/arnis-route-step0-play-report/`
+- Current result from that widened play slice:
+  - `scene-fidelity-play.json` reports `findings=[]`
+  - no new bounded play-fidelity defect surfaced on this step-0 route slice
+- Harness hygiene landed during this widening pass:
+  - `run_studio_harness.sh`
+    - local-experience summary parsing now scans a bounded deque of candidate marker lines and chooses the last valid JSON payload instead of slurping full logs or trusting a possibly truncated last line
+- Verification:
+  - `python3 -m unittest scripts.tests.test_austin_runtime_contract scripts.tests.test_scene_parity_audit scripts.tests.test_route_slice_parity_artifacts scripts.tests.test_run_studio_harness_remote scripts.tests.test_run_studio_harness -v`
+  - `bash -n scripts/run_studio_harness.sh scripts/run_studio_harness_remote.sh`
+  - `git diff --check`
+- New active widening target:
+  - step `1` route slice: clean
+  - step `0` active play slice: no bounded fidelity findings
+  - next useful lane is another route window or lane variant, not reworking these two clean slices
+
+## 2026-04-06 07:59 CDT
+
+- Closed the widened `retain` lane for step `1`; it is now clean too.
+- Fresh authoritative remote retain-lane proofs:
+  - play:
+    - `0.715.1.7151119_20260406T124455Z_Studio_7f129_last.log`
+  - edit:
+    - `0.715.1.7151119_20260406T125622Z_Studio_a5259_last.log`
+- Important proof details from the widened retain slice:
+  - play remained route-scoped from the start:
+    - `manifestSourceKind="route_catalog"`
+    - `chunkIds=["-1_-1","-1_-2","-1_0","-1_1","-2_-1","-2_0","0_-1","0_-2","0_0","0_1"]`
+  - edit had an early canonical preview bootstrap during initial Vertigo Sync startup:
+    - `Prepared handle for AustinCanonicalManifestIndex with 80 chunkRefs`
+  - but the later authoritative MCP-driven edit action rebuilt the correct retain slice:
+    - `ARNIS_SCENE_EDIT_CHUNKS ... chunkIds=["-1_-1","-1_-2","-1_0","-1_1","-2_-1","-2_0","0_-1","0_-2","0_0","0_1"]`
+    - `manifestSourceKind="route_catalog"`
+    - `manifestSourceName="PlanetaryRouteBundle.route-catalog"`
+    - `routeLane="retain"`
+    - `routeStepIndex=1`
+    - `children=10`
+- Generated the bounded widened-lane parity artifact set at:
+  - `/tmp/arnis-route-step1-retain-parity-report/`
+- Current result from that widened retain artifact set:
+  - edit fidelity:
+    - `findingCount=0`
+  - play fidelity:
+    - `findingCount=0`
+  - parity:
+    - `matching=25`
+    - `mismatched=0`
+    - `findingCount=0`
+- Harness proof notes from this slice:
+  - the wrapper was not the most reliable surface for this widened edit proof
+  - the direct remote harness needed:
+    - a reseeded remote `scripts/` tree
+    - an explicit remote `ARNIS_ROUTE_BUNDLE_DIR`
+    - `--hard-restart` to break a `quit_studio` takeover stall
+  - once that was in place, the authoritative widened edit markers emitted correctly
+- New active widening target:
+  - step `1` active: clean
+  - step `1` retain: clean
+  - step `0` active play: clean
+  - next useful tranche is another lane/window beyond these clean slices, plus the remaining visual lane gaps:
+    - remote screenshot capture
+    - broader landmark / roof visual proof
+
+## 2026-04-06 08:06 CDT
+
+- Burned down a real harness bug that was creating false play-focused proofs on direct remote runs:
+  - `run_studio_harness.sh`
+    - `build_clean_place()` now bootstraps `VSYNC_BINARY` itself through `ensure_vsync_binary_fresh()`
+    - play-focused runs now refuse the invalid Studio New-template fallback when a clean place cannot be built
+  - this fixes the direct remote failure mode where:
+    - the harness skipped Vertigo Sync plugin install
+    - `VSYNC_BINARY` stayed unset
+    - clean-place build silently failed
+    - the run opened Studio New template with no Arnis scripts and then waited forever for route markers that could never appear
+- Locked that harness fix with new regression coverage in:
+  - `scripts/tests/test_run_studio_harness.py`
+- Verification for the harness fix:
+  - `python3 -m unittest scripts.tests.test_run_studio_harness -v`
+  - `bash -n scripts/run_studio_harness.sh`
+  - `git diff --check`
+- Re-ran the previously false `step-0 prefetch` play slice on the corrected path:
+  - fresh remote proof:
+    - `0.715.1.7151119_20260406T130439Z_Studio_a860f_last.log`
+  - key corrected behavior:
+    - `using auto-built clean place: .../arnis-test-clean-play.rbxlx`
+    - no silent fallback to Studio New template
+    - bootstrap/client path reached:
+      - `loading_manifest`
+      - `importing_startup`
+      - `world_ready`
+      - `streaming_ready`
+      - `minimap_ready`
+      - `gameplay_ready`
+    - runtime truth:
+      - `Manifest source loaded from PlanetaryRouteBundle.route-catalog`
+      - `Imported Austin manifest: chunks=8 roads=115 buildings=15 props=35`
+  - generated bounded play-fidelity artifact:
+    - `/tmp/arnis-route-step0-prefetch-play-report/`
+  - current result from that corrected widened slice:
+    - `chunkIds=["1_-2","1_1","2_-1","2_-2","2_0","2_1","3_-1","3_0"]`
+    - `findingCount=0`
+- New active gate:
+  - matching `step-0 prefetch` edit proof is now in flight so this widened slice can move from play-only coverage to full bounded edit/play parity
+
+## 2026-04-06 08:12 CDT
+
+- Closed the corrected `step-0 prefetch` widened slice end to end.
+- Fresh authoritative remote proofs:
+  - play:
+    - `0.715.1.7151119_20260406T130439Z_Studio_a860f_last.log`
+  - edit:
+    - `0.715.1.7151119_20260406T130647Z_Studio_f2ec6_last.log`
+- Important proof details:
+  - the corrected play run now uses the built clean place instead of silently falling back to Studio New template:
+    - `using auto-built clean place: .../arnis-test-clean-play.rbxlx`
+  - play/runtime source is correct:
+    - `Manifest source loaded from PlanetaryRouteBundle.route-catalog`
+    - `Imported Austin manifest: chunks=8 roads=115 buildings=15 props=35`
+    - bootstrap/client path reached:
+      - `loading_manifest`
+      - `importing_startup`
+      - `world_ready`
+      - `streaming_ready`
+      - `minimap_ready`
+      - `gameplay_ready`
+  - edit preview is also now route-scoped for the same slice:
+    - `Prepared handle for PlanetaryManifestIndex with 8 chunkRefs`
+    - `ARNIS_SCENE_EDIT_CHUNKS ... chunkIds=["1_-2","1_1","2_-1","2_-2","2_0","2_1","3_-1","3_0"]`
+    - `manifestSourceKind="route_catalog"`
+    - `manifestSourceName="PlanetaryRouteBundle.route-catalog"`
+    - `routeLane="prefetch"`
+    - `routeStepIndex=0`
+    - `children=8`
+- Generated bounded artifacts:
+  - play-only:
+    - `/tmp/arnis-route-step0-prefetch-play-report/`
+  - full bounded parity:
+    - `/tmp/arnis-route-step0-prefetch-parity-report/`
+- Current result from that widened prefetch artifact set:
+  - edit fidelity:
+    - `findingCount=0`
+  - play fidelity:
+    - `findingCount=0`
+  - parity:
+    - `matching=25`
+    - `mismatched=0`
+    - `findingCount=0`
+- Also found one local path sharp edge while building artifacts:
+  - the synced proof inputs are safer to address via `/private/tmp/...` when Python path resolution gets picky about `/tmp`
+  - this was only an artifact-path quirk, not a world or proof correctness issue
+- New active widening target:
+  - clean slices now include:
+    - step `1` active
+    - step `1` retain
+    - step `0` prefetch
+    - step `0` active play
+  - next useful tranche is the remaining unclosed route-window parity lane plus the still-open visual lane:
+    - step `0` active edit parity
+    - remote screenshot capture
+    - broader landmark / roof visual proof
+
+## 2026-04-06 08:19 CDT
+
+- Closed the last remaining route-window parity lane for `step-0 active`.
+- Fresh authoritative remote proofs:
+  - edit:
+    - `0.715.1.7151119_20260406T131012Z_Studio_845f6_last.log`
+  - play:
+    - `0.715.1.7151119_20260406T131211Z_Studio_7f49b_last.log`
+- Important proof details:
+  - edit is route-scoped and no longer just the early canonical preview bootstrap:
+    - `Prepared handle for PlanetaryManifestIndex with 12 chunkRefs`
+    - `ARNIS_SCENE_EDIT_CHUNKS ... chunkIds=["-1_-1","-1_-2","-1_0","-1_1","-2_-1","-2_0","0_-1","0_-2","0_0","0_1","1_-1","1_0"]`
+    - `manifestSourceKind="route_catalog"`
+    - `manifestSourceName="PlanetaryRouteBundle.route-catalog"`
+    - `routeLane="active"`
+    - `routeStepIndex=0`
+    - `children=12`
+  - play matches the same active slice:
+    - `Prepared handle for PlanetaryManifestIndex with 12 chunkRefs`
+    - `Manifest source loaded from PlanetaryRouteBundle.route-catalog`
+    - `ARNIS_SCENE_PLAY ... manifestSourceKind="route_catalog"`
+    - bootstrap/client path reaches `gameplay_ready`
+- Generated bounded parity artifact set:
+  - `/tmp/arnis-route-step0-active-parity-report/`
+- Current result from that active-slice artifact set:
+  - edit fidelity:
+    - `findingCount=0`
+  - play fidelity:
+    - `findingCount=0`
+  - parity:
+    - `matching=25`
+    - `mismatched=0`
+    - `findingCount=0`
+- Route-window state is now materially stronger:
+  - clean bounded slices:
+    - step `1` active
+    - step `1` retain
+    - step `0` prefetch
+    - step `0` active
+- New active tranche:
+  - the route-window parity burndown is now clean on the proven slices above
+  - the remaining top gaps are now outside those route windows:
+    - remote screenshot capture
+    - broader landmark / roof visual proof
+    - direct MCP play probe still non-authoritative
+
+## 2026-04-06 08:24 CDT
+
+- Closed the final route-window parity lane for `step-0 active`.
+- Fresh authoritative remote proofs:
+  - edit:
+    - `0.715.1.7151119_20260406T131012Z_Studio_845f6_last.log`
+  - play:
+    - `0.715.1.7151119_20260406T131211Z_Studio_7f49b_last.log`
+- Important proof details:
+  - edit is route-scoped on the active lane:
+    - `Prepared handle for PlanetaryManifestIndex with 12 chunkRefs`
+    - `ARNIS_SCENE_EDIT_CHUNKS ... chunkIds=["-1_-1","-1_-2","-1_0","-1_1","-2_-1","-2_0","0_-1","0_-2","0_0","0_1","1_-1","1_0"]`
+    - `manifestSourceKind="route_catalog"`
+    - `manifestSourceName="PlanetaryRouteBundle.route-catalog"`
+    - `routeLane="active"`
+    - `routeStepIndex=0`
+    - `children=12`
+  - play matches the same 12-chunk active window:
+    - `Prepared handle for PlanetaryManifestIndex with 12 chunkRefs`
+    - `Manifest source loaded from PlanetaryRouteBundle.route-catalog`
+    - `ARNIS_SCENE_PLAY ... manifestSourceKind="route_catalog"`
+    - bootstrap/client path reaches `gameplay_ready`
+- Generated bounded parity artifact set:
+  - `/tmp/arnis-route-step0-active-parity-report/`
+- Current result from that active-step-0 artifact set:
+  - edit fidelity:
+    - `findingCount=0`
+  - play fidelity:
+    - `findingCount=0`
+  - parity:
+    - `matching=25`
+    - `mismatched=0`
+    - `findingCount=0`
+- Route-window parity state is now clean on all currently proven slices:
+  - step `1` active
+  - step `1` retain
+  - step `0` prefetch
+  - step `0` active
+- New active tranche:
+  - the route-window parity burndown is now materially complete on these proven windows
+  - the top remaining gaps are now the non-route proof lanes:
+    - remote screenshot capture
+    - broader landmark / roof visual proof
+    - direct MCP play probe still non-authoritative
+
+## 2026-04-06 08:31 CDT
+
+- Shifted from route-window parity to the remote screenshot lane.
+- Hardened screenshot capture plumbing:
+  - `studio_ui_control.py`
+    - CoreGraphics window enumeration now guards non-array JXA payloads instead of raising the old `TypeError: {} is not iterable`
+    - window lookup now reports an explicit `no_matching_window` status instead of silently handing back a blank object
+  - `run_studio_harness.sh`
+    - screenshot result parsing no longer crashes the harness on malformed helper stdout
+    - if helper output is invalid JSON and no target file exists, the harness now degrades to a logged screenshot failure instead of aborting the whole proof
+  - tests updated in:
+    - `scripts/tests/test_studio_ui_control.py`
+    - `scripts/tests/test_run_studio_harness.py`
+- Verification:
+  - `python3 -m unittest scripts.tests.test_studio_ui_control scripts.tests.test_run_studio_harness -v`
+  - `bash -n scripts/run_studio_harness.sh`
+  - `git diff --check`
+- Fresh screenshot-lane repro on `tertiary` against a clean, route-correct active-step-0 play proof:
+  - proof log:
+    - `0.715.1.7151119_20260406T131652Z_Studio_695af_last.log`
+  - route/runtime proof itself is still healthy:
+    - `Prepared handle for PlanetaryManifestIndex with 12 chunkRefs`
+    - `Manifest source loaded from PlanetaryRouteBundle.route-catalog`
+    - authoritative play markers still emit on the correct active slice
+  - screenshot lane is still failing, but now with materially better diagnosis:
+    - harness no longer dies from the old JXA iterable crash
+    - old sidecars are now explained by two host-level symptoms:
+      - CoreGraphics window enumeration returns no usable on-screen Studio windows for capture selection
+      - fallback display capture still fails with:
+        - `could not create image from display`
+  - concrete sidecar state now observed on host:
+    - `arnis-studio-harness-play.capture.json`
+      - `success=false`
+      - `window_lookup_code=0`
+      - `window_target={}`
+      - `capture_method="failed"`
+      - display attempt stderr:
+        - `could not create image from display`
+- Current best reading:
+  - route-window parity is no longer the blocker
+  - remote screenshot capture is now a host/display-service limitation or permission problem on `tertiary`, not an Arnis route/fidelity mismatch
+- New active tranche:
+  - preserve the improved screenshot diagnostics
+  - then either:
+    - work around the host capture limitation with another supported capture surface, or
+    - continue broader non-visual fidelity proof while treating remote screenshots as a host blocker
+
+## 2026-04-06 08:36 CDT
+
+- Reconfirmed the screenshot blocker below the harness layer with a direct remote helper invocation:
+  - `python3 ~/.codex-remote-studio/arnis-roblox/scripts/studio_ui_control.py capture-screenshot --target /tmp/arnis-direct-screenshot.png`
+  - result:
+    - `success=false`
+    - `capture_method="failed"`
+    - attempted command:
+      - `screencapture -x /tmp/arnis-direct-screenshot.png`
+    - stderr:
+      - `could not create image from display`
+- That means the remaining visual blocker is not just the harness wrapper:
+  - the host currently cannot produce a display capture even when the screenshot helper is called directly
+- Current practical reading:
+  - route-window parity is clean
+  - screenshot/visual proof is blocked by host display capture failure on `tertiary`
+  - next useful work is either:
+    - a different supported capture surface, or
+    - continued non-visual fidelity proof while treating screenshots as a real host blocker
+
+## 2026-04-06 08:41 CDT
+
+- Re-ran the direct screenshot helper after adding rect-capture fallback and richer diagnostics.
+- The helper now proves all current local capture surfaces fail on `tertiary`, not just display-wide capture:
+  - direct helper:
+    - `python3 ~/.codex-remote-studio/arnis-roblox/scripts/studio_ui_control.py capture-screenshot --target /tmp/arnis-direct-screenshot.png`
+  - resulting sidecar now shows:
+    - `window_lookup_error="{\"lookup_status\":\"no_match\",\"window_count\":0}"`
+    - `window_rect={"x":455,"y":269,"width":350,"height":130}`
+    - attempts:
+      - rect:
+        - `screencapture -x -R 455,269,350,130 /tmp/arnis-direct-screenshot.png`
+        - stderr:
+          - `could not create image from rect`
+      - display:
+        - `screencapture -x /tmp/arnis-direct-screenshot.png`
+        - stderr:
+          - `could not create image from display`
+- That means the current screenshot lane is now exhausted on host-supported surfaces already present in repo:
+  - CoreGraphics window-id capture: unavailable
+  - rect capture from Accessibility position/size: fails at image creation
+  - full-display capture: fails at image creation
+- Practical conclusion:
+  - route-window parity remains clean
+  - remote visual proof is still blocked by host capture limitations on `tertiary`
+  - the next productive lane should shift back to non-visual landmark / roof fidelity evidence unless a different capture surface is introduced
+
+## 2026-04-06 09:01 CDT
+
+- Hardened the screenshot diagnostics one more time so the blocker is classified explicitly instead of inferred:
+  - `studio_ui_control.py`
+    - now emits `blocker_reason`
+    - current important values:
+      - `host_display_capture_blocked`
+      - `display_capture_unavailable`
+      - `studio_not_running`
+  - `run_studio_harness.sh`
+    - now logs screenshot failures with `blocker=<reason>` when metadata provides one
+  - tests updated in:
+    - `scripts/tests/test_studio_ui_control.py`
+    - `scripts/tests/test_run_studio_harness.py`
+- Verification:
+  - `python3 -m unittest scripts.tests.test_studio_ui_control scripts.tests.test_run_studio_harness -v`
+  - `bash -n scripts/run_studio_harness.sh`
+  - `git diff --check`
+- Practical effect:
+  - the remote screenshot lane now reports the current `tertiary` failure as:
+    - `blocker_reason="host_display_capture_blocked"`
+  - that makes the visual lane explicitly host-blocked in machine-readable form instead of just failing with raw `screencapture` stderr
+
+## 2026-04-06 09:07 CDT
+
+- Tightened the remaining harness ambiguity around fallback-grade proof surfaces:
+  - `run_studio_harness.sh`
+    - direct MCP play probe now preserves a shell-visible result classification:
+      - `authoritative`
+      - `nonauthoritative`
+      - `failed`
+      - `timed_out`
+    - play-focused shell flow now logs:
+      - `play-mode MCP probe was non-authoritative; continuing with client/log proof`
+    - this keeps the proof narrative clean when the MCP play path resolves against edit context or otherwise fails to become authoritative
+  - `studio_ui_control.py`
+    - screenshot metadata now classifies blocker reasons explicitly
+  - tests updated in:
+    - `scripts/tests/test_run_studio_harness.py`
+    - `scripts/tests/test_studio_ui_control.py`
+- Verification:
+  - `python3 -m unittest scripts.tests.test_run_studio_harness -v`
+  - `python3 -m unittest scripts.tests.test_studio_ui_control scripts.tests.test_run_studio_harness -v`
+  - `bash -n scripts/run_studio_harness.sh`
+  - `git diff --check`
+- Current meaning:
+  - route-window parity remains clean
+  - non-visual landmark proof remains the primary convergence lane
+  - screenshot capture is still host-blocked, but the harness and sidecars now say that explicitly
+  - direct MCP play probe is still fallback-grade, but no longer muddies the proof lane as badly when it is non-authoritative
+
+## 2026-04-06 08:48 CDT
+
+- Added a bounded non-visual landmark / roof proof artifact lane:
+  - `scripts/landmark_roof_proof.py`
+  - test coverage in `scripts/tests/test_landmark_roof_proof.py`
+- The landmark proof lane reuses the existing route-slice manifest extraction and fidelity parsing, then adds:
+  - named buildings in the proven route slice
+  - notable / iconic roof-shape buildings in the slice
+  - player-near building lookups from the late gameplay client markers, including truncated-log salvage for the fields that Roblox keeps before log truncation
+  - roof coverage by usage / shape plus explicit wall / roof material buckets
+- Verification:
+  - `python3 -m unittest scripts.tests.test_landmark_roof_proof -v`
+  - `git diff --check`
+- Fresh non-visual landmark proof from the clean `step-0 active` play slice:
+  - artifact dir:
+    - `/tmp/arnis-landmark-roof-step0-active/`
+  - route/runtime source:
+    - `0.715.1.7151119_20260406T131211Z_Studio_7f49b_last.log`
+  - named buildings in slice now proven directly from the bounded artifact:
+    - `Texas State Capitol`
+      - `sourceId=osm_25758443`
+      - `usage=government`
+      - `roofShape=flat`
+      - `roofMaterial=copper`
+      - `wallMaterial=Limestone`
+    - `Sam Houston Building`
+      - `sourceId=osm_42806376`
+      - `usage=government`
+      - `roofShape=flat`
+      - `wallMaterial=Limestone`
+    - `Capitol Extention`
+      - `sourceId=osm_93135773`
+      - `usage=government`
+      - `roofShape=flat`
+      - `wallMaterial=Limestone`
+  - iconic roof coverage in slice:
+    - `dome` buildings present: `2`
+    - `onion` buildings present: `4`
+  - player-near non-visual evidence from late gameplay markers:
+    - `nearbyReadableFacadeCueParts=38`
+    - `nearbyRoofParts=37`
+    - `overheadRoofParts=19`
+    - `nearbyWallParts=21`
+    - `nearestBuildingSourceIds` include:
+      - `osm_93135773` (`Capitol Extention`)
+  - practical meaning:
+    - even without screenshots, the active route slice now has committed evidence for named government buildings, copper roof material on `Texas State Capitol`, and strong player-near roof / facade / wall presence
+- Current best next lane:
+  - keep using the landmark proof artifact where screenshots are blocked
+  - then widen landmark / roof non-visual coverage to the remaining proven slice that carries dome/onion roof clusters around the Capitol complex
+  - widened once already:
+    - `/tmp/arnis-landmark-roof-step1-retain/`
+    - that slice also proves:
+      - `Texas State Capitol`
+      - `Capitol Extention`
+      - `dome` roof buildings present: `2`
+      - `onion` roof buildings present: `4`
+
+## 2026-04-06 08:55 CDT
+
+- Added a compact aggregate artifact for the non-visual landmark lane:
+  - `scripts/landmark_roof_matrix.py`
+  - test coverage in `scripts/tests/test_landmark_roof_matrix.py`
+- Generated aggregate matrix:
+  - `/tmp/arnis-landmark-roof-matrix/landmark-roof-matrix.json`
+  - `/tmp/arnis-landmark-roof-matrix/landmark-roof-matrix.md`
+- The matrix now consolidates all four clean route slices:
+  - `step-0 active`
+  - `step-0 prefetch`
+  - `step-1 active`
+  - `step-1 retain`
+- Aggregate non-visual landmark proof now shows:
+  - `Texas State Capitol`
+    - present in:
+      - `step-0 active`
+      - `step-1 retain`
+    - `roofMaterial=copper`
+    - `wallMaterial=Limestone`
+  - `Capitol Extention`
+    - present in:
+      - `step-0 active`
+      - `step-1 retain`
+    - player-near in:
+      - `step-0 active`
+      - `step-1 retain`
+  - `Sam Houston Building`
+    - present in:
+      - `step-0 active`
+      - `step-1 active`
+  - `Texas Workforce Commission`
+    - present in:
+      - `step-0 prefetch`
+      - `step-1 active`
+    - player-near in:
+      - `step-0 prefetch`
+      - `step-1 active`
+  - `Lorenzo de Zavala State Archive and Library`
+    - present in:
+      - `step-0 prefetch`
+      - `step-1 active`
+- Aggregate roof-shape proof now shows two distinct clusters:
+  - Capitol cluster slices:
+    - `step-0 active`, `step-1 retain`
+    - iconic roof shapes:
+      - `dome`
+      - `onion`
+  - east/government complex slices:
+    - `step-0 prefetch`, `step-1 active`
+    - iconic roof shape:
+      - `gabled`
+- Practical meaning:
+  - even with screenshots blocked, the repo now has one compact artifact proving named landmark presence, copper-roof Capitol material truth, and which route slices place the player nearest each government cluster
+  - the remaining named-landmark proximity gaps are now explicit in the matrix too:
+    - player-near coverage already proven:
+      - `Capitol Extention`
+      - `Texas Workforce Commission`
+    - present in proven slices but not yet player-near in any current proof:
+    - `Texas State Capitol`
+    - `Sam Houston Building`
+    - `Lorenzo de Zavala State Archive and Library`
+
+## 2026-04-06 09:14 CDT
+
+- Tightened the runtime telemetry path for the remaining landmark-proof gap:
+  - `BuildingBuilder.lua`
+    - building models now publish `ArnisImportBuildingName` when manifest/source name data exists
+  - `WorldProbe.client.lua`
+    - now tracks nearby named buildings directly, not just generic nearest building source ids
+    - named landmark telemetry is bounded and kept compact for log safety
+  - `landmark_roof_proof.py`
+    - now prefers direct nearby named-building telemetry when available
+  - tests updated in:
+    - `scripts/tests/test_austin_runtime_contract.py`
+    - `scripts/tests/test_landmark_roof_proof.py`
+- Verification:
+  - `python3 -m unittest scripts.tests.test_austin_runtime_contract scripts.tests.test_landmark_roof_proof -v`
+  - `git diff --check`
+- Meaning:
+  - the next live landmark proof run can prove player-near named buildings directly from runtime telemetry instead of only by joining generic source ids back through the manifest
+
+## 2026-04-06 09:31 CDT
+
+- Burned down two remaining proof-lane bottlenecks without reopening the now-clean route-window parity slices:
+  - `WorldProbe.client.lua`
+    - widened direct nearby named-building telemetry from a `420`-stud radius / `4` names to a `640`-stud radius / `6` names
+    - goal: surface more of the Capitol / government cluster in one compact client marker so remote runs are more useful per token and less dependent on screenshot capture
+  - `run_studio_harness.sh`
+    - `enter_play_mode()` now falls back to `studio_workflow.py ensure-playing --timeout ...` after the three existing direct triggers (`keycode-96`, `start-test-session`, `Test > Play`)
+    - goal: reduce wasted `tertiary` proof runs caused by flaky play-entry UI control when the editor is alive but the one-shot triggers miss
+- Verification:
+  - `python3 -m unittest scripts.tests.test_austin_runtime_contract scripts.tests.test_run_studio_harness -v`
+  - `bash -n scripts/run_studio_harness.sh`
+  - `git diff --check`
+- Practical meaning:
+  - the next remote play proof should have a better chance of reaching live Austin/client markers even when Studio UI state is slow or sticky
+  - when it does, the compact runtime telemetry can now report a broader nearby named-landmark set instead of only the single closest government building
+
+## 2026-04-06 09:48 CDT
+
+- Fresh remote `tertiary` proof on the active Capitol slice materially narrowed the remaining blocker:
+  - command lane:
+    - `ARNIS_REMOTE_STUDIO_ARTIFACT_DIR=/tmp/arnis-remote-studio-namedproof ARNIS_TELEMETRY_FAMILIES=terrain,roads,structures,player_local bash scripts/run_studio_harness_remote.sh --remote-host 100.65.24.39 -- --takeover --hard-restart --skip-edit-tests --play-wait 35 --pattern-wait 180 --route-catalog PlanetaryRouteBundle.route-catalog --route-lane active --route-step-index 0`
+  - fresh Studio log:
+    - `0.715.1.7151119_20260406T144155Z_Studio_16fc7_last.log`
+- What improved:
+  - the bounded `studio_workflow.py` change plus the workflow-backed `enter_play_mode()` fallback did work materially:
+    - Studio reached `PlaceStateTransitionStatus becomes StartingPlayTest`
+    - the harness emitted authoritative client play proof:
+      - `play camera verdict (authoritative client)`
+      - `play minimap verdict (authoritative client)`
+- New narrower failure:
+  - the run then crashed in harness-side verdict extraction, not in Studio runtime, because `log_effective_play_world_state()` still tried to `json.loads(...)` the latest `ARNIS_CLIENT_WORLD_COMPACT` line directly
+  - on real remote logs, that marker can still be truncated
+- Fix landed immediately after the repro:
+  - `run_studio_harness.sh`
+    - `log_effective_play_world_state()` now uses the same bounded latest-valid-JSON candidate scan already used for `ARNIS_CLIENT_LOCAL_EXPERIENCE`
+    - the world verdict now also surfaces:
+      - `nearestNamedBuildingSourceIds`
+      - `nearestNamedBuildingNames`
+  - `studio_workflow.py`
+    - UI-control subprocesses are now explicitly time-bounded and convert timeout wedges into nonzero results instead of hanging the whole workflow helper indefinitely
+  - tests added/updated:
+    - `scripts/tests/test_studio_workflow.py`
+    - `scripts/tests/test_run_studio_harness.py`
+- Verification:
+  - `python3 -m unittest scripts.tests.test_run_studio_harness scripts.tests.test_studio_workflow scripts.tests.test_austin_runtime_contract -v`
+  - `bash -n scripts/run_studio_harness.sh`
+  - `git diff --check`
+- Practical meaning:
+  - the remaining live blocker is no longer route parity, screenshot capture, or generic play-entry failure
+  - it is now a much narrower remote proof-throughput issue:
+    - keep rerunning until the new truncated-world-marker salvage survives a full active-step proof and yields the widened nearby named-building verdict
+
+## 2026-04-06 09:59 CDT
+
+- Fresh active-step remote proof on `tertiary` completed cleanly on the patched harness lane:
+  - synced log:
+    - `/tmp/arnis-remote-studio-namedproof-2/0.715.1.7151119_20260406T145023Z_Studio_22892_last.log`
+  - synced screenshot sidecar:
+    - `/tmp/arnis-remote-studio-namedproof-2/arnis-studio-harness-play.capture.json`
+  - proof facts:
+    - authoritative client bootstrap trace reached `gameplay_ready`
+    - authoritative client world/local-experience markers survived the earlier truncated-world parsing failure
+    - screenshot capture is still host-blocked only:
+      - `blocker_reason="host_display_capture_blocked"`
+- Regenerated bounded non-visual landmark proof from the fresh remote log:
+  - `/tmp/arnis-landmark-roof-step0-active-20260406T145023Z/landmark-roof-proof.json`
+- Result:
+  - the active Capitol slice still proves strong nearby roof/facade/wall envelope and the same named in-slice buildings:
+    - `Texas State Capitol`
+    - `Sam Houston Building`
+    - `Capitol Extention`
+  - but player-near named proof still only shows:
+    - `Capitol Extention`
+- Root cause found in product telemetry, not the harness:
+  - `WorldProbe.client.lua` widened `NEARBY_NAMED_BUILDING_RADIUS`, but the loop still `continue`d at `NEARBY_BUILDING_RADIUS` before the named-building branch
+  - that meant the larger named-building radius was mostly dead code
+- Fix landed:
+  - `WorldProbe.client.lua`
+    - named-building collection now gates on `NEARBY_NAMED_BUILDING_RADIUS` first
+    - generic nearby-building counters still stay bounded behind `NEARBY_BUILDING_RADIUS`
+  - `test_austin_runtime_contract.py`
+    - added contract coverage for the new scan ordering
+- Verification:
+  - `python3 -m unittest scripts.tests.test_austin_runtime_contract scripts.tests.test_run_studio_harness scripts.tests.test_studio_workflow -v`
+  - `bash -n scripts/run_studio_harness.sh`
+  - `git diff --check`
+- Practical meaning:
+  - the next remote proof should finally answer the real remaining non-visual fidelity question:
+    - whether the active Capitol slice can now prove `Texas State Capitol` and/or `Sam Houston Building` as player-near named landmarks, not just in-slice landmarks
+
+## 2026-04-06 10:00 CDT
+
+- That remaining named-landmark proximity question is now answered cleanly on the active Capitol slice.
+- Fresh remote proof on the fixed named-radius telemetry path:
+  - synced log:
+    - `/tmp/arnis-remote-studio-namedproof-3/0.715.1.7151119_20260406T145705Z_Studio_8bd91_last.log`
+  - synced screenshot sidecar:
+    - `/tmp/arnis-remote-studio-namedproof-3/arnis-studio-harness-play.capture.json`
+  - bounded proof artifact:
+    - `/tmp/arnis-landmark-roof-step0-active-20260406T145705Z/landmark-roof-proof.json`
+- New authoritative result:
+  - `ARNIS_CLIENT_WORLD_COMPACT` now carries:
+    - `nearestNamedBuildingSourceIds=["osm_93135773","osm_25758443","osm_42806376"]`
+  - bounded landmark proof resolves those to:
+    - `Capitol Extention`
+    - `Texas State Capitol`
+    - `Sam Houston Building`
+  - so the active step-0 Capitol slice now has player-near named proof for all three government landmarks
+- The other major proof lanes remain stable in the same run:
+  - `manifestSourceKind="route_catalog"`
+  - authoritative client bootstrap reached `gameplay_ready`
+  - screenshot capture is still blocked only by host display capture:
+    - `blocker_reason="host_display_capture_blocked"`
+    - `session_status.status="ready_play"`
+- Practical meaning:
+  - the remaining non-visual landmark proximity blocker is burned down
+  - the live blocker list is now narrower:
+    - host display capture on `tertiary`
+    - fallback-grade direct MCP play probe resolving against edit context
+
+## 2026-04-06 10:07 CDT
+
+- Burned down the last internal proof-throughput blocker in the play-focused route lane:
+  - `run_studio_harness.sh`
+    - added `authoritative_client_play_proof_present()`
+    - play-focused runs now skip the MCP play probe entirely when the log already contains the full authoritative client proof set:
+      - `ARNIS_CLIENT_BOOTSTRAP`
+      - `ARNIS_CLIENT_CAMERA`
+      - `ARNIS_CLIENT_MINIMAP`
+      - `ARNIS_CLIENT_WORLD_COMPACT`
+      - `ARNIS_CLIENT_LOCAL_EXPERIENCE`
+- Why:
+  - on these route proofs, the direct MCP play probe still tends to resolve against edit context and produces a known false-negative lane
+  - once the authoritative client markers already exist, running MCP again only wastes time and muddies the proof story
+- Verification:
+  - `python3 -m unittest scripts.tests.test_run_studio_harness scripts.tests.test_austin_runtime_contract scripts.tests.test_studio_workflow -v`
+  - `bash -n scripts/run_studio_harness.sh`
+  - `git diff --check`
+- Practical meaning:
+  - within the repo/harness boundary, the remaining blocker list is now effectively down to the external host display-capture limitation on `tertiary`
+
+## 2026-04-06 10:18 CDT
+
+- Burned down the last remaining repo-owned artifact blocker in the route play lane.
+- What landed:
+  - `run_studio_harness.sh`
+    - `run_scene_fidelity_audits()` now supports a route-runtime fallback when a route-catalog run lacks local `rust/out` manifest inputs
+    - it resolves the staged route-runtime `PlanetaryManifestIndex.lua`, materializes a bounded route-slice manifest, and writes play/edit fidelity artifacts directly from that slice
+  - `route_slice_parity_artifacts.py`
+    - route-runtime loading now has a pure-Python fallback and no longer requires a `lua` binary on the proof host
+    - the parser now accepts the real generated route-runtime index shape where `schemaVersion` is not the first field
+  - tests added/updated:
+    - `scripts/tests/test_route_slice_parity_artifacts.py`
+    - `scripts/tests/test_run_studio_harness.py`
+- Verification:
+  - `python3 -m unittest scripts.tests.test_route_slice_parity_artifacts scripts.tests.test_run_studio_harness scripts.tests.test_austin_runtime_contract scripts.tests.test_studio_workflow -v`
+  - `bash -n scripts/run_studio_harness.sh`
+  - `git diff --check`
+- Remote proof:
+  - the earlier wrapper run on `0.715.1.7151119_20260406T150835Z_Studio_e0b56_last.log` already proved the active step-0 route slice reached authoritative client play markers and selected the route-runtime fallback path
+  - after syncing the final parser fix to `tertiary`, a direct remote artifact generation run against that same log succeeded:
+    - `/tmp/arnis-route-slice-manifest.json`
+    - `/tmp/arnis-scene-fidelity-play.json`
+    - `/tmp/arnis-scene-fidelity-play.html`
+  - those artifacts are now pulled back locally to:
+    - `/tmp/arnis-remote-studio-proofcomplete/arnis-route-slice-manifest.json`
+    - `/tmp/arnis-remote-studio-proofcomplete/arnis-scene-fidelity-play.json`
+    - `/tmp/arnis-remote-studio-proofcomplete/arnis-scene-fidelity-play.html`
+  - the synced play report is clean:
+    - `manifestSourceKind="route_catalog"`
+    - `findingCount=0`
+- Practical meaning:
+  - route play proofs are now self-contained even without `rust/out` manifest inputs on the proof host
+  - within the repo/harness boundary, the only remaining blocker is the external macOS display-capture limitation on `tertiary`

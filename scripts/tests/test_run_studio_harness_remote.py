@@ -116,7 +116,7 @@ class RunStudioHarnessRemoteTests(unittest.TestCase):
 
     def test_proof_first_wrapper_mirrors_remote_output_and_starts_early_sync_after_authoritative_signal(self) -> None:
         self.assertIn('REMOTE_SESSION_OUTPUT_LOG="$(mktemp -t arnis-remote-harness-output)"', self.text)
-        self.assertIn('ssh "$REMOTE_HOST" \'bash -s\' -- "$SYNC_STAGE" "$REMOTE_ARNIS_DIR" "$REMOTE_VSYNC_DIR" "$REMOTE_VSYNC_TARGET_DIR" "${HARNESS_ARGS[@]}"', self.text)
+        self.assertIn('ssh "$REMOTE_HOST" \'bash -s\' -- "$SYNC_STAGE" "$REMOTE_ARNIS_DIR" "$REMOTE_VSYNC_DIR" "$REMOTE_VSYNC_TARGET_DIR" "$REMOTE_ROUTE_BUNDLE_DIR" "$ARNIS_TELEMETRY_FAMILIES" "${HARNESS_ARGS[@]}"', self.text)
         self.assertIn('> >(tee "$REMOTE_SESSION_OUTPUT_LOG") 2>&1', self.text)
         self.assertIn("remote_proof_signal_detected()", self.text)
         self.assertIn('play bootstrap trace verdict \\(authoritative client bootstrap marker\\): valid', self.text)
@@ -146,6 +146,21 @@ class RunStudioHarnessRemoteTests(unittest.TestCase):
         self.assertIn('/tmp/arnis-scene-fidelity-play.html', self.text)
         self.assertIn('/tmp/arnis-scene-parity.json', self.text)
         self.assertIn('/tmp/arnis-scene-parity.html', self.text)
+
+    def test_route_catalog_runs_sync_local_route_bundle_into_remote_stage_and_pass_bundle_dir(self) -> None:
+        self.assertIn("detect_requested_route_catalog_name()", self.text)
+        self.assertIn("resolve_route_bundle_name()", self.text)
+        self.assertIn("resolve_local_route_bundle_dir()", self.text)
+        self.assertIn("sync_optional_dir()", self.text)
+        self.assertIn('if [[ "$arg" == "--route-catalog" ]]; then', self.text)
+        self.assertIn('if [[ "$bundle_name" == "PlanetaryRouteBundle" && -d "/tmp/arnis-local-route-bundle" ]]; then', self.text)
+        self.assertIn('REMOTE_ROUTE_BUNDLE_DIR="$REMOTE_ARNIS_DIR/.route-bundles/$ROUTE_BUNDLE_NAME"', self.text)
+        self.assertIn('sync_optional_dir "$LOCAL_ROUTE_BUNDLE_DIR" "$REMOTE_ROUTE_BUNDLE_DIR"', self.text)
+        self.assertIn('"$REMOTE_ROUTE_BUNDLE_DIR"', self.text)
+        self.assertIn('"$ARNIS_TELEMETRY_FAMILIES"', self.text)
+        self.assertIn('remote_telemetry_families="$1"', self.text)
+        self.assertIn('ARNIS_ROUTE_BUNDLE_DIR="$remote_route_bundle_dir"', self.text)
+        self.assertIn('ARNIS_TELEMETRY_FAMILIES="$remote_telemetry_families"', self.text)
 
     def test_supports_remote_profile_host_and_root_flags(self) -> None:
         self.assertIn('--remote-profile PROFILE', self.text)

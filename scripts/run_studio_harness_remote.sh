@@ -122,6 +122,18 @@ sync_optional_file() {
   rsync -a "$local_path" "$REMOTE_HOST:$rsync_remote_path"
 }
 
+sync_optional_dir() {
+  local local_dir="$1"
+  local remote_dir="$2"
+  local rsync_remote_dir=""
+  if [[ ! -d "$local_dir" ]]; then
+    return 0
+  fi
+  ensure_remote_parent_dir "$remote_dir/.keep"
+  rsync_remote_dir="$(render_rsync_remote_path "$remote_dir")"
+  rsync -a --delete "$local_dir"/ "$REMOTE_HOST:$rsync_remote_dir/"
+}
+
 seed_remote_optional_file_from_base() {
   local remote_source_path="$1"
   local remote_dest_path="$2"
@@ -333,6 +345,49 @@ while [[ $# -gt 0 ]]; do
   esac
 done
 
+detect_requested_route_catalog_name() {
+  local arg_index=0
+  while [[ $arg_index -lt ${#HARNESS_ARGS[@]} ]]; do
+    local arg="${HARNESS_ARGS[$arg_index]}"
+    if [[ "$arg" == "--route-catalog" ]]; then
+      local next_index=$((arg_index + 1))
+      if [[ $next_index -lt ${#HARNESS_ARGS[@]} ]]; then
+        printf '%s' "${HARNESS_ARGS[$next_index]}"
+        return 0
+      fi
+    fi
+    arg_index=$((arg_index + 1))
+  done
+  printf '%s' "${ARNIS_ROUTE_CATALOG_NAME:-}"
+}
+
+resolve_route_bundle_name() {
+  local route_catalog_name="${1:-}"
+  if [[ -n "$route_catalog_name" && "$route_catalog_name" == *.route-catalog ]]; then
+    printf '%s' "${route_catalog_name%.route-catalog}"
+  fi
+}
+
+resolve_local_route_bundle_dir() {
+  local bundle_name="${1:-}"
+  if [[ -n "${ARNIS_ROUTE_BUNDLE_DIR:-}" && -d "${ARNIS_ROUTE_BUNDLE_DIR:-}" ]]; then
+    printf '%s' "${ARNIS_ROUTE_BUNDLE_DIR}"
+    return 0
+  fi
+  if [[ "$bundle_name" == "PlanetaryRouteBundle" && -d "/tmp/arnis-local-route-bundle" ]]; then
+    printf '%s' "/tmp/arnis-local-route-bundle"
+    return 0
+  fi
+  return 1
+}
+
+REQUESTED_ROUTE_CATALOG_NAME="$(detect_requested_route_catalog_name)"
+ROUTE_BUNDLE_NAME="$(resolve_route_bundle_name "$REQUESTED_ROUTE_CATALOG_NAME")"
+LOCAL_ROUTE_BUNDLE_DIR=""
+if [[ -n "$ROUTE_BUNDLE_NAME" ]]; then
+  LOCAL_ROUTE_BUNDLE_DIR="$(resolve_local_route_bundle_dir "$ROUTE_BUNDLE_NAME" || true)"
+fi
+
 REMOTE_HOST="${REMOTE_HOST:-$(resolve_profile_value ARNIS_REMOTE_STUDIO_HOST "$REMOTE_PROFILE" "")}"
 REMOTE_ROOT="${REMOTE_ROOT:-$(resolve_profile_value ARNIS_REMOTE_STUDIO_ROOT "$REMOTE_PROFILE" "$DEFAULT_REMOTE_ROOT")}"
 REMOTE_ARNIS_BASE="${REMOTE_ARNIS_BASE:-$(resolve_profile_value ARNIS_REMOTE_STUDIO_BASE_ARNIS "$REMOTE_PROFILE" "$DEFAULT_REMOTE_ARNIS_BASE")}"
@@ -340,6 +395,10 @@ REMOTE_VSYNC_BASE="${REMOTE_VSYNC_BASE:-$(resolve_profile_value ARNIS_REMOTE_STU
 REMOTE_VSYNC_TARGET_DIR="${REMOTE_VSYNC_TARGET_DIR:-$(resolve_profile_value ARNIS_REMOTE_STUDIO_VSYNC_TARGET_DIR "$REMOTE_PROFILE" "$REMOTE_VSYNC_BASE/target")}"
 REMOTE_ARNIS_DIR="$REMOTE_ROOT/arnis-roblox"
 REMOTE_VSYNC_DIR="$REMOTE_ROOT/vertigo-sync"
+REMOTE_ROUTE_BUNDLE_DIR=""
+if [[ -n "$ROUTE_BUNDLE_NAME" ]]; then
+  REMOTE_ROUTE_BUNDLE_DIR="$REMOTE_ARNIS_DIR/.route-bundles/$ROUTE_BUNDLE_NAME"
+fi
 RSYNC_REMOTE_ARNIS_DIR="$(render_rsync_remote_path "$REMOTE_ARNIS_DIR")"
 RSYNC_REMOTE_VSYNC_DIR="$(render_rsync_remote_path "$REMOTE_VSYNC_DIR")"
 
@@ -419,11 +478,14 @@ if [[ $SYNC_STAGE -eq 1 ]]; then
   sync_repo_snapshot "$LOCAL_VSYNC_DIR" "$REMOTE_VSYNC_DIR" "$RSYNC_REMOTE_VSYNC_DIR"
   sync_optional_file "$LOCAL_MANIFEST_SUMMARY_PATH" "$REMOTE_MANIFEST_SUMMARY_PATH"
   seed_remote_optional_file_from_base "$REMOTE_ARNIS_BASE/rust/out/austin-manifest.scene-index.json" "$REMOTE_MANIFEST_SUMMARY_PATH"
+  if [[ -n "$LOCAL_ROUTE_BUNDLE_DIR" && -n "$REMOTE_ROUTE_BUNDLE_DIR" ]]; then
+    sync_optional_dir "$LOCAL_ROUTE_BUNDLE_DIR" "$REMOTE_ROUTE_BUNDLE_DIR"
+  fi
 fi
 reset_remote_proof_artifacts
 
 REMOTE_HARNESS_ACTIVE=1
-ssh "$REMOTE_HOST" 'bash -s' -- "$SYNC_STAGE" "$REMOTE_ARNIS_DIR" "$REMOTE_VSYNC_DIR" "$REMOTE_VSYNC_TARGET_DIR" "${HARNESS_ARGS[@]}" > >(tee "$REMOTE_SESSION_OUTPUT_LOG") 2>&1 <<'SH' &
+ssh "$REMOTE_HOST" 'bash -s' -- "$SYNC_STAGE" "$REMOTE_ARNIS_DIR" "$REMOTE_VSYNC_DIR" "$REMOTE_VSYNC_TARGET_DIR" "$REMOTE_ROUTE_BUNDLE_DIR" "$ARNIS_TELEMETRY_FAMILIES" "${HARNESS_ARGS[@]}" > >(tee "$REMOTE_SESSION_OUTPUT_LOG") 2>&1 <<'SH' &
 set -euo pipefail
 expand_remote_path() {
   case "$1" in
@@ -443,6 +505,10 @@ shift
 remote_vsync_dir="$(expand_remote_path "$1")"
 shift
 remote_vsync_target_dir="$(expand_remote_path "$1")"
+shift
+remote_route_bundle_dir="$(expand_remote_path "$1")"
+shift
+remote_telemetry_families="$1"
 shift
 remote_harness_pgid_file="$remote_arnis_dir/.arnis-remote-harness.pgid"
 remote_harness_lock_dir="$remote_arnis_dir/.arnis-studio-harness.lock"
@@ -490,7 +556,7 @@ needs_vsync_build() {
 ensure_remote_stage_ready "$remote_arnis_dir" "$remote_vsync_dir"
 
 if needs_vsync_build "$remote_vsync_dir" "$remote_vsync_target_dir"; then
-  CARGO_TARGET_DIR="$remote_vsync_target_dir" \
+CARGO_TARGET_DIR="$remote_vsync_target_dir" \
   cargo build --manifest-path "$remote_vsync_dir/Cargo.toml" --bin vsync >/dev/null
 fi
 
@@ -499,6 +565,8 @@ rm -f "$remote_harness_pgid_file"
 HARNESS_LOCK_DIR="$remote_harness_lock_dir" \
 VSYNC_REPO_DIR="$remote_vsync_dir" \
 VSYNC_BIN="$remote_vsync_target_dir/debug/vsync" \
+ARNIS_ROUTE_BUNDLE_DIR="$remote_route_bundle_dir" \
+ARNIS_TELEMETRY_FAMILIES="$remote_telemetry_families" \
 bash "$remote_arnis_dir/scripts/run_studio_harness.sh" "$@" &
 remote_harness_pid=$!
 remote_harness_pgid="$(ps -o pgid= "$remote_harness_pid" | tr -d '[:space:]')"

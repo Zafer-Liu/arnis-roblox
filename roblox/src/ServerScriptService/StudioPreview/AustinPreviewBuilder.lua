@@ -41,9 +41,11 @@ local previewPerfLastFlushAt = 0
 local cachedFullManifestHandle = nil
 local cachedFullManifestHash = nil
 local cachedFullManifestName = nil
+local cachedFullManifestRequestKey = nil
 local cachedPreviewManifestHandle = nil
 local cachedPreviewManifestHash = nil
 local cachedPreviewManifestName = nil
+local cachedPreviewManifestRequestKey = nil
 local activeManifestHandle = nil
 local activeManifestMode = AustinPreviewRequest.MODE_PREVIEW
 local observedChunkCostById = {}
@@ -273,12 +275,33 @@ local function shouldCancelBuild(buildToken)
     return false
 end
 
+local function buildManifestRequestKey(normalizedRequest)
+    if type(normalizedRequest) ~= "table" or type(normalizedRequest.routeCatalogName) ~= "string" then
+        return "canonical_manifest"
+    end
+
+    local routeLane = normalizedRequest.routeLane or ""
+    local routeStepIndex = normalizedRequest.routeStepIndex or -1
+    return table.concat({
+        "route_catalog",
+        normalizedRequest.routeCatalogName,
+        routeLane,
+        tostring(routeStepIndex),
+    }, "|")
+end
+
 local function loadPreviewManifestSource(timeTravelActive, normalizedRequest)
     local manifestSourceKind = normalizedRequest and normalizedRequest.routeCatalogName and "route_catalog"
         or "canonical_manifest"
-    if RunService:IsStudio() and not timeTravelActive then
+    local manifestRequestKey = buildManifestRequestKey(normalizedRequest)
+    local canUseManifestCache = manifestSourceKind == "canonical_manifest"
+    if RunService:IsStudio() and not timeTravelActive and canUseManifestCache then
         local currentHash = getCurrentSyncHash()
-        if cachedPreviewManifestHandle ~= nil and cachedPreviewManifestHash == currentHash then
+        if
+            cachedPreviewManifestHandle ~= nil
+            and cachedPreviewManifestHash == currentHash
+            and cachedPreviewManifestRequestKey == manifestRequestKey
+        then
             updatePreviewPerf({
                 ManifestSource = "canonical-preview-cached",
                 ManifestSourceKind = manifestSourceKind,
@@ -298,10 +321,11 @@ local function loadPreviewManifestSource(timeTravelActive, normalizedRequest)
         routeStepIndex = normalizedRequest and normalizedRequest.routeStepIndex or nil,
     })
 
-    if RunService:IsStudio() and not timeTravelActive then
+    if RunService:IsStudio() and not timeTravelActive and canUseManifestCache then
         cachedPreviewManifestHandle = previewManifest
         cachedPreviewManifestHash = getCurrentSyncHash()
         cachedPreviewManifestName = resolvedManifestName
+        cachedPreviewManifestRequestKey = manifestRequestKey
     end
 
     updatePreviewPerf({
@@ -322,10 +346,16 @@ local function loadFullManifestSource(timeTravelActive, normalizedRequest)
 
     local manifestSourceKind = normalizedRequest and normalizedRequest.routeCatalogName and "route_catalog"
         or "canonical_manifest"
+    local manifestRequestKey = buildManifestRequestKey(normalizedRequest)
+    local canUseManifestCache = manifestSourceKind == "canonical_manifest"
 
-    if not timeTravelActive then
+    if not timeTravelActive and canUseManifestCache then
         local currentHash = getCurrentSyncHash()
-        if cachedFullManifestHandle ~= nil and cachedFullManifestHash == currentHash then
+        if
+            cachedFullManifestHandle ~= nil
+            and cachedFullManifestHash == currentHash
+            and cachedFullManifestRequestKey == manifestRequestKey
+        then
             updatePreviewPerf({
                 ManifestSource = "canonical-full-cached",
                 ManifestSourceKind = manifestSourceKind,
@@ -351,10 +381,11 @@ local function loadFullManifestSource(timeTravelActive, normalizedRequest)
         return nil
     end
 
-    if not timeTravelActive then
+    if not timeTravelActive and canUseManifestCache then
         cachedFullManifestHandle = fullManifest
         cachedFullManifestHash = getCurrentSyncHash()
         cachedFullManifestName = resolvedManifestName
+        cachedFullManifestRequestKey = manifestRequestKey
     end
 
     updatePreviewPerf({
@@ -1128,7 +1159,7 @@ local function syncChunkBatch(
                 and typeof(focusPoint) == "Vector3"
             then lookTarget - focusPoint
             else nil
-        ChunkPriority.SortWorkItems(workItems, focusPoint, chunkSize, forwardVector, observedChunkCostById)
+        ChunkPriority.SortWorkItems(workItems, focusPoint, nil, chunkSize, forwardVector, observedChunkCostById)
     end
 
     for _, workItem in ipairs(workItems) do
@@ -1285,6 +1316,7 @@ local function syncPreviewChunks(
             desiredChunkIds,
             chunkRefById,
             focusPoint,
+            nil,
             chunkSize,
             forwardVector,
             observedChunkCostById
@@ -1738,7 +1770,14 @@ function AustinPreviewBuilder.Build(request)
         spawnZ = math.round(spawnPoint.Z),
     })
     local radiusStartedAt = os.clock()
-    local previewChunkIds = boundedEnvelope.chunkIds
+    local previewChunkIds, resolvedLoadRadius =
+        AustinPreviewRequest.SelectChunkIds(manifestSource, boundedEnvelope.focusPoint, normalizedRequest, AustinPreviewBuilder.LOAD_RADIUS)
+    if resolvedLoadRadius ~= nil then
+        selectionLoadRadius = resolvedLoadRadius
+    end
+    if type(previewChunkIds) ~= "table" or #previewChunkIds == 0 then
+        previewChunkIds = boundedEnvelope.chunkIds
+    end
     buildTimings.radiusMs = (os.clock() - radiusStartedAt) * 1000
     if hardPause then
         manifestSource = ManifestLoader.FreezeHandleForChunkIds(manifestSource, previewChunkIds)

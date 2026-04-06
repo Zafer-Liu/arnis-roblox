@@ -1,6 +1,8 @@
 local WorldProbeTelemetryFlags = {}
 
 WorldProbeTelemetryFlags.WORKSPACE_ATTR = "ArnisTelemetryFamilies"
+WorldProbeTelemetryFlags.PLAYER_ATTR = "ArnisTelemetryFamilies"
+WorldProbeTelemetryFlags.REPLICATED_STORAGE_ATTR = "ArnisTelemetryFamilies"
 
 local SUPPORTED_FAMILY_ORDER = {
     "terrain",
@@ -102,9 +104,69 @@ function WorldProbeTelemetryFlags.shapeLocalExperiencePayload(payload, telemetry
         return payload
     end
 
+    local function compactCopy(source, allowedKeys)
+        if type(source) ~= "table" then
+            return nil
+        end
+        local compact = {}
+        for _, key in ipairs(allowedKeys) do
+            local value = source[key]
+            if value ~= nil then
+                compact[key] = value
+            end
+        end
+        if next(compact) == nil then
+            return nil
+        end
+        return compact
+    end
+
     WorldProbeTelemetryFlags.annotateMarkerPayload(payload, telemetryFlags)
     payload.playerLocalTelemetryEnabled = playerLocalTelemetryEnabled == true
     if payload.playerLocalTelemetryEnabled then
+        payload.localSupport = compactCopy(payload.localSupport, {
+            "surfaceRole",
+            "supportY",
+            "terrainY",
+            "supportMinusTerrainYStuds",
+        })
+        payload.localTerrain = compactCopy(payload.localTerrain, {
+            "status",
+            "convergenceStatus",
+            "samplePattern",
+            "sampleRadiusStuds",
+            "sampleCount",
+            "missingSampleCount",
+            "missingEdgeSampleCount",
+            "centerTerrainY",
+            "minTerrainY",
+            "maxTerrainY",
+            "heightRangeStuds",
+            "maxStepStuds",
+            "meanAbsStepStuds",
+            "edgeMeanTerrainY",
+            "centerMinusEdgeMeanStuds",
+            "edgeTerrainYRangeStuds",
+            "centerEdgeMaxDeltaStuds",
+            "materialKindCount",
+            "dominantMaterial",
+            "dominantMaterialSampleCount",
+            "nonGrassSampleCount",
+            "coverageRatio",
+            "edgeCoverageRatio",
+        })
+        payload.localEnclosure = compactCopy(payload.localEnclosure, {
+            "nearbyWallParts",
+            "collidableWallPartsNearby",
+            "nearestWallDistanceStuds",
+            "readableFacadeCueParts",
+        })
+        payload.localRoofCover = compactCopy(payload.localRoofCover, {
+            "nearbyRoofParts",
+            "overheadRoofParts",
+            "overheadRoofMinClearanceStuds",
+        })
+        payload.characterPosition = nil
         return payload
     end
 

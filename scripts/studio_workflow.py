@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 import argparse
 import json
+import os
 import subprocess
 import sys
 import time
@@ -23,14 +24,39 @@ class StudioWorkflowController:
     def __init__(self) -> None:
         self.root = Path(__file__).resolve().parent
         self.ui_control = self.root / "studio_ui_control.py"
+        self.control_timeout_seconds = max(
+            1,
+            int(
+                float(
+                    os.environ.get(
+                        "ARNIS_STUDIO_WORKFLOW_CONTROL_TIMEOUT_SECONDS",
+                        os.environ.get("ARNIS_STUDIO_UI_CONTROL_TIMEOUT_SECONDS", "8"),
+                    )
+                    or "8"
+                )
+            ),
+        )
 
     def _run_control(self, *args: str) -> subprocess.CompletedProcess[str]:
-        return subprocess.run(
-            ["python3", str(self.ui_control), *args],
-            check=False,
-            capture_output=True,
-            text=True,
-        )
+        env = os.environ.copy()
+        env.setdefault("ARNIS_STUDIO_UI_CONTROL_TIMEOUT_SECONDS", str(self.control_timeout_seconds))
+        command = ["python3", str(self.ui_control), *args]
+        try:
+            return subprocess.run(
+                command,
+                check=False,
+                capture_output=True,
+                text=True,
+                env=env,
+                timeout=self.control_timeout_seconds + 1,
+            )
+        except subprocess.TimeoutExpired:
+            return subprocess.CompletedProcess(
+                command,
+                124,
+                "",
+                f"studio_ui_control timed out after {self.control_timeout_seconds + 1}s",
+            )
 
     def get_state_payload(self) -> dict:
         result = self._run_control("get-state")

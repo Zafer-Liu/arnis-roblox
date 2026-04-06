@@ -138,6 +138,8 @@ def _normalize_client_world(report: dict[str, Any]) -> dict[str, Any] | None:
             }
         else:
             normalized[key] = _normalize_json_value(value)
+    if not normalized:
+        return None
     return normalized
 
 
@@ -488,10 +490,10 @@ def build_report(edit_report: dict[str, Any], play_report: dict[str, Any]) -> di
     }
     edit_client_world = _normalize_client_world(edit_report)
     play_client_world = _normalize_client_world(play_report)
-    if edit_client_world is not None or play_client_world is not None:
+    if edit_client_world is not None and play_client_world is not None:
         comparisons["clientWorld"] = {
-            "edit": edit_client_world or {},
-            "play": play_client_world or {},
+            "edit": edit_client_world,
+            "play": play_client_world,
         }
     edit_truth_pack = _normalize_truth_pack(edit_report)
     play_truth_pack = _normalize_truth_pack(play_report)

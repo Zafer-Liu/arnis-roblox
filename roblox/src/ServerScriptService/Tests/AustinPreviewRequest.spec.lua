@@ -80,7 +80,11 @@ return function()
     function routeHandle:LoadLaneSummary(stepIndex, laneName)
         routeSelectionCalls[#routeSelectionCalls + 1] = ("lane:%s:%s"):format(tostring(stepIndex), tostring(laneName))
         return {
-            chunk_ids = { "1_0", "2_0" },
+            chunk_ids = { "austin:1_0", "austin:2_0" },
+            chunk_refs = {
+                { scene_id = "austin", chunk_id = "1_0" },
+                { scene_id = "austin", chunk_id = "2_0" },
+            },
         }
     end
 
@@ -106,6 +110,8 @@ return function()
     local routeChunkIds, routeRadius = AustinPreviewRequest.SelectChunkIds(routeHandle, nil, routeRequest, 1500)
     Assert.equal(routeRadius, nil, "expected route lane selection to bypass radius-based preview selection")
     Assert.equal(#routeChunkIds, 2, "expected route lane selection to use route catalog chunk ids")
+    Assert.equal(routeChunkIds[1], "1_0", "expected route lane selection to strip scene-qualified chunk ids")
+    Assert.equal(routeChunkIds[2], "2_0", "expected route lane selection to prefer plain chunk ids for manifest handles")
     Assert.equal(
         routeSelectionCalls[1],
         "lane:2:active",

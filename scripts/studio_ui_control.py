@@ -743,7 +743,8 @@ def resolve_front_window_capture_target(front_window: str) -> tuple[int, dict, s
 ObjC.import("CoreGraphics");
 const ownerNames = {owner_names_json};
 const preferredWindowName = {preferred_name_json};
-const windows = ObjC.deepUnwrap($.CGWindowListCopyWindowInfo($.kCGWindowListOptionOnScreenOnly, $.kCGNullWindowID)) || [];
+const rawWindows = ObjC.deepUnwrap($.CGWindowListCopyWindowInfo($.kCGWindowListOptionOnScreenOnly, $.kCGNullWindowID));
+const windows = Array.isArray(rawWindows) ? rawWindows : [];
 let selected = null;
 for (const windowInfo of windows) {{
   const ownerName = String(windowInfo.kCGWindowOwnerName || "");
@@ -767,10 +768,14 @@ for (const windowInfo of windows) {{
   }}
 }}
 if (!selected) {{
-  console.log(JSON.stringify({{}}));
+  console.log(JSON.stringify({{
+    lookup_status: "no_match",
+    window_count: windows.length,
+  }}));
 }} else {{
   console.log(
     JSON.stringify({{
+      lookup_status: "selected",
       window_id: Number(selected.kCGWindowNumber || 0),
       owner_name: String(selected.kCGWindowOwnerName || ""),
       window_name: String(selected.kCGWindowName || ""),
@@ -788,7 +793,50 @@ if (!selected) {{
         payload = json.loads(output)
     except json.JSONDecodeError:
         return 1, {}, "invalid JXA JSON payload"
-    return 0, payload if isinstance(payload, dict) else {}, error_text
+    if not isinstance(payload, dict):
+        return 1, {}, "invalid JXA window target payload"
+    if payload.get("lookup_status") != "selected":
+        window_count = payload.get("window_count")
+        if isinstance(window_count, int):
+            return 0, {}, f"no_matching_window (window_count={window_count})"
+        return 0, {}, "no_matching_window"
+    return 0, payload, error_text
+
+
+def resolve_front_window_capture_rect() -> tuple[int, dict, str]:
+    code, output = capture_osascript(
+        f"""
+tell application "System Events"
+  tell process "{APP_NAME}"
+    if (count of windows) > 0 then
+      try
+        set windowPosition to position of front window
+        set windowSize to size of front window
+        return (item 1 of windowPosition as text) & "," & (item 2 of windowPosition as text) & "," & (item 1 of windowSize as text) & "," & (item 2 of windowSize as text)
+      on error errMsg
+        return "ERR:" & errMsg
+      end try
+    end if
+  end tell
+end tell
+"""
+    )
+    if code != 0:
+        return code, {}, "window_rect_lookup_failed"
+    if not output:
+        return 0, {}, "no_window_rect"
+    if output.startswith("ERR:"):
+        return 0, {}, output[4:]
+    parts = [part.strip() for part in output.split(",")]
+    if len(parts) != 4:
+        return 1, {}, f"invalid_window_rect:{output}"
+    try:
+        x, y, width, height = (int(part) for part in parts)
+    except ValueError:
+        return 1, {}, f"invalid_window_rect:{output}"
+    if width <= 0 or height <= 0:
+        return 0, {}, f"invalid_window_rect_size:{output}"
+    return 0, {"x": x, "y": y, "width": width, "height": height}, ""
 
 
 def run_capture_command(command: list[str]) -> subprocess.CompletedProcess[str]:
@@ -798,6 +846,29 @@ def run_capture_command(command: list[str]) -> subprocess.CompletedProcess[str]:
         capture_output=True,
         text=True,
     )
+
+
+def classify_capture_blocker(
+    attempts: list[dict[str, object]],
+    session_status: dict[str, object],
+    window_lookup_error: str,
+    rect_lookup_error: str,
+) -> str | None:
+    status = str(session_status.get("status") or "")
+    if status == "not_running":
+        return "studio_not_running"
+
+    attempt_stderr = "\n".join(str(item.get("stderr") or "") for item in attempts)
+    if "could not create image from rect" in attempt_stderr and "could not create image from display" in attempt_stderr:
+        return "host_display_capture_blocked"
+    if "could not create image from display" in attempt_stderr:
+        return "display_capture_unavailable"
+
+    if "no_matching_window" in window_lookup_error and rect_lookup_error:
+        return "window_target_unavailable"
+    if rect_lookup_error:
+        return "window_rect_unavailable"
+    return None
 
 
 def capture_screenshot(target: str) -> int:
@@ -810,6 +881,7 @@ def capture_screenshot(target: str) -> int:
     window_lookup_code, window_target, window_lookup_error = resolve_front_window_capture_target(
         str(payload.get("front_window") or "")
     )
+    rect_lookup_code, window_rect, rect_lookup_error = resolve_front_window_capture_rect()
 
     attempts = []
     capture_method = "failed"
@@ -819,6 +891,11 @@ def capture_screenshot(target: str) -> int:
     window_id = int(window_target.get("window_id") or 0)
     if window_id > 0:
         commands.append(("window", ["screencapture", "-x", "-l", str(window_id), target]))
+    rect_width = int(window_rect.get("width") or 0)
+    rect_height = int(window_rect.get("height") or 0)
+    if rect_width > 0 and rect_height > 0:
+        rect = f"{int(window_rect.get('x') or 0)},{int(window_rect.get('y') or 0)},{rect_width},{rect_height}"
+        commands.append(("rect", ["screencapture", "-x", "-R", rect, target]))
     commands.append(("display", ["screencapture", "-x", target]))
 
     for method, command in commands:
@@ -836,16 +913,26 @@ def capture_screenshot(target: str) -> int:
             success = True
             break
 
+    blocker_reason = None if success else classify_capture_blocker(
+        attempts,
+        session_status,
+        window_lookup_error,
+        rect_lookup_error,
+    )
     metadata = {
         "success": success,
         "target": target,
         "target_exists": Path(target).exists(),
         "capture_method": capture_method,
+        "blocker_reason": blocker_reason,
         "metadata_version": 1,
         "attempts": attempts,
         "window_lookup_code": window_lookup_code,
         "window_lookup_error": window_lookup_error,
         "window_target": window_target,
+        "rect_lookup_code": rect_lookup_code,
+        "rect_lookup_error": rect_lookup_error,
+        "window_rect": window_rect,
         "ui_snapshot": payload,
         "session_status": session_status,
     }
@@ -857,6 +944,7 @@ def capture_screenshot(target: str) -> int:
                 "target": target,
                 "metadata_path": str(metadata_path),
                 "capture_method": capture_method,
+                "blocker_reason": blocker_reason,
             },
             separators=(",", ":"),
         )

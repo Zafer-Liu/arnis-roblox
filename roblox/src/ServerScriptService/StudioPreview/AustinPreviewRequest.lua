@@ -85,11 +85,62 @@ function AustinPreviewRequest.ResolveLoadRadius(request, defaultLoadRadius)
     return defaultLoadRadius
 end
 
+local function normalizeRouteChunkId(chunkId)
+    if type(chunkId) ~= "string" or chunkId == "" then
+        return nil
+    end
+    local _, separatorIndex = string.find(chunkId, ":", 1, true)
+    if separatorIndex == nil then
+        return chunkId
+    end
+    local normalized = string.sub(chunkId, separatorIndex + 1)
+    if normalized == "" then
+        return nil
+    end
+    return normalized
+end
+
+local function normalizeRouteChunkIds(laneSummary)
+    if type(laneSummary) ~= "table" then
+        return {}
+    end
+
+    local normalizedChunkIds = {}
+    local seenChunkIds = {}
+    local chunkRefs = laneSummary.chunk_refs
+    if type(chunkRefs) == "table" then
+        for _, chunkRef in ipairs(chunkRefs) do
+            local normalizedChunkId = normalizeRouteChunkId(type(chunkRef) == "table" and chunkRef.chunk_id or nil)
+            if normalizedChunkId ~= nil and not seenChunkIds[normalizedChunkId] then
+                seenChunkIds[normalizedChunkId] = true
+                normalizedChunkIds[#normalizedChunkIds + 1] = normalizedChunkId
+            end
+        end
+    end
+
+    if #normalizedChunkIds > 0 then
+        return normalizedChunkIds
+    end
+
+    local chunkIds = laneSummary.chunk_ids
+    if type(chunkIds) ~= "table" then
+        return {}
+    end
+    for _, chunkId in ipairs(chunkIds) do
+        local normalizedChunkId = normalizeRouteChunkId(chunkId)
+        if normalizedChunkId ~= nil and not seenChunkIds[normalizedChunkId] then
+            seenChunkIds[normalizedChunkId] = true
+            normalizedChunkIds[#normalizedChunkIds + 1] = normalizedChunkId
+        end
+    end
+    return normalizedChunkIds
+end
+
 function AustinPreviewRequest.SelectChunkIds(handle, focusPoint, request, defaultLoadRadius)
     local normalizedRequest = AustinPreviewRequest.Normalize(request)
     if normalizedRequest.routeLane ~= nil and type(handle.LoadLaneSummary) == "function" then
         local laneSummary = handle:LoadLaneSummary(normalizedRequest.routeStepIndex or 0, normalizedRequest.routeLane)
-        return laneSummary.chunk_ids or {}, nil
+        return normalizeRouteChunkIds(laneSummary), nil
     end
 
     local loadRadius = AustinPreviewRequest.ResolveLoadRadius(normalizedRequest, defaultLoadRadius)

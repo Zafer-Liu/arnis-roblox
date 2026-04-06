@@ -14,6 +14,7 @@ ROBLOX_PLUGIN_DIR="${ROBLOX_PLUGIN_DIR:-$HOME/Documents/Roblox/Plugins}"
 ROBLOX_STUDIO_STATE_DIR="$HOME/Library/Application Support/Roblox/RobloxStudio"
 ROBLOX_AUTOSAVE_DIR="$ROBLOX_STUDIO_STATE_DIR/AutoSaves"
 RUNALL_CONFIG="$ROOT_DIR/roblox/src/ServerScriptService/Tests/RunAllConfig.lua"
+HARNESS_ROUTE_CONFIG="$ROOT_DIR/roblox/src/ServerScriptService/ImportService/HarnessRouteConfig.lua"
 VSYNC_REPO_DIR="${VSYNC_REPO_DIR:-}"
 PLACE_PATH=""
 PLACE_PATH_CUSTOM=0
@@ -36,13 +37,16 @@ HARD_RESTART=0
 SKIP_PLUGIN_SMOKE=0
 SCENE_INDEX_VERSION=2
 STUDIO_RELAUNCH_COOLDOWN_SECONDS=3
-STUDIO_UI_TIMEOUT_SECONDS="${HARNESS_STUDIO_UI_TIMEOUT_SECONDS:-5}"
+STUDIO_UI_TIMEOUT_SECONDS="${HARNESS_STUDIO_UI_TIMEOUT_SECONDS:-10}"
+STUDIO_WORKFLOW_CONTROL_TIMEOUT_SECONDS="${HARNESS_STUDIO_WORKFLOW_CONTROL_TIMEOUT_SECONDS:-12}"
+PLAY_TRIGGER_CONFIRM_TIMEOUT_SECONDS="${HARNESS_PLAY_TRIGGER_CONFIRM_TIMEOUT_SECONDS:-12}"
 HARNESS_LOCK_DIR="${HARNESS_LOCK_DIR:-/tmp/arnis-studio-harness.lock}"
 HARNESS_LOCK_OWNED=0
 export ARNIS_TELEMETRY_FAMILIES="${ARNIS_TELEMETRY_FAMILIES:-}"
 ROUTE_CATALOG_NAME="${ARNIS_ROUTE_CATALOG_NAME:-}"
 ROUTE_LANE_NAME="${ARNIS_ROUTE_LANE:-}"
 ROUTE_STEP_INDEX="${ARNIS_ROUTE_STEP_INDEX:-}"
+ROUTE_BUNDLE_DIR="${ARNIS_ROUTE_BUNDLE_DIR:-}"
 MCP_BINARY="${RBX_STUDIO_MCP_BIN:-}"
 VSYNC_BINARY="${VSYNC_BIN:-}"
 VSYNC_SOURCE_REPO=0
@@ -57,6 +61,9 @@ MCP_SIDECAR_LOG=""
 MCP_SIDECAR_DIR=""
 MCP_SIDECAR_OWNED=0
 NEW_TEMPLATE_HANDOFF_READY=0
+ROUTE_BUNDLE_TARGET_DIR=""
+ROUTE_BUNDLE_BACKUP_DIR=""
+HARNESS_ROUTE_CONFIG_BACKUP=""
 SCENE_MARKER_LUAU=""
 read -r -d '' SCENE_MARKER_LUAU <<'LUA' || true
 local function cloneStatsWithoutSourceIds(stats)
@@ -606,7 +613,7 @@ build_clean_place() {
   local build_project="$roblox_dir/.harness.build.project.json"
   local serve_project="$roblox_dir/.harness.serve.project.json"
 
-  if [[ -z "$VSYNC_BINARY" ]]; then
+  if ! ensure_vsync_binary_fresh; then
     return 1
   fi
 
@@ -902,6 +909,10 @@ auto_prepare_place() {
     AUTO_BUILT_PLACE=1
     log "using auto-built clean place: $PLACE_PATH"
   else
+    if should_skip_edit_mode_actions_for_play; then
+      echo "[harness] play-focused harness run requires a buildable clean place; refusing to fall back to Studio New template" >&2
+      exit 1
+    fi
     log "clean place build unavailable; falling back to Studio New template workflow"
   fi
 }
@@ -1027,6 +1038,11 @@ fi
 
 if [[ ! -f "$RUNALL_CONFIG" ]]; then
   echo "[harness] RunAllConfig not found: $RUNALL_CONFIG" >&2
+  exit 1
+fi
+
+if [[ ! -f "$HARNESS_ROUTE_CONFIG" ]]; then
+  echo "[harness] HarnessRouteConfig not found: $HARNESS_ROUTE_CONFIG" >&2
   exit 1
 fi
 
@@ -1447,6 +1463,118 @@ restore_foreign_plugins() {
   PLUGIN_SANDBOXED_FILES=()
 }
 
+resolve_route_bundle_name() {
+  if [[ -n "$ROUTE_CATALOG_NAME" && "$ROUTE_CATALOG_NAME" == *.route-catalog ]]; then
+    printf '%s' "${ROUTE_CATALOG_NAME%.route-catalog}"
+  fi
+}
+
+resolve_route_bundle_source_dir() {
+  local bundle_name="${1:-}"
+  if [[ -n "$ROUTE_BUNDLE_DIR" && -d "$ROUTE_BUNDLE_DIR" ]]; then
+    printf '%s' "$ROUTE_BUNDLE_DIR"
+    return 0
+  fi
+  if [[ "$bundle_name" == "PlanetaryRouteBundle" && -d "/tmp/arnis-local-route-bundle" ]]; then
+    printf '%s' "/tmp/arnis-local-route-bundle"
+    return 0
+  fi
+  return 1
+}
+
+prepare_route_bundle_sample_data() {
+  local bundle_name=""
+  bundle_name="$(resolve_route_bundle_name)"
+  if [[ -z "$bundle_name" ]]; then
+    return 0
+  fi
+
+  local source_dir=""
+  source_dir="$(resolve_route_bundle_source_dir "$bundle_name" || true)"
+  if [[ -z "$source_dir" || ! -d "$source_dir" ]]; then
+    echo "[harness] route catalog $ROUTE_CATALOG_NAME requested but no route bundle source dir is available; set ARNIS_ROUTE_BUNDLE_DIR" >&2
+    exit 1
+  fi
+
+  local target_dir="$ROOT_DIR/roblox/src/ServerStorage/SampleData/$bundle_name"
+  local backup_dir=""
+  backup_dir="$(mktemp -d)"
+  if [[ -d "$target_dir" ]]; then
+    mkdir -p "$backup_dir/original"
+    rsync -a "$target_dir"/ "$backup_dir/original"/
+  fi
+  rm -rf "$target_dir"
+  mkdir -p "$target_dir"
+  rsync -a --delete --prune-empty-dirs \
+    --include='*/' \
+    --include='*.lua' \
+    --exclude='*' \
+    "$source_dir"/ "$target_dir"/
+  ROUTE_BUNDLE_TARGET_DIR="$target_dir"
+  ROUTE_BUNDLE_BACKUP_DIR="$backup_dir"
+  log "prepared route bundle sample-data: $bundle_name from $source_dir"
+}
+
+restore_route_bundle_sample_data() {
+  if [[ -z "$ROUTE_BUNDLE_TARGET_DIR" ]]; then
+    return 0
+  fi
+
+  rm -rf "$ROUTE_BUNDLE_TARGET_DIR"
+  if [[ -n "$ROUTE_BUNDLE_BACKUP_DIR" && -d "$ROUTE_BUNDLE_BACKUP_DIR/original" ]]; then
+    mkdir -p "$ROUTE_BUNDLE_TARGET_DIR"
+    rsync -a "$ROUTE_BUNDLE_BACKUP_DIR/original"/ "$ROUTE_BUNDLE_TARGET_DIR"/
+  fi
+  if [[ -n "$ROUTE_BUNDLE_BACKUP_DIR" && -d "$ROUTE_BUNDLE_BACKUP_DIR" ]]; then
+    rm -rf "$ROUTE_BUNDLE_BACKUP_DIR"
+  fi
+  ROUTE_BUNDLE_TARGET_DIR=""
+  ROUTE_BUNDLE_BACKUP_DIR=""
+}
+
+prepare_harness_route_config() {
+  if [[ -z "$ROUTE_CATALOG_NAME" ]]; then
+    return 0
+  fi
+
+  HARNESS_ROUTE_CONFIG_BACKUP="$(mktemp)"
+  cp "$HARNESS_ROUTE_CONFIG" "$HARNESS_ROUTE_CONFIG_BACKUP"
+  python3 - "$HARNESS_ROUTE_CONFIG" "$ROUTE_CATALOG_NAME" "$ROUTE_LANE_NAME" "$ROUTE_STEP_INDEX" "$ARNIS_TELEMETRY_FAMILIES" <<'PY'
+from pathlib import Path
+import sys
+
+path = Path(sys.argv[1])
+route_catalog_name = sys.argv[2]
+route_lane_name = sys.argv[3]
+route_step_index = int(sys.argv[4])
+telemetry_families = sys.argv[5]
+
+text = (
+    "return {\n"
+    "    enabled = true,\n"
+    f"    routeCatalogName = {route_catalog_name!r},\n"
+    f"    routeLane = {route_lane_name!r},\n"
+    f"    routeStepIndex = {route_step_index},\n"
+    f"    telemetryFamilies = {telemetry_families!r},\n"
+    "}\n"
+)
+tmp_path = path.with_suffix(path.suffix + ".tmp")
+tmp_path.write_text(text, encoding="utf-8")
+tmp_path.replace(path)
+PY
+  log "prepared harness route config: catalog=$ROUTE_CATALOG_NAME lane=$ROUTE_LANE_NAME step=$ROUTE_STEP_INDEX"
+}
+
+restore_harness_route_config() {
+  if [[ -z "$HARNESS_ROUTE_CONFIG_BACKUP" || ! -f "$HARNESS_ROUTE_CONFIG_BACKUP" ]]; then
+    return 0
+  fi
+
+  cp "$HARNESS_ROUTE_CONFIG_BACKUP" "$HARNESS_ROUTE_CONFIG"
+  rm -f "$HARNESS_ROUTE_CONFIG_BACKUP"
+  HARNESS_ROUTE_CONFIG_BACKUP=""
+}
+
 plugin_should_be_sandboxed_for_run() {
   local plugin_name="${1:-}"
   if [[ "$plugin_name" == "MCPStudioPlugin.rbxm" ]]; then
@@ -1714,6 +1842,10 @@ cleanup() {
   run_cleanup_helper_if_defined stop_mcp_sidecar
   log "cleanup stopping Vertigo Sync server"
   run_cleanup_helper_if_defined stop_vsync_server
+  log "cleanup restoring harness route config"
+  run_cleanup_helper_if_defined restore_harness_route_config
+  log "cleanup restoring route bundle sample-data"
+  run_cleanup_helper_if_defined restore_route_bundle_sample_data
   log "cleanup restoring runall config"
   run_cleanup_helper_if_defined restore_runall_config
   log "cleanup restoring foreign plugins"
@@ -1735,6 +1867,8 @@ trap 'cleanup_on_signal 130' INT TERM
 cleanup_orphan_harness_processes
 acquire_harness_lock "$@" || exit 1
 start_parent_watchdog
+prepare_route_bundle_sample_data
+prepare_harness_route_config
 
 enable_runall_entry() {
   local edit_enabled="true"
@@ -2657,12 +2791,16 @@ studio_state_json() {
 
 wait_for_editor_ready() {
   local timeout="${1:-45}"
-  python3 "$STUDIO_WORKFLOW" ensure-editor-ready --timeout "$timeout" >/dev/null 2>&1
+  ARNIS_STUDIO_WORKFLOW_CONTROL_TIMEOUT_SECONDS="$STUDIO_WORKFLOW_CONTROL_TIMEOUT_SECONDS" \
+    ARNIS_STUDIO_UI_CONTROL_TIMEOUT_SECONDS="$STUDIO_UI_TIMEOUT_SECONDS" \
+    python3 "$STUDIO_WORKFLOW" ensure-editor-ready --timeout "$timeout" >/dev/null 2>&1
 }
 
 wait_for_playing() {
   local timeout="${1:-20}"
-  python3 "$STUDIO_WORKFLOW" ensure-playing --timeout "$timeout" >/dev/null 2>&1
+  ARNIS_STUDIO_WORKFLOW_CONTROL_TIMEOUT_SECONDS="$STUDIO_WORKFLOW_CONTROL_TIMEOUT_SECONDS" \
+    ARNIS_STUDIO_UI_CONTROL_TIMEOUT_SECONDS="$STUDIO_UI_TIMEOUT_SECONDS" \
+    python3 "$STUDIO_WORKFLOW" ensure-playing --timeout "$timeout" >/dev/null 2>&1
 }
 
 attached_session_is_really_playing() {
@@ -2873,14 +3011,42 @@ capture_studio_screenshot() {
   sleep 1
   if capture_result="$(python3 "$STUDIO_UI_CONTROL" capture-screenshot --target "$target")"; then
     capture_method="$(
-      CAPTURE_RESULT_JSON="$capture_result" python3 - <<'PY'
+      CAPTURE_RESULT_JSON="$capture_result" CAPTURE_METADATA_PATH="$capture_metadata_target" python3 - <<'PY'
 import json
 import os
+from pathlib import Path
 
-payload = json.loads(os.environ.get("CAPTURE_RESULT_JSON", "{}") or "{}")
-print(payload.get("capture_method", "unknown"))
+raw_payload = os.environ.get("CAPTURE_RESULT_JSON", "")
+metadata_path = Path(os.environ["CAPTURE_METADATA_PATH"])
+
+try:
+    payload = json.loads(raw_payload or "{}")
+except json.JSONDecodeError as exc:
+    if not metadata_path.exists():
+        metadata_path.write_text(
+            json.dumps(
+                {
+                    "success": False,
+                    "target_exists": False,
+                    "capture_method": "invalid_result_json",
+                    "metadata_version": 1,
+                    "parse_error": str(exc),
+                    "raw_result": raw_payload,
+                },
+                indent=2,
+                sort_keys=True,
+            ),
+            encoding="utf-8",
+        )
+    print("invalid_result_json")
+else:
+    print(payload.get("capture_method", "unknown"))
 PY
     )"
+    if [[ "$capture_method" == "invalid_result_json" && ! -f "$target" ]]; then
+      log "failed to capture Studio screenshot: $target method=$capture_method metadata=$capture_metadata_target"
+      return 0
+    fi
     log "captured Studio screenshot: $target method=$capture_method metadata=$capture_metadata_target"
     return 0
   fi
@@ -2897,6 +3063,22 @@ payload = json.loads(metadata_path.read_text(encoding="utf-8"))
 print(payload.get("capture_method", "unknown"))
 PY
     )"
+    local blocker_reason=""
+    blocker_reason="$(
+      CAPTURE_METADATA_PATH="$capture_metadata_target" python3 - <<'PY'
+import json
+import os
+from pathlib import Path
+
+metadata_path = Path(os.environ["CAPTURE_METADATA_PATH"])
+payload = json.loads(metadata_path.read_text(encoding="utf-8"))
+print(payload.get("blocker_reason", ""))
+PY
+    )"
+    if [[ -n "$blocker_reason" ]]; then
+      log "failed to capture Studio screenshot: $target method=$capture_method blocker=$blocker_reason metadata=$capture_metadata_target"
+      return 0
+    fi
   fi
 
   log "failed to capture Studio screenshot: $target method=$capture_method metadata=$capture_metadata_target"
@@ -3376,6 +3558,25 @@ local function currentPreviewSyncIsSettled()
     return nil
 end
 
+local function currentPreviewMatchesRequestedRoute()
+    local currentManifestSourceKind = Workspace:GetAttribute("VertigoPreviewManifestSourceKind") or "canonical_manifest"
+    local currentRouteCatalogName = Workspace:GetAttribute("VertigoPreviewRouteCatalogName") or ""
+    local currentRouteLane = Workspace:GetAttribute("VertigoPreviewRouteLane") or ""
+    local currentRouteStepIndex = Workspace:GetAttribute("VertigoPreviewRouteStepIndex")
+    local resolvedCurrentRouteStepIndex = tonumber(currentRouteStepIndex) or -1
+
+    if route_catalog_name == "" then
+        return currentManifestSourceKind == "canonical_manifest"
+            and currentRouteCatalogName == ""
+            and currentRouteLane == ""
+    end
+
+    return currentManifestSourceKind == "route_catalog"
+        and currentRouteCatalogName == route_catalog_name
+        and currentRouteLane == route_lane_name
+        and resolvedCurrentRouteStepIndex == route_step_index
+end
+
 if runEditTests then
     local testsFolder = ServerScriptService:FindFirstChild("Tests")
     if testsFolder then
@@ -3405,11 +3606,12 @@ if runPreviewProbe then
         local previewBuilderModule = previewFolder:FindFirstChild("AustinPreviewBuilder")
         if previewBuilderModule then
             local existingRoot = currentPreviewSyncIsSettled()
+            local canReuseExistingPreview = existingRoot and currentPreviewMatchesRequestedRoute()
             local previewResult = nil
             local ok = true
             local AustinPreviewBuilder = require(previewBuilderModule)
             local previewLoadRadius = AustinPreviewBuilder.LOAD_RADIUS
-            if not existingRoot then
+            if not canReuseExistingPreview then
                 ok, previewResult = pcall(function()
                     return AustinPreviewBuilder.Build({
                         routeCatalogName = route_catalog_name ~= "" and route_catalog_name or nil,
@@ -3431,7 +3633,7 @@ if runPreviewProbe then
                 end
                 payload.preview = {
                     status = previewStatus,
-                    resultType = existingRoot and "existing" or typeof(previewResult),
+                    resultType = canReuseExistingPreview and "existing" or typeof(previewResult),
                     rootExists = root ~= nil,
                     children = childCount,
                     manifestSourceKind = Workspace:GetAttribute("VertigoPreviewManifestSourceKind") or "canonical_manifest",
@@ -3647,7 +3849,7 @@ play_transition_observed() {
 
 confirm_play_trigger_observed() {
   local trigger_name="$1"
-  local timeout="${2:-5}"
+  local timeout="${2:-$PLAY_TRIGGER_CONFIRM_TIMEOUT_SECONDS}"
   local waited=0
 
   while [[ $waited -lt $timeout ]]; do
@@ -3665,6 +3867,7 @@ confirm_play_trigger_observed() {
 }
 
 enter_play_mode() {
+  local workflow_timeout="${1:-$PLAY_TRIGGER_CONFIRM_TIMEOUT_SECONDS}"
   run_studio_ui_action activate || true
   log "enter_play_mode trigger=keycode-96"
   if osascript -e 'tell application "System Events" to key code 96' >/dev/null 2>&1 && confirm_play_trigger_observed "keycode-96"; then
@@ -3679,6 +3882,13 @@ enter_play_mode() {
   log "enter_play_mode trigger=menu-play"
   if run_studio_ui_action click-menu "Test" "Play" && confirm_play_trigger_observed "menu-play"; then
     log "enter_play_mode success=menu-play"
+    return 0
+  fi
+  log "enter_play_mode trigger=workflow-ensure-playing timeout=${workflow_timeout}s"
+  if ARNIS_STUDIO_WORKFLOW_CONTROL_TIMEOUT_SECONDS="$STUDIO_WORKFLOW_CONTROL_TIMEOUT_SECONDS" \
+    ARNIS_STUDIO_UI_CONTROL_TIMEOUT_SECONDS="$STUDIO_UI_TIMEOUT_SECONDS" \
+    python3 "$STUDIO_WORKFLOW" ensure-playing --timeout "$workflow_timeout" >/dev/null 2>&1; then
+    log "enter_play_mode success=workflow-ensure-playing"
     return 0
   fi
   log "enter_play_mode failed session=$(studio_session_status_json) ui=$(studio_dump_ui_json)"
@@ -3733,10 +3943,12 @@ PY
 }
 
 run_play_probe_via_mcp() {
+  PLAY_PROBE_MCP_LAST_RESULT="unavailable"
   if [[ -z "$MCP_BINARY" || ! -x "$MCP_BINARY" ]]; then
     return 1
   fi
   if [[ $MCP_READY -ne 1 && ! should_skip_edit_mode_actions_for_play ]]; then
+    PLAY_PROBE_MCP_LAST_RESULT="not_ready"
     return 1
   fi
 
@@ -3780,6 +3992,12 @@ client = build_mcp_client(
 scene_marker_luau = os.environ["SCENE_MARKER_LUAU"]
 requested_telemetry_families = os.environ.get("ARNIS_TELEMETRY_FAMILIES", "")
 requested_telemetry_families_luau = json.dumps(requested_telemetry_families)
+route_catalog_name = os.environ.get("ARNIS_ROUTE_CATALOG_NAME", "")
+route_catalog_name_luau = json.dumps(route_catalog_name)
+route_lane_name = os.environ.get("ARNIS_ROUTE_LANE", "")
+route_lane_name_luau = json.dumps(route_lane_name)
+route_step_index = os.environ.get("ARNIS_ROUTE_STEP_INDEX", "")
+route_step_index_luau = route_step_index if route_step_index not in {"", None} else "nil"
 
 luau = (
     """
@@ -3795,6 +4013,9 @@ local RunAustin = require(ServerScriptService.ImportService.RunAustin)
     + """
 local runtimeLoadRadius = RunAustin.LOAD_RADIUS
 local requested_telemetry_families = """ + requested_telemetry_families_luau + """
+local route_catalog_name = """ + route_catalog_name_luau + """
+local route_lane_name = """ + route_lane_name_luau + """
+local route_step_index = """ + route_step_index_luau + """
 local function vectorToTable(v)
     if typeof(v) ~= "Vector3" then
         return nil
@@ -3929,6 +4150,7 @@ print("ARNIS_MCP_PLAY_LATE " .. HttpService:JSONEncode(lateSample))
 luau = luau.replace("__WAIT_SECONDS__", str(wait_seconds))
 play_probe_succeeded = False
 validated_play_payload = None
+nonauthoritative_reason = None
 
 try:
     client.initialize()
@@ -3955,10 +4177,16 @@ try:
         if line.startswith("[OUTPUT] ARNIS_MCP_PLAY "):
             play_payload = json.loads(line.split("ARNIS_MCP_PLAY ", 1)[1])
             if play_payload.get("generatedExists") is False:
-                raise RuntimeError("run_code resolved against edit context instead of the live play session")
+                nonauthoritative_reason = "run_code resolved against edit context instead of the live play session"
+                continue
             validated_play_payload = play_payload
     if validated_play_payload is None:
-        raise RuntimeError("run_code did not emit an authoritative ARNIS_MCP_PLAY payload")
+        if nonauthoritative_reason is None:
+            nonauthoritative_reason = "run_code did not emit an authoritative ARNIS_MCP_PLAY payload"
+        print("[harness-mcp] phase=play nonauthoritative=" + json.dumps({
+            "reason": nonauthoritative_reason,
+        }, separators=(",", ":")))
+        raise SystemExit(2)
     print("ARNIS_MCP_PLAY_SCENE_VALIDATED " + json.dumps(validated_play_payload, separators=(",", ":")))
     play_probe_succeeded = True
 except Exception as exc:
@@ -3979,6 +4207,7 @@ PY
       sleep 1
       kill -KILL "$probe_pid" >/dev/null 2>&1 || true
       wait "$probe_pid" >/dev/null 2>&1 || true
+      PLAY_PROBE_MCP_LAST_RESULT="timed_out"
       return 1
     fi
     sleep 1
@@ -3986,6 +4215,15 @@ PY
   done
 
   wait "$probe_pid"
+  local probe_status=$?
+  if [[ $probe_status -eq 0 ]]; then
+    PLAY_PROBE_MCP_LAST_RESULT="authoritative"
+  elif [[ $probe_status -eq 2 ]]; then
+    PLAY_PROBE_MCP_LAST_RESULT="nonauthoritative"
+  else
+    PLAY_PROBE_MCP_LAST_RESULT="failed"
+  fi
+  return "$probe_status"
 }
 
 log_effective_play_camera_state() {
@@ -4130,12 +4368,38 @@ log_effective_play_world_state() {
     summary_source="$LOG_SLICE_FILE"
   fi
   if rg -q "ARNIS_CLIENT_WORLD_COMPACT " "$summary_source"; then
-    local latest_client_world=""
     local world_json=""
     local world_verdict=""
-    latest_client_world="$(grep -E "ARNIS_CLIENT_WORLD_COMPACT " "$summary_source" | tail -n 1 || true)"
-    if [[ -n "$latest_client_world" ]]; then
-      world_json="${latest_client_world#*ARNIS_CLIENT_WORLD_COMPACT }"
+    world_json="$(python3 - "$summary_source" <<'PY'
+import json
+import sys
+from collections import deque
+from pathlib import Path
+
+summary_path = Path(sys.argv[1])
+prefix = "ARNIS_CLIENT_WORLD_COMPACT "
+candidate_lines = deque(maxlen=24)
+
+with summary_path.open(encoding="utf-8", errors="replace") as handle:
+    for raw_line in handle:
+        marker_index = raw_line.find(prefix)
+        if marker_index < 0:
+            continue
+        candidate_lines.append(raw_line[marker_index + len(prefix):].strip())
+
+for payload_text in reversed(candidate_lines):
+    try:
+        payload = json.loads(payload_text)
+    except json.JSONDecodeError:
+        continue
+    if isinstance(payload, dict):
+        print(json.dumps(payload, separators=(",", ":")))
+        raise SystemExit(0)
+
+raise SystemExit(1)
+PY
+)" || true
+    if [[ -n "$world_json" ]]; then
       world_verdict="$(python3 - "$world_json" <<'PY'
 import json
 import sys
@@ -4146,7 +4410,7 @@ for key in ("worldRootName", "worldRootExists", "nearbyBuildingModels", "nearbyR
     value = payload.get(key)
     if value is not None and value != "":
         parts.append(f"{key}={value}")
-for key in ("nearestBuildingSourceIds", "overheadRoofSourceIds"):
+for key in ("nearestBuildingSourceIds", "nearestNamedBuildingSourceIds", "nearestNamedBuildingNames", "overheadRoofSourceIds"):
     value = payload.get(key)
     if isinstance(value, list) and value:
         parts.append(f"{key}={','.join(str(entry) for entry in value[:3])}")
@@ -4192,12 +4456,38 @@ log_effective_play_local_experience_state() {
     summary_source="$LOG_SLICE_FILE"
   fi
   if rg -q "ARNIS_CLIENT_LOCAL_EXPERIENCE " "$summary_source"; then
-    local latest_local_experience=""
     local local_experience_json=""
     local local_experience_verdict=""
-    latest_local_experience="$(grep -E "ARNIS_CLIENT_LOCAL_EXPERIENCE " "$summary_source" | tail -n 1 || true)"
-    if [[ -n "$latest_local_experience" ]]; then
-      local_experience_json="${latest_local_experience#*ARNIS_CLIENT_LOCAL_EXPERIENCE }"
+    local_experience_json="$(python3 - "$summary_source" <<'PY'
+import json
+import sys
+from collections import deque
+from pathlib import Path
+
+summary_path = Path(sys.argv[1])
+prefix = "ARNIS_CLIENT_LOCAL_EXPERIENCE "
+candidate_lines = deque(maxlen=24)
+
+with summary_path.open(encoding="utf-8", errors="replace") as handle:
+    for raw_line in handle:
+        marker_index = raw_line.find(prefix)
+        if marker_index < 0:
+            continue
+        candidate_lines.append(raw_line[marker_index + len(prefix):].strip())
+
+for payload_text in reversed(candidate_lines):
+    try:
+        payload = json.loads(payload_text)
+    except json.JSONDecodeError:
+        continue
+    if isinstance(payload, dict):
+        print(json.dumps(payload, separators=(",", ":")))
+        raise SystemExit(0)
+
+raise SystemExit(1)
+PY
+)" || true
+    if [[ -n "$local_experience_json" ]]; then
       local_experience_verdict="$(python3 - "$local_experience_json" <<'PY'
 import json
 import sys
@@ -4235,6 +4525,18 @@ PY
       return 0
     fi
   fi
+}
+
+authoritative_client_play_proof_present() {
+  local summary_source="${1:-$ACTIVE_LOG}"
+  if [[ -n "$LOG_SLICE_FILE" && -f "$LOG_SLICE_FILE" && "$summary_source" == "$ACTIVE_LOG" ]]; then
+    summary_source="$LOG_SLICE_FILE"
+  fi
+  rg -q "ARNIS_CLIENT_BOOTSTRAP " "$summary_source" \
+    && rg -q "ARNIS_CLIENT_CAMERA " "$summary_source" \
+    && rg -q "ARNIS_CLIENT_MINIMAP " "$summary_source" \
+    && rg -q "ARNIS_CLIENT_WORLD_COMPACT " "$summary_source" \
+    && rg -q "ARNIS_CLIENT_LOCAL_EXPERIENCE " "$summary_source"
 }
 
 validate_play_bootstrap_trace() {
@@ -4349,6 +4651,94 @@ summarize_log() {
   grep -E "TestEZ tests complete|PASS |FAIL |Tests failed|BootstrapAustin|RunAustin|AustinPreviewBuilder|ArnisRoblox|VertigoSync|RunAll|Austin anchor|anchor resolved|ARNIS_CLIENT_BOOTSTRAP|ARNIS_CLIENT_WORLD_COMPACT|ARNIS_CLIENT_WORLD|ARNIS_CLIENT_LOCAL_EXPERIENCE|ARNIS_CLIENT_CAMERA|ARNIS_CLIENT_MINIMAP|ARNIS_MCP_PLAY|ARNIS_MCP_PLAY_LATE|ARNIS_MCP_PLAY_SCENE_VALIDATED|ARNIS_MCP_EDIT|ARNIS_SCENE_EDIT|ARNIS_SCENE_PLAY|\\[harness-mcp\\]" "$summary_source" | tail -n 260 || true
 }
 
+resolve_route_runtime_index_for_audits() {
+  local base_dir=""
+  local candidate=""
+  local step_suffix=""
+  if [[ -z "$ROUTE_CATALOG_NAME" || -z "$ROUTE_LANE_NAME" || -z "$ROUTE_STEP_INDEX" ]]; then
+    return 1
+  fi
+
+  step_suffix="$(printf 'step-%03d-%s' "$ROUTE_STEP_INDEX" "$ROUTE_LANE_NAME")"
+  for base_dir in "$ROUTE_BUNDLE_TARGET_DIR" "$ROUTE_BUNDLE_DIR"; do
+    if [[ -z "$base_dir" || ! -d "$base_dir" ]]; then
+      continue
+    fi
+    candidate="$base_dir/route-runtime/$step_suffix/PlanetaryManifestIndex.lua"
+    if [[ -f "$candidate" ]]; then
+      printf '%s' "$candidate"
+      return 0
+    fi
+  done
+  return 1
+}
+
+write_scene_fidelity_artifact_from_route_runtime() {
+  local marker="$1"
+  local audit_log="$2"
+  local manifest_path="$3"
+  local report_json="$4"
+  local report_html="$5"
+  python3 - "$ROOT_DIR" "$manifest_path" "$audit_log" "$marker" "$report_json" "$report_html" <<'PY'
+from pathlib import Path
+import importlib.util
+import json
+import sys
+
+root = Path(sys.argv[1])
+manifest_path = Path(sys.argv[2])
+log_path = Path(sys.argv[3])
+marker = sys.argv[4]
+report_json = Path(sys.argv[5])
+report_html = Path(sys.argv[6])
+
+module_path = root / "scripts" / "scene_fidelity_audit.py"
+spec = importlib.util.spec_from_file_location("scene_fidelity_audit", module_path)
+if spec is None or spec.loader is None:
+    raise SystemExit(f"failed to load {module_path}")
+module = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(module)
+
+report = module.build_report(manifest_path, log_path, marker=marker)
+report_json.write_text(json.dumps(report, indent=2, sort_keys=True), encoding="utf-8")
+module.write_html_report(report, report_html)
+PY
+}
+
+write_route_runtime_scene_fidelity_artifact() {
+  local marker="$1"
+  local audit_log="$2"
+  local report_json="$3"
+  local report_html="$4"
+  local route_runtime_index="$5"
+  local route_manifest_json="$6"
+
+  python3 - "$ROOT_DIR" "$route_runtime_index" "$audit_log" "$marker" "$route_manifest_json" <<'PY'
+from pathlib import Path
+import importlib.util
+import json
+import sys
+
+root = Path(sys.argv[1])
+route_runtime_index = Path(sys.argv[2])
+log_path = Path(sys.argv[3])
+marker = sys.argv[4]
+manifest_json = Path(sys.argv[5])
+
+module_path = root / "scripts" / "route_slice_parity_artifacts.py"
+spec = importlib.util.spec_from_file_location("route_slice_parity_artifacts", module_path)
+if spec is None or spec.loader is None:
+    raise SystemExit(f"failed to load {module_path}")
+module = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(module)
+
+chunk_ids = module._extract_chunk_ids_from_log(log_path, marker)
+manifest = module.build_route_slice_manifest(None, chunk_ids, route_runtime_index=route_runtime_index)
+manifest_json.write_text(json.dumps(manifest, indent=2, sort_keys=True), encoding="utf-8")
+PY
+  write_scene_fidelity_artifact_from_route_runtime "$marker" "$audit_log" "$route_manifest_json" "$report_json" "$report_html"
+}
+
 run_scene_fidelity_audits() {
   local manifest_path="$ROOT_DIR/rust/out/austin-manifest.json"
   local manifest_sqlite_path="$ROOT_DIR/rust/out/austin-manifest.sqlite"
@@ -4358,6 +4748,8 @@ run_scene_fidelity_audits() {
   local audit_log="$ACTIVE_LOG"
   local scene_audit_dir="${ARNIS_SCENE_AUDIT_DIR:-/tmp}"
   local manifest_scene_index_args=()
+  local route_runtime_index=""
+  local route_manifest_json="$scene_audit_dir/arnis-route-slice-manifest.json"
   if [[ ! -f "$audit_script" ]]; then
     log "scene fidelity audit unavailable; missing manifest or script"
     return 0
@@ -4370,6 +4762,9 @@ run_scene_fidelity_audits() {
   elif [[ -f "$manifest_path" ]]; then
     manifest_scene_index_args=(--manifest "$manifest_path")
   elif [[ -f "$manifest_summary_path" ]]; then
+    manifest_scene_index_args=()
+  elif route_runtime_index="$(resolve_route_runtime_index_for_audits || true)"; [[ -n "$route_runtime_index" ]]; then
+    log "scene fidelity audit using route runtime index fallback: $route_runtime_index"
     manifest_scene_index_args=()
   else
     log "scene fidelity audit unavailable; missing manifest summary and source manifest inputs"
@@ -4434,44 +4829,77 @@ PY
 
   if [[ $refresh_manifest_summary -eq 1 ]]; then
     if [[ ${#manifest_scene_index_args[@]} -eq 0 ]]; then
-      log "scene fidelity audit unavailable; missing manifest summary and source manifest inputs"
-      return 0
+      if [[ -n "$route_runtime_index" ]]; then
+        refresh_manifest_summary=0
+      else
+        log "scene fidelity audit unavailable; missing manifest summary and source manifest inputs"
+        return 0
+      fi
     fi
-    log "refreshing manifest scene index"
-    cargo run --quiet --manifest-path "$ROOT_DIR/rust/Cargo.toml" -p arbx_cli -- scene-index \
-      "${manifest_scene_index_args[@]}" \
-      --json-out "$manifest_summary_path"
+    if [[ $refresh_manifest_summary -eq 1 ]]; then
+      log "refreshing manifest scene index"
+      cargo run --quiet --manifest-path "$ROOT_DIR/rust/Cargo.toml" -p arbx_cli -- scene-index \
+        "${manifest_scene_index_args[@]}" \
+        --json-out "$manifest_summary_path"
+    fi
   fi
 
-  if rg -q "ARNIS_SCENE_EDIT " "$audit_log"; then
-    log "writing scene fidelity edit artifact"
-    cargo run --quiet --manifest-path "$ROOT_DIR/rust/Cargo.toml" -p arbx_cli -- scene-audit \
-      --manifest-summary "$manifest_summary_path" \
-      --log "$audit_log" \
-      --marker ARNIS_SCENE_EDIT \
-      --json-out "$edit_json"
-    python3 "$audit_script" \
-      --report-json "$edit_json" \
-      --log "$audit_log" \
-      --json-out "$edit_json" \
-      --html-out "$edit_html"
-  fi
-
-  if rg -q "ARNIS_SCENE_PLAY " "$audit_log"; then
-    if validate_play_bootstrap_trace "$audit_log"; then
-      log "writing scene fidelity play artifact"
+  if [[ -n "$route_runtime_index" ]]; then
+    if rg -q "ARNIS_SCENE_EDIT " "$audit_log"; then
+      log "writing scene fidelity edit artifact from route runtime index"
+      write_route_runtime_scene_fidelity_artifact \
+        "ARNIS_SCENE_EDIT" \
+        "$audit_log" \
+        "$edit_json" \
+        "$edit_html" \
+        "$route_runtime_index" \
+        "$route_manifest_json"
+    fi
+    if rg -q "ARNIS_SCENE_PLAY " "$audit_log"; then
+      if validate_play_bootstrap_trace "$audit_log"; then
+        log "writing scene fidelity play artifact from route runtime index"
+        write_route_runtime_scene_fidelity_artifact \
+          "ARNIS_SCENE_PLAY" \
+          "$audit_log" \
+          "$play_json" \
+          "$play_html" \
+          "$route_runtime_index" \
+          "$route_manifest_json"
+      else
+        log "skipping scene fidelity play artifact because authoritative runtime bootstrap validation did not succeed"
+      fi
+    fi
+  else
+    if rg -q "ARNIS_SCENE_EDIT " "$audit_log"; then
+      log "writing scene fidelity edit artifact"
       cargo run --quiet --manifest-path "$ROOT_DIR/rust/Cargo.toml" -p arbx_cli -- scene-audit \
         --manifest-summary "$manifest_summary_path" \
         --log "$audit_log" \
-        --marker ARNIS_SCENE_PLAY \
-        --json-out "$play_json"
+        --marker ARNIS_SCENE_EDIT \
+        --json-out "$edit_json"
       python3 "$audit_script" \
-        --report-json "$play_json" \
+        --report-json "$edit_json" \
         --log "$audit_log" \
-        --json-out "$play_json" \
-        --html-out "$play_html"
-    else
-      log "skipping scene fidelity play artifact because authoritative runtime bootstrap validation did not succeed"
+        --json-out "$edit_json" \
+        --html-out "$edit_html"
+    fi
+
+    if rg -q "ARNIS_SCENE_PLAY " "$audit_log"; then
+      if validate_play_bootstrap_trace "$audit_log"; then
+        log "writing scene fidelity play artifact"
+        cargo run --quiet --manifest-path "$ROOT_DIR/rust/Cargo.toml" -p arbx_cli -- scene-audit \
+          --manifest-summary "$manifest_summary_path" \
+          --log "$audit_log" \
+          --marker ARNIS_SCENE_PLAY \
+          --json-out "$play_json"
+        python3 "$audit_script" \
+          --report-json "$play_json" \
+          --log "$audit_log" \
+          --json-out "$play_json" \
+          --html-out "$play_html"
+      else
+        log "skipping scene fidelity play artifact because authoritative runtime bootstrap validation did not succeed"
+      fi
     fi
   fi
 
@@ -4937,8 +5365,12 @@ elif [[ $DO_PLAY -eq 1 ]]; then
     else
       log "play-mode Austin markers not observed before timeout; continuing"
     fi
-    if run_play_probe_via_mcp; then
+    if authoritative_client_play_proof_present "$ACTIVE_LOG"; then
+      log "skipping play-mode MCP probe because authoritative client proof is already present"
+    elif run_play_probe_via_mcp; then
       play_probe_completed_via_mcp=1
+    elif [[ "${PLAY_PROBE_MCP_LAST_RESULT:-}" == "nonauthoritative" ]]; then
+      log "play-mode MCP probe was non-authoritative; continuing with client/log proof"
     fi
   elif run_play_probe_via_mcp; then
     log "stopping Vertigo Sync server before Play to avoid duplicate bootstrap materialization"
@@ -4948,6 +5380,9 @@ elif [[ $DO_PLAY -eq 1 ]]; then
     play_probe_completed_via_mcp=1
     sleep 2
   else
+    if [[ "${PLAY_PROBE_MCP_LAST_RESULT:-}" == "nonauthoritative" ]]; then
+      log "play-mode MCP probe was non-authoritative; continuing with client/log proof"
+    fi
     log "stopping Vertigo Sync server before Play to avoid duplicate bootstrap materialization"
     stop_vsync_server
     log "entering Play mode"

@@ -132,6 +132,26 @@ return function()
         "player_local",
         "expected enabled local experience markers to keep player-local last"
     )
+    Assert.equal(
+        requestedLocalExperiencePayload.localEnclosure.nearbyWallParts,
+        2,
+        "expected enabled local experience markers to preserve compact enclosure counts"
+    )
+    Assert.equal(
+        requestedLocalExperiencePayload.localRoofCover.nearbyRoofParts,
+        1,
+        "expected enabled local experience markers to preserve compact roof-cover counts"
+    )
+    Assert.equal(
+        requestedLocalExperiencePayload.localSupport.supportY,
+        nil,
+        "expected absent support metrics to stay absent in the compact payload"
+    )
+    Assert.equal(
+        requestedLocalExperiencePayload.characterPosition,
+        nil,
+        "expected enabled local experience markers to drop characterPosition for log safety"
+    )
 
     local disabledAfterEnabledPayload = {
         worldRootName = "GeneratedWorld_Austin",

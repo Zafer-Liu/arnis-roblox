@@ -64,6 +64,11 @@ function CanonicalWorldContract.loadCanonicalManifestSource(policyMode, timeoutS
             ManifestLoader.LoadNamedRouteCatalogHandle(options.routeCatalogName, timeoutSeconds, options)
         local manifestSource =
             routeCatalogHandle:LoadLaneRuntimeHandle(routeStepIndex, routeLane, timeoutSeconds, options)
+        if type(manifestSource) == "table" and type(routeCatalogHandle.LoadLaneSummary) == "function" then
+            function manifestSource:LoadLaneSummary(stepIndex, laneName)
+                return routeCatalogHandle:LoadLaneSummary(stepIndex, laneName)
+            end
+        end
         annotateManifestSource(manifestSource, {
             manifestSourceKind = "route_catalog",
             manifestSourceName = options.routeCatalogName,

@@ -101,6 +101,45 @@ class SceneParityAuditTests(unittest.TestCase):
         self.assertEqual(report["comparisons"]["clientWorld"]["edit"]["supportSurfaceRole"], "road")
         self.assertEqual(report["comparisons"]["clientWorld"]["play"]["nearestWallDistanceStuds"], 18.0)
 
+    def test_build_report_skips_client_world_mismatch_when_only_play_has_client_payload(self) -> None:
+        audit = load_module()
+        edit_report = {
+            "rootName": "GeneratedWorld_AustinPreview",
+            "worldIdentity": "AustinManifestIndex",
+            "manifestSourceKind": "route_catalog",
+            "manifestSourceName": "PlanetaryRouteBundle.route-catalog",
+            "chunkEnvelopeKind": "bounded_preview",
+            "focus": {"x": 0, "z": 0},
+            "radius": 256,
+            "summary": {"marker": "ARNIS_SCENE_EDIT"},
+            "scene": {"chunkIds": ["0_0"], "buildingModelCount": 1},
+            "clientWorld": {},
+        }
+        play_report = {
+            "rootName": "GeneratedWorld_Austin",
+            "worldIdentity": "AustinManifestIndex",
+            "manifestSourceKind": "route_catalog",
+            "manifestSourceName": "PlanetaryRouteBundle.route-catalog",
+            "chunkEnvelopeKind": "runtime_resident",
+            "focus": {"x": 0, "z": 0},
+            "radius": 256,
+            "summary": {"marker": "ARNIS_SCENE_PLAY"},
+            "scene": {"chunkIds": ["0_0"], "buildingModelCount": 1},
+            "clientWorld": {
+                "worldRootName": "GeneratedWorld_Austin",
+                "worldRootExists": True,
+                "bootstrapState": "gameplay_ready",
+                "supportSurfaceRole": "road",
+                "nearbyBuildingModels": 3,
+            },
+        }
+
+        report = audit.build_report(edit_report, play_report)
+        codes = {finding["code"] for finding in report["findings"]}
+
+        self.assertNotIn("client_world_mismatch", codes)
+        self.assertNotIn("clientWorld", report["comparisons"])
+
     def test_build_report_accepts_contract_aligned_preview_subset_and_world_identity(self) -> None:
         audit = load_module()
         edit_report = {

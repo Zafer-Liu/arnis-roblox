@@ -1486,6 +1486,7 @@ local function buildRoof(building, footprint, bounds, baseY, height, color, mat,
 
     if roofShape == "gabled" or roofShape == "gambrel" then
         if not rectangularFootprint then
+            buildRoofClosureDeck(bldgName, footprint, bounds.holeWorldLoops, baseY + height, rc, rm, parent)
             buildFallbackFlatVisibleRoof(
                 bldgName,
                 footprint,
@@ -1561,6 +1562,7 @@ local function buildRoof(building, footprint, bounds, baseY, height, color, mat,
             buildRoofClosureDeck(bldgName, footprint, bounds.holeWorldLoops, baseY + height, rc, rm, parent)
             return
         end
+        buildRoofClosureDeck(bldgName, footprint, bounds.holeWorldLoops, baseY + height, rc, rm, parent)
         buildFallbackFlatVisibleRoof(
             bldgName,
             footprint,
@@ -1589,6 +1591,7 @@ local function buildRoof(building, footprint, bounds, baseY, height, color, mat,
         return
     elseif roofShape == "skillion" then
         if not rectangularFootprint then
+            buildRoofClosureDeck(bldgName, footprint, bounds.holeWorldLoops, baseY + height, rc, rm, parent)
             buildFallbackFlatVisibleRoof(
                 bldgName,
                 footprint,
@@ -1622,6 +1625,7 @@ local function buildRoof(building, footprint, bounds, baseY, height, color, mat,
         return
     elseif roofShape == "mansard" then
         if not rectangularFootprint then
+            buildRoofClosureDeck(bldgName, footprint, bounds.holeWorldLoops, baseY + height, rc, rm, parent)
             buildFallbackFlatVisibleRoof(
                 bldgName,
                 footprint,
@@ -2633,6 +2637,9 @@ local function setBuildingAuditAttributes(model, building, baseY, height)
     model:SetAttribute("ArnisImportRoofShape", string.lower(tostring(building.roof or "flat")))
     model:SetAttribute("ArnisImportWallMaterial", wallMaterial.Name)
     model:SetAttribute("ArnisImportRoofMaterial", roofMaterial.Name)
+    if type(building.name) == "string" and building.name ~= "" then
+        model:SetAttribute("ArnisImportBuildingName", building.name)
+    end
 end
 
 -- Build a single building as polygon wall Parts + roof

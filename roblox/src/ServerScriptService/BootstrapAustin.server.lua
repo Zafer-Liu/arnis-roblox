@@ -19,14 +19,16 @@ local RunService = game:GetService("RunService")
 local AustinSpawn = require(script.Parent.ImportService.AustinSpawn)
 local BootstrapStateMachine = require(script.Parent.ImportService.BootstrapStateMachine)
 local CanonicalWorldContract = require(script.Parent.ImportService.CanonicalWorldContract)
+local HarnessRouteConfig = require(script.Parent.ImportService.HarnessRouteConfig)
 local RunAustin = require(script.Parent.ImportService.RunAustin)
 local SceneAudit = require(script.Parent.ImportService.SceneAudit)
 local SceneMarkerEmitter = require(script.Parent.ImportService.SceneMarkerEmitter)
 local StreamingService = require(script.Parent.ImportService.StreamingService)
 local SubplanRollout = require(script.Parent.ImportService.SubplanRollout)
 local WorldStateApplier = require(script.Parent.ImportService.WorldStateApplier)
-local WorldConfig = require(game:GetService("ReplicatedStorage").Shared.WorldConfig)
-local StreamingRuntimeConfig = require(game:GetService("ReplicatedStorage").Shared.StreamingRuntimeConfig)
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local WorldConfig = require(ReplicatedStorage.Shared.WorldConfig)
+local StreamingRuntimeConfig = require(ReplicatedStorage.Shared.StreamingRuntimeConfig)
 local BOOTSTRAP_STATE_ATTR = BootstrapStateMachine.STATE_ATTR
 local BOOTSTRAP_STATE_TRACE_ATTR = BootstrapStateMachine.STATE_TRACE_ATTR
 local BOOTSTRAP_DUPLICATE_COUNT_ATTR = BootstrapStateMachine.DUPLICATE_COUNT_ATTR
@@ -233,7 +235,31 @@ local function waitForStartupStreamingReady(spawnPoint)
     return finalResidency.ready and readyPollCount + 1 >= STARTUP_STREAMING_REQUIRED_READY_POLLS
 end
 
+local function resolveHarnessRouteSelection()
+    if type(HarnessRouteConfig) ~= "table" or HarnessRouteConfig.enabled ~= true then
+        return {}
+    end
+
+    local selection = {}
+    if type(HarnessRouteConfig.routeCatalogName) == "string" and HarnessRouteConfig.routeCatalogName ~= "" then
+        selection.routeCatalogName = HarnessRouteConfig.routeCatalogName
+    end
+    if type(HarnessRouteConfig.routeLane) == "string" and HarnessRouteConfig.routeLane ~= "" then
+        selection.routeLane = HarnessRouteConfig.routeLane
+    end
+    if type(HarnessRouteConfig.routeStepIndex) == "number" then
+        selection.routeStepIndex = math.floor(HarnessRouteConfig.routeStepIndex)
+    end
+    if type(HarnessRouteConfig.telemetryFamilies) == "string" then
+        selection.telemetryFamilies = HarnessRouteConfig.telemetryFamilies
+    end
+    return selection
+end
+
+local harnessRouteSelection = resolveHarnessRouteSelection()
+
 local function onPlayer(player)
+    player:SetAttribute("ArnisTelemetryFamilies", harnessRouteSelection.telemetryFamilies)
     player.CharacterAdded:Connect(function(character)
         if importReady and spawnCFrame then
             task.defer(function()
@@ -273,10 +299,23 @@ holdingPad.CFrame = CFrame.new(0, 300, 0)
 holdingPad.Parent = Workspace
 
 local runtimeWorldConfig = StreamingRuntimeConfig.Resolve(WorldConfig)
+if harnessRouteSelection.routeCatalogName then
+    Workspace:SetAttribute("VertigoRouteCatalogName", harnessRouteSelection.routeCatalogName)
+    Workspace:SetAttribute("VertigoRouteLane", harnessRouteSelection.routeLane)
+    Workspace:SetAttribute("VertigoRouteStepIndex", harnessRouteSelection.routeStepIndex)
+end
+ReplicatedStorage:SetAttribute("ArnisTelemetryFamilies", harnessRouteSelection.telemetryFamilies)
+Workspace:SetAttribute("ArnisTelemetryFamilies", harnessRouteSelection.telemetryFamilies)
+for _, player in ipairs(Players:GetPlayers()) do
+    player:SetAttribute("ArnisTelemetryFamilies", harnessRouteSelection.telemetryFamilies)
+end
 
 local result = RunAustin.run({
     config = runtimeWorldConfig,
     phaseReporter = setBootstrapState,
+    routeCatalogName = harnessRouteSelection.routeCatalogName,
+    routeLane = harnessRouteSelection.routeLane,
+    routeStepIndex = harnessRouteSelection.routeStepIndex,
 })
 if result == nil then
     BootstrapStateMachine.fail(bootstrapMachine)

@@ -214,13 +214,12 @@ local function resolveTerrainNeighborSignature(options)
     return buildDerivedTerrainNeighborSignature(terrainNeighbors)
 end
 
-local function resolveNeighborHeightSample(plan, cellX, cellZ)
-    local localHeight = sampleTerrainGridHeight(plan.terrainGrid, cellX, cellZ)
-    if cellX >= 0 and cellX < plan.gridW and cellZ >= 0 and cellZ < plan.gridD then
+local function resolveNeighborHeightSample(terrainGrid, terrainNeighbors, gridW, gridD, cellX, cellZ)
+    local localHeight = sampleTerrainGridHeight(terrainGrid, cellX, cellZ)
+    if cellX >= 0 and cellX < gridW and cellZ >= 0 and cellZ < gridD then
         return localHeight or 0
     end
 
-    local terrainNeighbors = plan.terrainNeighbors
     if type(terrainNeighbors) ~= "table" then
         return localHeight or 0
     end
@@ -235,29 +234,29 @@ local function resolveNeighborHeightSample(plan, cellX, cellZ)
         if direction == "west" then
             return sampleTerrainGridHeight(
                 neighborTerrain,
-                resolveOffsetNeighborIndex(cellX, plan.gridW, neighborTerrain.width or 0, false),
-                mapNeighborIndex(cellZ, plan.gridD, neighborTerrain.depth or 0)
+                resolveOffsetNeighborIndex(cellX, gridW, neighborTerrain.width or 0, false),
+                mapNeighborIndex(cellZ, gridD, neighborTerrain.depth or 0)
             )
         end
         if direction == "east" then
             return sampleTerrainGridHeight(
                 neighborTerrain,
-                resolveOffsetNeighborIndex(cellX, plan.gridW, neighborTerrain.width or 0, true),
-                mapNeighborIndex(cellZ, plan.gridD, neighborTerrain.depth or 0)
+                resolveOffsetNeighborIndex(cellX, gridW, neighborTerrain.width or 0, true),
+                mapNeighborIndex(cellZ, gridD, neighborTerrain.depth or 0)
             )
         end
         if direction == "north" then
             return sampleTerrainGridHeight(
                 neighborTerrain,
-                mapNeighborIndex(cellX, plan.gridW, neighborTerrain.width or 0),
-                resolveOffsetNeighborIndex(cellZ, plan.gridD, neighborTerrain.depth or 0, false)
+                mapNeighborIndex(cellX, gridW, neighborTerrain.width or 0),
+                resolveOffsetNeighborIndex(cellZ, gridD, neighborTerrain.depth or 0, false)
             )
         end
         if direction == "south" then
             return sampleTerrainGridHeight(
                 neighborTerrain,
-                mapNeighborIndex(cellX, plan.gridW, neighborTerrain.width or 0),
-                resolveOffsetNeighborIndex(cellZ, plan.gridD, neighborTerrain.depth or 0, true)
+                mapNeighborIndex(cellX, gridW, neighborTerrain.width or 0),
+                resolveOffsetNeighborIndex(cellZ, gridD, neighborTerrain.depth or 0, true)
             )
         end
 
@@ -274,29 +273,29 @@ local function resolveNeighborHeightSample(plan, cellX, cellZ)
         if direction == "northWest" then
             return sampleTerrainGridHeight(
                 neighborTerrain,
-                resolveOffsetNeighborIndex(cellX, plan.gridW, neighborTerrain.width or 0, false),
-                resolveOffsetNeighborIndex(cellZ, plan.gridD, neighborTerrain.depth or 0, false)
+                resolveOffsetNeighborIndex(cellX, gridW, neighborTerrain.width or 0, false),
+                resolveOffsetNeighborIndex(cellZ, gridD, neighborTerrain.depth or 0, false)
             )
         end
         if direction == "northEast" then
             return sampleTerrainGridHeight(
                 neighborTerrain,
-                resolveOffsetNeighborIndex(cellX, plan.gridW, neighborTerrain.width or 0, true),
-                resolveOffsetNeighborIndex(cellZ, plan.gridD, neighborTerrain.depth or 0, false)
+                resolveOffsetNeighborIndex(cellX, gridW, neighborTerrain.width or 0, true),
+                resolveOffsetNeighborIndex(cellZ, gridD, neighborTerrain.depth or 0, false)
             )
         end
         if direction == "southWest" then
             return sampleTerrainGridHeight(
                 neighborTerrain,
-                resolveOffsetNeighborIndex(cellX, plan.gridW, neighborTerrain.width or 0, false),
-                resolveOffsetNeighborIndex(cellZ, plan.gridD, neighborTerrain.depth or 0, true)
+                resolveOffsetNeighborIndex(cellX, gridW, neighborTerrain.width or 0, false),
+                resolveOffsetNeighborIndex(cellZ, gridD, neighborTerrain.depth or 0, true)
             )
         end
         if direction == "southEast" then
             return sampleTerrainGridHeight(
                 neighborTerrain,
-                resolveOffsetNeighborIndex(cellX, plan.gridW, neighborTerrain.width or 0, true),
-                resolveOffsetNeighborIndex(cellZ, plan.gridD, neighborTerrain.depth or 0, true)
+                resolveOffsetNeighborIndex(cellX, gridW, neighborTerrain.width or 0, true),
+                resolveOffsetNeighborIndex(cellZ, gridD, neighborTerrain.depth or 0, true)
             )
         end
 
@@ -316,7 +315,7 @@ local function resolveNeighborHeightSample(plan, cellX, cellZ)
         if cellZ < 0 then
             cornerSample = sampleCornerNeighbor("northWest")
             blendedEdgeSample = blendNeighborSamples(sampleEdgeNeighbor("west"), sampleEdgeNeighbor("north"))
-        elseif cellZ >= plan.gridD then
+        elseif cellZ >= gridD then
             cornerSample = sampleCornerNeighbor("southWest")
             blendedEdgeSample = blendNeighborSamples(sampleEdgeNeighbor("west"), sampleEdgeNeighbor("south"))
         end
@@ -330,13 +329,13 @@ local function resolveNeighborHeightSample(plan, cellX, cellZ)
         if edgeSample ~= nil then
             return edgeSample
         end
-    elseif cellX >= plan.gridW then
+    elseif cellX >= gridW then
         local cornerSample = nil
         local blendedEdgeSample = nil
         if cellZ < 0 then
             cornerSample = sampleCornerNeighbor("northEast")
             blendedEdgeSample = blendNeighborSamples(sampleEdgeNeighbor("east"), sampleEdgeNeighbor("north"))
-        elseif cellZ >= plan.gridD then
+        elseif cellZ >= gridD then
             cornerSample = sampleCornerNeighbor("southEast")
             blendedEdgeSample = blendNeighborSamples(sampleEdgeNeighbor("east"), sampleEdgeNeighbor("south"))
         end
@@ -357,7 +356,7 @@ local function resolveNeighborHeightSample(plan, cellX, cellZ)
         if edgeSample ~= nil then
             return edgeSample
         end
-    elseif cellZ >= plan.gridD then
+    elseif cellZ >= gridD then
         local edgeSample = sampleEdgeNeighbor("south")
         if edgeSample ~= nil then
             return edgeSample
@@ -533,22 +532,26 @@ local function buildChunkPlan(chunk, options)
     local dimX = (rMaxX - rMinX) / TERRAIN_WRITE_RESOLUTION
     local dimY = (rMaxY - rMinY) / TERRAIN_WRITE_RESOLUTION
     local dimZ = (rMaxZ - rMinZ) / TERRAIN_WRITE_RESOLUTION
-    local plan
-
     local function sampleInterpolatedHeight(cellX, cellZ, fracX, fracZ)
-        local h00 = resolveNeighborHeightSample(plan, cellX, cellZ)
-        local h10 = resolveNeighborHeightSample(plan, cellX + 1, cellZ)
-        local h01 = resolveNeighborHeightSample(plan, cellX, cellZ + 1)
-        local h11 = resolveNeighborHeightSample(plan, cellX + 1, cellZ + 1)
+        local h00 = resolveNeighborHeightSample(terrainGrid, terrainNeighbors, gridW, gridD, cellX, cellZ)
+        local h10 = resolveNeighborHeightSample(terrainGrid, terrainNeighbors, gridW, gridD, cellX + 1, cellZ)
+        local h01 = resolveNeighborHeightSample(terrainGrid, terrainNeighbors, gridW, gridD, cellX, cellZ + 1)
+        local h11 = resolveNeighborHeightSample(terrainGrid, terrainNeighbors, gridW, gridD, cellX + 1, cellZ + 1)
         local h0 = h00 + (h10 - h00) * fracX
         local h1 = h01 + (h11 - h01) * fracX
         return h0 + (h1 - h0) * fracZ
     end
 
     local function computeSlope(cx, cz)
-        local dhdx = (resolveNeighborHeightSample(plan, cx + 1, cz) - resolveNeighborHeightSample(plan, cx - 1, cz))
+        local dhdx = (
+            resolveNeighborHeightSample(terrainGrid, terrainNeighbors, gridW, gridD, cx + 1, cz)
+            - resolveNeighborHeightSample(terrainGrid, terrainNeighbors, gridW, gridD, cx - 1, cz)
+        )
             / (2 * cellSize)
-        local dhdz = (resolveNeighborHeightSample(plan, cx, cz + 1) - resolveNeighborHeightSample(plan, cx, cz - 1))
+        local dhdz = (
+            resolveNeighborHeightSample(terrainGrid, terrainNeighbors, gridW, gridD, cx, cz + 1)
+            - resolveNeighborHeightSample(terrainGrid, terrainNeighbors, gridW, gridD, cx, cz - 1)
+        )
             / (2 * cellSize)
         return math.sqrt(dhdx * dhdx + dhdz * dhdz)
     end

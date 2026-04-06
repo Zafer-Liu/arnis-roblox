@@ -25,6 +25,20 @@ def load_module():
 
 
 class StudioUiControlTests(unittest.TestCase):
+    def test_window_capture_lookup_guards_non_array_jxa_window_payload(self) -> None:
+        mod = load_module()
+        self.assertIn(
+            "const rawWindows = ObjC.deepUnwrap($.CGWindowListCopyWindowInfo($.kCGWindowListOptionOnScreenOnly, $.kCGNullWindowID));",
+            MODULE_PATH.read_text(encoding="utf-8"),
+        )
+        self.assertIn(
+            "const windows = Array.isArray(rawWindows) ? rawWindows : [];",
+            MODULE_PATH.read_text(encoding="utf-8"),
+        )
+        self.assertIn('lookup_status: "no_match"', MODULE_PATH.read_text(encoding="utf-8"))
+        self.assertIn('lookup_status: "selected"', MODULE_PATH.read_text(encoding="utf-8"))
+        self.assertIn('return 0, {}, f"no_matching_window (window_count={window_count})"', MODULE_PATH.read_text(encoding="utf-8"))
+
     def test_capture_screenshot_prefers_window_capture_then_falls_back_to_display(self) -> None:
         mod = load_module()
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -59,6 +73,7 @@ class StudioUiControlTests(unittest.TestCase):
                         "",
                     ),
                 ),
+                mock.patch.object(mod, "resolve_front_window_capture_rect", return_value=(0, {}, "")),
                 mock.patch.object(mod, "run_capture_command", side_effect=fake_run_capture_command),
             ):
                 exit_code = mod.capture_screenshot(str(target_path))
@@ -69,6 +84,7 @@ class StudioUiControlTests(unittest.TestCase):
             metadata = json.loads(target_path.with_suffix(".capture.json").read_text(encoding="utf-8"))
             self.assertTrue(metadata["success"])
             self.assertEqual(metadata["capture_method"], "display")
+            self.assertIsNone(metadata["blocker_reason"])
             self.assertEqual(metadata["attempts"][0]["method"], "window")
             self.assertEqual(metadata["attempts"][0]["stderr"], "could not create image from display")
             self.assertEqual(metadata["attempts"][1]["method"], "display")
@@ -92,6 +108,7 @@ class StudioUiControlTests(unittest.TestCase):
                     "resolve_front_window_capture_target",
                     return_value=(1, {}, "Execution error: Error: JXA lookup failed"),
                 ),
+                mock.patch.object(mod, "resolve_front_window_capture_rect", return_value=(0, {}, "no_window_rect")),
                 mock.patch.object(
                     mod,
                     "run_capture_command",
@@ -104,9 +121,81 @@ class StudioUiControlTests(unittest.TestCase):
             metadata = json.loads(target_path.with_suffix(".capture.json").read_text(encoding="utf-8"))
             self.assertFalse(metadata["success"])
             self.assertEqual(metadata["capture_method"], "failed")
+            self.assertEqual(metadata["blocker_reason"], "display_capture_unavailable")
             self.assertEqual(metadata["attempts"], [{"method": "display", "command": command, "returncode": 1, "stderr": "could not create image from display"}])
             self.assertEqual(metadata["session_status"]["status"], "ready_edit")
             self.assertEqual(metadata["window_lookup_error"], "Execution error: Error: JXA lookup failed")
+            self.assertEqual(metadata["rect_lookup_error"], "no_window_rect")
+
+    def test_capture_screenshot_tries_rect_fallback_before_display(self) -> None:
+        mod = load_module()
+        with tempfile.TemporaryDirectory() as tmpdir:
+            target_path = Path(tmpdir) / "studio.png"
+            commands: list[list[str]] = []
+
+            def fake_run_capture_command(command: list[str]) -> subprocess.CompletedProcess[str]:
+                commands.append(command)
+                if "-R" in command:
+                    target_path.write_bytes(b"png")
+                    return subprocess.CompletedProcess(command, 0, "", "")
+                return subprocess.CompletedProcess(command, 1, "", "unexpected")
+
+            with (
+                mock.patch.object(
+                    mod,
+                    "capture_session_snapshot",
+                    return_value=(0, {"state": "playing", "front_window": "place.rbxlx - Roblox Studio", "window_count": 1}),
+                ),
+                mock.patch.object(mod, "capture_process_count", return_value=1),
+                mock.patch.object(mod, "resolve_front_window_capture_target", return_value=(0, {}, "no_matching_window (window_count=0)")),
+                mock.patch.object(mod, "resolve_front_window_capture_rect", return_value=(0, {"x": 0, "y": 0, "width": 1280, "height": 800}, "")),
+                mock.patch.object(mod, "run_capture_command", side_effect=fake_run_capture_command),
+            ):
+                exit_code = mod.capture_screenshot(str(target_path))
+
+            self.assertEqual(exit_code, 0)
+            self.assertEqual(commands[0], ["screencapture", "-x", "-R", "0,0,1280,800", str(target_path)])
+            metadata = json.loads(target_path.with_suffix(".capture.json").read_text(encoding="utf-8"))
+            self.assertTrue(metadata["success"])
+            self.assertEqual(metadata["capture_method"], "rect")
+            self.assertIsNone(metadata["blocker_reason"])
+            self.assertEqual(metadata["rect_lookup_error"], "")
+            self.assertEqual(metadata["window_rect"], {"x": 0, "y": 0, "width": 1280, "height": 800})
+
+    def test_capture_screenshot_classifies_host_display_blocker_when_rect_and_display_fail(self) -> None:
+        mod = load_module()
+        with tempfile.TemporaryDirectory() as tmpdir:
+            target_path = Path(tmpdir) / "studio.png"
+            responses = [
+                subprocess.CompletedProcess(
+                    ["screencapture", "-x", "-R", "0,0,1280,800", str(target_path)],
+                    1,
+                    "",
+                    "could not create image from rect",
+                ),
+                subprocess.CompletedProcess(
+                    ["screencapture", "-x", str(target_path)],
+                    1,
+                    "",
+                    "could not create image from display",
+                ),
+            ]
+            with (
+                mock.patch.object(
+                    mod,
+                    "capture_session_snapshot",
+                    return_value=(0, {"state": "playing", "front_window": "place.rbxlx - Roblox Studio", "window_count": 1}),
+                ),
+                mock.patch.object(mod, "capture_process_count", return_value=1),
+                mock.patch.object(mod, "resolve_front_window_capture_target", return_value=(0, {}, "no_matching_window (window_count=0)")),
+                mock.patch.object(mod, "resolve_front_window_capture_rect", return_value=(0, {"x": 0, "y": 0, "width": 1280, "height": 800}, "")),
+                mock.patch.object(mod, "run_capture_command", side_effect=responses),
+            ):
+                exit_code = mod.capture_screenshot(str(target_path))
+
+            self.assertEqual(exit_code, 1)
+            metadata = json.loads(target_path.with_suffix(".capture.json").read_text(encoding="utf-8"))
+            self.assertEqual(metadata["blocker_reason"], "host_display_capture_blocked")
 
     def test_infer_state_label_uses_enabled_stop_item_for_playing(self) -> None:
         mod = load_module()

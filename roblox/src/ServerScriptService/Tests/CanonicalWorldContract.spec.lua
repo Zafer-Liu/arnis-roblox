@@ -175,6 +175,15 @@ return function()
             routeStepIndex = options and options.routeStepIndex or nil,
         }
         return {
+            LoadLaneSummary = function(_self, stepIndex, laneName)
+                routeCatalogCalls[#routeCatalogCalls + 1] = {
+                    summaryLaneName = laneName,
+                    summaryStepIndex = stepIndex,
+                }
+                return {
+                    chunk_ids = { "1_0", "2_0" },
+                }
+            end,
             LoadLaneRuntimeHandle = function(_self, stepIndex, laneName)
                 routeCatalogCalls[#routeCatalogCalls + 1] = {
                     laneName = laneName,
@@ -238,6 +247,11 @@ return function()
         2,
         "expected canonical world contract to request the desired route step"
     )
+    local routeLaneSummary = routeManifestSource:LoadLaneSummary(2, "active")
+    Assert.equal(routeLaneSummary.chunk_ids[1], "1_0", "expected route runtime handles to preserve lane-summary access")
+    Assert.equal(routeLaneSummary.chunk_ids[2], "2_0", "expected route runtime handles to preserve lane-summary chunk ids")
+    Assert.equal(routeCatalogCalls[3].summaryLaneName, "active", "expected route runtime lane summaries to proxy the desired lane")
+    Assert.equal(routeCatalogCalls[3].summaryStepIndex, 2, "expected route runtime lane summaries to proxy the desired step")
     local routeEnvelope = CanonicalWorldContract.resolveBoundedEnvelope(routeManifestSource, 500)
     Assert.equal(
         routeEnvelope.manifestSourceKind,

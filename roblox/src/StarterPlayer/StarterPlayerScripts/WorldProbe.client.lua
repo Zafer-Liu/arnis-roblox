@@ -14,6 +14,7 @@ local WORLD_ROOT_ATTR = "ArnisWorldRootName"
 local IDLE_SAMPLE_INTERVAL = 1.5
 local MOVING_SAMPLE_INTERVAL = 0.5
 local NEARBY_BUILDING_RADIUS = 260
+local NEARBY_NAMED_BUILDING_RADIUS = 640
 local OVERHEAD_ROOF_RADIUS = 220
 local OVERHEAD_MIN_DELTA_Y = 12
 local NEARBY_WALL_RADIUS = 180
@@ -21,6 +22,7 @@ local IDLE_RESAMPLE_DISTANCE = 24
 local MOVING_RESAMPLE_DISTANCE = 8
 local MOVING_SPEED_THRESHOLD = 4
 local MAX_BUILDING_IDS = 6
+local MAX_NAMED_BUILDINGS = 6
 local MAX_OVERHEAD_IDS = 6
 local GROUND_SAMPLE_HEIGHT = 24
 local GROUND_SAMPLE_DEPTH = 256
@@ -49,11 +51,23 @@ local lastSampleAt = 0
 local lastSamplePosition = nil
 local lastSampleWorldRootName = nil
 local lastSampleWasMoving = false
-local telemetryFamilies = Workspace:GetAttribute(WorldProbeTelemetryFlags.WORKSPACE_ATTR)
+local function resolveTelemetryFamilies()
+    local playerTelemetryFamilies = player:GetAttribute(WorldProbeTelemetryFlags.PLAYER_ATTR)
+    if type(playerTelemetryFamilies) == "string" and playerTelemetryFamilies ~= "" then
+        return playerTelemetryFamilies
+    end
+    local replicatedTelemetryFamilies = ReplicatedStorage:GetAttribute(WorldProbeTelemetryFlags.REPLICATED_STORAGE_ATTR)
+    if type(replicatedTelemetryFamilies) == "string" and replicatedTelemetryFamilies ~= "" then
+        return replicatedTelemetryFamilies
+    end
+    return Workspace:GetAttribute(WorldProbeTelemetryFlags.WORKSPACE_ATTR)
+end
+
+local telemetryFamilies = resolveTelemetryFamilies()
 local telemetryFlags = WorldProbeTelemetryFlags.parseTelemetryFamilies(telemetryFamilies)
 
 local function refreshTelemetryFlags()
-    local nextTelemetryFamilies = Workspace:GetAttribute(WorldProbeTelemetryFlags.WORKSPACE_ATTR)
+    local nextTelemetryFamilies = resolveTelemetryFamilies()
     if nextTelemetryFamilies == telemetryFamilies then
         return
     end
@@ -106,6 +120,28 @@ local function appendLimited(list, value, limit)
         return
     end
     list[#list + 1] = value
+end
+
+local function appendNearestNamedBuilding(list, entry, limit)
+    if type(entry) ~= "table" then
+        return
+    end
+    local sourceId = entry.sourceId
+    if type(sourceId) ~= "string" or sourceId == "" then
+        return
+    end
+    for _, existing in ipairs(list) do
+        if existing.sourceId == sourceId then
+            return
+        end
+    end
+    list[#list + 1] = entry
+    table.sort(list, function(a, b)
+        return (a.distanceStuds or math.huge) < (b.distanceStuds or math.huge)
+    end)
+    while #list > limit do
+        table.remove(list)
+    end
 end
 
 local function roundTenths(value)
@@ -296,6 +332,7 @@ local function summarizeWorld(rootPart, worldRoot, worldRootName, telemetryFlags
     local nearestBuildingSourceIds = {}
     local overheadRoofSourceIds = {}
     local nearestBuildingDetails = nil
+    local nearestNamedBuildingDetails = {}
     local groundSupport = sampleGroundSupport(rootPart, worldRoot)
     local localTerrain = nil
     local playerLocalTelemetryEnabled = WorldProbeTelemetryFlags.isEnabled(telemetryFlags, "player_local")
@@ -346,7 +383,24 @@ local function summarizeWorld(rootPart, worldRoot, worldRootName, telemetryFlags
             local pivotPosition = model:GetPivot().Position
             local offset = pivotPosition - rootPosition
             local horizontalDistance = Vector2.new(offset.X, offset.Z).Magnitude
-            if horizontalDistance > NEARBY_BUILDING_RADIUS then
+            if horizontalDistance > NEARBY_NAMED_BUILDING_RADIUS then
+                continue
+            end
+
+            local buildingName = model:GetAttribute("ArnisImportBuildingName")
+            if type(buildingName) == "string" and buildingName ~= "" and horizontalDistance <= NEARBY_NAMED_BUILDING_RADIUS then
+                appendNearestNamedBuilding(nearestNamedBuildingDetails, {
+                    sourceId = sourceId,
+                    buildingName = buildingName,
+                    usage = buildingUsage,
+                    roofShape = roofShape,
+                    roofMaterial = model:GetAttribute("ArnisImportRoofMaterial"),
+                    wallMaterial = model:GetAttribute("ArnisImportWallMaterial"),
+                    distanceStuds = roundTenths(horizontalDistance),
+                }, MAX_NAMED_BUILDINGS)
+            end
+            local isWithinNearbyBuildingRadius = horizontalDistance <= NEARBY_BUILDING_RADIUS
+            if not isWithinNearbyBuildingRadius then
                 continue
             end
 
@@ -355,6 +409,7 @@ local function summarizeWorld(rootPart, worldRoot, worldRootName, telemetryFlags
             if nearestBuildingDetails ~= nil then
                 appendLimited(nearestBuildingDetails, {
                     sourceId = sourceId,
+                    buildingName = buildingName,
                     roofShape = roofShape,
                     buildingTopY = buildingTopY,
                     usage = buildingUsage,
@@ -475,6 +530,7 @@ local function summarizeWorld(rootPart, worldRoot, worldRootName, telemetryFlags
         nearestWallDistanceStuds = roundTenths(nearestWallDistanceStuds),
         nearestBuildingSourceIds = nearestBuildingSourceIds,
         nearestBuildingDetails = nearestBuildingDetails,
+        nearestNamedBuildingDetails = nearestNamedBuildingDetails,
         overheadRoofSourceIds = overheadRoofSourceIds,
         groundMaterial = groundSupport.groundMaterial,
         groundInstance = groundSupport.groundInstance,
@@ -592,6 +648,12 @@ local function publishWorldTelemetry()
         compactPayload.nearbyRoofParts = payload.nearbyRoofParts
         compactPayload.overheadRoofParts = payload.overheadRoofParts
         compactPayload.nearestBuildingSourceIds = payload.nearestBuildingSourceIds
+        compactPayload.nearestNamedBuildingSourceIds = {}
+        compactPayload.nearestNamedBuildingNames = {}
+        for _, row in ipairs(payload.nearestNamedBuildingDetails or {}) do
+            appendLimited(compactPayload.nearestNamedBuildingSourceIds, row.sourceId, MAX_NAMED_BUILDINGS)
+            appendLimited(compactPayload.nearestNamedBuildingNames, row.buildingName, MAX_NAMED_BUILDINGS)
+        end
         compactPayload.overheadRoofSourceIds = payload.overheadRoofSourceIds
         compactPayload.groundMaterial = payload.groundMaterial
         compactPayload.supportSurfaceRole = payload.supportSurfaceRole
@@ -625,6 +687,7 @@ local function publishWorldTelemetry()
     setPlayerAttributeIfChanged("ArnisClientOverheadRoofParts", payload.overheadRoofParts)
     setPlayerAttributeIfChanged("ArnisClientGroundMaterial", payload.groundMaterial)
     setPlayerAttributeIfChanged("ArnisClientSupportSurfaceRole", payload.supportSurfaceRole)
+    setPlayerAttributeIfChanged("ArnisClientNearbyNamedBuildingNames", HttpService:JSONEncode(compactPayload.nearestNamedBuildingNames or {}))
     WorldProbeTelemetryFlags.annotateMarkerPayload(bootstrapPayload, telemetryFlags)
     local bootstrapPayloadJson = HttpService:JSONEncode(bootstrapPayload)
     if bootstrapPayloadJson ~= lastBootstrapPayloadJson then
@@ -684,6 +747,10 @@ local function maybeSampleWorldTelemetry()
 end
 
 Workspace:GetAttributeChangedSignal(WorldProbeTelemetryFlags.WORKSPACE_ATTR):Connect(function()
+    refreshTelemetryFlags()
+    publishWorldTelemetry()
+end)
+player:GetAttributeChangedSignal(WorldProbeTelemetryFlags.PLAYER_ATTR):Connect(function()
     refreshTelemetryFlags()
     publishWorldTelemetry()
 end)

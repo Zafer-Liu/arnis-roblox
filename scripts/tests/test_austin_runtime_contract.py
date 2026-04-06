@@ -12,6 +12,7 @@ STREAMING_SERVICE_PATH = ROOT / "roblox" / "src" / "ServerScriptService" / "Impo
 CHUNK_PRIORITY_PATH = ROOT / "roblox" / "src" / "ServerScriptService" / "ImportService" / "ChunkPriority.lua"
 IMPORT_SERVICE_PATH = ROOT / "roblox" / "src" / "ServerScriptService" / "ImportService" / "init.lua"
 SIGNATURES_PATH = ROOT / "roblox" / "src" / "ServerScriptService" / "ImportService" / "ImportSignatures.lua"
+CANONICAL_WORLD_CONTRACT_PATH = ROOT / "roblox" / "src" / "ServerScriptService" / "ImportService" / "CanonicalWorldContract.lua"
 WORLD_PROBE_PATH = ROOT / "roblox" / "src" / "StarterPlayer" / "StarterPlayerScripts" / "WorldProbe.client.lua"
 WORLD_PROBE_SUPPORT_PATH = ROOT / "roblox" / "src" / "ReplicatedStorage" / "Shared" / "WorldProbeSupport.lua"
 WORLD_PROBE_FLAGS_PATH = ROOT / "roblox" / "src" / "ReplicatedStorage" / "Shared" / "WorldProbeTelemetryFlags.lua"
@@ -20,9 +21,14 @@ WORLD_PROBE_TERRAIN_SPEC_PATH = ROOT / "roblox" / "src" / "ServerScriptService" 
 WORLD_PROBE_FLAGS_SPEC_PATH = ROOT / "roblox" / "src" / "ServerScriptService" / "Tests" / "WorldProbeTelemetryFlags.spec.lua"
 WORLD_STATE_APPLIER_PATH = ROOT / "roblox" / "src" / "ServerScriptService" / "ImportService" / "WorldStateApplier.lua"
 MINIMAP_SERVICE_PATH = ROOT / "roblox" / "src" / "ServerScriptService" / "ImportService" / "MinimapService.lua"
+HARNESS_ROUTE_CONFIG_PATH = ROOT / "roblox" / "src" / "ServerScriptService" / "ImportService" / "HarnessRouteConfig.lua"
 PREVIEW_BUILDER_PATH = ROOT / "roblox" / "src" / "ServerScriptService" / "StudioPreview" / "AustinPreviewBuilder.lua"
+PREVIEW_REQUEST_PATH = ROOT / "roblox" / "src" / "ServerScriptService" / "StudioPreview" / "AustinPreviewRequest.lua"
 BUILDING_BUILDER_PATH = (
     ROOT / "roblox" / "src" / "ServerScriptService" / "ImportService" / "Builders" / "BuildingBuilder.lua"
+)
+TERRAIN_BUILDER_PATH = (
+    ROOT / "roblox" / "src" / "ServerScriptService" / "ImportService" / "Builders" / "TerrainBuilder.lua"
 )
 SCENE_AUDIT_PATH = ROOT / "roblox" / "src" / "ServerScriptService" / "ImportService" / "SceneAudit.lua"
 WORLD_CONFIG_PATH = ROOT / "roblox" / "src" / "ReplicatedStorage" / "Shared" / "WorldConfig.lua"
@@ -36,6 +42,7 @@ class AustinRuntimeContractTests(unittest.TestCase):
         cls.streaming_text = STREAMING_SERVICE_PATH.read_text(encoding="utf-8")
         cls.chunk_priority_text = CHUNK_PRIORITY_PATH.read_text(encoding="utf-8")
         cls.import_service_text = IMPORT_SERVICE_PATH.read_text(encoding="utf-8")
+        cls.canonical_world_contract_text = CANONICAL_WORLD_CONTRACT_PATH.read_text(encoding="utf-8")
         cls.signatures_text = SIGNATURES_PATH.read_text(encoding="utf-8") if SIGNATURES_PATH.exists() else ""
         cls.world_probe_text = WORLD_PROBE_PATH.read_text(encoding="utf-8") if WORLD_PROBE_PATH.exists() else ""
         cls.world_probe_support_text = (
@@ -55,8 +62,11 @@ class AustinRuntimeContractTests(unittest.TestCase):
         )
         cls.world_state_applier_text = WORLD_STATE_APPLIER_PATH.read_text(encoding="utf-8")
         cls.minimap_service_text = MINIMAP_SERVICE_PATH.read_text(encoding="utf-8")
+        cls.harness_route_config_text = HARNESS_ROUTE_CONFIG_PATH.read_text(encoding="utf-8")
         cls.preview_builder_text = PREVIEW_BUILDER_PATH.read_text(encoding="utf-8")
+        cls.preview_request_text = PREVIEW_REQUEST_PATH.read_text(encoding="utf-8")
         cls.building_builder_text = BUILDING_BUILDER_PATH.read_text(encoding="utf-8")
+        cls.terrain_builder_text = TERRAIN_BUILDER_PATH.read_text(encoding="utf-8")
         cls.scene_audit_text = SCENE_AUDIT_PATH.read_text(encoding="utf-8")
         cls.world_config_text = WORLD_CONFIG_PATH.read_text(encoding="utf-8")
 
@@ -428,6 +438,19 @@ class AustinRuntimeContractTests(unittest.TestCase):
         self.assertIn("routeLane = routeSelectionOptions.routeLane", self.run_austin_text)
         self.assertIn("routeStepIndex = routeSelectionOptions.routeStepIndex", self.run_austin_text)
         self.assertIn('setPerfAttribute("RouteCatalogName", routeSelectionOptions.routeCatalogName or "")', self.run_austin_text)
+
+    def test_preview_builder_uses_route_window_chunk_selection_instead_of_full_bounded_envelope(self) -> None:
+        self.assertIn(
+            "local previewChunkIds, resolvedLoadRadius =",
+            self.preview_builder_text,
+        )
+        self.assertIn(
+            "AustinPreviewRequest.SelectChunkIds(manifestSource, boundedEnvelope.focusPoint, normalizedRequest, AustinPreviewBuilder.LOAD_RADIUS)",
+            self.preview_builder_text,
+        )
+        self.assertIn("selectionLoadRadius = resolvedLoadRadius", self.preview_builder_text)
+        self.assertIn('if type(previewChunkIds) ~= "table" or #previewChunkIds == 0 then', self.preview_builder_text)
+        self.assertNotIn("local previewChunkIds = boundedEnvelope.chunkIds", self.preview_builder_text)
         self.assertIn('setPerfAttribute("RouteLane", routeSelectionOptions.routeLane or "")', self.run_austin_text)
         self.assertIn('setPerfAttribute("RouteStepIndex", routeSelectionOptions.routeStepIndex or -1)', self.run_austin_text)
         self.assertIn('"ManifestSourceKind"', self.run_austin_text)
@@ -440,8 +463,100 @@ class AustinRuntimeContractTests(unittest.TestCase):
         self.assertIn('RouteStepIndex = normalizedRequest and normalizedRequest.routeStepIndex or -1', self.preview_builder_text)
         self.assertIn("ManifestSourceKind = manifestSourceKind", self.preview_builder_text)
         self.assertIn("ManifestSourceName = resolvedManifestName or \"\"", self.preview_builder_text)
+
+    def test_bootstrap_reads_harness_route_config_before_runtime_load(self) -> None:
+        self.assertIn("local HarnessRouteConfig = require(script.Parent.ImportService.HarnessRouteConfig)", self.bootstrap_text)
+        self.assertIn("local function resolveHarnessRouteSelection()", self.bootstrap_text)
+        self.assertIn("if type(HarnessRouteConfig) ~= \"table\" or HarnessRouteConfig.enabled ~= true then", self.bootstrap_text)
+        self.assertIn("if type(HarnessRouteConfig.telemetryFamilies) == \"string\"", self.bootstrap_text)
+        self.assertIn("selection.telemetryFamilies = HarnessRouteConfig.telemetryFamilies", self.bootstrap_text)
+        self.assertIn("local ReplicatedStorage = game:GetService(\"ReplicatedStorage\")", self.bootstrap_text)
+        self.assertIn("ReplicatedStorage:SetAttribute(\"ArnisTelemetryFamilies\", harnessRouteSelection.telemetryFamilies)", self.bootstrap_text)
+        self.assertIn("Workspace:SetAttribute(\"ArnisTelemetryFamilies\", harnessRouteSelection.telemetryFamilies)", self.bootstrap_text)
+        self.assertIn("player:SetAttribute(\"ArnisTelemetryFamilies\", harnessRouteSelection.telemetryFamilies)", self.bootstrap_text)
+        self.assertIn("Workspace:SetAttribute(\"VertigoRouteCatalogName\", harnessRouteSelection.routeCatalogName)", self.bootstrap_text)
+        self.assertIn("Workspace:SetAttribute(\"VertigoRouteLane\", harnessRouteSelection.routeLane)", self.bootstrap_text)
+        self.assertIn("Workspace:SetAttribute(\"VertigoRouteStepIndex\", harnessRouteSelection.routeStepIndex)", self.bootstrap_text)
+        self.assertIn("local harnessRouteSelection = resolveHarnessRouteSelection()", self.bootstrap_text)
+        self.assertLess(
+            self.bootstrap_text.find("local harnessRouteSelection = resolveHarnessRouteSelection()"),
+            self.bootstrap_text.find("local function onPlayer(player)"),
+        )
+        self.assertIn("routeCatalogName = harnessRouteSelection.routeCatalogName,", self.bootstrap_text)
+        self.assertIn("routeLane = harnessRouteSelection.routeLane,", self.bootstrap_text)
+        self.assertIn("routeStepIndex = harnessRouteSelection.routeStepIndex,", self.bootstrap_text)
+        self.assertIn("enabled = false", self.harness_route_config_text)
+        self.assertIn("routeCatalogName = \"\"", self.harness_route_config_text)
+        self.assertIn("routeLane = \"\"", self.harness_route_config_text)
+        self.assertIn("routeStepIndex = -1", self.harness_route_config_text)
+        self.assertIn("telemetryFamilies = \"\"", self.harness_route_config_text)
+        self.assertNotIn("elseif cellZ >= plan.gridD then", self.terrain_builder_text)
+
+    def test_preview_builder_uses_chunk_priority_api_with_explicit_secondary_focus_slot(self) -> None:
+        self.assertIn(
+            "ChunkPriority.SortWorkItems(workItems, focusPoint, nil, chunkSize, forwardVector, observedChunkCostById)",
+            self.preview_builder_text,
+        )
+        self.assertIn(
+            "ChunkPriority.SortChunkIdsByPriority(",
+            self.preview_builder_text,
+        )
+        self.assertIn(
+            "focusPoint,\n            nil,\n            chunkSize,\n            forwardVector,\n            observedChunkCostById",
+            self.preview_builder_text,
+        )
+
+    def test_chunk_priority_declares_chunk_center_helper_before_footprint_center_helper(self) -> None:
+        chunk_center_index = self.chunk_priority_text.find("local function getChunkCenterXZ(")
+        footprint_center_index = self.chunk_priority_text.find("local function getChunkFootprintCenterXZ(")
+        self.assertGreaterEqual(chunk_center_index, 0)
+        self.assertGreaterEqual(footprint_center_index, 0)
+        self.assertLess(
+            chunk_center_index,
+            footprint_center_index,
+            "expected getChunkCenterXZ to be declared before getChunkFootprintCenterXZ so Lua closes over the local helper",
+        )
+
+    def test_terrain_builder_initializes_neighbor_sampling_plan_before_interpolation(self) -> None:
+        self.assertIn(
+            "local function resolveNeighborHeightSample(terrainGrid, terrainNeighbors, gridW, gridD, cellX, cellZ)",
+            self.terrain_builder_text,
+        )
+        self.assertIn("local function sampleInterpolatedHeight(cellX, cellZ, fracX, fracZ)", self.terrain_builder_text)
+        self.assertIn(
+            "resolveNeighborHeightSample(terrainGrid, terrainNeighbors, gridW, gridD, cellX, cellZ)",
+            self.terrain_builder_text,
+        )
+        self.assertNotIn("resolveNeighborHeightSample(plan, cellX, cellZ)", self.terrain_builder_text)
+
+    def test_route_runtime_handles_preserve_lane_summary_access_for_preview_chunk_selection(self) -> None:
+        self.assertIn(
+            "routeCatalogHandle:LoadLaneRuntimeHandle(routeStepIndex, routeLane, timeoutSeconds, options)",
+            self.canonical_world_contract_text,
+        )
+        self.assertIn("type(manifestSource) == \"table\"", self.canonical_world_contract_text)
+        self.assertIn("type(routeCatalogHandle.LoadLaneSummary) == \"function\"", self.canonical_world_contract_text)
+        self.assertIn("function manifestSource:LoadLaneSummary(stepIndex, laneName)", self.canonical_world_contract_text)
+        self.assertIn("return routeCatalogHandle:LoadLaneSummary(stepIndex, laneName)", self.canonical_world_contract_text)
         self.assertIn("cachedPreviewManifestName = resolvedManifestName", self.preview_builder_text)
         self.assertIn("cachedFullManifestName = resolvedManifestName", self.preview_builder_text)
+        self.assertIn("cachedPreviewManifestRequestKey = nil", self.preview_builder_text)
+        self.assertIn("cachedFullManifestRequestKey = nil", self.preview_builder_text)
+        self.assertIn("local function buildManifestRequestKey(normalizedRequest)", self.preview_builder_text)
+        self.assertIn('return "canonical_manifest"', self.preview_builder_text)
+        self.assertIn('"route_catalog",', self.preview_builder_text)
+        self.assertIn('local canUseManifestCache = manifestSourceKind == "canonical_manifest"', self.preview_builder_text)
+        self.assertIn("RunService:IsStudio() and not timeTravelActive and canUseManifestCache", self.preview_builder_text)
+        self.assertIn("if not timeTravelActive and canUseManifestCache then", self.preview_builder_text)
+        self.assertIn("cachedPreviewManifestRequestKey == manifestRequestKey", self.preview_builder_text)
+        self.assertIn("cachedFullManifestRequestKey == manifestRequestKey", self.preview_builder_text)
+        self.assertIn("cachedPreviewManifestRequestKey = manifestRequestKey", self.preview_builder_text)
+        self.assertIn("cachedFullManifestRequestKey = manifestRequestKey", self.preview_builder_text)
+        self.assertIn("local function normalizeRouteChunkId(chunkId)", self.preview_request_text)
+        self.assertIn("local function normalizeRouteChunkIds(laneSummary)", self.preview_request_text)
+        self.assertIn('string.find(chunkId, ":", 1, true)', self.preview_request_text)
+        self.assertIn("chunkRef.chunk_id", self.preview_request_text)
+        self.assertIn("return normalizeRouteChunkIds(laneSummary), nil", self.preview_request_text)
         self.assertIn('local manifestSourceKind =', self.preview_builder_text)
         self.assertIn('normalizedRequest and normalizedRequest.routeCatalogName and "route_catalog"', self.preview_builder_text)
         self.assertIn('[BootstrapAustin] Manifest source kind=%s name=%s', self.bootstrap_text)
@@ -482,7 +597,10 @@ class AustinRuntimeContractTests(unittest.TestCase):
     def test_client_world_probe_exposes_local_terrain_roughness_metrics(self) -> None:
         self.assertIn("local WorldProbeTelemetryFlags = require(ReplicatedStorage.Shared.WorldProbeTelemetryFlags)", self.world_probe_text)
         self.assertIn("local WorldProbeTerrain = require(ReplicatedStorage.Shared.WorldProbeTerrain)", self.world_probe_text)
-        self.assertIn('local telemetryFamilies = Workspace:GetAttribute(WorldProbeTelemetryFlags.WORKSPACE_ATTR)', self.world_probe_text)
+        self.assertIn("local function resolveTelemetryFamilies()", self.world_probe_text)
+        self.assertIn('local telemetryFamilies = resolveTelemetryFamilies()', self.world_probe_text)
+        self.assertIn('player:GetAttribute(WorldProbeTelemetryFlags.PLAYER_ATTR)', self.world_probe_text)
+        self.assertIn('ReplicatedStorage:GetAttribute(WorldProbeTelemetryFlags.REPLICATED_STORAGE_ATTR)', self.world_probe_text)
         self.assertIn("local telemetryFlags = WorldProbeTelemetryFlags.parseTelemetryFamilies(telemetryFamilies)", self.world_probe_text)
         self.assertIn("WorldProbeTelemetryFlags.annotateMarkerPayload(bootstrapPayload, telemetryFlags)", self.world_probe_text)
         self.assertIn("sampleCount", self.world_probe_terrain_text)
@@ -545,6 +663,17 @@ class AustinRuntimeContractTests(unittest.TestCase):
         self.assertIn("localExperiencePayload.localEnclosure = payload.localEnclosure", self.world_probe_text)
         self.assertIn("localExperiencePayload.localRoofCover = payload.localRoofCover", self.world_probe_text)
         self.assertIn("bootstrapAttemptId = bootstrapPayload.bootstrapAttemptId,", self.world_probe_text)
+        self.assertIn('player:GetAttributeChangedSignal(WorldProbeTelemetryFlags.PLAYER_ATTR):Connect(function()', self.world_probe_text)
+        self.assertIn('local NEARBY_NAMED_BUILDING_RADIUS = 640', self.world_probe_text)
+        self.assertIn('local MAX_NAMED_BUILDINGS = 6', self.world_probe_text)
+        self.assertIn('local nearestNamedBuildingDetails = {}', self.world_probe_text)
+        self.assertIn('model:GetAttribute("ArnisImportBuildingName")', self.world_probe_text)
+        self.assertIn('if horizontalDistance > NEARBY_NAMED_BUILDING_RADIUS then', self.world_probe_text)
+        self.assertIn('local isWithinNearbyBuildingRadius = horizontalDistance <= NEARBY_BUILDING_RADIUS', self.world_probe_text)
+        self.assertIn('if not isWithinNearbyBuildingRadius then', self.world_probe_text)
+        self.assertIn('nearestNamedBuildingSourceIds = {}', self.world_probe_text)
+        self.assertIn('nearestNamedBuildingNames = {}', self.world_probe_text)
+        self.assertIn('setPlayerAttributeIfChanged("ArnisClientNearbyNamedBuildingNames"', self.world_probe_text)
 
     def test_client_world_probe_resamples_moving_players_more_aggressively(self) -> None:
         self.assertIn("local IDLE_SAMPLE_INTERVAL = 1.5", self.world_probe_text)
@@ -560,6 +689,8 @@ class AustinRuntimeContractTests(unittest.TestCase):
 
     def test_world_probe_telemetry_flags_contract_is_explicit_and_stable(self) -> None:
         self.assertIn('WorldProbeTelemetryFlags.WORKSPACE_ATTR = "ArnisTelemetryFamilies"', self.world_probe_flags_text)
+        self.assertIn('WorldProbeTelemetryFlags.PLAYER_ATTR = "ArnisTelemetryFamilies"', self.world_probe_flags_text)
+        self.assertIn('WorldProbeTelemetryFlags.REPLICATED_STORAGE_ATTR = "ArnisTelemetryFamilies"', self.world_probe_flags_text)
         self.assertIn("function WorldProbeTelemetryFlags.parseTelemetryFamilies(value)", self.world_probe_flags_text)
         self.assertIn("function WorldProbeTelemetryFlags.isEnabled(telemetryFlags, family)", self.world_probe_flags_text)
         self.assertIn("function WorldProbeTelemetryFlags.annotateMarkerPayload(payload, telemetryFlags)", self.world_probe_flags_text)
@@ -577,11 +708,18 @@ class AustinRuntimeContractTests(unittest.TestCase):
     def test_shaped_roof_closure_decks_are_marked_internal_support_not_visible_roof_truth(self) -> None:
         self.assertIn("local function applyRoofPartOptions(part, partOptions)", self.building_builder_text)
         self.assertIn("ArnisRoofClosureDeck = true", self.building_builder_text)
+        self.assertIn('if not rectangularFootprint then\n            buildRoofClosureDeck(', self.building_builder_text)
+        self.assertIn("tryBuildRectangularHippedRoofMesh(", self.building_builder_text)
+        self.assertIn("buildRoofClosureDeck(bldgName, footprint, bounds.holeWorldLoops, baseY + height, rc, rm, parent)", self.building_builder_text)
         self.assertIn("ArnisShellWallEvidence", self.building_builder_text)
         self.assertIn("ArnisShellWallEvidence", self.scene_audit_text)
         self.assertIn('descendant.Name == "MergedShellRooflineCue"', self.scene_audit_text)
         self.assertIn('descendant.Name == "MergedShellPerimeterCue"', self.scene_audit_text)
         self.assertIn("part.Transparency = partOptions.transparency", self.building_builder_text)
+
+    def test_building_builder_publishes_building_name_attribute_for_runtime_probes(self) -> None:
+        self.assertIn('if type(building.name) == "string" and building.name ~= "" then', self.building_builder_text)
+        self.assertIn('model:SetAttribute("ArnisImportBuildingName", building.name)', self.building_builder_text)
 
     def test_scene_audit_tracks_visible_detail_and_facade_truth_separately_from_total_parts(self) -> None:
         self.assertIn('instance.Name == "MergedShellWindowPaneCue"', self.scene_audit_text)

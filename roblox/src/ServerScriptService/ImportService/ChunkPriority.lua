@@ -173,6 +173,12 @@ local function getChunkFootprintBounds(chunkLikeOrEntry)
     }
 end
 
+local function getChunkCenterXZ(chunkLikeOrEntry, chunkSizeStuds)
+    local origin = getChunkOrigin(chunkLikeOrEntry)
+    local halfSize = chunkSizeStuds * 0.5
+    return (origin.x or 0) + halfSize, (origin.z or 0) + halfSize
+end
+
 local function getChunkFootprintCenterXZ(chunkLikeOrEntry, chunkSizeStuds)
     local bounds = getChunkFootprintBounds(chunkLikeOrEntry)
     if isFootprintBounds(bounds) then
@@ -196,12 +202,6 @@ local function getChunkFootprintDistanceSq(chunkLikeOrEntry, point, chunkSizeStu
     local dx = centerX - point.X
     local dz = centerZ - point.Z
     return dx * dx + dz * dz
-end
-
-local function getChunkCenterXZ(chunkLikeOrEntry, chunkSizeStuds)
-    local origin = getChunkOrigin(chunkLikeOrEntry)
-    local halfSize = chunkSizeStuds * 0.5
-    return (origin.x or 0) + halfSize, (origin.z or 0) + halfSize
 end
 
 local function getChunkPriorityAnchorXZ(chunkLikeOrEntry)
