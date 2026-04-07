@@ -620,7 +620,7 @@ local function publishPerfTelemetry()
     -- Instance counts cached; only recount every 30s (not every emit)
     local now30 = os.clock()
     if perfCachedPartCountStale or (now30 - (perfLastInstanceCountAt or 0)) > 30 then
-        local worldRoot = Workspace:FindFirstChild(Workspace:GetAttribute(WORLD_ROOT_ATTR) or "")
+        local worldRoot = getWorldRoot()
         perfCachedPartCount = 0
         perfCachedMeshPartCount = 0
         if worldRoot then
