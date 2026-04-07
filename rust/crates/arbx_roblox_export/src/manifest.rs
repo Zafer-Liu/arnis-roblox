@@ -7,6 +7,7 @@ use crate::prop_mesh::PropMesh;
 use crate::road_mesh::RoadMeshBundle;
 use crate::subplans::ChunkRef;
 use crate::terrain_mesh::TerrainMesh;
+use crate::water_mesh::WaterMesh;
 
 #[derive(Debug, Clone, Copy, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct Color {
@@ -140,6 +141,9 @@ pub struct WaterFeature {
     pub width: Option<f64>,
     pub intermittent: Option<bool>,
     pub water_type: Option<String>,
+    /// Pre-computed water surface mesh. When present the Lua importer loads
+    /// this directly instead of generating geometry at runtime.
+    pub water_mesh: Option<WaterMesh>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -951,6 +955,12 @@ impl WaterFeature {
             out.push_str(",\n");
             write_key(out, indent + 2, "waterType");
             write_string(out, wt);
+        }
+
+        if let Some(ref mesh) = self.water_mesh {
+            out.push_str(",\n");
+            write_key(out, indent + 2, "waterMesh");
+            mesh.write_json(out, indent + 2);
         }
 
         out.push('\n');

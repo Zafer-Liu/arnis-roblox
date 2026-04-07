@@ -178,6 +178,7 @@ fn build_chunk(input: ChunkInput) -> Chunk {
             width: None,
             intermittent: None,
             water_type: None,
+            water_mesh: None,
         })
         .collect();
 

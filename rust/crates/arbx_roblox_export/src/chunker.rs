@@ -14,6 +14,7 @@ use crate::mesh_builder::build_shell_mesh;
 use crate::prop_mesh::{build_tree_mesh, resolve_leaf_type};
 use crate::road_mesh::{build_road_bundle, SidewalkMode};
 use crate::subplans::derive_chunk_ref;
+use crate::water_mesh::{build_water_polygon_mesh, build_water_river_mesh};
 
 pub fn world_to_chunk(position: Vec3, chunk_size_studs: i32) -> ChunkId {
     let size = chunk_size_studs as f64;
@@ -541,13 +542,25 @@ impl Chunker {
                     for (chunk_id, points) in segments {
                         let chunk = self.ensure_chunk(chunk_id, elevation, style);
                         let origin = chunk.origin_studs;
-                        let relative_points = points
+                        let relative_points: Vec<Vec3> = points
                             .into_iter()
                             .map(|p| Vec3::new(p.x - origin.x, p.y - origin.y, p.z - origin.z))
                             .collect();
 
                         let material = style.get_terrain_material(&r.kind);
                         let color = style.get_terrain_color(&r.kind);
+
+                        // Pre-compute river ribbon mesh.
+                        let water_mesh = if relative_points.len() >= 2 {
+                            let pts: Vec<(f64, f64, f64)> = relative_points
+                                .iter()
+                                .map(|p| (p.x, p.y, p.z))
+                                .collect();
+                            Some(build_water_river_mesh(&pts, r.width_studs, None))
+                        } else {
+                            None
+                        };
+
                         chunk.water.push(ManifestWaterFeature {
                             id: r.id.clone(),
                             kind: r.kind.clone(),
@@ -562,6 +575,7 @@ impl Chunker {
                             width: r.width,
                             intermittent: r.intermittent,
                             water_type: None,
+                            water_mesh,
                         });
                     }
                 }
@@ -614,6 +628,18 @@ impl Chunker {
                         &relative_holes,
                         &material,
                     );
+                    // Pre-compute polygon water surface mesh.
+                    let water_mesh = if relative_footprint.len() >= 3 {
+                        let fp: Vec<(f64, f64)> = relative_footprint
+                            .iter()
+                            .map(|gp| (gp.x, gp.z))
+                            .collect();
+                        let sy = surface_y.unwrap_or(0.0);
+                        Some(build_water_polygon_mesh(&fp, sy))
+                    } else {
+                        None
+                    };
+
                     chunk.water.push(ManifestWaterFeature {
                         id: p.id,
                         kind: p.kind.clone(),
@@ -628,6 +654,7 @@ impl Chunker {
                         width: None,
                         intermittent: p.intermittent,
                         water_type: p.water_type,
+                        water_mesh,
                     });
                 }
             },
