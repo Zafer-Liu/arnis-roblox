@@ -34,11 +34,8 @@ pub use prop_mesh::{
 pub use road_mesh::{
     build_road_bundle, build_road_strip, RoadMeshBundle, RoadMeshStrip, SidewalkMode,
 };
-<<<<<<< HEAD
 pub use terrain_mesh::{build_terrain_mesh, TerrainMesh};
-=======
 pub use water_mesh::{build_water_polygon_mesh, build_water_river_mesh, WaterMesh};
->>>>>>> f2b9f8cf (Add pre-computed water body mesh generation to the Rust pipeline)
 pub use manifest_store::{
     read_manifest_sqlite_all, read_manifest_sqlite_subset, stream_manifest_sqlite_all,
     write_manifest_sqlite, ManifestStoreResult, StoredChunkRecord, StoredManifestMeta,

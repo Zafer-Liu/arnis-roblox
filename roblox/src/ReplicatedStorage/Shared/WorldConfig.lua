@@ -83,6 +83,7 @@ local WorldConfig = {
         MidRingLod = "reduced",
         FarRingLod = "minimal",
     },
+    EnableLodReimport = true, -- re-import buildings at higher detail when chunks move to a nearer ring
 
     -- ═══════════════════════════════════════════════════════════════
     -- STREAMING & LOD

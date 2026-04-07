@@ -30,6 +30,13 @@ local HYSTERESIS_RATIO = 0.15
 -- LOD detail toggle: runs at a lower frequency to keep per-frame cost cheap.
 local LOD_UPDATE_INTERVAL = 2 -- seconds
 local LOD_MOVEMENT_REFRESH_THRESHOLD_STUDS = 24
+
+-- Building LOD re-import: detail rank for comparison (higher = more detail).
+local BUILDING_LOD_DETAIL_RANK = {
+    minimal = 1,
+    reduced = 2,
+    full = 3,
+}
 local lastLODUpdate = 0
 
 -- Ring-based transparency: far-ring chunks get a slight transparency boost
@@ -58,6 +65,10 @@ end
 
 -- Registry of chunkId -> current LOD level
 local loadedChunkLods = {}
+-- Registry of chunkId -> building LOD level at which chunk geometry was imported
+local importedBuildingLodById = {}
+-- Cumulative count of LOD upgrade re-imports since streaming started
+local lodUpgradeCount = 0
 local lodConfigCache = setmetatable({}, { __mode = "k" })
 local lodGroupFootprintBoundsCache = setmetatable({}, { __mode = "k" })
 local streamingChunkOptionsByLod = nil
@@ -250,6 +261,7 @@ local function resetStreamingResidencyTelemetry()
     Workspace:SetAttribute("ArnisStreamingEvictedChunkCount", 0)
     Workspace:SetAttribute("ArnisStreamingLastPrefetchReason", "")
     Workspace:SetAttribute("ArnisStreamingLastEvictionReason", "")
+    Workspace:SetAttribute("ArnisStreamingLodUpgradeCount", 0)
 end
 
 local function getResidentEstimatedCostForChunkId(chunkId)
@@ -714,6 +726,7 @@ local function pruneStaleResidentEstimatedCosts(worldRootName)
         clearResidentEstimatedCostForChunk(chunkId)
         clearObservedImportCostForChunk(chunkId)
         loadedChunkLods[chunkId] = nil
+        importedBuildingLodById[chunkId] = nil
         ImportService.ResetSubplanState(chunkId, worldRootName)
     end
 end
@@ -2089,6 +2102,8 @@ function StreamingService.Start(manifest, options)
     streamingMemoryGuardrail = MemoryGuardrail.New(MemoryGuardrail.ResolveConfig(config.MemoryGuardrails))
     table.clear(lodGroupFootprintBoundsCache)
     table.clear(streamingResidentEstimatedCostById)
+    importedBuildingLodById = {}
+    lodUpgradeCount = 0
     seedResidentEstimatedCosts(streamingChunkRefs, config, streamingOptions.worldRootName)
 
     if not config.StreamingEnabled then
@@ -2157,6 +2172,8 @@ function StreamingService.Stop()
     table.clear(observedChunkImportMsById)
     table.clear(streamingResidentEstimatedCostById)
     loadedChunkLods = {}
+    importedBuildingLodById = {}
+    lodUpgradeCount = 0
     streamingUpdateInProgress = false
     streamingLastPrefetchReason = ""
     streamingLastEvictionReason = ""
@@ -2274,6 +2291,7 @@ function StreamingService.Update(focalPoint)
                         ImportService.ResetSubplanState(chunkRef.id, streamingOptions.worldRootName)
                         clearResidentEstimatedCostForChunk(chunkRef.id)
                         loadedChunkLods[chunkRef.id] = nil
+                        importedBuildingLodById[chunkRef.id] = nil
                         evictedEstimatedCost += residentCost
                         evictedChunkCount += 1
                         lastEvictionReason = if ring == nil
@@ -2292,6 +2310,31 @@ function StreamingService.Update(focalPoint)
                 local chunkOptions = streamingChunkOptionsByLod[targetLod]
                 local currentEntry = ChunkLoader.GetChunkEntry(chunkRef.id, streamingOptions.worldRootName)
                 if currentEntry then
+                    -- LOD re-import: if the chunk was imported at a lower building LOD
+                    -- and the new ring demands higher detail, tear down and re-import.
+                    local enableLodReimport = config.EnableLodReimport ~= false
+                    local previousBuildingLod = importedBuildingLodById[chunkRef.id]
+                    local needsLodUpgrade = enableLodReimport
+                        and previousBuildingLod ~= nil
+                        and chunkBuildingLodLevel ~= nil
+                        and (BUILDING_LOD_DETAIL_RANK[chunkBuildingLodLevel] or 0)
+                            > (BUILDING_LOD_DETAIL_RANK[previousBuildingLod] or 0)
+                    if needsLodUpgrade then
+                        -- Destroy existing geometry and re-queue at the higher building LOD.
+                        ChunkLoader.UnloadChunk(chunkRef.id, nil, streamingOptions.worldRootName)
+                        ImportService.ResetSubplanState(chunkRef.id, streamingOptions.worldRootName)
+                        clearResidentEstimatedCostForChunk(chunkRef.id)
+                        clearObservedImportCostForChunk(chunkRef.id)
+                        loadedChunkLods[chunkRef.id] = nil
+                        importedBuildingLodById[chunkRef.id] = nil
+                        lodUpgradeCount += 1
+                        Workspace:SetAttribute("ArnisStreamingLodUpgradeCount", lodUpgradeCount)
+                        appendStreamingWorkItems(importWorkItems, chunkEntry, chunkOptions, chunkOptions.config, targetLod, chunkBuildingLodLevel)
+                        desiredChunkIds[chunkRef.id] = true
+                        lastPrefetchReason = "lod_upgrade"
+                        continue
+                    end
+
                     local changedLayers =
                         computeChangedLayers(currentEntry.layerSignatures, chunkOptions.layerSignatures)
                     if not changedLayers and currentEntry.configSignature == chunkOptions.configSignature then
@@ -2342,6 +2385,7 @@ function StreamingService.Update(focalPoint)
                 ImportService.ResetSubplanState(chunkRef.id, streamingOptions.worldRootName)
                 clearResidentEstimatedCostForChunk(chunkRef.id)
                 loadedChunkLods[chunkRef.id] = nil
+                importedBuildingLodById[chunkRef.id] = nil
                 lastEvictionReason = "outside_target_radius"
             end
         end
@@ -2488,6 +2532,7 @@ function StreamingService.Update(focalPoint)
                 })
                 clearResidentEstimatedCost(workItem)
                 loadedChunkLods[chunkRef.id] = nil
+                importedBuildingLodById[chunkRef.id] = nil
                 refreshMemoryGuardrailTelemetry(memoryGuardrailConfig, deferredAdmissions)
                 break
             end
@@ -2505,6 +2550,13 @@ function StreamingService.Update(focalPoint)
                 observedChunkImportMsById[observedCostKey] = previous * 0.7 + elapsedMs * 0.3
             end
             loadedChunkLods[chunkRef.id] = workItem.targetLod or loadedChunkLods[chunkRef.id]
+            -- Track the building LOD level the chunk was imported at for re-import detection.
+            -- Subplan imports don't replace the whole chunk, so only record for whole-chunk imports.
+            if workItem.buildingLodLevel and not workItem.subplan then
+                importedBuildingLodById[chunkRef.id] = workItem.buildingLodLevel
+            elseif workItem.buildingLodLevel and importedBuildingLodById[chunkRef.id] == nil then
+                importedBuildingLodById[chunkRef.id] = workItem.buildingLodLevel
+            end
             local importedChunkEntry = ChunkLoader.GetChunkEntry(chunkRef.id, streamingOptions.worldRootName)
             if importedChunkEntry ~= nil then
                 local immediateCameraFocusPos = resolveCurrentCameraFocusPosition()
@@ -2536,6 +2588,7 @@ function StreamingService.Update(focalPoint)
                 evictedChunkCount += 1
                 clearResidentEstimatedCostForChunk(chunkId)
                 loadedChunkLods[chunkId] = nil
+                importedBuildingLodById[chunkId] = nil
                 lastEvictionReason = resolvedEvictionReason
             end
         end
