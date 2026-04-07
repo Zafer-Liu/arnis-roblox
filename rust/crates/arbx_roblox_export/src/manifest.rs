@@ -1,7 +1,9 @@
 use std::fmt::Write as _;
 
 use arbx_geo::{BoundingBox, ChunkId, Footprint, Vec3};
+use base64::Engine;
 
+use crate::building_atlas::{AtlasUv, BuildingAtlas};
 use crate::mesh_builder::PrecomputedMesh;
 use crate::prop_mesh::PropMesh;
 use crate::road_mesh::RoadMeshBundle;
@@ -111,6 +113,9 @@ pub struct BuildingShell {
     /// Pre-computed shell mesh (walls + roof). When present the Lua importer
     /// loads this directly instead of generating geometry at runtime.
     pub shell_mesh: Option<PrecomputedMesh>,
+    /// UV rect inside the chunk's facade atlas (see `Chunk::building_atlas`).
+    /// `None` when the building was excluded from the chunk atlas.
+    pub atlas_uv: Option<AtlasUv>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -203,6 +208,10 @@ pub struct Chunk {
     pub props: Vec<PropInstance>,
     pub landuse: Vec<LanduseShell>,
     pub barriers: Vec<BarrierSegment>,
+    /// Pre-computed facade atlas covering up to 16 hero buildings in this
+    /// chunk. `None` when no hero candidates exist or the atlas optimization
+    /// is disabled. Per-building UV rects live on `BuildingShell::atlas_uv`.
+    pub building_atlas: Option<BuildingAtlas>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -490,6 +499,12 @@ impl Chunk {
         write_array(out, indent + 2, &self.barriers, |item, out, indent| {
             item.write_json(out, indent)
         });
+
+        if let Some(ref atlas) = self.building_atlas {
+            out.push_str(",\n");
+            write_key(out, indent + 2, "buildingAtlas");
+            write_building_atlas(out, atlas, indent + 2);
+        }
 
         out.push('\n');
         write_indent(out, indent);
@@ -832,6 +847,12 @@ impl BuildingShell {
             out.push_str(",\n");
             write_key(out, indent + 2, "shellMesh");
             write_precomputed_mesh(out, mesh, indent + 2);
+        }
+
+        if let Some(ref uv) = self.atlas_uv {
+            out.push_str(",\n");
+            write_key(out, indent + 2, "atlasUv");
+            write_atlas_uv_inline(out, uv);
         }
 
         out.push('\n');
@@ -1237,6 +1258,73 @@ fn write_precomputed_mesh(out: &mut String, mesh: &PrecomputedMesh, indent: usiz
             out.push_str(s.trim_end_matches('0').trim_end_matches('.'));
         }
     }
+    out.push_str("]\n");
+
+    write_indent(out, indent);
+    out.push('}');
+}
+
+fn write_atlas_uv_inline(out: &mut String, uv: &AtlasUv) {
+    out.push_str("{ ");
+    write_key_inline(out, "x");
+    write_number(out, uv.uv_x as f64);
+    out.push_str(", ");
+    write_key_inline(out, "y");
+    write_number(out, uv.uv_y as f64);
+    out.push_str(", ");
+    write_key_inline(out, "width");
+    write_number(out, uv.uv_width as f64);
+    out.push_str(", ");
+    write_key_inline(out, "height");
+    write_number(out, uv.uv_height as f64);
+    out.push_str(" }");
+}
+
+fn write_building_atlas(out: &mut String, atlas: &BuildingAtlas, indent: usize) {
+    out.push_str("{\n");
+
+    write_key(out, indent + 2, "atlasWidth");
+    write!(out, "{}", atlas.atlas_width).unwrap();
+    out.push_str(",\n");
+
+    write_key(out, indent + 2, "atlasHeight");
+    write!(out, "{}", atlas.atlas_height).unwrap();
+    out.push_str(",\n");
+
+    write_key(out, indent + 2, "pngBase64");
+    let encoded = base64::engine::general_purpose::STANDARD.encode(&atlas.png_data);
+    write_string(out, &encoded);
+    out.push_str(",\n");
+
+    write_key(out, indent + 2, "entries");
+    out.push_str("[\n");
+    for (i, entry) in atlas.entries.iter().enumerate() {
+        write_indent(out, indent + 4);
+        out.push_str("{ ");
+        write_key_inline(out, "buildingId");
+        write_string(out, &entry.building_id);
+        out.push_str(", ");
+        write_key_inline(out, "facadeType");
+        write_string(out, &entry.facade_type);
+        out.push_str(", ");
+        write_key_inline(out, "uvX");
+        write_number(out, entry.uv_x as f64);
+        out.push_str(", ");
+        write_key_inline(out, "uvY");
+        write_number(out, entry.uv_y as f64);
+        out.push_str(", ");
+        write_key_inline(out, "uvWidth");
+        write_number(out, entry.uv_width as f64);
+        out.push_str(", ");
+        write_key_inline(out, "uvHeight");
+        write_number(out, entry.uv_height as f64);
+        out.push_str(" }");
+        if i + 1 != atlas.entries.len() {
+            out.push(',');
+        }
+        out.push('\n');
+    }
+    write_indent(out, indent + 2);
     out.push_str("]\n");
 
     write_indent(out, indent);

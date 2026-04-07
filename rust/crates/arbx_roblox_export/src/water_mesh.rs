@@ -587,6 +587,7 @@ mod tests {
             props: vec![],
             landuse: vec![],
             barriers: vec![],
+            building_atlas: None,
         };
 
         let json = chunk.to_json_pretty();

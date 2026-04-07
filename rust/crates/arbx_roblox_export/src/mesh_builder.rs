@@ -417,6 +417,7 @@ mod tests {
             roof_angle: None,
             name: None,
             shell_mesh: Some(mesh),
+            atlas_uv: None,
         };
 
         let chunk = Chunk {
@@ -432,6 +433,7 @@ mod tests {
             props: vec![],
             landuse: vec![],
             barriers: vec![],
+            building_atlas: None,
         };
 
         let json = chunk.to_json_pretty();

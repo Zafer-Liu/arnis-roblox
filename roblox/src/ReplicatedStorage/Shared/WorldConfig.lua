@@ -41,6 +41,12 @@ local WorldConfig = {
     MergeWindowsIntoMesh = true, -- batch window panes into EditableMesh (massive draw call reduction)
     EnableRoomInteriors = true,
     EnableHeroPBR = true,
+    -- Tranche-3 streaming optimization: when true, the importer will look for
+    -- a pre-baked chunk-scoped facade atlas (`chunk.buildingAtlas`) emitted by
+    -- the Rust pipeline and index it via `building.atlasUv` instead of running
+    -- the per-building EditableImage hero PBR path. Default off; flip on once
+    -- the runtime atlas applier lands.
+    EnableBuildingAtlas = false,
     WindowSpacing = { -- studs between windows by building usage
         office = 4,
         residential = 6,

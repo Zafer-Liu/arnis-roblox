@@ -366,6 +366,7 @@ pub(crate) fn build_empty_chunk(
         props: Vec::new(),
         landuse: Vec::new(),
         barriers: Vec::new(),
+        building_atlas: None,
     }
 }
 
@@ -753,6 +754,7 @@ impl Chunker {
                     roof_angle: f.roof_angle,
                     name: f.name.clone(),
                     shell_mesh,
+                    atlas_uv: None,
                 });
             }
             Feature::Prop(f) => {
@@ -953,6 +955,26 @@ impl Chunker {
             chunk.props.sort_by(|a, b| a.id.cmp(&b.id));
             chunk.landuse.sort_by(|a, b| a.id.cmp(&b.id));
             chunk.barriers.sort_by(|a, b| a.id.cmp(&b.id));
+
+            // Pre-pack a chunk-scoped facade atlas for the hero buildings.
+            // Per-building UV refs are written back onto each `BuildingShell`
+            // so the Roblox importer can index the atlas without re-running
+            // the EditableImage path. The runtime opts in via
+            // `WorldConfig.EnableBuildingAtlas`.
+            let atlas = crate::building_atlas::build_chunk_atlas(&chunk.buildings);
+            if let Some(ref atlas) = atlas {
+                let uv_by_id: std::collections::HashMap<&str, _> = atlas
+                    .entries
+                    .iter()
+                    .map(|entry| (entry.building_id.as_str(), entry.uv()))
+                    .collect();
+                for building in &mut chunk.buildings {
+                    if let Some(uv) = uv_by_id.get(building.id.as_str()) {
+                        building.atlas_uv = Some(uv.clone());
+                    }
+                }
+            }
+            chunk.building_atlas = atlas;
 
             // Rebuild terrain mesh with final painted materials so the
             // heightfield carries satellite-derived per-vertex material data.
