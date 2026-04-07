@@ -74,6 +74,14 @@ The active implementation plan is:
 
 ## Status Notes
 
+### 2026-04-07: Session 4 — Bug Fixes + Complete Prop Coverage + Telemetry Confirmed
+
+- **10 of 11 known bugs fixed**: atlas PNG→RGBA decode, atlas base64 (EncodingService), atlas UV cropping, LOD bidirectional, mesh splitting, terrainMesh audit, propMesh coverage, reconcile cleanup, ARNIS_CLIENT_PERF confirmed
+- **ARNIS_CLIENT_PERF confirmed emitting**: avgFrameTimeMs=16.67, fps=60, p99=17.64ms in Studio play proof on tertiary
+- **All street furniture props pre-computed**: bench, street_lamp, bollard, waste_basket, fire_hydrant, vending_machine, bus_stop, traffic_signal, telephone, post_box. propMesh coverage: 45.6% → expected 80%+ with all kinds
+- **Senior code review**: Found critical base64 decode bug (JSONDecode ≠ base64 decode), reconcile cleanup gap. Both fixed.
+- **360 Rust + 272 Python = 632 tests green**
+
 ### 2026-04-07: Session 3 — Full Planetary Streaming Pipeline
 
 - **All 5 geometry types pre-computed in Rust + consumed in Lua**: buildings (shellMesh), roads (roadMesh + sidewalk/curb bundle), props (propMesh — broadleaf/conifer/palm), terrain (terrainMesh — heightfield grid), water (waterMesh — polygon fan + river ribbon)
