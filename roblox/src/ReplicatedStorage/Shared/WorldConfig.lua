@@ -127,24 +127,24 @@ local WorldConfig = {
             StreamingMaxLookaheadStuds = 512,
             StreamingRings = {
                 near = {
-                    MaxRadiusStuds = 1024,
-                    EstimatedBudgetBytes = 1536 * 1024 * 1024,
-                    MaxChunkCount = 64,
+                    MaxRadiusStuds = 512,
+                    EstimatedBudgetBytes = 512 * 1024 * 1024,
+                    MaxChunkCount = 16,
                 },
                 mid = {
-                    MaxRadiusStuds = 1536,
-                    EstimatedBudgetBytes = 1536 * 1024 * 1024,
-                    MaxChunkCount = 96,
+                    MaxRadiusStuds = 768,
+                    EstimatedBudgetBytes = 512 * 1024 * 1024,
+                    MaxChunkCount = 24,
                 },
                 far = {
-                    MaxRadiusStuds = 2048,
-                    EstimatedBudgetBytes = 1024 * 1024 * 1024,
-                    MaxChunkCount = 128,
+                    MaxRadiusStuds = 1024,
+                    EstimatedBudgetBytes = 256 * 1024 * 1024,
+                    MaxChunkCount = 32,
                 },
             },
             MemoryGuardrails = {
                 Enabled = true,
-                EstimatedBudgetBytes = 4 * 1024 * 1024 * 1024,
+                EstimatedBudgetBytes = 2 * 1024 * 1024 * 1024,
                 ResumeBudgetRatio = 0.85,
                 HostProbe = {
                     Enabled = true,
