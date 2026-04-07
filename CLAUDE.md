@@ -46,6 +46,7 @@ Kodex should read `AGENTS.md` first.
   - `scripts/run_studio_harness_remote.sh --host <alias> --play --screenshot --artifact-dir /tmp/arnis-remote-studio`
   - add `--edit-only` for edit-mode proof
   - add `--spec-filter <SpecName>` for isolated Luau repros
+  - add `--play-wait <seconds>` when large manifests need more time to reach `gameplay_ready` (default 60s)
 - When screenshot capture fails, inspect the sibling `*.capture.json` artifact before doing anything else. It records the capture method, stderr, and window/session diagnostics and is the repo’s authoritative failure breadcrumb for remote display issues.
 - On `tertiary`, the committed remote screenshot path now prefers a GUI-session relay through the logged-in `Terminal` app when direct display capture is blocked. In a healthy remote visual proof, the sidecar may therefore show `capture_method="gui_terminal_display"` with `guiSessionRelay.method="terminal.command"`.
 - Keep `primary` out of remote GUI automation. Use it only to trigger, poll, and sync artifacts back; the actual screenshot/capture work belongs on `tertiary`.

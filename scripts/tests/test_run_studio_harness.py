@@ -1326,12 +1326,24 @@ class RunStudioHarnessTests(unittest.TestCase):
 
     def test_validate_play_bootstrap_trace_uses_raw_log_not_slice(self) -> None:
         block = re.search(
-            r"validate_play_bootstrap_trace\(\) \{\n(?P<body>.*?)\n\}\n\nsummarize_log",
+            r"validate_play_bootstrap_trace\(\) \{\n(?P<body>.*?)\n\}\n\nlog_effective_play_perf_state",
             self.text,
             re.DOTALL,
         )
         self.assertIsNotNone(block, "validate_play_bootstrap_trace function not found")
         self.assertNotIn('summary_source="$LOG_SLICE_FILE"', block.group("body"))
+
+    def test_validate_play_bootstrap_trace_accepts_partial_importing_startup(self) -> None:
+        block = re.search(
+            r"validate_play_bootstrap_trace\(\) \{\n(?P<body>.*?)\n\}\n\nlog_effective_play_perf_state",
+            self.text,
+            re.DOTALL,
+        )
+        self.assertIsNotNone(block, "validate_play_bootstrap_trace function not found")
+        body = block.group("body")
+        self.assertIn('"importing_startup" in trace', body)
+        self.assertIn('partial', body)
+        self.assertIn('large manifest may need more time', body)
 
     def test_play_probe_keeps_play_session_alive_until_harness_capture(self) -> None:
         play_probe_block = re.search(

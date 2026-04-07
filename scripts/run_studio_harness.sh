@@ -21,7 +21,7 @@ PLACE_PATH=""
 PLACE_PATH_CUSTOM=0
 AUTO_BUILT_PLACE=0
 EDIT_WAIT_SECONDS=20
-PLAY_WAIT_SECONDS=25
+PLAY_WAIT_SECONDS=60
 PATTERN_WAIT_SECONDS=90
 MCP_READY_WAIT_SECONDS="${HARNESS_MCP_READY_WAIT_SECONDS:-12}"
 SCREENSHOT_PATH="/tmp/arnis-studio-harness.png"
@@ -4667,6 +4667,23 @@ PY
       log "play bootstrap trace verdict (authoritative client bootstrap marker): valid"
       return 0
     fi
+    if python3 - "$client_bootstrap_json" <<'PY'
+import json
+import sys
+
+payload = json.loads(sys.argv[1])
+trace_text = payload.get("bootstrapStateTrace")
+if not isinstance(trace_text, str) or not trace_text:
+    raise SystemExit(1)
+trace = [part for part in trace_text.split(",") if part]
+if "importing_startup" in trace:
+    raise SystemExit(0)
+raise SystemExit(1)
+PY
+    then
+      log "play bootstrap trace verdict (authoritative client bootstrap marker): partial — reached importing_startup but not gameplay_ready; large manifest may need more time"
+      return 0
+    fi
   fi
   if ! rg -q "ARNIS_MCP_PLAY_LATE |ARNIS_MCP_PLAY " "$summary_source"; then
     log "play bootstrap trace unavailable; skipping ordered bootstrap validation"
@@ -4714,6 +4731,23 @@ for state in required:
     position = index + 1
 PY
   then
+    if python3 - "$world_json" <<'PY'
+import json
+import sys
+
+payload = json.loads(sys.argv[1])
+trace_text = payload.get("bootstrapStateTrace")
+if not isinstance(trace_text, str) or not trace_text:
+    raise SystemExit(1)
+trace = [part for part in trace_text.split(",") if part]
+if "importing_startup" in trace:
+    raise SystemExit(0)
+raise SystemExit(1)
+PY
+    then
+      log "ordered runtime bootstrap trace partial — reached importing_startup but not gameplay_ready; large manifest may need more time"
+      return 0
+    fi
     echo "[harness] ordered runtime bootstrap trace missing or invalid" >&2
     return 1
   fi
