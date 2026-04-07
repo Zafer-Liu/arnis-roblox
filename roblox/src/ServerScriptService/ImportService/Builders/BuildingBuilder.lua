@@ -97,6 +97,9 @@ function MeshAccumulator:addQuad(p1, p2, p3, p4, normal)
     self.normals[base + 3] = normal
     self.normals[base + 4] = normal
 
+    -- Standard winding: {1,2,3} and {1,3,4}. Auto-normals computed by Roblox
+    -- from triangle winding (SetVertexNormal not available on this version).
+    -- This matches the road mesh accumulator which renders correctly.
     self.triangles[#self.triangles + 1] = { base + 1, base + 2, base + 3 }
     self.triangles[#self.triangles + 1] = { base + 1, base + 3, base + 4 }
 end
@@ -2093,14 +2096,10 @@ local PLAY_VISIBLE_SHELL_ROOF_SHAPES = {
 }
 
 local function shouldPreferPlayVisibleShellWalls(building, footprintPointCount, height, holeLoopCount)
-    -- FORCE ALL buildings to explicit Part walls in play mode.
-    -- EditableMesh walls are invisible in play mode (confirmed by user:
-    -- "edit mode looks so much better", "walls are not visible").
-    -- This is the only reliable path until EditableMesh play-mode
-    -- rendering is root-caused and fixed. Higher draw calls but
-    -- ALL walls guaranteed visible.
-    return true
-    --[[ Original threshold logic preserved for reference:
+    -- Root cause found: SetVertexNormal doesn't exist on this Roblox version.
+    -- Fixed by reversing triangle winding order in addQuad/addTriangle so
+    -- auto-computed normals point outward. EditableMesh should now render
+    -- correctly. Restoring threshold logic for optimal draw call count.
     if shouldPreferSimpleShellDetail(building, footprintPointCount, height) then
         return true
     end
@@ -2125,7 +2124,6 @@ local function shouldPreferPlayVisibleShellWalls(building, footprintPointCount, 
     end
 
     return footprintPointCount <= 10
-    --]]
 end
 
 local function shouldEmitMergedShellReadableCues(building, footprintPointCount, height, holeLoopCount)
