@@ -118,7 +118,19 @@ function MeshAccumulator:flush()
     local vertexCount = #self.vertices
     local triangleCount = #self.triangles
 
-    local mesh = AssetService:CreateEditableMesh()
+    print(string.format(
+        "[MeshAccumulator] flush %s: %d verts, %d tris",
+        self.materialName, vertexCount, triangleCount
+    ))
+
+    local meshOk, mesh = pcall(function()
+        return AssetService:CreateEditableMesh()
+    end)
+    if not meshOk or not mesh then
+        warn("[MeshAccumulator] CreateEditableMesh failed: " .. tostring(mesh))
+        self:flushAsParts()
+        return
+    end
 
     -- Add all vertices and set normals
     local vertexIds = table.create(#self.vertices)
@@ -141,9 +153,16 @@ function MeshAccumulator:flush()
             CollisionFidelity = self.collisionFidelity,
         }
     end
-    local part = if createOptions
-        then AssetService:CreateMeshPartAsync(Content.fromObject(mesh), createOptions)
-        else AssetService:CreateMeshPartAsync(Content.fromObject(mesh))
+    local partOk, part = pcall(function()
+        return if createOptions
+            then AssetService:CreateMeshPartAsync(Content.fromObject(mesh), createOptions)
+            else AssetService:CreateMeshPartAsync(Content.fromObject(mesh))
+    end)
+    if not partOk or not part then
+        warn("[MeshAccumulator] CreateMeshPartAsync failed: " .. tostring(part))
+        self:flushAsParts()
+        return
+    end
     self.totalMeshCreateMs += (os.clock() - meshCreateStartedAt) * 1000
     self.totalVertexCount += vertexCount
     self.totalTriangleCount += triangleCount
@@ -163,6 +182,66 @@ function MeshAccumulator:flush()
     part.Parent = self.parent
 
     -- Reset buffers for next batch
+    self.vertices = {}
+    self.normals = {}
+    self.triangles = {}
+end
+
+-- Fallback: emit simple box Parts when EditableMesh/CreateMeshPartAsync is
+-- unavailable (e.g. play-mode permission restrictions).  Each buffered
+-- triangle pair is approximated as a flat Part spanning its bounding box.
+function MeshAccumulator:flushAsParts()
+    warn(string.format(
+        "[MeshAccumulator] flushAsParts fallback for %s: %d verts, %d tris",
+        self.materialName, #self.vertices, #self.triangles
+    ))
+    self.meshCount += 1
+    -- Compute the AABB of the entire buffered geometry
+    local minBound = self.vertices[1]
+    local maxBound = self.vertices[1]
+    for i = 2, #self.vertices do
+        local pos = self.vertices[i]
+        minBound = Vector3.new(
+            math.min(minBound.X, pos.X),
+            math.min(minBound.Y, pos.Y),
+            math.min(minBound.Z, pos.Z)
+        )
+        maxBound = Vector3.new(
+            math.max(maxBound.X, pos.X),
+            math.max(maxBound.Y, pos.Y),
+            math.max(maxBound.Z, pos.Z)
+        )
+    end
+    local center = (minBound + maxBound) * 0.5
+    local size = maxBound - minBound
+    -- Clamp minimum thickness so thin-wall geometry is still visible
+    size = Vector3.new(
+        math.max(size.X, 0.15),
+        math.max(size.Y, 0.15),
+        math.max(size.Z, 0.15)
+    )
+    local part = Instance.new("Part")
+    part.Name = string.format("%s_fallback_%d", self.materialName, self.meshCount)
+    part.Size = size
+    part.CFrame = CFrame.new(center)
+    part.Material = self.material
+    part.Color = self.color
+    part.Anchored = true
+    part.CanCollide = if self.canCollide == nil then true else self.canCollide
+    part.CanQuery = if self.canQuery == nil then true else self.canQuery
+    part.CastShadow = if self.castShadow == nil then false else self.castShadow
+    if self.transparency ~= nil then
+        part.Transparency = self.transparency
+    end
+    if self.reflectance ~= nil then
+        part.Reflectance = self.reflectance
+    end
+    part.Parent = self.parent
+
+    self.totalVertexCount += #self.vertices
+    self.totalTriangleCount += #self.triangles
+
+    -- Reset buffers
     self.vertices = {}
     self.normals = {}
     self.triangles = {}
@@ -1534,7 +1613,14 @@ local function tryBuildRectangularHippedRoofMesh(
         addTriangle(outerPosNeg, outerPosPos, ridgePos)
     end
 
-    local mesh = AssetService:CreateEditableMesh()
+    local meshOk, mesh = pcall(function()
+        return AssetService:CreateEditableMesh()
+    end)
+    if not meshOk or not mesh then
+        warn("[MeshAccumulator] CreateEditableMesh failed for roof: " .. tostring(mesh))
+        return false
+    end
+
     local vertexIds = table.create(#triangles * 3)
     local vertexCount = 0
     for _, tri in ipairs(triangles) do
@@ -1557,9 +1643,15 @@ local function tryBuildRectangularHippedRoofMesh(
             CollisionFidelity = Enum.CollisionFidelity.Box,
         }
     end
-    local roof = if createOptions
-        then AssetService:CreateMeshPartAsync(Content.fromObject(mesh), createOptions)
-        else AssetService:CreateMeshPartAsync(Content.fromObject(mesh))
+    local roofOk, roof = pcall(function()
+        return if createOptions
+            then AssetService:CreateMeshPartAsync(Content.fromObject(mesh), createOptions)
+            else AssetService:CreateMeshPartAsync(Content.fromObject(mesh))
+    end)
+    if not roofOk or not roof then
+        warn("[MeshAccumulator] CreateMeshPartAsync failed for roof: " .. tostring(roof))
+        return false
+    end
     local meshCreateMs = (os.clock() - meshCreateStartedAt) * 1000
     roof.Name = bldgName .. "_roof_mesh"
     roof.Anchored = true

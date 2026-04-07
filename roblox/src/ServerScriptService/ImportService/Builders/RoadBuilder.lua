@@ -1238,8 +1238,16 @@ function RoadMeshAccumulator:flush()
         return
     end
 
-    self.totalVertexCount += #self.vertices
-    self.totalTriangleCount += #self.triangles
+    local vertexCount = #self.vertices
+    local triangleCount = #self.triangles
+
+    print(string.format(
+        "[RoadMeshAccumulator] flush %s: %d verts, %d tris",
+        self.name, vertexCount, triangleCount
+    ))
+
+    self.totalVertexCount += vertexCount
+    self.totalTriangleCount += triangleCount
 
     local minBound = self.vertices[1]
     local maxBound = self.vertices[1]
@@ -1250,7 +1258,15 @@ function RoadMeshAccumulator:flush()
     end
     local meshOrigin = (minBound + maxBound) * 0.5
 
-    local mesh = AssetService:CreateEditableMesh()
+    local meshOk, mesh = pcall(function()
+        return AssetService:CreateEditableMesh()
+    end)
+    if not meshOk or not mesh then
+        warn("[RoadMeshAccumulator] CreateEditableMesh failed: " .. tostring(mesh))
+        self:flushAsParts(meshOrigin, minBound, maxBound)
+        return
+    end
+
     local vids = {}
     for i, pos in ipairs(self.vertices) do
         vids[i] = mesh:AddVertex(pos - meshOrigin)
@@ -1263,15 +1279,72 @@ function RoadMeshAccumulator:flush()
     self.meshCount = self.meshCount + 1
     -- Collision fidelity must be baked during MeshPart creation for road raycasts.
     local meshCreateStartedAt = os.clock()
-    local part = AssetService:CreateMeshPartAsync(Content.fromObject(mesh), {
-        CollisionFidelity = self.collisionFidelity,
-    })
+    local partOk, part = pcall(function()
+        return AssetService:CreateMeshPartAsync(Content.fromObject(mesh), {
+            CollisionFidelity = self.collisionFidelity,
+        })
+    end)
+    if not partOk or not part then
+        warn("[RoadMeshAccumulator] CreateMeshPartAsync failed: " .. tostring(part))
+        self:flushAsParts(meshOrigin, minBound, maxBound)
+        return
+    end
     self.totalMeshCreateMs += (os.clock() - meshCreateStartedAt) * 1000
     part.Name = string.format("%s_mesh_%d", self.name, self.meshCount)
     part.Material = self.material
     part.Color = self.color
     part.Anchored = true
     part:PivotTo(CFrame.new(meshOrigin))
+    part.CanCollide = self.canCollide
+    part.CanQuery = self.canQuery
+    part.CustomPhysicalProperties = self.physicsProps
+    if self.role then
+        part:SetAttribute("ArnisRoadSurfaceRole", self.role)
+    end
+    if self.kindBucket then
+        part:SetAttribute("ArnisRoadKind", self.kindBucket)
+    end
+    if self.subkindBucket then
+        part:SetAttribute("ArnisRoadSubkind", self.subkindBucket)
+    end
+    part:SetAttribute("ArnisRoadSourceCount", self.pendingSourceRoadCount)
+    if #self.pendingRoadIdOrder > 0 then
+        part:SetAttribute("ArnisRoadSourceIds", table.concat(self.pendingRoadIdOrder, "\n"))
+    end
+    if self.role == nil or self.role == "road" then
+        CollectionService:AddTag(part, "Road")
+    end
+    part.Parent = self.parent
+
+    self.vertices = {}
+    self.normals = {}
+    self.triangles = {}
+    self.pendingSourceRoadCount = 0
+    self.pendingRoadIds = {}
+    self.pendingRoadIdOrder = {}
+end
+
+-- Fallback: emit a simple box Part when EditableMesh/CreateMeshPartAsync is
+-- unavailable (e.g. play-mode permission restrictions).
+function RoadMeshAccumulator:flushAsParts(meshOrigin, minBound, maxBound)
+    warn(string.format(
+        "[RoadMeshAccumulator] flushAsParts fallback for %s: %d verts, %d tris",
+        self.name, #self.vertices, #self.triangles
+    ))
+    self.meshCount = self.meshCount + 1
+    local size = maxBound - minBound
+    size = Vector3.new(
+        math.max(size.X, 0.15),
+        math.max(size.Y, 0.15),
+        math.max(size.Z, 0.15)
+    )
+    local part = Instance.new("Part")
+    part.Name = string.format("%s_fallback_%d", self.name, self.meshCount)
+    part.Size = size
+    part.CFrame = CFrame.new(meshOrigin)
+    part.Material = self.material
+    part.Color = self.color
+    part.Anchored = true
     part.CanCollide = self.canCollide
     part.CanQuery = self.canQuery
     part.CustomPhysicalProperties = self.physicsProps
