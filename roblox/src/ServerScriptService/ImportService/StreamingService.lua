@@ -2560,17 +2560,18 @@ function StreamingService.Update(focalPoint)
                     continue
                 end
                 if currentEntry then
-                    -- LOD re-import: if the chunk was imported at a lower building LOD
-                    -- and the new ring demands higher detail, tear down and re-import.
+                    -- LOD re-import: if the chunk's building LOD differs from what the
+                    -- current ring demands, tear down and re-import. This handles both
+                    -- upgrades (far→near) and downgrades (near→far), freeing memory
+                    -- when the player moves away from a full-detail chunk.
                     local enableLodReimport = config.EnableLodReimport ~= false
                     local previousBuildingLod = importedBuildingLodById[chunkRef.id]
-                    local needsLodUpgrade = enableLodReimport
+                    local needsLodChange = enableLodReimport
                         and previousBuildingLod ~= nil
                         and chunkBuildingLodLevel ~= nil
-                        and (BUILDING_LOD_DETAIL_RANK[chunkBuildingLodLevel] or 0)
-                            > (BUILDING_LOD_DETAIL_RANK[previousBuildingLod] or 0)
-                    if needsLodUpgrade then
-                        -- Destroy existing geometry and re-queue at the higher building LOD.
+                        and previousBuildingLod ~= chunkBuildingLodLevel
+                    if needsLodChange then
+                        -- Destroy existing geometry and re-queue at the new building LOD.
                         ChunkLoader.UnloadChunk(chunkRef.id, nil, streamingOptions.worldRootName)
                         ImportService.ResetSubplanState(chunkRef.id, streamingOptions.worldRootName)
                         clearResidentEstimatedCostForChunk(chunkRef.id)
