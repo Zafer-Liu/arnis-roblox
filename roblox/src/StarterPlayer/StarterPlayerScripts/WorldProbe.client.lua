@@ -892,14 +892,17 @@ task.defer(function()
     local character = player.Character or player.CharacterAdded:Wait()
     local root = character:WaitForChild("HumanoidRootPart", 10)
     if root and camera then
+        -- Keep camera Scriptable for 5 seconds so the initial view is stable
+        -- for screenshot capture, then restore Custom for player control
         camera.CameraType = Enum.CameraType.Scriptable
         local pos = root.Position
-        -- Position camera higher and further back to see buildings and terrain
         local cameraPos = pos + Vector3.new(-20, 25, 40)
         local lookAt = pos + Vector3.new(10, -5, -50)
         camera.CFrame = CFrame.lookAt(cameraPos, lookAt)
-        task.wait(0.5)
+        task.wait(5)
         camera.CameraType = Enum.CameraType.Custom
+        -- Immediately re-set the CFrame to fight the orbit controller
+        camera.CFrame = CFrame.lookAt(cameraPos, lookAt)
     end
 end)
 
