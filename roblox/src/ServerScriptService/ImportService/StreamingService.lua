@@ -919,6 +919,10 @@ local function reconcileLoadedChunksForStart(chunkRefs, worldRootName)
                 ImportService.ResetSubplanState(chunkId, worldRootName)
                 clearResidentEstimatedCostForChunk(chunkId)
                 clearObservedImportCostForChunk(chunkId)
+                loadedChunkLods[chunkId] = nil
+                importedBuildingLodById[chunkId] = nil
+                inflightChunkImports[chunkId] = nil
+                loadedChunkRings[chunkId] = nil
             end
         end
     end

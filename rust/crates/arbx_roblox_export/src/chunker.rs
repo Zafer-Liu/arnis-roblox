@@ -11,7 +11,7 @@ use crate::manifest::{
 };
 use crate::materials::StyleMapper;
 use crate::mesh_builder::build_shell_mesh;
-use crate::prop_mesh::{build_tree_mesh, resolve_leaf_type};
+use crate::prop_mesh::{build_bench_mesh, build_bollard_mesh, build_street_lamp_mesh, build_tree_mesh, resolve_leaf_type};
 use crate::road_mesh::{build_road_bundle, SidewalkMode};
 use crate::subplans::derive_chunk_ref;
 use crate::water_mesh::{build_water_polygon_mesh, build_water_river_mesh};
@@ -763,15 +763,19 @@ impl Chunker {
                 let origin = chunk.origin_studs;
 
                 // Pre-compute mesh for tree props
-                let prop_mesh = if f.kind == "tree" {
-                    let leaf = resolve_leaf_type(
-                        f.leaf_type.as_deref(),
-                        f.species.as_deref(),
-                    );
-                    let height_m = f.height.unwrap_or(0.0);
-                    Some(build_tree_mesh(height_m, 0.0, 0.0, leaf))
-                } else {
-                    None
+                let prop_mesh = match f.kind.as_str() {
+                    "tree" => {
+                        let leaf = resolve_leaf_type(
+                            f.leaf_type.as_deref(),
+                            f.species.as_deref(),
+                        );
+                        let height_m = f.height.unwrap_or(0.0);
+                        Some(build_tree_mesh(height_m, 0.0, 0.0, leaf))
+                    }
+                    "bench" => Some(build_bench_mesh()),
+                    "street_lamp" | "amenity_street_lamp" => Some(build_street_lamp_mesh()),
+                    "bollard" => Some(build_bollard_mesh()),
+                    _ => None,
                 };
 
                 chunk.props.push(PropInstance {

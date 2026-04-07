@@ -3801,11 +3801,9 @@ function BuildingBuilder.MeshBuildAll(parent, buildings, originStuds, chunk, con
     local chunkAtlasImage = nil -- EditableImage from decoded RGBA atlas, or nil
     if enableAtlas and chunk and chunk.buildingAtlas and type(chunk.buildingAtlas.rgbaBase64) == "string" then
         local atlasOk, atlasImg = pcall(function()
-            -- Decode base64 → raw RGBA pixel buffer (no PNG decoding needed)
-            local rgbaStr = game:GetService("HttpService"):JSONDecode(
-                '"' .. chunk.buildingAtlas.rgbaBase64 .. '"'
-            )
-            local rgbaBuf = buffer.fromstring(rgbaStr)
+            -- Decode base64 → raw RGBA pixel buffer via EncodingService (2025+).
+            -- JSONDecode does NOT base64-decode — it only processes JSON escapes.
+            local rgbaBuf = game:GetService("EncodingService"):Base64Decode(chunk.buildingAtlas.rgbaBase64)
             local img = AssetService:CreateEditableImage({
                 Size = Vector2.new(
                     chunk.buildingAtlas.atlasWidth or 512,

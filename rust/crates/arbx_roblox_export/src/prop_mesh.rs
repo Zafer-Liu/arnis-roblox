@@ -578,6 +578,79 @@ pub fn build_tree_mesh(
     acc.into_prop_mesh()
 }
 
+/// Build a bench mesh: seat plank + backrest + 2 legs.
+/// All geometry in prop-local space with base at Y=0.
+pub fn build_bench_mesh() -> PropMesh {
+    let mut acc = MeshAccum::new();
+    // Seat: 5×0.3×1.5 at y=1.5
+    add_box(&mut acc, [0.0, 1.5, 0.0], [5.0, 0.3, 1.5]);
+    // Backrest: 5×1.2×0.2 at y=2.3, offset z=-0.65
+    add_box(&mut acc, [0.0, 2.3, -0.65], [5.0, 1.2, 0.2]);
+    // Left leg: 0.3×1.5×1.5 at y=0.75, x=-2
+    add_box(&mut acc, [-2.0, 0.75, 0.0], [0.3, 1.5, 1.5]);
+    // Right leg
+    add_box(&mut acc, [2.0, 0.75, 0.0], [0.3, 1.5, 1.5]);
+    acc.into_prop_mesh()
+}
+
+/// Build a street lamp mesh: pole + lamp head.
+/// All geometry in prop-local space with base at Y=0.
+pub fn build_street_lamp_mesh() -> PropMesh {
+    let mut acc = MeshAccum::new();
+    // Pole: cylinder r=0.15, h=12 at y=6
+    add_cylinder(&mut acc, [0.0, 6.0, 0.0], 0.15, 12.0, 8);
+    // Lamp head: box 1.5×0.5×1.5 at top
+    add_box(&mut acc, [0.0, 12.5, 0.0], [1.5, 0.5, 1.5]);
+    acc.into_prop_mesh()
+}
+
+/// Build a bollard mesh: short cylinder.
+/// All geometry in prop-local space with base at Y=0.
+pub fn build_bollard_mesh() -> PropMesh {
+    let mut acc = MeshAccum::new();
+    // Cylinder: r=0.75, h=3 at y=1.5
+    add_cylinder(&mut acc, [0.0, 1.5, 0.0], 0.75, 3.0, 8);
+    acc.into_prop_mesh()
+}
+
+/// Simple axis-aligned box helper for furniture props.
+fn add_box(acc: &mut MeshAccum, center: [f64; 3], size: [f64; 3]) {
+    let hx = size[0] * 0.5;
+    let hy = size[1] * 0.5;
+    let hz = size[2] * 0.5;
+    let cx = center[0];
+    let cy = center[1];
+    let cz = center[2];
+
+    // 8 corners
+    let v = [
+        [cx - hx, cy - hy, cz - hz], // 0: left-bottom-back
+        [cx + hx, cy - hy, cz - hz], // 1: right-bottom-back
+        [cx + hx, cy + hy, cz - hz], // 2: right-top-back
+        [cx - hx, cy + hy, cz - hz], // 3: left-top-back
+        [cx - hx, cy - hy, cz + hz], // 4: left-bottom-front
+        [cx + hx, cy - hy, cz + hz], // 5: right-bottom-front
+        [cx + hx, cy + hy, cz + hz], // 6: right-top-front
+        [cx - hx, cy + hy, cz + hz], // 7: left-top-front
+    ];
+    // 6 faces (2 tris each), per-face vertices for flat normals
+    let faces: [([usize; 4], [f64; 3]); 6] = [
+        ([4, 5, 6, 7], [0.0, 0.0, 1.0]),   // front (+Z)
+        ([1, 0, 3, 2], [0.0, 0.0, -1.0]),   // back (-Z)
+        ([5, 1, 2, 6], [1.0, 0.0, 0.0]),    // right (+X)
+        ([0, 4, 7, 3], [-1.0, 0.0, 0.0]),   // left (-X)
+        ([7, 6, 2, 3], [0.0, 1.0, 0.0]),    // top (+Y)
+        ([0, 1, 5, 4], [0.0, -1.0, 0.0]),   // bottom (-Y)
+    ];
+    for (indices, normal) in &faces {
+        let v0 = acc.push_vertex(v[indices[0]], *normal);
+        let v1 = acc.push_vertex(v[indices[1]], *normal);
+        let v2 = acc.push_vertex(v[indices[2]], *normal);
+        let v3 = acc.push_vertex(v[indices[3]], *normal);
+        acc.triangles.extend_from_slice(&[v0, v1, v2, v0, v2, v3]);
+    }
+}
+
 // ---------------------------------------------------------------------------
 // JSON serialisation (same pattern as RoadMeshStrip::write_json)
 // ---------------------------------------------------------------------------
