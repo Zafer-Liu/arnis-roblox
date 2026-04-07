@@ -1020,8 +1020,15 @@ function ImportService.ImportChunk(chunk, options)
             TerrainBuilder.Clear(chunk, terrainPlan)
         end
         local p = Profiler.begin("BuildTerrain")
-        TerrainBuilder.Build(terrainFolder, chunk, terrainPlan)
+        -- Try precomputed terrain mesh fast path (when TerrainMeshMode is enabled)
+        local usedTerrainMesh = TerrainBuilder.TryBuildPrecomputedMesh(terrainFolder, chunk)
+        if not usedTerrainMesh then
+            TerrainBuilder.Build(terrainFolder, chunk, terrainPlan)
+        end
         chunkProfile.terrainMs = Profiler.finish(p).elapsedMs
+        local terrainMeshTelemetry = TerrainBuilder.GetMeshTelemetry()
+        chunkProfile.terrainPrecomputedMeshCount = terrainMeshTelemetry.precomputedMeshCount
+        chunkProfile.terrainRuntimeFillBlockCount = terrainMeshTelemetry.runtimeFillBlockCount
         local terrainStats = terrainPlan and terrainPlan.terrainStats
         if type(terrainStats) == "table" then
             chunkProfile.terrainCellCount = tonumber(terrainStats.totalCellCount) or 0
@@ -1201,6 +1208,9 @@ function ImportService.ImportChunk(chunk, options)
                 WaterBuilder.FallbackBuild(waterFolder, water, chunk.originStuds, chunk, waterSampler)
             end, maybeYield)
         end
+        local waterMeshTelemetry = WaterBuilder.GetMeshTelemetry()
+        chunkProfile.waterPrecomputedMeshCount = waterMeshTelemetry.precomputedMeshCount
+        chunkProfile.waterRuntimeMeshCount = waterMeshTelemetry.runtimeMeshCount
         chunkProfile.waterMs = Profiler.finish(pWater).elapsedMs
         if checkpoint() then
             return cancelImport()

@@ -1171,4 +1171,142 @@ function TerrainBuilder.ResetSatelliteOverlayBudget()
     satelliteOverlayBudget.used = 0
 end
 
+-- ═══════════════════════════════════════════════════════════════════
+-- TERRAIN MESH MODE: pre-computed heightfield MeshPart alternative
+-- ═══════════════════════════════════════════════════════════════════
+
+-- Telemetry counters for precomputed vs runtime terrain paths.
+local terrainMeshTelemetry = {
+    precomputedMeshCount = 0,
+    runtimeFillBlockCount = 0,
+}
+
+function TerrainBuilder.GetMeshTelemetry()
+    return {
+        precomputedMeshCount = terrainMeshTelemetry.precomputedMeshCount,
+        runtimeFillBlockCount = terrainMeshTelemetry.runtimeFillBlockCount,
+    }
+end
+
+function TerrainBuilder.ResetMeshTelemetry()
+    terrainMeshTelemetry.precomputedMeshCount = 0
+    terrainMeshTelemetry.runtimeFillBlockCount = 0
+end
+
+--- Load a Rust pre-computed terrain mesh (flat arrays) into a single MeshPart.
+--- terrainMesh = {
+---   vertices = {x,y,z,...},
+---   triangles = {v0,v1,v2,...},
+---   normals = {nx,ny,nz,...},
+---   materialIndices = {idx,...},   -- per-vertex or per-face material index
+---   materialPalette = {"Grass", "Sand", ...}  -- index -> Roblox material name
+--- }
+--- originStuds = Vector3 chunk origin to convert from chunk-local to world space.
+--- Rust triangle indices are 0-based; Roblox EditableMesh vertex refs are 1-based.
+function TerrainBuilder.BuildPrecomputedMesh(parent, chunk)
+    local terrainGrid = chunk.terrain
+    if not terrainGrid then
+        return false
+    end
+
+    local terrainMesh = terrainGrid.terrainMesh
+    if not terrainMesh then
+        return false
+    end
+
+    local verts = terrainMesh.vertices
+    local tris = terrainMesh.triangles
+    local norms = terrainMesh.normals
+    if not verts or not tris or #verts < 9 or #tris < 3 then
+        return false
+    end
+
+    local meshOk, mesh = pcall(function()
+        return AssetService:CreateEditableMesh()
+    end)
+    if not meshOk or not mesh then
+        warn("[TerrainBuilder] CreateEditableMesh failed for terrain mesh: " .. tostring(mesh))
+        return false
+    end
+
+    local originStuds = chunk.originStuds
+    local ox, oy, oz = originStuds.x, originStuds.y, originStuds.z
+    local vertexIds = table.create(#verts / 3)
+    -- Load vertices (every 3 floats = one Vector3) with origin offset
+    for i = 1, #verts, 3 do
+        local vi = (i - 1) / 3 + 1
+        local pos = Vector3.new(verts[i] + ox, verts[i + 1] + oy, verts[i + 2] + oz)
+        vertexIds[vi] = mesh:AddVertex(pos)
+        -- Set normals if available
+        if norms and #norms >= i + 2 then
+            pcall(function()
+                mesh:SetVertexNormal(vertexIds[vi], Vector3.new(norms[i], norms[i + 1], norms[i + 2]))
+            end)
+        end
+    end
+
+    -- Load triangles (convert 0-based Rust indices to 1-based)
+    for i = 1, #tris, 3 do
+        local v1 = vertexIds[tris[i] + 1]
+        local v2 = vertexIds[tris[i + 1] + 1]
+        local v3 = vertexIds[tris[i + 2] + 1]
+        if v1 and v2 and v3 then
+            mesh:AddTriangle(v1, v2, v3)
+        end
+    end
+
+    local partOk, part = pcall(function()
+        return AssetService:CreateMeshPartAsync(Content.fromObject(mesh))
+    end)
+    if not partOk or not part then
+        warn("[TerrainBuilder] CreateMeshPartAsync failed for terrain mesh: " .. tostring(part))
+        return false
+    end
+
+    -- Resolve material from palette: use first entry as the MeshPart's Material
+    local resolvedMaterial = Enum.Material.Grass
+    local materialPalette = terrainMesh.materialPalette
+    if type(materialPalette) == "table" and #materialPalette > 0 then
+        local firstName = materialPalette[1]
+        if type(firstName) == "string" then
+            local matOk, mat = pcall(function()
+                return Enum.Material[firstName]
+            end)
+            if matOk and mat then
+                resolvedMaterial = mat
+            end
+        end
+    end
+
+    part.Name = "TerrainMesh_precomputed"
+    part.Material = resolvedMaterial
+    part.Color = Color3.fromRGB(85, 120, 70) -- natural terrain base color
+    part.Anchored = true
+    part.CanCollide = true
+    part.CastShadow = false
+    part:SetAttribute("ArnisPrecomputedMesh", true)
+    part:SetAttribute("ArnisTerrainMeshMode", true)
+    part.Parent = parent
+
+    return true
+end
+
+--- Attempt terrain mesh mode build if enabled and data is available.
+--- Returns true if the precomputed mesh was used, false otherwise.
+function TerrainBuilder.TryBuildPrecomputedMesh(parent, chunk)
+    if not WorldConfig.TerrainMeshMode then
+        return false
+    end
+    if not chunk or not chunk.terrain or not chunk.terrain.terrainMesh then
+        return false
+    end
+    local ok = TerrainBuilder.BuildPrecomputedMesh(parent, chunk)
+    if ok then
+        terrainMeshTelemetry.precomputedMeshCount += 1
+        return true
+    end
+    terrainMeshTelemetry.runtimeFillBlockCount += 1
+    return false
+end
+
 return TerrainBuilder

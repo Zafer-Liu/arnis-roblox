@@ -1319,6 +1319,79 @@ class AustinRuntimeContractTests(unittest.TestCase):
         self.assertIn("Color3.fromRGB(0, 0, 255)", src, "Roof debug color (blue) must be present")
         self.assertIn("ArnisDebugWallCount", src, "Must set wall count attribute for debug")
 
+    def test_water_builder_precomputed_mesh_fast_path(self) -> None:
+        """WaterBuilder must have a precomputed mesh fast path consuming waterMesh from the manifest."""
+        src = self.water_builder_text
+        # Must import AssetService for EditableMesh/MeshPart creation
+        self.assertIn("AssetService", src)
+        # Must check for waterMesh on the water feature
+        self.assertIn("water.waterMesh", src)
+        # Must have the BuildPrecomputedMesh function
+        self.assertIn("function WaterBuilder.BuildPrecomputedMesh", src)
+        # Must create EditableMesh and MeshPart via pcall
+        self.assertIn("AssetService:CreateEditableMesh()", src)
+        self.assertIn("AssetService:CreateMeshPartAsync(Content.fromObject(mesh))", src)
+        # Must convert 0-based Rust indices to 1-based
+        self.assertIn("tris[i] + 1", src)
+        self.assertIn("tris[i + 1] + 1", src)
+        self.assertIn("tris[i + 2] + 1", src)
+        # Must offset vertices by originStuds
+        self.assertIn("verts[i] + ox", src)
+        self.assertIn("verts[i + 1] + oy", src)
+        self.assertIn("verts[i + 2] + oz", src)
+        # Must have telemetry counters
+        self.assertIn("precomputedMeshCount", src)
+        self.assertIn("runtimeMeshCount", src)
+        self.assertIn("function WaterBuilder.GetMeshTelemetry", src)
+        # Build must try the fast path before falling back
+        self.assertIn("waterMeshTelemetry.precomputedMeshCount", src)
+        self.assertIn("waterMeshTelemetry.runtimeMeshCount", src)
+        # Must tag the part as precomputed
+        self.assertIn('part:SetAttribute("ArnisPrecomputedMesh", true)', src)
+
+    def test_terrain_builder_precomputed_mesh_infrastructure(self) -> None:
+        """TerrainBuilder must have precomputed mesh infrastructure gated by TerrainMeshMode config."""
+        src = self.terrain_builder_text
+        # Must have the BuildPrecomputedMesh function
+        self.assertIn("function TerrainBuilder.BuildPrecomputedMesh", src)
+        # Must have TryBuildPrecomputedMesh that checks the config flag
+        self.assertIn("function TerrainBuilder.TryBuildPrecomputedMesh", src)
+        self.assertIn("WorldConfig.TerrainMeshMode", src)
+        # Must check for terrainMesh on the terrain grid
+        self.assertIn("terrainGrid.terrainMesh", src)
+        # Must create EditableMesh and MeshPart via pcall
+        self.assertIn("AssetService:CreateEditableMesh()", src)
+        self.assertIn("AssetService:CreateMeshPartAsync(Content.fromObject(mesh))", src)
+        # Must convert 0-based Rust indices to 1-based
+        self.assertIn("tris[i] + 1", src)
+        # Must offset vertices by originStuds
+        self.assertIn("verts[i] + ox", src)
+        # Must resolve material from materialPalette
+        self.assertIn("materialPalette", src)
+        # Must have telemetry counters
+        self.assertIn("precomputedMeshCount", src)
+        self.assertIn("runtimeFillBlockCount", src)
+        self.assertIn("function TerrainBuilder.GetMeshTelemetry", src)
+        # Must tag the part as precomputed
+        self.assertIn('part:SetAttribute("ArnisPrecomputedMesh", true)', src)
+        self.assertIn('part:SetAttribute("ArnisTerrainMeshMode", true)', src)
+
+    def test_world_config_exposes_terrain_mesh_mode(self) -> None:
+        """WorldConfig must expose TerrainMeshMode flag, defaulting to false."""
+        self.assertIn("TerrainMeshMode", self.world_config_text)
+        self.assertIn("TerrainMeshMode = false", self.world_config_text)
+
+    def test_import_service_wires_water_and_terrain_mesh_telemetry(self) -> None:
+        """ImportService must wire water and terrain precomputed mesh telemetry counters."""
+        src = self.import_service_text
+        self.assertIn("waterPrecomputedMeshCount", src)
+        self.assertIn("waterRuntimeMeshCount", src)
+        self.assertIn("terrainPrecomputedMeshCount", src)
+        self.assertIn("terrainRuntimeFillBlockCount", src)
+        self.assertIn("WaterBuilder.GetMeshTelemetry()", src)
+        self.assertIn("TerrainBuilder.GetMeshTelemetry()", src)
+        self.assertIn("TerrainBuilder.TryBuildPrecomputedMesh(", src)
+
 
 if __name__ == "__main__":
     unittest.main()

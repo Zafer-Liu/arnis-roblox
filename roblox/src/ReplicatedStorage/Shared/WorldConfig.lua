@@ -66,6 +66,11 @@ local WorldConfig = {
     WaterCarveDepth = 4, -- studs to carve below water surface
 
     -- ═══════════════════════════════════════════════════════════════
+    -- TERRAIN MESH MODE (experimental)
+    -- ═══════════════════════════════════════════════════════════════
+    TerrainMeshMode = false, -- when true, use pre-computed heightfield MeshPart instead of per-cell FillBlock
+
+    -- ═══════════════════════════════════════════════════════════════
     -- PROP FIDELITY
     -- ═══════════════════════════════════════════════════════════════
     TreeMetersToStuds = 1 / 0.3, -- conversion factor for real-world tree heights
