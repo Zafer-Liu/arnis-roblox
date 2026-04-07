@@ -359,9 +359,9 @@ local function getUsageClass(usage)
 end
 
 local WINDOW_TINT_BY_USAGE_CLASS = {
-    office = { color = Color3.fromRGB(140, 160, 180), transparency = 0.3 },
-    residential = { color = Color3.fromRGB(180, 170, 150), transparency = 0.35 },
-    industrial = { color = Color3.fromRGB(60, 60, 70), transparency = 0.1 },
+    office = { color = Color3.fromRGB(100, 130, 170), transparency = 0.15 },
+    residential = { color = Color3.fromRGB(150, 140, 120), transparency = 0.2 },
+    industrial = { color = Color3.fromRGB(50, 50, 60), transparency = 0.05 },
 }
 
 -- Dark/empty window tint for ~20% of panes (night/vacancy effect)
