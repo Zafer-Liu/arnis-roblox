@@ -722,9 +722,10 @@ function TerrainBuilder.Build(_parent, chunk, preparedPlan)
     if not textureData and chunk.terrainTextureModule then
         local ok, loaded = pcall(function()
             local folderName = chunk.terrainTextureFolder or "AustinTerrainTextures"
-            local parent = script.Parent and script.Parent.Parent -- ImportService
-            local root = parent and parent.Parent -- ServerScriptService
-            local folder = root and root:FindFirstChild(folderName)
+            -- Texture ModuleScripts live under ServerStorage.SampleData, next to
+            -- the manifest shards they were generated alongside.
+            local sampleData = game:GetService("ServerStorage"):FindFirstChild("SampleData")
+            local folder = sampleData and sampleData:FindFirstChild(folderName)
             if not folder then
                 return nil
             end
