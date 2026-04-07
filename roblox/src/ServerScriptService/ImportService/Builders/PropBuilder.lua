@@ -1,3 +1,4 @@
+local AssetService = game:GetService("AssetService")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local CollectionService = game:GetService("CollectionService")
 local InstancePool = require(script.Parent.Parent.InstancePool)
@@ -5,6 +6,10 @@ local RoadProfile = require(script.Parent.Parent.RoadProfile)
 local SpatialQuery = require(script.Parent.Parent.SpatialQuery)
 
 local PropBuilder = {}
+
+-- Telemetry counters for precomputed vs runtime prop rendering
+local precomputedPropCount = 0
+local runtimePropCount = 0
 
 -- Known conifer genera/species: used to infer needleleaved canopy shape
 -- when leafType is not explicitly set in the manifest.
@@ -345,6 +350,100 @@ local function buildRealisticCanopy(parent, trunkTop, canopyRadius, canopyColor,
     end
 end
 
+--- EditableMesh vertex-normal support probe (same pattern as BuildingBuilder).
+local editableMeshSetVertexNormalSupported = nil
+
+local function trySetVertexNormal(mesh, vertexId, normal)
+    if editableMeshSetVertexNormalSupported == false then
+        return
+    end
+    if editableMeshSetVertexNormalSupported == nil then
+        local ok = pcall(function()
+            mesh:SetVertexNormal(vertexId, normal)
+        end)
+        editableMeshSetVertexNormalSupported = ok
+        return
+    end
+    pcall(function()
+        mesh:SetVertexNormal(vertexId, normal)
+    end)
+end
+
+--- Load a Rust pre-computed prop mesh (flat arrays identical to shellMesh/roadMesh format)
+--- into a standalone MeshPart.
+--- meshData = { vertices = {x,y,z,...}, triangles = {v0,v1,v2,...}, normals = {nx,ny,nz,...} }
+--- Vertices are in chunk-local coordinates; originStuds offsets to world space.
+--- Triangle indices are 0-based (Rust convention).
+function PropBuilder.loadPrecomputedPropMesh(meshData, position, yawDegrees, scale, originStuds)
+    local verts = meshData.vertices
+    local tris = meshData.triangles
+    local norms = meshData.normals
+    if not verts or not tris or #verts < 3 or #tris < 3 then
+        return nil
+    end
+
+    local meshOk, mesh = pcall(function()
+        return AssetService:CreateEditableMesh()
+    end)
+    if not meshOk or not mesh then
+        warn("[PropBuilder] CreateEditableMesh failed: " .. tostring(mesh))
+        return nil
+    end
+
+    -- Add vertices (every 3 floats = one Vector3), applying origin offset
+    local ox = originStuds.X
+    local oy = originStuds.Y
+    local oz = originStuds.Z
+    local vertexIds = {}
+    for i = 1, #verts, 3 do
+        local idx = (i - 1) / 3 + 1
+        local pos = Vector3.new(verts[i] + ox, verts[i + 1] + oy, verts[i + 2] + oz)
+        vertexIds[idx] = mesh:AddVertex(pos)
+        local normal = if norms and #norms >= i + 2
+            then Vector3.new(norms[i], norms[i + 1], norms[i + 2])
+            else Vector3.new(0, 1, 0)
+        trySetVertexNormal(mesh, vertexIds[idx], normal)
+    end
+
+    -- Add triangles (convert 0-based Rust indices to 1-based vertex ID refs)
+    for i = 1, #tris, 3 do
+        local v0 = vertexIds[tris[i] + 1]
+        local v1 = vertexIds[tris[i + 1] + 1]
+        local v2 = vertexIds[tris[i + 2] + 1]
+        if v0 and v1 and v2 then
+            mesh:AddTriangle(v0, v1, v2)
+        end
+    end
+
+    -- Create MeshPart from the EditableMesh
+    local partOk, part = pcall(function()
+        return AssetService:CreateMeshPartAsync(Content.fromObject(mesh))
+    end)
+    if not partOk or not part then
+        warn("[PropBuilder] CreateMeshPartAsync failed: " .. tostring(part))
+        return nil
+    end
+
+    -- Position, rotate, and scale the part
+    local worldPos = Vector3.new(
+        position.x + originStuds.X,
+        position.y + originStuds.Y,
+        position.z + originStuds.Z
+    )
+    local yaw = math.rad(yawDegrees or 0)
+    part.CFrame = CFrame.new(worldPos) * CFrame.Angles(0, yaw, 0)
+    if scale and scale ~= 1 then
+        part.Size = part.Size * scale
+    end
+    part.Anchored = true
+    part.CanCollide = false
+    part.CastShadow = true
+    part.Material = Enum.Material.LeafyGrass
+    part.Color = Color3.fromRGB(34, 120, 50)
+
+    return part
+end
+
 -- Builds a simple procedural tree model (trunk + canopy)
 local function buildTree(parent, prop, originStuds, baseYOverride)
     local worldPos = Vector3.new(
@@ -512,6 +611,29 @@ end
 function PropBuilder.Build(parent, prop, originStuds, chunk)
     local detailParent = getPropDetailParent(parent)
     if prop.kind == "tree" then
+        -- Fast path: use Rust pre-computed prop mesh when available
+        if prop.propMesh and prop.propMesh.vertices and #prop.propMesh.vertices >= 3 then
+            local scale = getTreeScale(prop)
+            local meshPart = PropBuilder.loadPrecomputedPropMesh(
+                prop.propMesh,
+                prop.position,
+                prop.yawDegrees,
+                scale,
+                originStuds
+            )
+            if meshPart then
+                -- Apply species-specific canopy color
+                local canopyBrickColor = getCanopyColor(prop.species)
+                meshPart.Color = canopyBrickColor.Color
+                meshPart.Name = prop.id or "Tree"
+                meshPart.Parent = detailParent
+                precomputedPropCount += 1
+                return annotatePropRoot(meshPart, prop)
+            end
+            -- Fall through to runtime path on mesh creation failure
+        end
+        -- Runtime path: procedural tree geometry
+        runtimePropCount += 1
         -- Use manifest Y directly; DEM elevation is authoritative
         return annotatePropRoot(buildTree(detailParent, prop, originStuds, prop.position.y + originStuds.y), prop)
     end
@@ -989,6 +1111,18 @@ function PropBuilder.ReleaseAll(parent)
             child:Destroy()
         end
     end
+end
+
+function PropBuilder.GetBuildStats()
+    return {
+        precomputedProps = precomputedPropCount,
+        runtimeProps = runtimePropCount,
+    }
+end
+
+function PropBuilder.ResetBuildStats()
+    precomputedPropCount = 0
+    runtimePropCount = 0
 end
 
 return PropBuilder

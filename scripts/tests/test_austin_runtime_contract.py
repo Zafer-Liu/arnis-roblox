@@ -940,6 +940,26 @@ class AustinRuntimeContractTests(unittest.TestCase):
         self.assertIn("CanopyMain", self.prop_builder_text)
 
     # ------------------------------------------------------------------
+    # PropBuilder precomputed prop mesh fast path
+    # ------------------------------------------------------------------
+
+    def test_prop_builder_has_precomputed_prop_mesh_loader(self) -> None:
+        """PropBuilder must expose loadPrecomputedPropMesh for Rust pipeline meshes."""
+        self.assertIn("propMesh", self.prop_builder_text)
+        self.assertIn("loadPrecomputedPropMesh", self.prop_builder_text)
+
+    def test_prop_builder_precomputed_mesh_uses_pcall(self) -> None:
+        """Precomputed mesh creation must be pcall-guarded."""
+        self.assertIn("CreateEditableMesh", self.prop_builder_text)
+        self.assertIn("CreateMeshPartAsync", self.prop_builder_text)
+
+    def test_prop_builder_precomputed_mesh_telemetry(self) -> None:
+        """PropBuilder must track precomputed vs runtime prop counts."""
+        self.assertIn("precomputedPropCount", self.prop_builder_text)
+        self.assertIn("runtimePropCount", self.prop_builder_text)
+        self.assertIn("GetBuildStats", self.prop_builder_text)
+
+    # ------------------------------------------------------------------
     # RailBuilder kind differentiation
     # ------------------------------------------------------------------
 
