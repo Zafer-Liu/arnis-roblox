@@ -2604,6 +2604,8 @@ struct TerrainSignal {
     total_cells: usize,
     satellite_material_cells: usize,
     material_distribution: HashMap<String, usize>,
+    chunk_count: usize,
+    terrain_mesh_count: usize,
 }
 
 #[derive(Debug, Serialize)]
@@ -2699,6 +2701,8 @@ fn build_signal_audit(manifest: &Value) -> Result<SignalAuditReport, String> {
 
     let mut terrain_total_cells: usize = 0;
     let mut terrain_sat_cells: usize = 0;
+    let mut terrain_chunk_count: usize = 0;
+    let mut terrain_mesh_count: usize = 0;
     let mut material_dist: HashMap<String, usize> = HashMap::new();
 
     for chunk in chunks {
@@ -2724,7 +2728,7 @@ fn build_signal_audit(manifest: &Value) -> Result<SignalAuditReport, String> {
             all_barriers.extend(arr.iter().cloned());
         }
 
-        // Terrain: count height cells and satellite material cells.
+        // Terrain: count height cells, satellite material cells, and terrainMesh.
         // Heights/materials are flat 1D arrays (row-major, width*depth elements).
         if let Some(terrain) = chunk.get("terrain") {
             if let Some(heights) = terrain.get("heights").and_then(|v| v.as_array()) {
@@ -2740,6 +2744,10 @@ fn build_signal_audit(manifest: &Value) -> Result<SignalAuditReport, String> {
                     }
                 }
             }
+            if terrain.get("terrainMesh").is_some() {
+                terrain_mesh_count += 1;
+            }
+            terrain_chunk_count += 1;
         }
     }
 
@@ -2776,6 +2784,8 @@ fn build_signal_audit(manifest: &Value) -> Result<SignalAuditReport, String> {
             total_cells: terrain_total_cells,
             satellite_material_cells: terrain_sat_cells,
             material_distribution: material_dist,
+            chunk_count: terrain_chunk_count,
+            terrain_mesh_count,
         },
     })
 }
@@ -2827,6 +2837,14 @@ fn print_signal_audit_text(report: &SignalAuditReport) {
             mats.sort_by(|a, b| b.1.cmp(a.1));
             let parts: Vec<String> = mats.iter().map(|(k, v)| format!("{}={}", k, v)).collect();
             println!("  {}", parts.join("  "));
+        }
+        if t.chunk_count > 0 {
+            println!(
+                "  terrainMesh: {}/{} chunks ({:.1}%)",
+                t.terrain_mesh_count,
+                t.chunk_count,
+                100.0 * t.terrain_mesh_count as f64 / t.chunk_count as f64
+            );
         }
     } else {
         println!("Terrain: no height cells found");
