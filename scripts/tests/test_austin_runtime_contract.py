@@ -1222,6 +1222,17 @@ class AustinRuntimeContractTests(unittest.TestCase):
         self.assertIn("{ base + 1, base + 2, base + 3 }", src)
         self.assertIn("{ base + 1, base + 3, base + 4 }", src)
 
+    def test_world_config_exposes_debug_building_colors(self) -> None:
+        """WorldConfig must expose DebugBuildingColors knob for visual debug mode."""
+        self.assertIn("DebugBuildingColors", self.world_config_text)
+        self.assertIn("DebugBuildingColors = false", self.world_config_text)
+        # BuildingBuilder must read the flag and apply debug colors
+        src = self.building_builder_text
+        self.assertIn("DebugBuildingColors", src)
+        self.assertIn("Color3.fromRGB(255, 0, 0)", src, "Wall debug color (red) must be present")
+        self.assertIn("Color3.fromRGB(0, 0, 255)", src, "Roof debug color (blue) must be present")
+        self.assertIn("ArnisDebugWallCount", src, "Must set wall count attribute for debug")
+
 
 if __name__ == "__main__":
     unittest.main()

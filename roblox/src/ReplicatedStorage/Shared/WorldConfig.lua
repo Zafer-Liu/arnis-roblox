@@ -225,6 +225,11 @@ local WorldConfig = {
     MaxNPCsPerChunk = 8,
 
     -- ═══════════════════════════════════════════════════════════════
+    -- DEBUG VISUALIZATION
+    -- ═══════════════════════════════════════════════════════════════
+    DebugBuildingColors = false, -- walls=RED, roofs=BLUE, floors=YELLOW; makes broken buildings instantly visible
+
+    -- ═══════════════════════════════════════════════════════════════
     -- INSTANCE BUDGETS (set high for powerful hardware)
     -- ═══════════════════════════════════════════════════════════════
     InstanceBudget = {

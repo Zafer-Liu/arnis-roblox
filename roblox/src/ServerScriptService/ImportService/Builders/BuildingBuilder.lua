@@ -12,6 +12,13 @@ local function markShellWallEvidence(part)
     part:SetAttribute("ArnisShellWallEvidence", true)
 end
 
+local function applyDebugRoofColor(part)
+    if WorldConfig.DebugBuildingColors then
+        part.Color = Color3.fromRGB(0, 0, 255)
+        part.Transparency = 0
+    end
+end
+
 local function trySetModelLevelOfDetail(model, levelOfDetail)
     pcall(function()
         model.LevelOfDetail = levelOfDetail
@@ -921,6 +928,10 @@ local function buildWallLoopParts(
             wall.Reflectance = reflectance
         end
         markShellWallEvidence(wall)
+        if WorldConfig.DebugBuildingColors then
+            wall.Color = Color3.fromRGB(255, 0, 0)
+            wall.Transparency = 0
+        end
         wall.Parent = shellFolder
 
         local post = Instance.new("Part")
@@ -938,6 +949,10 @@ local function buildWallLoopParts(
             post.Reflectance = reflectance
         end
         markShellWallEvidence(post)
+        if WorldConfig.DebugBuildingColors then
+            post.Color = Color3.fromRGB(255, 0, 0)
+            post.Transparency = 0
+        end
         post.Parent = shellFolder
     end
 end
@@ -1098,6 +1113,7 @@ local function tryBuildSimpleFlatRoof(
             end
         end
     end
+    applyDebugRoofColor(roof)
     roof.Parent = parent
 
     return true
@@ -1216,6 +1232,7 @@ local function buildFlatRoofFromFootprint(
         strip.Size = Vector3.new(width, ROOF_THICKNESS, runEndZ - runStartZ + gridSize)
         strip.CFrame = CFrame.lookAt(worldCenter, worldCenter + forwardAxis)
         applyRoofPartOptions(strip, partOptions)
+        applyDebugRoofColor(strip)
         strip.Parent = parent
     end
 
@@ -1308,6 +1325,7 @@ local function buildFlatRoofFromFootprint(
         roof.Size = Vector3.new(math.max(1, maxX - minX), ROOF_THICKNESS, math.max(1, maxZ - minZ))
         roof.CFrame = CFrame.lookAt(worldCenter, worldCenter + forwardAxis)
         applyRoofPartOptions(roof, partOptions)
+        applyDebugRoofColor(roof)
         roof.Parent = parent
     end
 end
@@ -1689,6 +1707,8 @@ local function buildRoof(building, footprint, bounds, baseY, height, color, mat,
             p2.Size = Vector3.new(longExtent, 0.8, panelW)
             p2.CFrame = CFrame.new(centerX, cy, centerZ + halfWidth * 0.5) * CFrame.Angles(angle, 0, 0)
         end
+        applyDebugRoofColor(p1)
+        applyDebugRoofColor(p2)
         p1.Parent = parent
         p2.Parent = parent
         return
@@ -1737,6 +1757,7 @@ local function buildRoof(building, footprint, bounds, baseY, height, color, mat,
         dome.Material = rm
         dome.Color = rc
         dome.CastShadow = false
+        applyDebugRoofColor(dome)
         dome.Parent = parent
         return
     elseif roofShape == "skillion" then
@@ -1771,6 +1792,7 @@ local function buildRoof(building, footprint, bounds, baseY, height, color, mat,
             wedge.Size = Vector3.new(footprintL, rise, footprintW)
         end
         wedge.CFrame = CFrame.new(centerX, baseY + height + rise * 0.5, centerZ)
+        applyDebugRoofColor(wedge)
         wedge.Parent = parent
         return
     elseif roofShape == "mansard" then
@@ -1803,6 +1825,7 @@ local function buildRoof(building, footprint, bounds, baseY, height, color, mat,
         deck.Material = rm
         deck.Color = rc
         deck.CastShadow = false
+        applyDebugRoofColor(deck)
         deck.Parent = parent
         -- Four sloped side strips
         local strips = {
@@ -1837,6 +1860,7 @@ local function buildRoof(building, footprint, bounds, baseY, height, color, mat,
                 strip.Material = rm
                 strip.Color = rc
                 strip.CastShadow = false
+                applyDebugRoofColor(strip)
                 strip.Parent = parent
             end
         end
@@ -1859,6 +1883,7 @@ local function buildRoof(building, footprint, bounds, baseY, height, color, mat,
         mesh.MeshId = "rbxassetid://1078075" -- Roblox cone mesh
         mesh.Scale = Vector3.new(radius * 0.2, rise * 0.1, radius * 0.2)
         mesh.Parent = cone
+        applyDebugRoofColor(cone)
         cone.Parent = parent
         return
     end
@@ -3793,6 +3818,28 @@ function BuildingBuilder.MeshBuildAll(parent, buildings, originStuds, chunk, con
                     maybeYield(false)
                 end
             end
+        end
+
+        -- Debug building visualization: color shell children and count wall parts
+        if config.DebugBuildingColors then
+            local debugWallCount = 0
+            for _, child in ipairs(shellFolder:GetChildren()) do
+                if child:IsA("BasePart") then
+                    if child:GetAttribute("ArnisShellWallEvidence") then
+                        child.Color = Color3.fromRGB(255, 0, 0)
+                        child.Transparency = 0
+                        debugWallCount += 1
+                    elseif string.find(child.Name, "_roof") then
+                        child.Color = Color3.fromRGB(0, 0, 255)
+                        child.Transparency = 0
+                    end
+                elseif child:IsA("MeshPart") then
+                    child.Color = Color3.fromRGB(255, 0, 0)
+                    child.Transparency = 0
+                    debugWallCount += 1
+                end
+            end
+            model:SetAttribute("ArnisDebugWallCount", debugWallCount)
         end
     end
 
