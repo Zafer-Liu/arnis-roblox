@@ -65,6 +65,12 @@ end
 
 -- Registry of chunkId -> current LOD level
 local loadedChunkLods = {}
+-- Registry of chunkId -> current ring name ("near" | "mid" | "far") so the
+-- per-ring memory guardrail can attribute resident bytes back to a ring and
+-- evict from the right pool when a ring exceeds its budget. Far-ring minimal
+-- LOD chunks must never be allowed to compete with near-ring full-detail
+-- chunks for the same memory dollars.
+local loadedChunkRings = {}
 -- Registry of chunkId -> building LOD level at which chunk geometry was imported
 local importedBuildingLodById = {}
 -- Registry of chunkId -> true while an import work item is queued/in-flight.
@@ -79,6 +85,14 @@ local streamingChunkOptionsByLod = nil
 local streamingLastFocalPoint = nil
 local streamingLastFocalAt = nil
 local streamingPreferredForward = nil
+-- Aircraft / high-velocity streaming: per-update velocity-class state. Declared
+-- here at top scope so resetStreamingResidencyTelemetry/updateStreamingResidencyTelemetry
+-- can read them as upvalues even though they live earlier in the file than
+-- resolveSchedulerFocusPoint where they are written.
+local streamingVelocityMagnitude = 0
+local streamingVelocityClass = "walking"
+local streamingAdaptiveLookaheadStuds = 0
+local streamingForceMinimalLodForPrefetch = false
 local observedChunkImportMsById = {}
 local streamingSubplanRollout = nil
 local streamingMemoryGuardrail = nil
@@ -241,6 +255,9 @@ local function resetStreamingResidencyTelemetry()
     Workspace:SetAttribute("ArnisStreamingPredictedFocalZ", 0)
     Workspace:SetAttribute("ArnisStreamingMovementDeltaStuds", 0)
     Workspace:SetAttribute("ArnisStreamingMovementLookaheadStuds", 0)
+    Workspace:SetAttribute("ArnisStreamingVelocityMagnitude", 0)
+    Workspace:SetAttribute("ArnisStreamingAdaptiveLookaheadStuds", 0)
+    Workspace:SetAttribute("ArnisStreamingVelocityClass", "walking")
     Workspace:SetAttribute("ArnisStreamingRingNearResidentChunkCount", 0)
     Workspace:SetAttribute("ArnisStreamingRingMidResidentChunkCount", 0)
     Workspace:SetAttribute("ArnisStreamingRingFarResidentChunkCount", 0)
@@ -259,6 +276,18 @@ local function resetStreamingResidencyTelemetry()
     Workspace:SetAttribute("ArnisStreamingRingNearMaxChunkCount", 0)
     Workspace:SetAttribute("ArnisStreamingRingMidMaxChunkCount", 0)
     Workspace:SetAttribute("ArnisStreamingRingFarMaxChunkCount", 0)
+    Workspace:SetAttribute("ArnisStreamingRingNearResidentBytes", 0)
+    Workspace:SetAttribute("ArnisStreamingRingMidResidentBytes", 0)
+    Workspace:SetAttribute("ArnisStreamingRingFarResidentBytes", 0)
+    Workspace:SetAttribute("ArnisStreamingRingNearPressureLevel", 0)
+    Workspace:SetAttribute("ArnisStreamingRingMidPressureLevel", 0)
+    Workspace:SetAttribute("ArnisStreamingRingFarPressureLevel", 0)
+    Workspace:SetAttribute("ArnisStreamingRingNearOverBudget", false)
+    Workspace:SetAttribute("ArnisStreamingRingMidOverBudget", false)
+    Workspace:SetAttribute("ArnisStreamingRingFarOverBudget", false)
+    Workspace:SetAttribute("ArnisStreamingRingNearDeferredAdmissions", 0)
+    Workspace:SetAttribute("ArnisStreamingRingMidDeferredAdmissions", 0)
+    Workspace:SetAttribute("ArnisStreamingRingFarDeferredAdmissions", 0)
     Workspace:SetAttribute("ArnisStreamingQueuedEstimatedCost", 0)
     Workspace:SetAttribute("ArnisStreamingQueuedWorkItemCount", 0)
     Workspace:SetAttribute("ArnisStreamingEvictedEstimatedCost", 0)
@@ -277,6 +306,35 @@ local function getResidentEstimatedCostForChunkId(chunkId)
         end
     end
     return total
+end
+
+-- Compute current resident bytes per ring by attributing each loaded chunk's
+-- estimated cost to the ring it currently belongs to (per loadedChunkRings).
+-- Chunks that have not yet been classified into a ring (e.g. a brand-new
+-- candidate that was admitted earlier this tick before classification) fall
+-- through into an "unclassified" bucket which is intentionally not reported.
+local function computeRingResidentBytes()
+    local bytes = { near = 0, mid = 0, far = 0 }
+    for chunkId, ringName in pairs(loadedChunkRings) do
+        if ringName == "near" or ringName == "mid" or ringName == "far" then
+            bytes[ringName] += getResidentEstimatedCostForChunkId(chunkId)
+        end
+    end
+    return bytes
+end
+
+local function computeRingPressureLevel(residentBytes, budgetBytes)
+    if type(budgetBytes) ~= "number" or budgetBytes <= 0 then
+        return 0
+    end
+    local level = residentBytes / budgetBytes
+    if level < 0 then
+        return 0
+    end
+    if level > 1 then
+        return 1
+    end
+    return level
 end
 
 local function getChunkRingName(distSq, resolvedRings)
@@ -366,6 +424,15 @@ local function updateStreamingResidencyTelemetry(
     Workspace:SetAttribute("ArnisStreamingPredictedFocalZ", predictedFocalZ)
     Workspace:SetAttribute("ArnisStreamingMovementDeltaStuds", normalizeNonNegativeNumber(movementDeltaStuds))
     Workspace:SetAttribute("ArnisStreamingMovementLookaheadStuds", normalizeNonNegativeNumber(movementLookaheadStuds))
+    -- Aircraft / high-velocity streaming telemetry: published every update so
+    -- the harness can prove velocity-adaptive lookahead is firing for jetpacks,
+    -- planes, parachutes, etc.
+    Workspace:SetAttribute("ArnisStreamingVelocityMagnitude", normalizeNonNegativeNumber(streamingVelocityMagnitude))
+    Workspace:SetAttribute(
+        "ArnisStreamingAdaptiveLookaheadStuds",
+        normalizeNonNegativeNumber(streamingAdaptiveLookaheadStuds)
+    )
+    Workspace:SetAttribute("ArnisStreamingVelocityClass", streamingVelocityClass or "walking")
     local ringTelemetry = buildStreamingRingTelemetry(playerPos, streamingResolvedRings)
     Workspace:SetAttribute("ArnisStreamingRingNearResidentChunkCount", ringTelemetry.near.residentChunkCount)
     Workspace:SetAttribute("ArnisStreamingRingMidResidentChunkCount", ringTelemetry.mid.residentChunkCount)
@@ -421,6 +488,37 @@ local function updateStreamingResidencyTelemetry(
         "ArnisStreamingRingFarMaxChunkCount",
         normalizeNonNegativeNumber(ringBudgets.far and ringBudgets.far.MaxChunkCount or 0)
     )
+    local ringResidentBytes = computeRingResidentBytes()
+    local nearBudget = normalizeNonNegativeNumber(ringBudgets.near and ringBudgets.near.EstimatedBudgetBytes or 0)
+    local midBudget = normalizeNonNegativeNumber(ringBudgets.mid and ringBudgets.mid.EstimatedBudgetBytes or 0)
+    local farBudget = normalizeNonNegativeNumber(ringBudgets.far and ringBudgets.far.EstimatedBudgetBytes or 0)
+    Workspace:SetAttribute("ArnisStreamingRingNearResidentBytes", ringResidentBytes.near)
+    Workspace:SetAttribute("ArnisStreamingRingMidResidentBytes", ringResidentBytes.mid)
+    Workspace:SetAttribute("ArnisStreamingRingFarResidentBytes", ringResidentBytes.far)
+    Workspace:SetAttribute(
+        "ArnisStreamingRingNearPressureLevel",
+        computeRingPressureLevel(ringResidentBytes.near, nearBudget)
+    )
+    Workspace:SetAttribute(
+        "ArnisStreamingRingMidPressureLevel",
+        computeRingPressureLevel(ringResidentBytes.mid, midBudget)
+    )
+    Workspace:SetAttribute(
+        "ArnisStreamingRingFarPressureLevel",
+        computeRingPressureLevel(ringResidentBytes.far, farBudget)
+    )
+    Workspace:SetAttribute(
+        "ArnisStreamingRingNearOverBudget",
+        nearBudget > 0 and ringResidentBytes.near > nearBudget
+    )
+    Workspace:SetAttribute(
+        "ArnisStreamingRingMidOverBudget",
+        midBudget > 0 and ringResidentBytes.mid > midBudget
+    )
+    Workspace:SetAttribute(
+        "ArnisStreamingRingFarOverBudget",
+        farBudget > 0 and ringResidentBytes.far > farBudget
+    )
     Workspace:SetAttribute("ArnisStreamingQueuedEstimatedCost", normalizeNonNegativeNumber(queuedEstimatedCost))
     Workspace:SetAttribute("ArnisStreamingQueuedWorkItemCount", normalizeNonNegativeNumber(queuedWorkItemCount))
     Workspace:SetAttribute("ArnisStreamingEvictedEstimatedCost", normalizeNonNegativeNumber(evictedEstimatedCost))
@@ -456,18 +554,70 @@ local function resolveStreamingLookahead(config)
     return lookaheadSeconds, maxLookaheadStuds
 end
 
+-- Aircraft/jetpack streaming: classify a horizontal speed (studs/sec) into a
+-- velocity class so we can scale the streaming lookahead and force minimal LOD
+-- for high-velocity prefetch chunks.
+local function resolveAircraftStreamingPolicy(config)
+    local policy = type(config) == "table" and config.AircraftStreamingPolicy or nil
+    if type(policy) ~= "table" then
+        policy = DefaultWorldConfig.AircraftStreamingPolicy or {}
+    end
+    local walkingThreshold = normalizePositiveNumber(policy.WalkingSpeedThreshold) or 32
+    local vehicleThreshold = normalizePositiveNumber(policy.VehicleSpeedThreshold) or 128
+    if vehicleThreshold <= walkingThreshold then
+        vehicleThreshold = walkingThreshold + 1
+    end
+    local vehicleMultiplier = normalizePositiveNumber(policy.VehicleLookaheadMultiplier) or 2
+    local aircraftMultiplier = normalizePositiveNumber(policy.AircraftLookaheadMultiplier) or 4
+    local forceMinimalLod = policy.HighVelocityForcesMinimalLod ~= false
+    return walkingThreshold, vehicleThreshold, vehicleMultiplier, aircraftMultiplier, forceMinimalLod
+end
+
+local function classifyVelocity(speed, config)
+    local walkingThreshold, vehicleThreshold, vehicleMultiplier, aircraftMultiplier, forceMinimalLod =
+        resolveAircraftStreamingPolicy(config)
+    if type(speed) ~= "number" or speed <= walkingThreshold then
+        return "walking", 1, forceMinimalLod
+    elseif speed <= vehicleThreshold then
+        return "vehicle", vehicleMultiplier, forceMinimalLod
+    end
+    return "aircraft", aircraftMultiplier, forceMinimalLod
+end
+
+-- Scale base lookahead by velocity-class multiplier and update per-update
+-- velocity-class state. Walking speeds use 1x. Vehicles and aircraft scale up
+-- so the streaming queue stays ahead of fast-moving players (jetpacks, planes,
+-- parachutes) and they don't outrun the queue and fall through empty chunks.
+local function applyVelocityClassToLookahead(speed, lookaheadSeconds, maxLookaheadStuds, config)
+    local class, multiplier, forceMinimalLod = classifyVelocity(speed, config)
+    streamingVelocityMagnitude = if type(speed) == "number" then math.max(0, speed) else 0
+    streamingVelocityClass = class
+    streamingForceMinimalLodForPrefetch = forceMinimalLod and class ~= "walking"
+    local scaledLookaheadSeconds = lookaheadSeconds * multiplier
+    local scaledLookaheadStuds = math.min(maxLookaheadStuds, streamingVelocityMagnitude * scaledLookaheadSeconds)
+    streamingAdaptiveLookaheadStuds = math.max(0, scaledLookaheadStuds)
+    return scaledLookaheadStuds
+end
+
 local function resolveSchedulerFocusPoint(playerPos, config)
     local movementForward = nil
     local movementDeltaStuds = 0
     local movementLookaheadStuds = 0
     local predictedFocalPoint = playerPos
 
+    -- Reset per-update velocity state — overwritten below if motion is observed.
+    streamingVelocityMagnitude = 0
+    streamingVelocityClass = "walking"
+    streamingAdaptiveLookaheadStuds = 0
+    streamingForceMinimalLodForPrefetch = false
+
     if typeof(streamingLastFocalPoint) ~= "Vector3" then
         local liveMotionForward, liveMotionSpeed = resolveLivePlayerRootMotion()
         local lookaheadSeconds, maxLookaheadStuds = resolveStreamingLookahead(config)
         if typeof(liveMotionForward) == "Vector3" and lookaheadSeconds > 0 and maxLookaheadStuds > 0 then
             movementForward = liveMotionForward
-            movementLookaheadStuds = math.min(maxLookaheadStuds, liveMotionSpeed * lookaheadSeconds)
+            movementLookaheadStuds =
+                applyVelocityClassToLookahead(liveMotionSpeed, lookaheadSeconds, maxLookaheadStuds, config)
             if movementLookaheadStuds > 0 then
                 predictedFocalPoint = playerPos + liveMotionForward.Unit * movementLookaheadStuds
             end
@@ -483,7 +633,8 @@ local function resolveSchedulerFocusPoint(playerPos, config)
         local lookaheadSeconds, maxLookaheadStuds = resolveStreamingLookahead(config)
         if typeof(liveMotionForward) == "Vector3" and lookaheadSeconds > 0 and maxLookaheadStuds > 0 then
             movementForward = liveMotionForward
-            movementLookaheadStuds = math.min(maxLookaheadStuds, liveMotionSpeed * lookaheadSeconds)
+            movementLookaheadStuds =
+                applyVelocityClassToLookahead(liveMotionSpeed, lookaheadSeconds, maxLookaheadStuds, config)
             if movementLookaheadStuds > 0 then
                 predictedFocalPoint = playerPos + liveMotionForward.Unit * movementLookaheadStuds
             end
@@ -502,13 +653,24 @@ local function resolveSchedulerFocusPoint(playerPos, config)
         elapsedSeconds = math.max(1 / 60, os.clock() - streamingLastFocalAt)
     end
     local movementSpeedStudsPerSecond = movementDeltaStuds / elapsedSeconds
-    movementLookaheadStuds = math.min(maxLookaheadStuds, movementSpeedStudsPerSecond * lookaheadSeconds)
+
+    -- Live root velocity beats positional delta when faster: a sudden aircraft
+    -- burst lands in AssemblyLinearVelocity a tick before it shows up in the
+    -- next focal-point sample, and we want classification to react immediately.
+    local liveMotionForward, liveMotionSpeed = resolveLivePlayerRootMotion()
+    local classificationSpeed = movementSpeedStudsPerSecond
+    if typeof(liveMotionForward) == "Vector3" and liveMotionSpeed > classificationSpeed then
+        classificationSpeed = liveMotionSpeed
+        movementForward = liveMotionForward
+    end
+    movementLookaheadStuds =
+        applyVelocityClassToLookahead(classificationSpeed, lookaheadSeconds, maxLookaheadStuds, config)
 
     if movementLookaheadStuds <= 0 then
         return movementForward, predictedFocalPoint, movementDeltaStuds, movementLookaheadStuds
     end
 
-    predictedFocalPoint = playerPos + horizontalDelta.Unit * movementLookaheadStuds
+    predictedFocalPoint = playerPos + movementForward.Unit * movementLookaheadStuds
     return movementForward, predictedFocalPoint, movementDeltaStuds, movementLookaheadStuds
 end
 
@@ -730,6 +892,7 @@ local function pruneStaleResidentEstimatedCosts(worldRootName)
         clearResidentEstimatedCostForChunk(chunkId)
         clearObservedImportCostForChunk(chunkId)
         loadedChunkLods[chunkId] = nil
+        loadedChunkRings[chunkId] = nil
         importedBuildingLodById[chunkId] = nil
         inflightChunkImports[chunkId] = nil
         ImportService.ResetSubplanState(chunkId, worldRootName)
@@ -2178,6 +2341,7 @@ function StreamingService.Stop()
     table.clear(observedChunkImportMsById)
     table.clear(streamingResidentEstimatedCostById)
     loadedChunkLods = {}
+    loadedChunkRings = {}
     importedBuildingLodById = {}
     inflightChunkImports = {}
     lodUpgradeCount = 0
@@ -2237,6 +2401,15 @@ function StreamingService.Update(focalPoint)
             mid = { chunkCount = 0, estimatedCost = 0 },
             far = { chunkCount = 0, estimatedCost = 0 },
         }
+        -- Track resident bytes per ring for the per-ring memory guardrail.
+        -- We seed from the current `loadedChunkRings` snapshot and then mutate
+        -- this table as we admit and evict chunks during this tick so admission
+        -- decisions for later candidates see an accurate, up-to-date pressure
+        -- level. This is the mechanism that prevents far-ring minimal LOD
+        -- chunks from competing with near-ring full-detail chunks for the same
+        -- memory pool.
+        local ringResidentBytes = computeRingResidentBytes()
+        local ringDeferredAdmissions = { near = 0, mid = 0, far = 0 }
         local queuedEstimatedCost = 0
         local queuedWorkItemCount = 0
         local evictedEstimatedCost = 0
@@ -2275,6 +2448,22 @@ function StreamingService.Update(focalPoint)
             local ringName = getChunkRingName(schedulerDistSq, resolvedRings)
             local chunkBuildingLodLevel = resolveBuildingLodLevel(ringName, streamingOptions.config)
 
+            -- High-velocity prefetch: when the player is moving fast (jetpack,
+            -- aircraft, parachute), brand-new prefetched chunks come in at the
+            -- minimal LOD so they can land before the player flies over them.
+            -- Already-loaded chunks keep whatever LOD they have — the existing
+            -- LOD re-import path will upgrade them once the player slows down
+            -- and the velocity class drops back to walking.
+            if
+                streamingForceMinimalLodForPrefetch
+                and currentLod == nil
+                and importedBuildingLodById[chunkRef.id] == nil
+                and (BUILDING_LOD_DETAIL_RANK[chunkBuildingLodLevel] or 0)
+                    > (BUILDING_LOD_DETAIL_RANK.minimal or 0)
+            then
+                chunkBuildingLodLevel = "minimal"
+            end
+
             if targetLod then
                 local ring = if ringName then resolvedRings[ringName] else nil
                 local estimatedChunkCost = getEstimatedChunkOrSubplanCost(chunkRef, nil)
@@ -2298,6 +2487,7 @@ function StreamingService.Update(focalPoint)
                         ImportService.ResetSubplanState(chunkRef.id, streamingOptions.worldRootName)
                         clearResidentEstimatedCostForChunk(chunkRef.id)
                         loadedChunkLods[chunkRef.id] = nil
+                        loadedChunkRings[chunkRef.id] = nil
                         importedBuildingLodById[chunkRef.id] = nil
                         evictedEstimatedCost += residentCost
                         evictedChunkCount += 1
@@ -2312,8 +2502,54 @@ function StreamingService.Update(focalPoint)
                     continue
                 end
 
+                -- Per-ring memory budget admission gate. Each ring owns a
+                -- private byte budget; far-ring chunks must NOT be allowed
+                -- to crowd out near-ring chunks just because the global
+                -- guardrail still has headroom. If admitting this chunk would
+                -- push the target ring over its EstimatedBudgetBytes, and the
+                -- chunk is not already resident in this ring, defer it for
+                -- this tick. The chunk is intentionally NOT marked desired,
+                -- so the final not-desired sweep will leave existing chunks
+                -- in other rings alone and only this chunk's slot is held
+                -- back.
+                local ringBudgetBytes = normalizeNonNegativeNumber(ring.EstimatedBudgetBytes)
+                if ringBudgetBytes > 0 then
+                    local chunkResidentInRing = loadedChunkRings[chunkRef.id] == ringName
+                    local currentResident = if chunkResidentInRing
+                        then getResidentEstimatedCostForChunkId(chunkRef.id)
+                        else 0
+                    local projected = ringResidentBytes[ringName] + estimatedChunkCost - currentResident
+                    if projected > ringBudgetBytes and not chunkResidentInRing then
+                        ringDeferredAdmissions[ringName] += 1
+                        queuedEstimatedCost += estimatedChunkCost
+                        queuedWorkItemCount += 1
+                        lastPrefetchReason = ringName .. "_ring_budget_deferred"
+                        continue
+                    end
+                end
+
                 ringStats.chunkCount += 1
                 ringStats.estimatedCost += estimatedChunkCost
+                -- Attribute this chunk's resident bytes to the target ring.
+                -- For chunks already resident in this ring, the per-ring
+                -- snapshot is unchanged; for chunks moving in from another
+                -- ring (or being newly admitted), shift / add the bytes.
+                local previousRingForChunk = loadedChunkRings[chunkRef.id]
+                if previousRingForChunk ~= ringName then
+                    local existingResident = getResidentEstimatedCostForChunkId(chunkRef.id)
+                    if previousRingForChunk == "near"
+                        or previousRingForChunk == "mid"
+                        or previousRingForChunk == "far"
+                    then
+                        ringResidentBytes[previousRingForChunk] = math.max(
+                            0,
+                            ringResidentBytes[previousRingForChunk] - existingResident
+                        )
+                    end
+                    local addedBytes = if existingResident > 0 then existingResident else estimatedChunkCost
+                    ringResidentBytes[ringName] += addedBytes
+                    loadedChunkRings[chunkRef.id] = ringName
+                end
                 local chunkOptions = streamingChunkOptionsByLod[targetLod]
                 local currentEntry = ChunkLoader.GetChunkEntry(chunkRef.id, streamingOptions.worldRootName)
                 -- Skip chunks that already have an import work item in flight from a
@@ -2340,6 +2576,7 @@ function StreamingService.Update(focalPoint)
                         clearResidentEstimatedCostForChunk(chunkRef.id)
                         clearObservedImportCostForChunk(chunkRef.id)
                         loadedChunkLods[chunkRef.id] = nil
+                        loadedChunkRings[chunkRef.id] = nil
                         importedBuildingLodById[chunkRef.id] = nil
                         lodUpgradeCount += 1
                         Workspace:SetAttribute("ArnisStreamingLodUpgradeCount", lodUpgradeCount)
@@ -2401,6 +2638,7 @@ function StreamingService.Update(focalPoint)
                 ImportService.ResetSubplanState(chunkRef.id, streamingOptions.worldRootName)
                 clearResidentEstimatedCostForChunk(chunkRef.id)
                 loadedChunkLods[chunkRef.id] = nil
+                loadedChunkRings[chunkRef.id] = nil
                 importedBuildingLodById[chunkRef.id] = nil
                 inflightChunkImports[chunkRef.id] = nil
                 lastEvictionReason = "outside_target_radius"
@@ -2549,6 +2787,7 @@ function StreamingService.Update(focalPoint)
                 })
                 clearResidentEstimatedCost(workItem)
                 loadedChunkLods[chunkRef.id] = nil
+                loadedChunkRings[chunkRef.id] = nil
                 importedBuildingLodById[chunkRef.id] = nil
                 refreshMemoryGuardrailTelemetry(memoryGuardrailConfig, deferredAdmissions)
                 break
@@ -2607,9 +2846,62 @@ function StreamingService.Update(focalPoint)
                 evictedChunkCount += 1
                 clearResidentEstimatedCostForChunk(chunkId)
                 loadedChunkLods[chunkId] = nil
+                loadedChunkRings[chunkId] = nil
                 importedBuildingLodById[chunkId] = nil
                 inflightChunkImports[chunkId] = nil
                 lastEvictionReason = resolvedEvictionReason
+            end
+        end
+
+        -- Per-ring forced eviction. Recompute resident bytes per ring after
+        -- the in-tick admission and not-desired sweeps, then for each ring
+        -- that is still over its EstimatedBudgetBytes, evict the FURTHEST
+        -- chunk(s) from THAT ring until the ring fits its budget. This keeps
+        -- far-ring minimal LOD chunks from monopolising memory that the near
+        -- ring needs.
+        local function evictChunkForRingBudget(chunkId, ringName)
+            ChunkLoader.UnloadChunk(chunkId, nil, streamingOptions.worldRootName)
+            ImportService.ResetSubplanState(chunkId, streamingOptions.worldRootName)
+            local cost = getResidentEstimatedCostForChunkId(chunkId)
+            evictedEstimatedCost += cost
+            evictedChunkCount += 1
+            clearResidentEstimatedCostForChunk(chunkId)
+            clearObservedImportCostForChunk(chunkId)
+            loadedChunkLods[chunkId] = nil
+            loadedChunkRings[chunkId] = nil
+            importedBuildingLodById[chunkId] = nil
+            inflightChunkImports[chunkId] = nil
+            desiredChunkIds[chunkId] = nil
+            lastEvictionReason = ringName .. "_ring_budget_exceeded"
+            return cost
+        end
+
+        ringResidentBytes = computeRingResidentBytes()
+        for _, ringName in ipairs(STREAMING_RING_ORDER) do
+            local ring = resolvedRings[ringName]
+            local budget = ring and normalizeNonNegativeNumber(ring.EstimatedBudgetBytes) or 0
+            if budget > 0 and ringResidentBytes[ringName] > budget then
+                -- Collect this ring's chunks ordered by descending distance.
+                local ringChunks = {}
+                for chunkId, chunkRingName in pairs(loadedChunkRings) do
+                    if chunkRingName == ringName then
+                        local chunkRef = streamingChunkRefsById and streamingChunkRefsById[chunkId] or nil
+                        local distSq = if chunkRef ~= nil
+                            then ChunkPriority.GetChunkFootprintDistanceSq(chunkRef, playerPos, chunkSizeStuds)
+                            else math.huge
+                        ringChunks[#ringChunks + 1] = { id = chunkId, distSq = distSq }
+                    end
+                end
+                table.sort(ringChunks, function(a, b)
+                    return a.distSq > b.distSq
+                end)
+                for _, entry in ipairs(ringChunks) do
+                    if ringResidentBytes[ringName] <= budget then
+                        break
+                    end
+                    local removedBytes = evictChunkForRingBudget(entry.id, ringName)
+                    ringResidentBytes[ringName] = math.max(0, ringResidentBytes[ringName] - removedBytes)
+                end
             end
         end
 
@@ -2632,6 +2924,9 @@ function StreamingService.Update(focalPoint)
             lastEvictionReason,
             if deferredAdmissions > 0 then "guardrail_paused" else "steady_state"
         )
+        Workspace:SetAttribute("ArnisStreamingRingNearDeferredAdmissions", ringDeferredAdmissions.near)
+        Workspace:SetAttribute("ArnisStreamingRingMidDeferredAdmissions", ringDeferredAdmissions.mid)
+        Workspace:SetAttribute("ArnisStreamingRingFarDeferredAdmissions", ringDeferredAdmissions.far)
 
         local immediateCameraFocusPos = resolveCurrentCameraFocusPosition()
         for _, chunkId in ipairs(ChunkLoader.ListLoadedChunks(streamingOptions.worldRootName)) do

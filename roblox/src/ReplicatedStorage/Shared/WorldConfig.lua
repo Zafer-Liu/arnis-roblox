@@ -102,6 +102,19 @@ local WorldConfig = {
     StreamingLookaheadSeconds = 1,
     StreamingMaxLookaheadStuds = 512,
     StreamingImportFrameBudgetSeconds = 1 / 240,
+    -- ─── AIRCRAFT / HIGH-VELOCITY PREFETCH ───
+    -- Controls how lookahead scales with player velocity. Walking-speed players
+    -- use the base lookahead; vehicles and aircraft scale up so the streaming
+    -- queue stays ahead of the player and avoids fall-through into empty chunks.
+    -- Speeds are in studs/second; multipliers compose with StreamingLookaheadSeconds
+    -- and are still capped by StreamingMaxLookaheadStuds.
+    AircraftStreamingPolicy = {
+        WalkingSpeedThreshold = 32,
+        VehicleSpeedThreshold = 128,
+        AircraftLookaheadMultiplier = 4,
+        VehicleLookaheadMultiplier = 2,
+        HighVelocityForcesMinimalLod = true,
+    },
     -- NOTE: These top-level ring defaults are only used when no StreamingProfile
     -- matches. The active profile is "local_dev" which has reduced budgets
     -- (16/24/32 chunks) safe for 8GB tertiary. These larger values are for
