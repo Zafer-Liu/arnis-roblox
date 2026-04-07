@@ -293,35 +293,43 @@ local function buildStreetLamp(x, y, z, parent)
     return model
 end
 
--- Builds a multi-lobe canopy cluster for organic broadleaved silhouette
+-- Builds a multi-lobe canopy cluster for organic broadleaved silhouette.
+-- Uses a seed-driven Y/X ratio so trees are not all perfect spheres:
+-- some are wide & flat (live oaks), others taller & rounder.
 local function buildRealisticCanopy(parent, trunkTop, canopyRadius, canopyColor, species)
+    local seed = hashId(species or "tree")
+    -- Derive a per-species aspect ratio: Y/X from 0.55 (wide flat) to 1.1 (tall round)
+    local aspectY = 0.55 + deterministicUnitFloat(seed) * 0.55
+
     -- Main canopy body
     local mainLobe = Instance.new("Part")
     mainLobe.Name = "CanopyMain"
     mainLobe.Shape = Enum.PartType.Ball
-    mainLobe.Size = Vector3.new(canopyRadius * 2, canopyRadius * 1.6, canopyRadius * 2)
+    mainLobe.Size = Vector3.new(canopyRadius * 2, canopyRadius * 2 * aspectY, canopyRadius * 2)
     mainLobe.Material = Enum.Material.LeafyGrass
     mainLobe.Color = canopyColor
     mainLobe.Anchored = true
     mainLobe.CanCollide = false
     mainLobe.CastShadow = true
-    mainLobe.CFrame = CFrame.new(trunkTop + Vector3.new(0, canopyRadius * 0.5, 0))
+    mainLobe.CFrame = CFrame.new(trunkTop + Vector3.new(0, canopyRadius * aspectY * 0.5, 0))
     mainLobe.Parent = parent
 
-    -- 3 secondary lobes offset from center for organic shape
-    local lobeCount = 3
-    local seed = string.len(species or "tree")
+    -- 3-4 secondary lobes offset from center for organic shape
+    local lobeCount = 3 + (seed % 2) -- 3 or 4 lobes
     for i = 1, lobeCount do
         local angle = (i / lobeCount) * math.pi * 2 + seed * 0.7
-        local offsetX = math.cos(angle) * canopyRadius * 0.4
-        local offsetZ = math.sin(angle) * canopyRadius * 0.4
-        local offsetY = (i % 2 == 0) and canopyRadius * 0.2 or -canopyRadius * 0.1
-        local lobeSize = canopyRadius * (0.6 + (i % 3) * 0.15)
+        local offsetX = math.cos(angle) * canopyRadius * 0.45
+        local offsetZ = math.sin(angle) * canopyRadius * 0.45
+        local offsetY = (i % 2 == 0) and canopyRadius * 0.25 or -canopyRadius * 0.12
+        local lobeFrac = 0.55 + deterministicUnitFloat(seed + i * 137) * 0.25
+        local lobeSize = canopyRadius * lobeFrac
 
         local lobe = Instance.new("Part")
         lobe.Name = "CanopyLobe" .. i
         lobe.Shape = Enum.PartType.Ball
-        lobe.Size = Vector3.new(lobeSize * 2, lobeSize * 1.4, lobeSize * 2)
+        -- Each lobe gets its own aspect variation
+        local lobeAspect = aspectY * (0.85 + (i % 3) * 0.1)
+        lobe.Size = Vector3.new(lobeSize * 2, lobeSize * 2 * lobeAspect, lobeSize * 2)
         lobe.Material = Enum.Material.LeafyGrass
         -- Slight colour variation per lobe
         lobe.Color = Color3.new(
@@ -332,7 +340,7 @@ local function buildRealisticCanopy(parent, trunkTop, canopyRadius, canopyColor,
         lobe.Anchored = true
         lobe.CanCollide = false
         lobe.CastShadow = true
-        lobe.CFrame = CFrame.new(trunkTop.X + offsetX, trunkTop.Y + canopyRadius * 0.5 + offsetY, trunkTop.Z + offsetZ)
+        lobe.CFrame = CFrame.new(trunkTop.X + offsetX, trunkTop.Y + canopyRadius * aspectY * 0.5 + offsetY, trunkTop.Z + offsetZ)
         lobe.Parent = parent
     end
 end
@@ -352,9 +360,10 @@ local function buildTree(parent, prop, originStuds, baseYOverride)
     local model = Instance.new("Model")
     model.Name = prop.id or "Tree"
 
-    local trunkH = 7 * scale
+    local trunkVariation = 0.8 + deterministicUnitFloat(canopySeed + 1) * 0.4 -- 0.8..1.2
+    local trunkH = 7 * scale * trunkVariation
     local trunkR = 0.5 * scale
-    local canopyR = (4 + deterministicUnitFloat(canopySeed) * 3) * scale
+    local canopyR = (3.5 + deterministicUnitFloat(canopySeed) * 4.5) * scale -- wider range: 3.5..8
 
     -- Scale trunk radius from real-world circumference when available.
     if prop.circumference and prop.circumference > 0 then
@@ -443,17 +452,40 @@ local function buildTree(parent, prop, originStuds, baseYOverride)
     local canopyColor3 = canopyBrickColor.Color
 
     if leafType == "needleleaved" then
-        -- Cone-like: tall and narrow single ball, no multi-lobe
-        local canopy = Instance.new("Part")
-        canopy.Name = "Canopy"
-        canopy.Anchored = true
-        canopy.Material = Enum.Material.LeafyGrass
-        canopy.BrickColor = canopyBrickColor
-        canopy.CastShadow = false
-        canopy.Shape = Enum.PartType.Ball
-        canopy.Size = Vector3.new(canopyR * 1.2, canopyR * 2.5, canopyR * 1.2)
-        canopy.CFrame = CFrame.new(trunkTop + Vector3.new(0, canopyR * 0.9, 0))
-        canopy.Parent = model
+        -- Stacked tapered tiers for a visually distinct conifer silhouette.
+        -- Ball parts render as spheres, so we stack 3 progressively smaller
+        -- tiers to approximate a cone / Christmas-tree shape.
+        local tiers = 3
+        local totalConeH = canopyR * 2.8
+        local tierH = totalConeH / tiers
+        local darkGreen = Color3.new(
+            math.clamp(canopyColor3.R - 0.05, 0, 1),
+            math.clamp(canopyColor3.G - 0.08, 0, 1),
+            math.clamp(canopyColor3.B - 0.02, 0, 1)
+        )
+        for tier = 1, tiers do
+            -- Bottom tier is widest, top is narrowest
+            local t = (tier - 1) / (tiers - 1) -- 0 = bottom, 1 = top
+            local tierRadius = canopyR * (1.0 - t * 0.55)
+            local yOff = (tier - 1) * tierH * 0.75 -- slight overlap between tiers
+
+            local part = Instance.new("Part")
+            part.Name = "ConiferTier" .. tier
+            part.Anchored = true
+            part.Shape = Enum.PartType.Ball
+            part.Size = Vector3.new(tierRadius * 2, tierH * 1.1, tierRadius * 2)
+            part.Material = Enum.Material.LeafyGrass
+            -- Darken upper tiers slightly for depth
+            part.Color = Color3.new(
+                math.clamp(darkGreen.R - t * 0.03, 0, 1),
+                math.clamp(darkGreen.G + t * 0.02, 0, 1),
+                math.clamp(darkGreen.B - t * 0.01, 0, 1)
+            )
+            part.CastShadow = true
+            part.CanCollide = false
+            part.CFrame = CFrame.new(trunkTop + Vector3.new(0, yOff + tierH * 0.4, 0))
+            part.Parent = model
+        end
     else
         -- Broadleaved default: multi-lobe organic canopy
         buildRealisticCanopy(model, trunkTop, canopyR, canopyColor3, prop.species or "tree")
