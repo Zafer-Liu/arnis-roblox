@@ -342,8 +342,10 @@ class PlayRenderTruthTests(unittest.TestCase):
 
         self.assertIn("local function shouldPreferPlayVisibleShellWalls", source)
         self.assertIn("PLAY_VISIBLE_SHELL_ROOF_SHAPES", source)
-        self.assertIn("levels > 6 or height > 34", source)
-        self.assertIn("return footprintPointCount <= 10", source)
+        # shouldPreferPlayVisibleShellWalls now unconditionally returns true,
+        # forcing all walls to explicit Parts (EditableMesh walls are invisible
+        # in play mode). The old shape/size gating was removed.
+        self.assertIn("return true", source)
         self.assertIn("preferPlayVisibleShellWalls", source)
         self.assertRegex(
             source,
@@ -359,8 +361,9 @@ class PlayRenderTruthTests(unittest.TestCase):
         self.assertIn('detailFolder:SetAttribute("ArnisMergedShellDoorCueCount", playVisibleDoorCueCount)', source)
         self.assertIn('detailFolder:SetAttribute("ArnisMergedShellStreetFacadeCueCount", playVisibleStreetFacadeCueCount)', source)
         self.assertIn('detailFolder:SetAttribute("ArnisMergedShellWindowPaneCueCount", playVisibleWindowPaneCueCount)', source)
-        self.assertIn("if boundedHoleLoopCount == 1 then", source)
-        self.assertIn("return levels <= 5 and height <= 28 and footprintPointCount <= 12", source)
+        # shouldEmitMergedShellReadableCues still gates on hole count and size thresholds
+        self.assertIn("if boundedHoleLoopCount > 1 then", source)
+        self.assertIn("levels > 8 or height > 40 or footprintPointCount > 12", source)
 
     def test_shell_mesh_courtyard_truth_spec_exercises_bounded_hole_support(self) -> None:
         spec_source = SHELLMESH_COURTYARD_TRUTH.read_text(encoding="utf-8")
