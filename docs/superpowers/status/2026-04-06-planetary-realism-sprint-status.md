@@ -74,6 +74,16 @@ The active implementation plan is:
 
 ## Status Notes
 
+### 2026-04-07: Session 5 — Planetary Streaming + Physics + Ship Prep
+
+- **True-scale planetary coordinate system**: Mercator projection from (0°N,0°E) at 0.3 m/stud. project_planetary/unproject_planetary/distance_studs in Rust. Multi-city registry with real-world coordinates for Austin, Amsterdam, Tokyo, SF.
+- **Streaming profiles optimized**: local_dev 3km/4 items/2s lookahead. Production 8km/12 items/3s/11ms budget. Update interval 0.25→0.15s.
+- **Chunk fade-in**: smooth 0.3s tween from transparent to opaque on import, eliminating pop-in.
+- **Far Cry / Just Cause physics**: nitro boost (280 studs/s, 3s duration), jerk-limited acceleration ramp, parachute dive mechanic (hold W for 60 studs/s dive), dynamic FOV (70→95, 105 during nitro).
+- **Senior review**: 5 findings fixed (boost state leaks, FOV shadow, dive dead code, cancelled import inflight leak, atlas crop bounds).
+- **Austin 2km² compiled for publish**: 1.6GB place built on tertiary via vertigo-sync, ready for Roblox upload.
+- **50 commits this session. 360 Rust + 272 Python = 632 tests green.**
+
 ### 2026-04-07: Session 4 — Bug Fixes + Complete Prop Coverage + Telemetry Confirmed
 
 - **10 of 11 known bugs fixed**: atlas PNG→RGBA decode, atlas base64 (EncodingService), atlas UV cropping, LOD bidirectional, mesh splitting, terrainMesh audit, propMesh coverage, reconcile cleanup, ARNIS_CLIENT_PERF confirmed
