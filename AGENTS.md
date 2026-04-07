@@ -120,6 +120,11 @@ For every meaningful code change:
 - Screenshot artifacts now include a sibling `*.capture.json` sidecar with the capture method, stderr, and window/session diagnostics. Treat that sidecar as the first source of truth when a screenshot is missing or blank.
 - On `tertiary`, remote screenshot capture is now expected to fall back to a GUI-session relay through the logged-in `Terminal` app when direct display capture is blocked. A healthy remote visual proof may therefore report `capture_method="gui_terminal_display"` and `guiSessionRelay.method="terminal.command"` in the sibling `*.capture.json`.
 - Keep screenshot ownership on `tertiary`. `primary` should remain a thin control/sync node only; do not move GUI automation or long-running capture loops onto `primary`.
+- For programmatic Studio viewport screenshots from SSH on `tertiary`:
+  - Use `scripts/capture_studio_sck.swift` (ScreenCaptureKit, macOS 14+)
+  - Compile once: `swiftc scripts/capture_studio_sck.swift -parse-as-library -o /tmp/capture_sck -framework Cocoa -framework ScreenCaptureKit`
+  - Run via `.command` file through `open` (inherits Terminal.app's Screen Recording permission)
+  - This is the only reliable method — `screencapture`, Quartz CGWindowListCreateImage, and `osascript do shell script` all fail from SSH due to macOS security
 - For remote runs, prefer the wrapper-managed artifact directory and synced outputs over manual SSH inspection. The wrapper already pulls back the Studio log, scene-fidelity artifacts, screenshots, and screenshot diagnostics when they exist.
 
 ## Rust-specific guardrails

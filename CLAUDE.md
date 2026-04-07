@@ -49,6 +49,12 @@ Kodex should read `AGENTS.md` first.
 - When screenshot capture fails, inspect the sibling `*.capture.json` artifact before doing anything else. It records the capture method, stderr, and window/session diagnostics and is the repo’s authoritative failure breadcrumb for remote display issues.
 - On `tertiary`, the committed remote screenshot path now prefers a GUI-session relay through the logged-in `Terminal` app when direct display capture is blocked. In a healthy remote visual proof, the sidecar may therefore show `capture_method="gui_terminal_display"` with `guiSessionRelay.method="terminal.command"`.
 - Keep `primary` out of remote GUI automation. Use it only to trigger, poll, and sync artifacts back; the actual screenshot/capture work belongs on `tertiary`.
+- For programmatic Studio viewport screenshots from SSH, use the ScreenCaptureKit Swift tool:
+  - Compile: `swiftc scripts/capture_studio_sck.swift -parse-as-library -o /tmp/capture_sck -framework Cocoa -framework ScreenCaptureKit`
+  - Run via GUI relay: create a `.command` file that activates Studio and runs `/tmp/capture_sck`, then `open` it from SSH
+  - The `.command` file runs in Terminal.app's GUI session which has Screen Recording permission
+  - Output: `/tmp/studio_sck.png` (full display capture at 2x retina resolution)
+  - This is the ONLY method that works for capturing Studio viewport from SSH — all other methods (screencapture, Quartz, osascript) fail due to macOS security
 
 ## Immediate tasks Kodex can safely take on
 
