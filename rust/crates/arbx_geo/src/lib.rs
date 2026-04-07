@@ -146,6 +146,31 @@ impl Mercator {
         Vec3::new(dx, 0.0, dz)
     }
 
+    /// Project to **global** planetary stud coordinates (no local center offset).
+    /// Used for true-scale planetary streaming where all cities share one
+    /// coordinate space. Origin is at (0°N, 0°E) — the Gulf of Guinea.
+    /// At 0.3 m/stud: Austin ≈ (−36.2M, −11.2M), Tokyo ≈ (51.6M, −13.2M).
+    pub fn project_planetary(latlon: LatLon, meters_per_stud: f64) -> Vec3 {
+        let (mx, my) = Self::latlon_to_meters(latlon);
+        Vec3::new(mx / meters_per_stud, 0.0, -my / meters_per_stud)
+    }
+
+    /// Inverse of `project_planetary`.
+    pub fn unproject_planetary(position: Vec3, meters_per_stud: f64) -> LatLon {
+        let mx = position.x * meters_per_stud;
+        let my = -(position.z * meters_per_stud);
+        Self::meters_to_latlon(mx, my)
+    }
+
+    /// Distance in studs between two LatLon points at a given meters_per_stud.
+    pub fn distance_studs(a: LatLon, b: LatLon, meters_per_stud: f64) -> f64 {
+        let pa = Self::project_planetary(a, meters_per_stud);
+        let pb = Self::project_planetary(b, meters_per_stud);
+        let dx = pa.x - pb.x;
+        let dz = pa.z - pb.z;
+        (dx * dx + dz * dz).sqrt()
+    }
+
     /// Inverse of `project`, recovering a LatLon from local stud-space XZ.
     pub fn unproject(position: Vec3, center: LatLon, meters_per_stud: f64) -> LatLon {
         let (cx, cy) = Self::latlon_to_meters(center);

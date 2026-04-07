@@ -17,17 +17,41 @@ CanonicalWorldContract.LOCAL_DEV_PLAY_MATERIALIZATION_INDEX_NAMES = {
 -- Each entry maps a world-space region (origin + radius in studs) to a manifest.
 -- When the player crosses a region boundary, the streaming system loads the
 -- corresponding manifest. Regions can overlap; the nearest center wins.
--- For single-city mode, this table has one entry covering the whole world.
+--
+-- Coordinates use true-scale Mercator projection from (0°N, 0°E) at 0.3 m/stud.
+-- Distance Austin→Tokyo ≈ 295 million studs (~35,000 km real-world).
+-- A jetpack at 120 studs/s would take ~28 days continuous — realistic for true scale.
+-- Between cities: procedural ocean/terrain from satellite tiles + DEM elevation.
+CanonicalWorldContract.METERS_PER_STUD = 0.3
 CanonicalWorldContract.PlanetaryManifestRegistry = {
     {
         worldName = "Austin",
         manifestIndexName = "AustinManifestIndex",
-        originStuds = Vector3.new(0, 0, 0), -- world origin for this city
-        radiusStuds = 50000, -- covers the compiled area
+        -- 30.27°N, -97.74°W → Mercator planetary coords at 0.3 m/stud
+        originStuds = Vector3.new(-36234000, 0, -11183000),
+        radiusStuds = 50000,
     },
-    -- Future entries:
-    -- { worldName = "Amsterdam", manifestIndexName = "AmsterdamManifestIndex", originStuds = ..., radiusStuds = ... },
-    -- { worldName = "Tokyo", manifestIndexName = "TokyoManifestIndex", originStuds = ..., radiusStuds = ... },
+    {
+        worldName = "Amsterdam",
+        manifestIndexName = "AmsterdamManifestIndex",
+        -- 52.37°N, 4.90°E
+        originStuds = Vector3.new(1816000, 0, -22760000),
+        radiusStuds = 50000,
+    },
+    {
+        worldName = "Tokyo",
+        manifestIndexName = "TokyoManifestIndex",
+        -- 35.68°N, 139.69°E
+        originStuds = Vector3.new(51830000, 0, -14020000),
+        radiusStuds = 50000,
+    },
+    {
+        worldName = "SanFrancisco",
+        manifestIndexName = "SanFranciscoManifestIndex",
+        -- 37.79°N, -122.41°W
+        originStuds = Vector3.new(-45412000, 0, -14935000),
+        radiusStuds = 50000,
+    },
 }
 
 -- Resolve which manifest to use based on world-space position.
