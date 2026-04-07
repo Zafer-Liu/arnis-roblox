@@ -896,9 +896,9 @@ task.defer(function()
         -- for screenshot capture, then restore Custom for player control
         camera.CameraType = Enum.CameraType.Scriptable
         local pos = root.Position
-        -- Aerial approach view: high enough to see roads, buildings, and terrain patterns
-        local cameraPos = pos + Vector3.new(50, 80, 50)
-        local lookAt = pos + Vector3.new(-10, 0, -10)
+        -- Street-level looking at buildings: low angle, facing toward nearest structures
+        local cameraPos = pos + Vector3.new(-5, 6, 25)
+        local lookAt = pos + Vector3.new(0, 8, -60)
         camera.CFrame = CFrame.lookAt(cameraPos, lookAt)
         task.wait(5)
         camera.CameraType = Enum.CameraType.Custom
