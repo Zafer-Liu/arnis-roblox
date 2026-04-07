@@ -3809,8 +3809,8 @@ function BuildingBuilder.MeshBuildAll(parent, buildings, originStuds, chunk, con
             local rgbaBuf = game:GetService("EncodingService"):Base64Decode(chunk.buildingAtlas.rgbaBase64)
             local img = AssetService:CreateEditableImage({
                 Size = Vector2.new(
-                    chunk.buildingAtlas.atlasWidth or 512,
-                    chunk.buildingAtlas.atlasHeight or 512
+                    chunk.buildingAtlas.atlasWidth or 256,
+                    chunk.buildingAtlas.atlasHeight or 256
                 ),
             })
             img:WritePixelsBuffer(Vector2.new(0, 0), img.Size, rgbaBuf)

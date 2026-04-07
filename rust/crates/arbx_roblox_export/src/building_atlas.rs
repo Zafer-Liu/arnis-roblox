@@ -7,18 +7,19 @@
 //! `BuildingBuilder.lua::applyHeroPbrToMeshPart`.
 //!
 //! This is a Tranche-3 optimization for the planetary streaming plan: a single
-//! 512×512 PNG replaces up to 16 individual EditableImage allocations per
-//! chunk, and the procedural patterns mirror the Lua runtime ones in
+//! 256×256 RGBA atlas (~256 KB raw, ~350 KB base64) replaces up to 16
+//! individual EditableImage allocations per chunk, and the procedural patterns
+//! mirror the Lua runtime ones in
 //! `generateOfficePbrTextures`/`generateStonePbrTextures`/`generateMetalPbrTextures`.
 
 use crate::manifest::BuildingShell;
 
-/// Hard caps that keep atlases bounded — 16 buildings × 128² each fits in
-/// 512² with room to spare and ensures the encoded PNG stays under a few KB.
+/// Hard caps that keep atlases bounded — 16 buildings × 64² each fits in
+/// 256² with room to spare and ensures the encoded base64 stays under ~350 KB.
 pub const MAX_BUILDINGS_PER_ATLAS: usize = 16;
-pub const ATLAS_RESOLUTION: u32 = 512;
-pub const TILE_SMALL: u32 = 64;
-pub const TILE_LARGE: u32 = 128;
+pub const ATLAS_RESOLUTION: u32 = 256;
+pub const TILE_SMALL: u32 = 32;
+pub const TILE_LARGE: u32 = 64;
 
 /// Minimum building height (in studs) to be included in the atlas. Mirrors
 /// `HERO_PBR_MIN_HEIGHT` in BuildingBuilder.lua so the Lua importer and the
@@ -119,10 +120,10 @@ pub fn build_chunk_atlas(buildings: &[BuildingShell]) -> Option<BuildingAtlas> {
 
     let mut entries: Vec<AtlasEntry> = Vec::with_capacity(candidates.len());
 
-    // Simple shelf packer: iterate row-major across an 8×8 grid of 64-stud
-    // cells. A "large" tile (128²) consumes a 2×2 block. We try to place each
+    // Simple shelf packer: iterate row-major across an 8×8 grid of 32-pixel
+    // cells. A "large" tile (64²) consumes a 2×2 block. We try to place each
     // candidate at the first cell where it fits.
-    let cell = TILE_SMALL; // 64
+    let cell = TILE_SMALL; // 32
     let cells_per_side = atlas_w / cell; // 8
     let total_cells = (cells_per_side * cells_per_side) as usize;
     let mut occupied = vec![false; total_cells];
@@ -180,7 +181,7 @@ pub fn build_chunk_atlas(buildings: &[BuildingShell]) -> Option<BuildingAtlas> {
             && px + TILE_LARGE <= atlas_w
             && py + TILE_LARGE <= atlas_h
             // The large packer above guarantees the 2×2 block exists; small
-            // fallback yields a 64-tile.
+            // fallback yields a 32-pixel tile.
             && occupied_block_is_large(&occupied, px, py, cell, cells_per_side_us)
         {
             TILE_LARGE
@@ -215,7 +216,7 @@ pub fn build_chunk_atlas(buildings: &[BuildingShell]) -> Option<BuildingAtlas> {
 
 /// Verify the 2×2 block at (px,py) is owned by the same allocation, i.e. all
 /// four cells are marked occupied. Used to confirm we actually got a large
-/// placement before writing 128 pixels of facade content.
+/// placement before writing 64 pixels of facade content.
 fn occupied_block_is_large(
     occupied: &[bool],
     px: u32,
@@ -392,7 +393,7 @@ mod tests {
         assert_eq!(atlas.atlas_width, ATLAS_RESOLUTION);
         assert_eq!(atlas.atlas_height, ATLAS_RESOLUTION);
         assert_eq!(atlas.entries.len(), 3);
-        // Raw RGBA: 512*512*4 = 1,048,576 bytes
+        // Raw RGBA: 256*256*4 = 262,144 bytes
         assert_eq!(atlas.rgba_data.len(), (ATLAS_RESOLUTION * ATLAS_RESOLUTION * 4) as usize);
     }
 
@@ -461,7 +462,7 @@ mod tests {
         let tile_w = entry.uv_width * ATLAS_RESOLUTION as f32;
         assert!(
             (tile_w - TILE_LARGE as f32).abs() < 0.5,
-            "expected large 128-stud tile for very tall building, got {tile_w}"
+            "expected large 64-pixel tile for very tall building, got {tile_w}"
         );
     }
 

@@ -632,8 +632,8 @@ mod tests {
             .expect("atlas Option already verified");
 
         assert_eq!(atlas.entries.len(), 2);
-        // Raw RGBA: 512*512*4 = 1,048,576 bytes
-        assert_eq!(atlas.rgba_data.len(), (512 * 512 * 4) as usize);
+        // Raw RGBA: 256*256*4 = 262,144 bytes
+        assert_eq!(atlas.rgba_data.len(), (256 * 256 * 4) as usize);
 
         let hero_a = chunk_with_atlas
             .buildings
