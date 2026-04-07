@@ -345,6 +345,13 @@ pub(crate) fn build_empty_chunk(
             cell_size_studs: cell_size,
             width: grid_dim,
             depth: grid_dim,
+            terrain_mesh: crate::terrain_mesh::build_terrain_mesh(
+                &heights,
+                grid_dim,
+                grid_dim,
+                cell_size as f64,
+                None,
+            ),
             heights,
             materials: None,
             material: default_material,
@@ -919,6 +926,18 @@ impl Chunker {
             chunk.props.sort_by(|a, b| a.id.cmp(&b.id));
             chunk.landuse.sort_by(|a, b| a.id.cmp(&b.id));
             chunk.barriers.sort_by(|a, b| a.id.cmp(&b.id));
+
+            // Rebuild terrain mesh with final painted materials so the
+            // heightfield carries satellite-derived per-vertex material data.
+            if let Some(ref mut terrain) = chunk.terrain {
+                terrain.terrain_mesh = crate::terrain_mesh::build_terrain_mesh(
+                    &terrain.heights,
+                    terrain.width,
+                    terrain.depth,
+                    terrain.cell_size_studs as f64,
+                    terrain.materials.as_deref(),
+                );
+            }
         }
 
         chunks.sort_by_key(|c| (c.id.z, c.id.x));

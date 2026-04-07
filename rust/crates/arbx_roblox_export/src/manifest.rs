@@ -6,6 +6,7 @@ use crate::mesh_builder::PrecomputedMesh;
 use crate::prop_mesh::PropMesh;
 use crate::road_mesh::RoadMeshBundle;
 use crate::subplans::ChunkRef;
+use crate::terrain_mesh::TerrainMesh;
 
 #[derive(Debug, Clone, Copy, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct Color {
@@ -40,6 +41,9 @@ pub struct TerrainGrid {
     pub heights: Vec<f64>,
     pub materials: Option<Vec<String>>,
     pub material: String,
+    /// Pre-computed heightfield mesh. When present the Lua importer can load
+    /// this as a MeshPart instead of calling `FillBlock` per cell at runtime.
+    pub terrain_mesh: Option<TerrainMesh>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -548,6 +552,13 @@ impl TerrainGrid {
 
         write_key(out, indent + 2, "material");
         write_string(out, &self.material);
+
+        if let Some(ref mesh) = self.terrain_mesh {
+            out.push_str(",\n");
+            write_key(out, indent + 2, "terrainMesh");
+            mesh.write_json(out, indent + 2);
+        }
+
         out.push('\n');
 
         write_indent(out, indent);

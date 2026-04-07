@@ -363,6 +363,49 @@ fn fragment_chunk_for_lua_shards(
     fragments.push(base_fragment);
 
     if let Some(Value::Object(terrain)) = chunk.get("terrain") {
+        // Fragment terrainMesh sub-arrays (vertices, triangles, normals, etc.)
+        if let Some(Value::Object(mesh)) = terrain.get("terrainMesh") {
+            for mesh_key in [
+                "vertices",
+                "triangles",
+                "normals",
+                "materialIndices",
+                "materialPalette",
+            ] {
+                let Some(Value::Array(items)) = mesh.get(mesh_key) else {
+                    continue;
+                };
+                if items.is_empty() {
+                    continue;
+                }
+                let mesh_fragments = fragment_list_payloads(
+                    chunk_id(chunk)?,
+                    items,
+                    max_bytes,
+                    &format!("terrain.terrainMesh.{mesh_key}"),
+                    |fragment_items| {
+                        Map::from_iter([
+                            (
+                                "id".to_string(),
+                                Value::String(chunk_id(chunk).unwrap().to_string()),
+                            ),
+                            (
+                                "terrain".to_string(),
+                                Value::Object(Map::from_iter([(
+                                    "terrainMesh".to_string(),
+                                    Value::Object(Map::from_iter([(
+                                        mesh_key.to_string(),
+                                        Value::Array(fragment_items.to_vec()),
+                                    )])),
+                                )])),
+                            ),
+                        ])
+                    },
+                )?;
+                fragments.extend(mesh_fragments);
+            }
+        }
+
         for terrain_key in ["heights", "materials"] {
             let Some(terrain_value) = terrain.get(terrain_key) else {
                 continue;
@@ -526,7 +569,9 @@ fn base_chunk_fragment(chunk: &Map<String, Value>) -> Map<String, Value> {
                 let terrain_fragment = terrain
                     .iter()
                     .filter(|(nested_key, _)| {
-                        *nested_key != "heights" && *nested_key != "materials"
+                        *nested_key != "heights"
+                            && *nested_key != "materials"
+                            && *nested_key != "terrainMesh"
                     })
                     .map(|(nested_key, nested_value)| (nested_key.clone(), nested_value.clone()))
                     .collect::<Map<String, Value>>();

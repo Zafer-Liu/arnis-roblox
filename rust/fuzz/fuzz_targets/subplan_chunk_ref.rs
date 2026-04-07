@@ -73,6 +73,7 @@ fn build_chunk(input: ChunkInput) -> Chunk {
         heights: vec![0.0],
         materials: None,
         material: "grass".to_string(),
+        terrain_mesh: None,
     });
 
     let roads = input
