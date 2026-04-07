@@ -13,6 +13,43 @@ CanonicalWorldContract.LOCAL_DEV_PLAY_MATERIALIZATION_INDEX_NAMES = {
     "AustinCanonicalManifestIndex",
 }
 
+-- Planetary streaming: multi-city manifest registry.
+-- Each entry maps a world-space region (origin + radius in studs) to a manifest.
+-- When the player crosses a region boundary, the streaming system loads the
+-- corresponding manifest. Regions can overlap; the nearest center wins.
+-- For single-city mode, this table has one entry covering the whole world.
+CanonicalWorldContract.PlanetaryManifestRegistry = {
+    {
+        worldName = "Austin",
+        manifestIndexName = "AustinManifestIndex",
+        originStuds = Vector3.new(0, 0, 0), -- world origin for this city
+        radiusStuds = 50000, -- covers the compiled area
+    },
+    -- Future entries:
+    -- { worldName = "Amsterdam", manifestIndexName = "AmsterdamManifestIndex", originStuds = ..., radiusStuds = ... },
+    -- { worldName = "Tokyo", manifestIndexName = "TokyoManifestIndex", originStuds = ..., radiusStuds = ... },
+}
+
+-- Resolve which manifest to use based on world-space position.
+-- Returns the manifest index name and the region entry.
+function CanonicalWorldContract.resolveManifestForPosition(worldPosition)
+    local bestEntry = nil
+    local bestDistSq = math.huge
+    for _, entry in ipairs(CanonicalWorldContract.PlanetaryManifestRegistry) do
+        local delta = worldPosition - entry.originStuds
+        local distSq = delta.X * delta.X + delta.Z * delta.Z
+        if distSq < entry.radiusStuds * entry.radiusStuds and distSq < bestDistSq then
+            bestEntry = entry
+            bestDistSq = distSq
+        end
+    end
+    if bestEntry then
+        return bestEntry.manifestIndexName, bestEntry
+    end
+    -- Fallback to canonical
+    return CanonicalWorldContract.CANONICAL_MANIFEST_INDEX_NAME, nil
+end
+
 function CanonicalWorldContract.resolveCanonicalManifestFamily(_policyMode)
     return CanonicalWorldContract.CANONICAL_MANIFEST_INDEX_NAME
 end
