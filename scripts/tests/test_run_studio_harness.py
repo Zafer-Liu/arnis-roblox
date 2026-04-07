@@ -586,6 +586,23 @@ class RunStudioHarnessTests(unittest.TestCase):
         self.assertIn("run_cleanup_helper_if_defined restore_harness_route_config", self.text)
         self.assertIn("prepare_harness_route_config", self.text)
 
+    def test_telemetry_families_always_written_to_harness_route_config(self) -> None:
+        """Telemetry families must be written even without --route-catalog."""
+        self.assertIn("prepare_harness_telemetry_config()", self.text)
+        # Called unconditionally after prepare_harness_route_config
+        idx_route = self.text.index("prepare_harness_route_config\n")
+        idx_telemetry = self.text.index("prepare_harness_telemetry_config\n")
+        self.assertGreater(idx_telemetry, idx_route)
+        # Skips when route catalog already wrote the file
+        self.assertIn('if [[ -n "$ROUTE_CATALOG_NAME" ]]; then\n    return 0\n  fi', self.text)
+        # Skips when no telemetry families requested
+        self.assertIn('if [[ -z "$ARNIS_TELEMETRY_FAMILIES" ]]; then\n    return 0\n  fi', self.text)
+        # Patches telemetryFamilies via regex
+        self.assertIn("telemetryFamilies", self.text)
+        self.assertIn('python3 - "$HARNESS_ROUTE_CONFIG" "$ARNIS_TELEMETRY_FAMILIES"', self.text)
+        # Shares the same backup/restore path as route config
+        self.assertIn("HARNESS_ROUTE_CONFIG_BACKUP", self.text)
+
     def test_harness_runs_persistent_mcp_sidecar_for_plugin_relay(self) -> None:
         self.assertIn("is_isolated_non_preview_edit_proof()", self.text)
         self.assertIn("should_skip_edit_mode_actions_for_play()", self.text)

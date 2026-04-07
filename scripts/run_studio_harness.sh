@@ -1571,6 +1571,38 @@ PY
   log "prepared harness route config: catalog=$ROUTE_CATALOG_NAME lane=$ROUTE_LANE_NAME step=$ROUTE_STEP_INDEX"
 }
 
+prepare_harness_telemetry_config() {
+  if [[ -n "$ROUTE_CATALOG_NAME" ]]; then
+    return 0
+  fi
+  if [[ -z "$ARNIS_TELEMETRY_FAMILIES" ]]; then
+    return 0
+  fi
+
+  if [[ -z "$HARNESS_ROUTE_CONFIG_BACKUP" ]]; then
+    HARNESS_ROUTE_CONFIG_BACKUP="$(mktemp)"
+    cp "$HARNESS_ROUTE_CONFIG" "$HARNESS_ROUTE_CONFIG_BACKUP"
+  fi
+  python3 - "$HARNESS_ROUTE_CONFIG" "$ARNIS_TELEMETRY_FAMILIES" <<'PY'
+from pathlib import Path
+import re, sys
+
+path = Path(sys.argv[1])
+telemetry_families = sys.argv[2]
+
+text = path.read_text(encoding="utf-8")
+text = re.sub(
+    r'telemetryFamilies\s*=\s*"[^"]*"',
+    f"telemetryFamilies = {telemetry_families!r}",
+    text,
+)
+tmp_path = path.with_suffix(path.suffix + ".tmp")
+tmp_path.write_text(text, encoding="utf-8")
+tmp_path.replace(path)
+PY
+  log "prepared harness telemetry config: families=$ARNIS_TELEMETRY_FAMILIES"
+}
+
 restore_harness_route_config() {
   if [[ -z "$HARNESS_ROUTE_CONFIG_BACKUP" || ! -f "$HARNESS_ROUTE_CONFIG_BACKUP" ]]; then
     return 0
@@ -1875,6 +1907,7 @@ acquire_harness_lock "$@" || exit 1
 start_parent_watchdog
 prepare_route_bundle_sample_data
 prepare_harness_route_config
+prepare_harness_telemetry_config
 
 enable_runall_entry() {
   local edit_enabled="true"
