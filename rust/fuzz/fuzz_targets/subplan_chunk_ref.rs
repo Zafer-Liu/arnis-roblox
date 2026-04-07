@@ -195,6 +195,7 @@ fn build_chunk(input: ChunkInput) -> Chunk {
             height: None,
             leaf_type: None,
             circumference: None,
+            prop_mesh: None,
         })
         .collect();
 

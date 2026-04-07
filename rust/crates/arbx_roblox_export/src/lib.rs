@@ -4,6 +4,7 @@ pub mod manifest;
 pub mod manifest_store;
 pub mod materials;
 pub mod mesh_builder;
+pub mod prop_mesh;
 pub mod road_mesh;
 pub mod subplans;
 
@@ -24,6 +25,10 @@ pub use manifest::{
     ManifestMeta, PropInstance, RailSegment, RoadSegment, TerrainGrid, WaterFeature,
 };
 pub use mesh_builder::{build_shell_mesh, PrecomputedMesh};
+pub use prop_mesh::{
+    build_broadleaf_canopy, build_conifer_canopy, build_palm_canopy, build_tree_mesh,
+    resolve_leaf_type, PropMesh,
+};
 pub use road_mesh::{
     build_road_bundle, build_road_strip, RoadMeshBundle, RoadMeshStrip, SidewalkMode,
 };

@@ -3,6 +3,7 @@ use std::fmt::Write as _;
 use arbx_geo::{BoundingBox, ChunkId, Footprint, Vec3};
 
 use crate::mesh_builder::PrecomputedMesh;
+use crate::prop_mesh::PropMesh;
 use crate::road_mesh::RoadMeshBundle;
 use crate::subplans::ChunkRef;
 
@@ -156,6 +157,9 @@ pub struct PropInstance {
     pub height: Option<f64>,
     pub leaf_type: Option<String>,
     pub circumference: Option<f64>,
+    /// Pre-computed prop mesh (trunk + canopy for trees). When present the Lua
+    /// importer loads this directly instead of generating geometry at runtime.
+    pub prop_mesh: Option<PropMesh>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -981,6 +985,11 @@ impl PropInstance {
             out.push_str(",\n");
             write_key(out, indent + 2, "circumference");
             write_number(out, c);
+        }
+        if let Some(ref mesh) = self.prop_mesh {
+            out.push_str(",\n");
+            write_key(out, indent + 2, "propMesh");
+            mesh.write_json(out, indent + 2);
         }
         out.push('\n');
         write_indent(out, indent);

@@ -11,6 +11,7 @@ use crate::manifest::{
 };
 use crate::materials::StyleMapper;
 use crate::mesh_builder::build_shell_mesh;
+use crate::prop_mesh::{build_tree_mesh, resolve_leaf_type};
 use crate::road_mesh::{build_road_bundle, SidewalkMode};
 use crate::subplans::derive_chunk_ref;
 
@@ -724,6 +725,19 @@ impl Chunker {
                 let chunk_id = world_to_chunk(f.position, self.chunk_size_studs);
                 let chunk = self.ensure_chunk(chunk_id, elevation, style);
                 let origin = chunk.origin_studs;
+
+                // Pre-compute mesh for tree props
+                let prop_mesh = if f.kind == "tree" {
+                    let leaf = resolve_leaf_type(
+                        f.leaf_type.as_deref(),
+                        f.species.as_deref(),
+                    );
+                    let height_m = f.height.unwrap_or(0.0);
+                    Some(build_tree_mesh(height_m, 0.0, 0.0, leaf))
+                } else {
+                    None
+                };
+
                 chunk.props.push(PropInstance {
                     id: f.id,
                     kind: f.kind,
@@ -738,6 +752,7 @@ impl Chunker {
                     height: f.height,
                     leaf_type: f.leaf_type,
                     circumference: f.circumference,
+                    prop_mesh,
                 });
             }
             Feature::Landuse(f) => {
