@@ -3,6 +3,7 @@ pub mod lua_runtime_shards;
 pub mod manifest;
 pub mod manifest_store;
 pub mod materials;
+pub mod mesh_builder;
 pub mod subplans;
 
 use arbx_geo::{
@@ -21,6 +22,7 @@ pub use manifest::{
     BarrierSegment, BuildingShell, Chunk, ChunkManifest, Color, GroundPoint, LanduseShell,
     ManifestMeta, PropInstance, RailSegment, RoadSegment, TerrainGrid, WaterFeature,
 };
+pub use mesh_builder::{build_shell_mesh, PrecomputedMesh};
 pub use manifest_store::{
     read_manifest_sqlite_all, read_manifest_sqlite_subset, stream_manifest_sqlite_all,
     write_manifest_sqlite, ManifestStoreResult, StoredChunkRecord, StoredManifestMeta,
@@ -148,6 +150,7 @@ pub fn build_sample_multi_chunk(count_x: i32, count_z: i32) -> ChunkManifest {
                     roof_direction: None,
                     roof_angle: None,
                     name: None,
+                    shell_mesh: None,
                 });
             }
 
@@ -387,6 +390,7 @@ mod tests {
                     roof_direction: None,
                     roof_angle: None,
                     name: None,
+                    shell_mesh: None,
                 }],
                 water: vec![],
                 props: vec![],

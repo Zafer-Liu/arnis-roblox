@@ -149,7 +149,10 @@ fn build_chunk(input: ChunkInput) -> Chunk {
             structure_type: None,
             rooms: Vec::new(),
             roof_height: None,
+            roof_direction: None,
+            roof_angle: None,
             name: None,
+            shell_mesh: None,
         })
         .collect();
 

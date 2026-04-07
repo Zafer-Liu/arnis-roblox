@@ -2,6 +2,7 @@ use std::fmt::Write as _;
 
 use arbx_geo::{BoundingBox, ChunkId, Footprint, Vec3};
 
+use crate::mesh_builder::PrecomputedMesh;
 use crate::subplans::ChunkRef;
 
 #[derive(Debug, Clone, Copy, PartialEq, serde::Serialize, serde::Deserialize)]
@@ -99,6 +100,9 @@ pub struct BuildingShell {
     pub roof_direction: Option<f64>,
     pub roof_angle: Option<f64>,
     pub name: Option<String>,
+    /// Pre-computed shell mesh (walls + roof). When present the Lua importer
+    /// loads this directly instead of generating geometry at runtime.
+    pub shell_mesh: Option<PrecomputedMesh>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -798,6 +802,12 @@ impl BuildingShell {
             write_string(out, n);
         }
 
+        if let Some(ref mesh) = self.shell_mesh {
+            out.push_str(",\n");
+            write_key(out, indent + 2, "shellMesh");
+            write_precomputed_mesh(out, mesh, indent + 2);
+        }
+
         out.push('\n');
         write_indent(out, indent);
         out.push('}');
@@ -1146,4 +1156,52 @@ fn write_indent(out: &mut String, indent: usize) {
     for _ in 0..indent {
         out.push(' ');
     }
+}
+
+fn write_precomputed_mesh(out: &mut String, mesh: &PrecomputedMesh, indent: usize) {
+    out.push_str("{\n");
+
+    write_key(out, indent + 2, "vertices");
+    out.push('[');
+    for (i, v) in mesh.vertices.iter().enumerate() {
+        if i > 0 {
+            out.push(',');
+        }
+        // Compact float: drop trailing zeros
+        if v.fract() == 0.0 {
+            write!(out, "{:.0}", v).unwrap();
+        } else {
+            let s = format!("{:.4}", v);
+            out.push_str(s.trim_end_matches('0').trim_end_matches('.'));
+        }
+    }
+    out.push_str("],\n");
+
+    write_key(out, indent + 2, "triangles");
+    out.push('[');
+    for (i, t) in mesh.triangles.iter().enumerate() {
+        if i > 0 {
+            out.push(',');
+        }
+        write!(out, "{}", t).unwrap();
+    }
+    out.push_str("],\n");
+
+    write_key(out, indent + 2, "normals");
+    out.push('[');
+    for (i, n) in mesh.normals.iter().enumerate() {
+        if i > 0 {
+            out.push(',');
+        }
+        if n.fract() == 0.0 {
+            write!(out, "{:.0}", n).unwrap();
+        } else {
+            let s = format!("{:.4}", n);
+            out.push_str(s.trim_end_matches('0').trim_end_matches('.'));
+        }
+    }
+    out.push_str("]\n");
+
+    write_indent(out, indent);
+    out.push('}');
 }

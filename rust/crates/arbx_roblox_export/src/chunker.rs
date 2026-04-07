@@ -679,6 +679,7 @@ impl Chunker {
                     roof_direction: f.roof_direction,
                     roof_angle: f.roof_angle,
                     name: f.name.clone(),
+                    shell_mesh: None,
                 });
             }
             Feature::Prop(f) => {
