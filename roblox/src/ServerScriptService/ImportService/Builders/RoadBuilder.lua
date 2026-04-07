@@ -156,7 +156,7 @@ local ROAD_MATERIAL = {
 local ROAD_THICKNESS = 1 -- studs; road fills 0.5 studs into terrain + 0.5 above
 local PAVEMENT_THICKNESS = 0.7
 local CURB_THICKNESS = 0.35
-local ROAD_SURFACE_LIFT = 0.15
+local ROAD_SURFACE_LIFT = 0.2
 local PAVEMENT_SURFACE_LIFT = 0.25
 local CURB_SURFACE_LIFT = 0.45
 local BRIDGE_PILLAR_SPACING = 24
@@ -214,29 +214,29 @@ end
 -- Maps road kind → approximate surface color for EditableMesh parts.
 -- These approximate the visual tones of Roblox terrain materials.
 local ROAD_COLOR = {
-    motorway = Color3.fromRGB(100, 100, 110),
-    motorway_link = Color3.fromRGB(100, 100, 110),
-    trunk = Color3.fromRGB(100, 100, 110),
-    trunk_link = Color3.fromRGB(100, 100, 110),
-    primary = Color3.fromRGB(80, 80, 85),
-    primary_link = Color3.fromRGB(80, 80, 85),
-    secondary = Color3.fromRGB(80, 80, 85),
-    secondary_link = Color3.fromRGB(80, 80, 85),
-    tertiary = Color3.fromRGB(80, 80, 85),
-    tertiary_link = Color3.fromRGB(80, 80, 85),
-    residential = Color3.fromRGB(80, 80, 85),
-    living_street = Color3.fromRGB(160, 155, 145),
-    service = Color3.fromRGB(185, 175, 160),
-    footway = Color3.fromRGB(160, 155, 145),
-    path = Color3.fromRGB(140, 130, 115),
-    pedestrian = Color3.fromRGB(200, 195, 185),
-    cycleway = Color3.fromRGB(175, 170, 150),
-    steps = Color3.fromRGB(180, 175, 168),
-    bridleway = Color3.fromRGB(120, 105, 85),
-    track = Color3.fromRGB(110, 95, 75),
-    unclassified = Color3.fromRGB(110, 100, 90),
-    road = Color3.fromRGB(100, 95, 90),
-    default = Color3.fromRGB(80, 80, 85),
+    motorway = Color3.fromRGB(55, 55, 62),
+    motorway_link = Color3.fromRGB(55, 55, 62),
+    trunk = Color3.fromRGB(58, 58, 65),
+    trunk_link = Color3.fromRGB(58, 58, 65),
+    primary = Color3.fromRGB(60, 60, 65),
+    primary_link = Color3.fromRGB(60, 60, 65),
+    secondary = Color3.fromRGB(62, 62, 67),
+    secondary_link = Color3.fromRGB(62, 62, 67),
+    tertiary = Color3.fromRGB(65, 65, 70),
+    tertiary_link = Color3.fromRGB(65, 65, 70),
+    residential = Color3.fromRGB(68, 68, 72),
+    living_street = Color3.fromRGB(140, 135, 125),
+    service = Color3.fromRGB(160, 150, 135),
+    footway = Color3.fromRGB(140, 135, 125),
+    path = Color3.fromRGB(120, 110, 95),
+    pedestrian = Color3.fromRGB(175, 170, 160),
+    cycleway = Color3.fromRGB(150, 145, 128),
+    steps = Color3.fromRGB(155, 150, 143),
+    bridleway = Color3.fromRGB(100, 85, 68),
+    track = Color3.fromRGB(90, 78, 60),
+    unclassified = Color3.fromRGB(75, 70, 65),
+    road = Color3.fromRGB(70, 65, 62),
+    default = Color3.fromRGB(60, 60, 65),
 }
 
 -- Subkind-based color overrides for visual differentiation.
@@ -244,14 +244,14 @@ local ROAD_COLOR = {
 -- Motorway/trunk: darker, fresher asphalt. Residential/service: lighter, weathered.
 -- Track/path: warm earth tones.
 local SUBKIND_COLOR_TINT = {
-    motorway = Color3.fromRGB(60, 60, 68),
-    trunk = Color3.fromRGB(65, 65, 72),
-    primary = Color3.fromRGB(80, 80, 85),
-    secondary = Color3.fromRGB(80, 80, 85),
-    residential = Color3.fromRGB(95, 95, 98),
-    service = Color3.fromRGB(100, 98, 92),
-    track = Color3.fromRGB(115, 100, 78),
-    path = Color3.fromRGB(130, 118, 98),
+    motorway = Color3.fromRGB(48, 48, 55),
+    trunk = Color3.fromRGB(52, 52, 58),
+    primary = Color3.fromRGB(58, 58, 63),
+    secondary = Color3.fromRGB(60, 60, 65),
+    residential = Color3.fromRGB(65, 65, 70),
+    service = Color3.fromRGB(78, 76, 70),
+    track = Color3.fromRGB(95, 82, 62),
+    path = Color3.fromRGB(108, 96, 78),
 }
 
 local function getSubkindColorTint(road)
@@ -270,16 +270,16 @@ local function getRoadColor(road)
 end
 
 local MATERIAL_COLOR = table.freeze({
-    [Enum.Material.Asphalt] = Color3.fromRGB(80, 80, 85),
-    [Enum.Material.Concrete] = Color3.fromRGB(165, 160, 150),
-    [Enum.Material.Pavement] = Color3.fromRGB(172, 168, 158),
-    [Enum.Material.Cobblestone] = Color3.fromRGB(140, 134, 124),
-    [Enum.Material.Ground] = Color3.fromRGB(120, 105, 85),
-    [Enum.Material.Slate] = Color3.fromRGB(122, 122, 128),
-    [Enum.Material.Limestone] = Color3.fromRGB(190, 180, 165),
-    [Enum.Material.Pebble] = Color3.fromRGB(126, 118, 110),
-    [Enum.Material.Mud] = Color3.fromRGB(102, 82, 62),
-    [Enum.Material.Sandstone] = Color3.fromRGB(191, 177, 148),
+    [Enum.Material.Asphalt] = Color3.fromRGB(60, 60, 65),
+    [Enum.Material.Concrete] = Color3.fromRGB(145, 140, 130),
+    [Enum.Material.Pavement] = Color3.fromRGB(150, 146, 136),
+    [Enum.Material.Cobblestone] = Color3.fromRGB(120, 114, 104),
+    [Enum.Material.Ground] = Color3.fromRGB(100, 88, 70),
+    [Enum.Material.Slate] = Color3.fromRGB(102, 102, 108),
+    [Enum.Material.Limestone] = Color3.fromRGB(165, 155, 142),
+    [Enum.Material.Pebble] = Color3.fromRGB(106, 98, 90),
+    [Enum.Material.Mud] = Color3.fromRGB(82, 65, 48),
+    [Enum.Material.Sandstone] = Color3.fromRGB(168, 155, 128),
 })
 
 local function resolvePlannedRoadMaterial(material)

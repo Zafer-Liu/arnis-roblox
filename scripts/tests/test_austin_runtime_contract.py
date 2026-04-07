@@ -1224,6 +1224,55 @@ class AustinRuntimeContractTests(unittest.TestCase):
         self.assertIn("{ base + 1, base + 2, base + 3 }", src)
         self.assertIn("{ base + 1, base + 3, base + 4 }", src)
 
+    def test_road_colors_are_dark_enough_for_grass_contrast(self) -> None:
+        """Road surface colors must be dark enough to contrast with green grass terrain.
+
+        All paved road colors (ROAD_COLOR, SUBKIND_COLOR_TINT, MATERIAL_COLOR for
+        Asphalt) should be below RGB(100, 100, 100) so they stand out against grass.
+        """
+        import re
+        src = self.road_builder_text
+
+        # Verify ROAD_COLOR default is dark (under 100 per channel)
+        default_match = re.search(
+            r'default\s*=\s*Color3\.fromRGB\((\d+),\s*(\d+),\s*(\d+)\)',
+            src[src.index("ROAD_COLOR = {"):src.index("SUBKIND_COLOR_TINT")],
+        )
+        self.assertIsNotNone(default_match, "ROAD_COLOR.default must exist")
+        r, g, b = int(default_match.group(1)), int(default_match.group(2)), int(default_match.group(3))
+        self.assertLess(r, 100, f"ROAD_COLOR.default red channel {r} too bright for grass contrast")
+        self.assertLess(g, 100, f"ROAD_COLOR.default green channel {g} too bright for grass contrast")
+        self.assertLess(b, 100, f"ROAD_COLOR.default blue channel {b} too bright for grass contrast")
+
+        # Verify primary/residential roads are also dark
+        for kind in ("primary", "secondary", "tertiary", "residential"):
+            kind_match = re.search(
+                rf'{kind}\s*=\s*Color3\.fromRGB\((\d+),\s*(\d+),\s*(\d+)\)',
+                src[src.index("ROAD_COLOR = {"):src.index("SUBKIND_COLOR_TINT")],
+            )
+            self.assertIsNotNone(kind_match, f"ROAD_COLOR.{kind} must exist")
+            kr, kg, kb = int(kind_match.group(1)), int(kind_match.group(2)), int(kind_match.group(3))
+            self.assertLess(kr, 100, f"ROAD_COLOR.{kind} red={kr} too bright")
+            self.assertLess(kg, 100, f"ROAD_COLOR.{kind} green={kg} too bright")
+            self.assertLess(kb, 100, f"ROAD_COLOR.{kind} blue={kb} too bright")
+
+        # Verify MATERIAL_COLOR for Asphalt is dark
+        asphalt_match = re.search(
+            r'Asphalt\]\s*=\s*Color3\.fromRGB\((\d+),\s*(\d+),\s*(\d+)\)',
+            src,
+        )
+        self.assertIsNotNone(asphalt_match, "MATERIAL_COLOR[Asphalt] must exist")
+        ar, ag, ab = int(asphalt_match.group(1)), int(asphalt_match.group(2)), int(asphalt_match.group(3))
+        self.assertLess(ar, 100, f"MATERIAL_COLOR Asphalt red={ar} too bright")
+        self.assertLess(ag, 100, f"MATERIAL_COLOR Asphalt green={ag} too bright")
+        self.assertLess(ab, 100, f"MATERIAL_COLOR Asphalt blue={ab} too bright")
+
+        # Verify ROAD_SURFACE_LIFT provides enough elevation above terrain
+        lift_match = re.search(r'ROAD_SURFACE_LIFT\s*=\s*([\d.]+)', src)
+        self.assertIsNotNone(lift_match, "ROAD_SURFACE_LIFT must be defined")
+        lift = float(lift_match.group(1))
+        self.assertGreaterEqual(lift, 0.15, f"ROAD_SURFACE_LIFT={lift} too low for terrain visibility")
+
     def test_world_config_exposes_debug_building_colors(self) -> None:
         """WorldConfig must expose DebugBuildingColors knob for visual debug mode."""
         self.assertIn("DebugBuildingColors", self.world_config_text)
