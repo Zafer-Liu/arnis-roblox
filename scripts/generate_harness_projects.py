@@ -36,6 +36,7 @@ def _build_build_project(default_project_data: dict, *, include_runtime_sample_d
     build_visible_paths = set(PREVIEW_FIXTURE_PATHS)
     if include_runtime_sample_data:
         build_visible_paths.update(RUNTIME_HARNESS_SAMPLE_DATA_PATHS)
+        build_visible_paths.update(RUNTIME_SAMPLE_DATA_PATHS)
 
     for path in build_visible_paths:
         ignore_paths.discard(path)
