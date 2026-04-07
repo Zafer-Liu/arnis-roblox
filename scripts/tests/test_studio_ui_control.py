@@ -435,7 +435,7 @@ class StudioUiControlTests(unittest.TestCase):
         with (
             mock.patch.object(
                 mod,
-                "capture_state_snapshot",
+                "capture_session_snapshot",
                 return_value=(0, {"state": "editor_ready", "front_window": "Place1 - Roblox Studio", "window_count": 1}),
             ),
             mock.patch.object(mod, "capture_process_count", return_value=1),
