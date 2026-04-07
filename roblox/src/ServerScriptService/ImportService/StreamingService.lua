@@ -67,6 +67,10 @@ end
 local loadedChunkLods = {}
 -- Registry of chunkId -> building LOD level at which chunk geometry was imported
 local importedBuildingLodById = {}
+-- Registry of chunkId -> true while an import work item is queued/in-flight.
+-- Prevents repeated re-queuing of the same chunk across consecutive Update()
+-- ticks while a prior import (especially an LOD upgrade) has not completed.
+local inflightChunkImports = {}
 -- Cumulative count of LOD upgrade re-imports since streaming started
 local lodUpgradeCount = 0
 local lodConfigCache = setmetatable({}, { __mode = "k" })
@@ -727,6 +731,7 @@ local function pruneStaleResidentEstimatedCosts(worldRootName)
         clearObservedImportCostForChunk(chunkId)
         loadedChunkLods[chunkId] = nil
         importedBuildingLodById[chunkId] = nil
+        inflightChunkImports[chunkId] = nil
         ImportService.ResetSubplanState(chunkId, worldRootName)
     end
 end
@@ -2103,6 +2108,7 @@ function StreamingService.Start(manifest, options)
     table.clear(lodGroupFootprintBoundsCache)
     table.clear(streamingResidentEstimatedCostById)
     importedBuildingLodById = {}
+    inflightChunkImports = {}
     lodUpgradeCount = 0
     seedResidentEstimatedCosts(streamingChunkRefs, config, streamingOptions.worldRootName)
 
@@ -2173,6 +2179,7 @@ function StreamingService.Stop()
     table.clear(streamingResidentEstimatedCostById)
     loadedChunkLods = {}
     importedBuildingLodById = {}
+    inflightChunkImports = {}
     lodUpgradeCount = 0
     streamingUpdateInProgress = false
     streamingLastPrefetchReason = ""
@@ -2309,6 +2316,13 @@ function StreamingService.Update(focalPoint)
                 ringStats.estimatedCost += estimatedChunkCost
                 local chunkOptions = streamingChunkOptionsByLod[targetLod]
                 local currentEntry = ChunkLoader.GetChunkEntry(chunkRef.id, streamingOptions.worldRootName)
+                -- Skip chunks that already have an import work item in flight from a
+                -- prior tick; the ongoing import will land soon and setting desired
+                -- keeps eviction logic happy without burning redundant work items.
+                if inflightChunkImports[chunkRef.id] then
+                    desiredChunkIds[chunkRef.id] = true
+                    continue
+                end
                 if currentEntry then
                     -- LOD re-import: if the chunk was imported at a lower building LOD
                     -- and the new ring demands higher detail, tear down and re-import.
@@ -2330,6 +2344,7 @@ function StreamingService.Update(focalPoint)
                         lodUpgradeCount += 1
                         Workspace:SetAttribute("ArnisStreamingLodUpgradeCount", lodUpgradeCount)
                         appendStreamingWorkItems(importWorkItems, chunkEntry, chunkOptions, chunkOptions.config, targetLod, chunkBuildingLodLevel)
+                        inflightChunkImports[chunkRef.id] = true
                         desiredChunkIds[chunkRef.id] = true
                         lastPrefetchReason = "lod_upgrade"
                         continue
@@ -2367,6 +2382,7 @@ function StreamingService.Update(focalPoint)
                 end
 
                 appendStreamingWorkItems(importWorkItems, chunkEntry, chunkOptions, chunkOptions.config, targetLod, chunkBuildingLodLevel)
+                inflightChunkImports[chunkRef.id] = true
                 desiredChunkIds[chunkRef.id] = true
                 if movementLookaheadStuds > 0 then
                     lastPrefetchReason = "movement_lookahead"
@@ -2386,6 +2402,7 @@ function StreamingService.Update(focalPoint)
                 clearResidentEstimatedCostForChunk(chunkRef.id)
                 loadedChunkLods[chunkRef.id] = nil
                 importedBuildingLodById[chunkRef.id] = nil
+                inflightChunkImports[chunkRef.id] = nil
                 lastEvictionReason = "outside_target_radius"
             end
         end
@@ -2557,6 +2574,8 @@ function StreamingService.Update(focalPoint)
             elseif workItem.buildingLodLevel and importedBuildingLodById[chunkRef.id] == nil then
                 importedBuildingLodById[chunkRef.id] = workItem.buildingLodLevel
             end
+            -- Import is no longer in-flight; allow future re-imports / LOD upgrades.
+            inflightChunkImports[chunkRef.id] = nil
             local importedChunkEntry = ChunkLoader.GetChunkEntry(chunkRef.id, streamingOptions.worldRootName)
             if importedChunkEntry ~= nil then
                 local immediateCameraFocusPos = resolveCurrentCameraFocusPosition()
@@ -2589,6 +2608,7 @@ function StreamingService.Update(focalPoint)
                 clearResidentEstimatedCostForChunk(chunkId)
                 loadedChunkLods[chunkId] = nil
                 importedBuildingLodById[chunkId] = nil
+                inflightChunkImports[chunkId] = nil
                 lastEvictionReason = resolvedEvictionReason
             end
         end

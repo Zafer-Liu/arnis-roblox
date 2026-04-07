@@ -390,14 +390,14 @@ function PropBuilder.loadPrecomputedPropMesh(meshData, position, yawDegrees, sca
         return nil
     end
 
-    -- Add vertices (every 3 floats = one Vector3), applying origin offset
-    local ox = originStuds.X
-    local oy = originStuds.Y
-    local oz = originStuds.Z
+    -- Add vertices in tree-local space (origin is applied at part.CFrame below).
+    -- Rust build_tree_mesh emits vertices with tree base at (0,0,0); adding
+    -- originStuds here would double-offset since CreateMeshPartAsync derives
+    -- its own part pivot from the mesh AABB.
     local vertexIds = {}
     for i = 1, #verts, 3 do
         local idx = (i - 1) / 3 + 1
-        local pos = Vector3.new(verts[i] + ox, verts[i + 1] + oy, verts[i + 2] + oz)
+        local pos = Vector3.new(verts[i], verts[i + 1], verts[i + 2])
         vertexIds[idx] = mesh:AddVertex(pos)
         local normal = if norms and #norms >= i + 2
             then Vector3.new(norms[i], norms[i + 1], norms[i + 2])
@@ -432,9 +432,9 @@ function PropBuilder.loadPrecomputedPropMesh(meshData, position, yawDegrees, sca
     )
     local yaw = math.rad(yawDegrees or 0)
     part.CFrame = CFrame.new(worldPos) * CFrame.Angles(0, yaw, 0)
-    if scale and scale ~= 1 then
-        part.Size = part.Size * scale
-    end
+    -- NOTE: Rust build_tree_mesh already bakes scale into the geometry
+    -- (height_studs / 20 clamp applied to trunk/canopy dimensions), so we
+    -- do NOT multiply part.Size here — doing so would double-scale the tree.
     part.Anchored = true
     part.CanCollide = false
     part.CastShadow = true
