@@ -27,9 +27,9 @@ The active implementation plan is:
 ### Local Static
 
 - `python3 -m unittest scripts.tests.test_austin_runtime_contract scripts.tests.test_play_render_truth scripts.tests.test_convergence_guardrails scripts.tests.test_run_studio_harness -v`
-  - passed on 2026-04-07 (265 tests, up from 76 at tranche start)
+  - passed on 2026-04-07 (272 tests, up from 76 at tranche start)
 - `cargo test --manifest-path rust/Cargo.toml --workspace`
-  - passed on 2026-04-07 (269 tests, all green on both primary and tertiary)
+  - passed on 2026-04-07 (360 tests, all green on primary)
 - `git diff --check`
   - passed on 2026-04-07
 
@@ -73,6 +73,21 @@ The active implementation plan is:
 - Regional style packs deferred
 
 ## Status Notes
+
+### 2026-04-07: Session 3 — Full Planetary Streaming Pipeline
+
+- **All 5 geometry types pre-computed in Rust + consumed in Lua**: buildings (shellMesh), roads (roadMesh + sidewalk/curb bundle), props (propMesh — broadleaf/conifer/palm), terrain (terrainMesh — heightfield grid), water (waterMesh — polygon fan + river ribbon)
+- **Per-chunk texture atlas**: 512x512 PNG atlas for building facades with base64 encoding. Lua consumer decodes once per chunk, applies shared SurfaceAppearance. Gated behind `EnableBuildingAtlas`.
+- **LOD cascade**: full/reduced/minimal per streaming ring. Re-import on ring transitions with in-flight tracking to prevent import storms.
+- **Aircraft streaming prefetch**: Velocity-adaptive lookahead (walking/vehicle/aircraft classes). High-velocity prefetch forces minimal LOD, upgraded via existing re-import.
+- **Per-ring memory budgets**: Near ring protected from far ring pressure. Ring-specific admission gates and forced eviction when over budget.
+- **Regional style packs**: Austin (limestone), Amsterdam (brick), Tokyo (concrete), SF (stucco). Resolved from bbox centroid with fallback to defaults.
+- **ARNIS_CLIENT_PERF root cause fixed**: Bootstrap was ignoring telemetry families when route config wasn't enabled. Fixed to read telemetryFamilies independently of route activation.
+- **Senior code review**: 2 critical PropBuilder bugs fixed (double origin offset, double scale). LOD re-import storm fix.
+- **Multi-city validation**: Austin 100%, SF 99.7%, Amsterdam 100% mesh coverage.
+- **Full pipeline audit**: shellMesh 100%, roadMesh 100%, propMesh 30.5%, waterMesh 100%, atlasUv 27.4%, terrain 48.8% satellite.
+- **360 Rust + 272 Python = 632 tests green**.
+- **Tertiary cleaned**: 13GB freed (from 690MB).
 
 ### 2026-04-07: Session 2 — Hero PBR, Telemetry Fix, Sidewalk/Curb Rust, Austin Proof
 
