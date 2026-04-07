@@ -57,6 +57,13 @@ The active implementation plan is:
   - 38 readable facade cue parts, 21 wall parts, 6 nearby buildings
   - Route catalog streaming active
   - Screenshot captured Terminal window (not Studio viewport) — known display-capture limitation
+- Second Studio proof on tertiary (2026-04-07 00:28 UTC):
+  - Recompiled with fixed satellite texture paths (relative to manifest dir)
+  - `gameplay_ready` confirmed again with enriched manifest
+  - Named buildings flowing: Texas State Capitol, Texas Supreme Court Building, Capitol Extension, Texas Workforce Commission, John H. Reagan Building, Capitol Checkpoint North
+  - 50 readable facade cue parts, 48 roof parts, 7 building models
+  - ARNIS_CLIENT_PERF not emitting — telemetry family wiring to Workspace needs fix (env var not reaching attribute)
+  - Display capture still blocked on tertiary
 
 ## Residual Gaps
 
