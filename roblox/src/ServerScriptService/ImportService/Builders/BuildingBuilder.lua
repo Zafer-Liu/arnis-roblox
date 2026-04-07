@@ -3396,6 +3396,223 @@ function BuildingBuilder.Build(parent, building, originStuds, chunk, windowBudge
 end
 
 -------------------------------------------------------------------------------
+-- Hero PBR Surfaces: procedural SurfaceAppearance with EditableImage textures
+-- for landmark buildings in the near streaming ring.
+-- Gated by WorldConfig.EnableHeroPBR (defaults true).
+-------------------------------------------------------------------------------
+local HERO_PBR_SIZE = 128
+local HERO_PBR_MAX_PER_CHUNK = 10
+local HERO_PBR_MIN_HEIGHT = 20
+
+local heroPbrSupported = nil -- tri-state: nil=unknown, true/false
+
+local function classifyPbrFacade(building)
+    local usage = string.lower(tostring(building.usage or building.kind or "default"))
+    if usage == "commercial" or usage == "office" or usage == "retail" then
+        return "office"
+    elseif usage == "industrial" or usage == "warehouse" then
+        return "metal"
+    else
+        return "stone"
+    end
+end
+
+local function generateOfficePbrTextures(size)
+    local normalBuf = buffer.create(size * size * 4)
+    local roughBuf = buffer.create(size * size * 4)
+    local metalBuf = buffer.create(size * size * 4)
+    local panelSpacing = math.floor(size / 8)
+    for y = 0, size - 1 do
+        for x = 0, size - 1 do
+            local offset = (y * size + x) * 4
+            local isJoint = (x % panelSpacing < 1) or (y % panelSpacing < 1)
+            if isJoint then
+                buffer.writeu8(normalBuf, offset, 128)
+                buffer.writeu8(normalBuf, offset + 1, 118)
+                buffer.writeu8(normalBuf, offset + 2, 230)
+            else
+                buffer.writeu8(normalBuf, offset, 128)
+                buffer.writeu8(normalBuf, offset + 1, 128)
+                buffer.writeu8(normalBuf, offset + 2, 255)
+            end
+            buffer.writeu8(normalBuf, offset + 3, 255)
+            local roughVal = if isJoint then 90 else 51
+            buffer.writeu8(roughBuf, offset, roughVal)
+            buffer.writeu8(roughBuf, offset + 1, roughVal)
+            buffer.writeu8(roughBuf, offset + 2, roughVal)
+            buffer.writeu8(roughBuf, offset + 3, 255)
+            buffer.writeu8(metalBuf, offset, 204)
+            buffer.writeu8(metalBuf, offset + 1, 204)
+            buffer.writeu8(metalBuf, offset + 2, 204)
+            buffer.writeu8(metalBuf, offset + 3, 255)
+        end
+    end
+    return normalBuf, roughBuf, metalBuf
+end
+
+local function generateStonePbrTextures(size)
+    local normalBuf = buffer.create(size * size * 4)
+    local roughBuf = buffer.create(size * size * 4)
+    local metalBuf = buffer.create(size * size * 4)
+    local function noise(x, y)
+        local n = x * 374761393 + y * 668265263
+        n = bit32.bxor(n, bit32.rshift(n, 13))
+        n = n * 1274126177
+        n = bit32.bxor(n, bit32.rshift(n, 16))
+        return (n % 256) / 255
+    end
+    for y = 0, size - 1 do
+        for x = 0, size - 1 do
+            local offset = (y * size + x) * 4
+            local n = noise(x, y)
+            local nx = math.floor(128 + (n - 0.5) * 30)
+            local ny = math.floor(128 + (noise(x + 37, y + 53) - 0.5) * 30)
+            buffer.writeu8(normalBuf, offset, math.clamp(nx, 0, 255))
+            buffer.writeu8(normalBuf, offset + 1, math.clamp(ny, 0, 255))
+            buffer.writeu8(normalBuf, offset + 2, 240)
+            buffer.writeu8(normalBuf, offset + 3, 255)
+            local weathering = (y / size) * 30
+            local roughVal = math.clamp(math.floor(153 + weathering + (n - 0.5) * 40), 0, 255)
+            buffer.writeu8(roughBuf, offset, roughVal)
+            buffer.writeu8(roughBuf, offset + 1, roughVal)
+            buffer.writeu8(roughBuf, offset + 2, roughVal)
+            buffer.writeu8(roughBuf, offset + 3, 255)
+            buffer.writeu8(metalBuf, offset, 10)
+            buffer.writeu8(metalBuf, offset + 1, 10)
+            buffer.writeu8(metalBuf, offset + 2, 10)
+            buffer.writeu8(metalBuf, offset + 3, 255)
+        end
+    end
+    return normalBuf, roughBuf, metalBuf
+end
+
+local function generateMetalPbrTextures(size)
+    local normalBuf = buffer.create(size * size * 4)
+    local roughBuf = buffer.create(size * size * 4)
+    local metalBuf = buffer.create(size * size * 4)
+    local ribSpacing = math.floor(size / 6)
+    local function noise(x, y)
+        local n = x * 374761393 + y * 668265263
+        n = bit32.bxor(n, bit32.rshift(n, 13))
+        n = n * 1274126177
+        n = bit32.bxor(n, bit32.rshift(n, 16))
+        return (n % 256) / 255
+    end
+    for y = 0, size - 1 do
+        for x = 0, size - 1 do
+            local offset = (y * size + x) * 4
+            local isRib = (x % ribSpacing < 2)
+            if isRib then
+                buffer.writeu8(normalBuf, offset, 160)
+                buffer.writeu8(normalBuf, offset + 1, 128)
+                buffer.writeu8(normalBuf, offset + 2, 230)
+            else
+                buffer.writeu8(normalBuf, offset, 128)
+                buffer.writeu8(normalBuf, offset + 1, 128)
+                buffer.writeu8(normalBuf, offset + 2, 255)
+            end
+            buffer.writeu8(normalBuf, offset + 3, 255)
+            local n = noise(x, y)
+            local corrosion = if n > 0.7 then 60 else 0
+            local roughVal = math.clamp(math.floor(80 + corrosion + (n * 30)), 0, 255)
+            buffer.writeu8(roughBuf, offset, roughVal)
+            buffer.writeu8(roughBuf, offset + 1, roughVal)
+            buffer.writeu8(roughBuf, offset + 2, roughVal)
+            buffer.writeu8(roughBuf, offset + 3, 255)
+            local metalVal = if n > 0.7 then 180 else 230
+            buffer.writeu8(metalBuf, offset, metalVal)
+            buffer.writeu8(metalBuf, offset + 1, metalVal)
+            buffer.writeu8(metalBuf, offset + 2, metalVal)
+            buffer.writeu8(metalBuf, offset + 3, 255)
+        end
+    end
+    return normalBuf, roughBuf, metalBuf
+end
+
+local function createEditableImageFromBuffer(pixelBuf, size)
+    local ok, img = pcall(function()
+        return AssetService:CreateEditableImage({ Size = Vector2.new(size, size) })
+    end)
+    if not ok or not img then
+        return nil
+    end
+    local writeOk = pcall(function()
+        img:WritePixels(Vector2.new(0, 0), Vector2.new(size, size), pixelBuf)
+    end)
+    if not writeOk then
+        return nil
+    end
+    return img
+end
+
+local function applyHeroPbrToMeshPart(meshPart, facadeType)
+    if heroPbrSupported == false then
+        return false
+    end
+    local normalBuf, roughBuf, metalBuf
+    if facadeType == "office" then
+        normalBuf, roughBuf, metalBuf = generateOfficePbrTextures(HERO_PBR_SIZE)
+    elseif facadeType == "metal" then
+        normalBuf, roughBuf, metalBuf = generateMetalPbrTextures(HERO_PBR_SIZE)
+    else
+        normalBuf, roughBuf, metalBuf = generateStonePbrTextures(HERO_PBR_SIZE)
+    end
+    local normalImg = createEditableImageFromBuffer(normalBuf, HERO_PBR_SIZE)
+    local roughImg = createEditableImageFromBuffer(roughBuf, HERO_PBR_SIZE)
+    local metalImg = createEditableImageFromBuffer(metalBuf, HERO_PBR_SIZE)
+    if not normalImg or not roughImg or not metalImg then
+        if heroPbrSupported == nil then
+            heroPbrSupported = false
+            warn("[HeroPBR] EditableImage creation failed — disabled for session")
+        end
+        return false
+    end
+    local saOk, sa = pcall(function()
+        local surf = Instance.new("SurfaceAppearance")
+        surf.NormalMap = Content.fromObject(normalImg)
+        surf.RoughnessMap = Content.fromObject(roughImg)
+        surf.MetalnessMap = Content.fromObject(metalImg)
+        surf.Parent = meshPart
+        return surf
+    end)
+    if not saOk then
+        if heroPbrSupported == nil then
+            heroPbrSupported = false
+            warn("[HeroPBR] SurfaceAppearance creation failed — disabled for session: " .. tostring(sa))
+        end
+        return false
+    end
+    if heroPbrSupported == nil then
+        heroPbrSupported = true
+    end
+    return true
+end
+
+local function isHeroPbrCandidate(building, height)
+    return building.name and building.name ~= "" and height >= HERO_PBR_MIN_HEIGHT
+end
+
+local function applyHeroPbrToBuilding(shellFolder, building, height, pbrBudget)
+    if pbrBudget.used >= HERO_PBR_MAX_PER_CHUNK then
+        return 0
+    end
+    local facadeType = classifyPbrFacade(building)
+    local applied = 0
+    for _, child in ipairs(shellFolder:GetChildren()) do
+        if pbrBudget.used >= HERO_PBR_MAX_PER_CHUNK then
+            break
+        end
+        if child:IsA("MeshPart") then
+            if applyHeroPbrToMeshPart(child, facadeType) then
+                applied += 1
+                pbrBudget.used += 1
+            end
+        end
+    end
+    return applied
+end
+
+-------------------------------------------------------------------------------
 -- MeshBuildAll: merge wall + flat-roof geometry into per-material EditableMeshes.
 -- Windows, awnings, name labels, shaped roofs, foundations, cornices, and
 -- rooftop equipment remain as individual Instances (glass needs transparency,
@@ -3449,8 +3666,12 @@ function BuildingBuilder.MeshBuildAll(parent, buildings, originStuds, chunk, con
         nameLabelMs = 0,
         precomputedMeshCount = 0,
         runtimeMeshCount = 0,
+        heroPbrMs = 0,
+        heroPbrCount = 0,
     }
     local buildStartedAt = os.clock()
+    local enableHeroPbr = (config.EnableHeroPBR ~= false) and (WorldConfig.EnableHeroPBR ~= false)
+    local pbrBudget = { used = 0 }
 
     for _, building in ipairs(buildings) do
         local fp = building.footprint
@@ -3985,6 +4206,14 @@ function BuildingBuilder.MeshBuildAll(parent, buildings, originStuds, chunk, con
                     maybeYield(false)
                 end
             end
+        end
+
+        -- Hero PBR: apply SurfaceAppearance to landmark buildings
+        if enableHeroPbr and not roofOnly and isHeroPbrCandidate(building, height) then
+            local heroPbrStartedAt = os.clock()
+            local pbrApplied = applyHeroPbrToBuilding(shellFolder, building, height, pbrBudget)
+            buildStats.heroPbrCount += pbrApplied
+            recordBuildingDetailPhase(buildStats, "heroPbrMs", (os.clock() - heroPbrStartedAt) * 1000)
         end
 
         -- Debug building visualization: color shell children and count wall parts
