@@ -3379,13 +3379,13 @@ function BuildingBuilder.FallbackBuild(parent, building, originStuds, chunk, win
     end
 
     -- Building name label (from OSM name tag)
-    if building.name and building.name ~= "" then
+    if config.EnableBuildingNameLabels ~= false and building.name and building.name ~= "" then
         local nameLabel = Instance.new("BillboardGui")
         nameLabel.Name = "BuildingName"
-        nameLabel.Size = UDim2.new(0, 200, 0, 30)
+        nameLabel.Size = UDim2.new(0, 200, 0, 50)
         nameLabel.StudsOffset = Vector3.new(0, height + 5, 0)
         nameLabel.AlwaysOnTop = false
-        nameLabel.MaxDistance = 200
+        nameLabel.MaxDistance = 500
 
         local text = Instance.new("TextLabel")
         text.Size = UDim2.new(1, 0, 1, 0)
@@ -3393,8 +3393,8 @@ function BuildingBuilder.FallbackBuild(parent, building, originStuds, chunk, win
         text.Text = building.name
         text.TextColor3 = Color3.fromRGB(255, 255, 255)
         text.TextStrokeTransparency = 0.5
-        text.TextScaled = true
-        text.Font = Enum.Font.GothamBold
+        text.TextSize = 18
+        text.Font = Enum.Font.SourceSansBold
         text.Parent = nameLabel
 
         nameLabel.Parent = detailFolder
@@ -3436,6 +3436,7 @@ end
 -------------------------------------------------------------------------------
 local HERO_PBR_SIZE = 128
 local HERO_PBR_MAX_PER_CHUNK = 10
+local NAME_LABEL_MAX_PER_CHUNK = 50
 local HERO_PBR_MIN_HEIGHT = 20
 
 local heroPbrSupported = nil -- tri-state: nil=unknown, true/false
@@ -3672,6 +3673,7 @@ local EMPTY_BUILD_STATS = {
     terrainFillMs = 0,
     rooftopDetailMs = 0,
     nameLabelMs = 0,
+    nameLabelCount = 0,
     precomputedMeshCount = 0,
     runtimeMeshCount = 0,
 }
@@ -3785,6 +3787,7 @@ function BuildingBuilder.MeshBuildAll(parent, buildings, originStuds, chunk, con
         terrainFillMs = 0,
         rooftopDetailMs = 0,
         nameLabelMs = 0,
+        nameLabelCount = 0,
         precomputedMeshCount = 0,
         runtimeMeshCount = 0,
         heroPbrMs = 0,
@@ -4275,15 +4278,32 @@ function BuildingBuilder.MeshBuildAll(parent, buildings, originStuds, chunk, con
             end
         end
 
-        -- Building name label (full LOD only)
-        if lodLevel == "full" and building.name and building.name ~= "" then
+        -- Building name label (full LOD only, budget-capped)
+        if lodLevel == "full" and config.EnableBuildingNameLabels ~= false
+            and buildStats.nameLabelCount < NAME_LABEL_MAX_PER_CHUNK
+            and building.name and building.name ~= "" then
             local nameLabelStartedAt = os.clock()
+
+            -- Adornee: prefer model PrimaryPart, then first shell MeshPart
+            local adornee = model.PrimaryPart
+            if not adornee then
+                for _, child in ipairs(shellFolder:GetChildren()) do
+                    if child:IsA("MeshPart") then
+                        adornee = child
+                        break
+                    end
+                end
+            end
+
             local nameLabel = Instance.new("BillboardGui")
             nameLabel.Name = "BuildingName"
-            nameLabel.Size = UDim2.new(0, 200, 0, 30)
+            nameLabel.Size = UDim2.new(0, 200, 0, 50)
             nameLabel.StudsOffset = Vector3.new(0, height + 5, 0)
             nameLabel.AlwaysOnTop = false
-            nameLabel.MaxDistance = 200
+            nameLabel.MaxDistance = 500
+            if adornee then
+                nameLabel.Adornee = adornee
+            end
 
             local text = Instance.new("TextLabel")
             text.Size = UDim2.new(1, 0, 1, 0)
@@ -4291,11 +4311,12 @@ function BuildingBuilder.MeshBuildAll(parent, buildings, originStuds, chunk, con
             text.Text = building.name
             text.TextColor3 = Color3.fromRGB(255, 255, 255)
             text.TextStrokeTransparency = 0.5
-            text.TextScaled = true
-            text.Font = Enum.Font.GothamBold
+            text.TextSize = 18
+            text.Font = Enum.Font.SourceSansBold
             text.Parent = nameLabel
 
             nameLabel.Parent = detailFolder
+            buildStats.nameLabelCount += 1
             recordBuildingDetailPhase(buildStats, "nameLabelMs", (os.clock() - nameLabelStartedAt) * 1000)
         end
 

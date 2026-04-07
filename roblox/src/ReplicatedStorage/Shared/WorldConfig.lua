@@ -47,6 +47,7 @@ local WorldConfig = {
     -- the per-building EditableImage hero PBR path. Default off; flip on once
     -- the runtime atlas applier lands.
     EnableBuildingAtlas = false,
+    EnableBuildingNameLabels = true,
     WindowSpacing = { -- studs between windows by building usage
         office = 4,
         residential = 6,
