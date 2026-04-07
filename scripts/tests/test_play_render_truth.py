@@ -342,10 +342,12 @@ class PlayRenderTruthTests(unittest.TestCase):
 
         self.assertIn("local function shouldPreferPlayVisibleShellWalls", source)
         self.assertIn("PLAY_VISIBLE_SHELL_ROOF_SHAPES", source)
-        # shouldPreferPlayVisibleShellWalls now unconditionally returns true,
-        # forcing all walls to explicit Parts (EditableMesh walls are invisible
-        # in play mode). The old shape/size gating was removed.
-        self.assertIn("return true", source)
+        # shouldPreferPlayVisibleShellWalls uses threshold-based logic:
+        # simple buildings get explicit Parts, complex/tall buildings use
+        # EditableMesh merge (back-face triangle corruption has been reverted).
+        self.assertIn("shouldPreferSimpleShellDetail(building, footprintPointCount, height)", source)
+        self.assertIn("levels > 6 or height > 34", source)
+        self.assertIn("footprintPointCount <= 10", source)
         self.assertIn("preferPlayVisibleShellWalls", source)
         self.assertRegex(
             source,

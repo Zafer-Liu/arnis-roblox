@@ -167,10 +167,12 @@ class AustinRuntimeContractTests(unittest.TestCase):
     def test_shell_mesh_bounded_wall_fallback_stays_shape_limited(self) -> None:
         self.assertIn("local function shouldPreferPlayVisibleShellWalls", self.building_builder_text)
         self.assertIn("PLAY_VISIBLE_SHELL_ROOF_SHAPES", self.building_builder_text)
-        # shouldPreferPlayVisibleShellWalls now unconditionally returns true,
-        # forcing all walls to explicit Parts (EditableMesh walls are invisible
-        # in play mode). The old shape/size gating was removed.
-        self.assertIn("return true", self.building_builder_text)
+        # shouldPreferPlayVisibleShellWalls uses threshold-based logic:
+        # simple buildings get explicit Parts, complex/tall buildings use
+        # EditableMesh merge (back-face triangle corruption has been reverted).
+        self.assertIn("shouldPreferSimpleShellDetail(building, footprintPointCount, height)", self.building_builder_text)
+        self.assertIn("levels > 6 or height > 34", self.building_builder_text)
+        self.assertIn("footprintPointCount <= 10", self.building_builder_text)
         # shouldEmitMergedShellReadableCues still gates on size thresholds
         self.assertIn("if boundedHoleLoopCount > 1 then", self.building_builder_text)
         self.assertIn("levels > 8 or height > 40 or footprintPointCount > 12", self.building_builder_text)

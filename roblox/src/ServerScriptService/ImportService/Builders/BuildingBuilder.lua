@@ -1994,11 +1994,30 @@ local PLAY_VISIBLE_SHELL_ROOF_SHAPES = {
 }
 
 local function shouldPreferPlayVisibleShellWalls(building, footprintPointCount, height, holeLoopCount)
-    -- Always prefer explicit Part walls over EditableMesh in play mode.
-    -- EditableMesh walls are unreliable in play mode (invisible while retaining
-    -- collision). Explicit Parts are always visible. The draw call cost is
-    -- acceptable until EditableMesh rendering is debugged.
-    return true
+    if shouldPreferSimpleShellDetail(building, footprintPointCount, height) then
+        return true
+    end
+
+    local boundedHoleLoopCount = holeLoopCount or 0
+    if boundedHoleLoopCount > 1 then
+        return false
+    end
+
+    local roofShape = string.lower(tostring(building.roof or "flat"))
+    if not PLAY_VISIBLE_SHELL_ROOF_SHAPES[roofShape] then
+        return false
+    end
+
+    local levels = tonumber(building.levels) or math.max(1, math.floor(height / 5))
+    if levels > 6 or height > 34 then
+        return false
+    end
+
+    if boundedHoleLoopCount == 1 then
+        return levels <= 5 and height <= 28 and footprintPointCount <= 12
+    end
+
+    return footprintPointCount <= 10
 end
 
 local function shouldEmitMergedShellReadableCues(building, footprintPointCount, height, holeLoopCount)
