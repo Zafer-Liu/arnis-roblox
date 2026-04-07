@@ -577,7 +577,7 @@ local function recordFrameTime(dt)
 end
 
 local function publishPerfTelemetry()
-    if not WorldProbeTelemetryFlags.isEnabled(telemetryFlags, "hotspots") then
+    if not WorldProbeTelemetryFlags.isEnabled(telemetryFlags, "client_perf") then
         return
     end
     local now = os.clock()

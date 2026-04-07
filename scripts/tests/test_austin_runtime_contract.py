@@ -888,8 +888,8 @@ class AustinRuntimeContractTests(unittest.TestCase):
         # Heartbeat passes dt to recordFrameTime
         self.assertIn("RunService.Heartbeat:Connect(function(dt)", self.world_probe_text)
         self.assertIn("recordFrameTime(dt)", self.world_probe_text)
-        # Perf emission is gated behind hotspots telemetry family
-        self.assertIn('WorldProbeTelemetryFlags.isEnabled(telemetryFlags, "hotspots")', self.world_probe_text)
+        # Perf emission is gated behind client_perf telemetry family
+        self.assertIn('WorldProbeTelemetryFlags.isEnabled(telemetryFlags, "client_perf")', self.world_probe_text)
         # ARNIS_CLIENT_PERF marker is emitted
         self.assertIn('print("ARNIS_CLIENT_PERF " .. perfPayloadJson)', self.world_probe_text)
         # Payload contains expected fields

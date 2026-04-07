@@ -62,7 +62,7 @@ return function()
     )
 
     local requestedFlags = WorldProbeTelemetryFlags.parseTelemetryFamilies(
-        " player_local,terrain,roads,roads,unknown,water,hotspots,vegetation,structures "
+        " player_local,terrain,roads,roads,unknown,water,hotspots,client_perf,vegetation,structures "
     )
     local requestedMarkerPayload = {
         worldRootName = "GeneratedWorld_Austin",
@@ -93,6 +93,11 @@ return function()
     )
     Assert.equal(
         requestedShapedPayload.telemetryFamilies[7],
+        "client_perf",
+        "expected canonical family order to include client_perf seventh"
+    )
+    Assert.equal(
+        requestedShapedPayload.telemetryFamilies[8],
         "player_local",
         "expected canonical family order to keep player-local last"
     )
@@ -128,7 +133,7 @@ return function()
         "expected enabled local experience markers to keep canonical family order"
     )
     Assert.equal(
-        requestedLocalExperiencePayload.telemetryFamilies[7],
+        requestedLocalExperiencePayload.telemetryFamilies[8],
         "player_local",
         "expected enabled local experience markers to keep player-local last"
     )

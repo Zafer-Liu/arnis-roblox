@@ -11,6 +11,7 @@ local SUPPORTED_FAMILY_ORDER = {
     "vegetation",
     "structures",
     "hotspots",
+    "client_perf",
     "player_local",
 }
 WorldProbeTelemetryFlags.SUPPORTED_FAMILY_ORDER = SUPPORTED_FAMILY_ORDER
