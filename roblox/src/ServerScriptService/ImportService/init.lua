@@ -1080,6 +1080,8 @@ function ImportService.ImportChunk(chunk, options)
                 chunkProfile.roadSurfaceVertexCount = tonumber(roadSurfaceStats.vertexCount) or 0
                 chunkProfile.roadSurfaceTriangleCount = tonumber(roadSurfaceStats.triangleCount) or 0
                 chunkProfile.roadSurfaceMeshCreateMs = tonumber(roadSurfaceStats.meshCreateMs) or 0
+                chunkProfile.roadPrecomputedMeshCount = tonumber(roadSurfaceStats.precomputedMeshCount) or 0
+                chunkProfile.roadRuntimeMeshCount = tonumber(roadSurfaceStats.runtimeMeshCount) or 0
             end
             maybeYield(false)
             -- Decorations (centerlines, arrows, lights, crosswalks, steps, tunnels)
@@ -1160,6 +1162,8 @@ function ImportService.ImportChunk(chunk, options)
             chunkProfile.buildingRooftopDetailMs = tonumber(buildingMeshStats.rooftopDetailMs) or 0
             chunkProfile.buildingNameLabelMs = tonumber(buildingMeshStats.nameLabelMs) or 0
             chunkProfile.buildingRoofMeshPartCount = tonumber(buildingMeshStats.roofMeshPartCount) or 0
+            chunkProfile.buildingPrecomputedMeshCount = tonumber(buildingMeshStats.precomputedMeshCount) or 0
+            chunkProfile.buildingRuntimeMeshCount = tonumber(buildingMeshStats.runtimeMeshCount) or 0
             if config.EnableRoomInteriors ~= false then
                 -- Build interiors as an optional overlay on top of canonical shell geometry.
                 local interiorStartedAt = os.clock()

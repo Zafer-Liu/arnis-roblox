@@ -719,4 +719,115 @@ mod tests {
         assert!(bundle.curb_left.is_none());
         assert!(bundle.curb_right.is_none());
     }
+
+    /// Serialize a road strip via `write_json`, then verify the output
+    /// contains vertices/triangles/normals arrays with the correct element
+    /// counts that match the in-memory buffers.
+    #[test]
+    fn json_round_trip_element_counts() {
+        let points = vec![
+            (0.0, 0.0, 0.0),
+            (10.0, 0.0, 0.0),
+            (10.0, 0.0, 8.0),
+        ];
+        let strip = build_road_strip(&points, 4.0, 0.15, 0.3, 0.0);
+
+        // 2 segments → 48 vertices, 24 triangles
+        assert_eq!(strip.vertex_count(), 48);
+        assert_eq!(strip.triangle_count(), 24);
+
+        let expected_vert_floats = strip.vertices.len();   // 48 * 3 = 144
+        let expected_tri_indices = strip.triangles.len();   // 24 * 3 = 72
+        let expected_norm_floats = strip.normals.len();     // 144
+
+        let mut json = String::new();
+        strip.write_json(&mut json, 0);
+
+        // Helper: count comma-separated elements in the JSON array for a key.
+        let count_elements = |key: &str| -> usize {
+            let key_str = format!("\"{}\"", key);
+            let kpos = json.find(&key_str).unwrap_or_else(|| {
+                panic!("road mesh JSON missing key '{}'", key);
+            });
+            let arr_open = json[kpos..].find('[').unwrap() + kpos;
+            let arr_close = json[arr_open..].find(']').unwrap() + arr_open;
+            let inner = json[arr_open + 1..arr_close].trim();
+            if inner.is_empty() {
+                0
+            } else {
+                inner.split(',').count()
+            }
+        };
+
+        let vert_count = count_elements("vertices");
+        let tri_count = count_elements("triangles");
+        let norm_count = count_elements("normals");
+
+        assert_eq!(
+            vert_count, expected_vert_floats,
+            "vertices: expected {} floats in JSON, got {}",
+            expected_vert_floats, vert_count
+        );
+        assert_eq!(
+            tri_count, expected_tri_indices,
+            "triangles: expected {} indices in JSON, got {}",
+            expected_tri_indices, tri_count
+        );
+        assert_eq!(
+            norm_count, expected_norm_floats,
+            "normals: expected {} floats in JSON, got {}",
+            expected_norm_floats, norm_count
+        );
+    }
+
+    /// Verify that a single-segment road strip round-trips through JSON
+    /// and the numeric values parse back to matching f32/u32 values.
+    #[test]
+    fn json_round_trip_value_fidelity() {
+        let points = vec![(0.0, 5.0, 0.0), (10.0, 5.0, 0.0)];
+        let strip = build_road_strip(&points, 6.0, 0.15, 0.2, 0.0);
+
+        let mut json = String::new();
+        strip.write_json(&mut json, 0);
+
+        // Parse floats back from the vertices array in JSON.
+        let extract_array = |key: &str| -> String {
+            let key_str = format!("\"{}\"", key);
+            let kpos = json.find(&key_str).unwrap();
+            let arr_open = json[kpos..].find('[').unwrap() + kpos;
+            let arr_close = json[arr_open..].find(']').unwrap() + arr_open;
+            json[arr_open + 1..arr_close].to_string()
+        };
+
+        let vert_str = extract_array("vertices");
+        let parsed_verts: Vec<f32> = vert_str
+            .split(',')
+            .map(|s| s.trim().parse::<f32>().unwrap())
+            .collect();
+
+        assert_eq!(
+            parsed_verts.len(),
+            strip.vertices.len(),
+            "parsed vertex count mismatch"
+        );
+        for (i, (&original, &parsed)) in
+            strip.vertices.iter().zip(parsed_verts.iter()).enumerate()
+        {
+            assert!(
+                (original - parsed).abs() < 1e-3,
+                "vertex float [{}]: original={} parsed={}",
+                i,
+                original,
+                parsed
+            );
+        }
+
+        let tri_str = extract_array("triangles");
+        let parsed_tris: Vec<u32> = tri_str
+            .split(',')
+            .map(|s| s.trim().parse::<u32>().unwrap())
+            .collect();
+
+        assert_eq!(parsed_tris, strip.triangles, "triangle indices must match exactly");
+    }
 }

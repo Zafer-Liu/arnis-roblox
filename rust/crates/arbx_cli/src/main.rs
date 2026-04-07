@@ -2670,11 +2670,12 @@ fn build_signal_audit(manifest: &Value) -> Result<SignalAuditReport, String> {
         "id", "footprint", "baseY", "height", "material", "wallColor", "roofColor",
         "roofShape", "roofMaterial", "usage", "minHeight", "roofHeight", "name",
         "levels", "facadeStyle", "structureType", "roofLevels", "roofDirection", "roofAngle", "cladding",
+        "shellMesh",
     ];
     let road_fields: &[&str] = &[
         "id", "kind", "widthStuds", "points", "material", "hasSidewalk", "elevated",
         "tunnel", "surface", "oneway", "maxspeed", "lanes", "lit", "sidewalk", "layer",
-        "subkind", "name", "sidewalkSurface",
+        "subkind", "name", "sidewalkSurface", "roadMesh",
     ];
     let water_fields: &[&str] = &[
         "id", "kind", "material", "surfaceY", "intermittent", "points", "footprint",
@@ -10075,17 +10076,16 @@ mod tests {
         assert_eq!(report.buildings.feature_count, 2);
         assert_eq!(report.roads.feature_count, 1);
 
-        // buildings: 2 features x 20 fields = 40 total
-        // (added roofDirection, roofAngle, cladding, structureType to field list)
-        // b1 has facadeStyle=null, structureType=null, roofLevels=null, roofDirection=null, roofAngle=null, cladding=null -> 14 populated
-        // b2 has name="" (empty), structureType=null, same nulls -> 15 populated
+        // buildings: 2 features x 21 fields = 42 total (+shellMesh)
+        // b1 has facadeStyle=null, structureType=null, roofLevels=null, roofDirection=null, roofAngle=null, cladding=null, shellMesh=null -> 14 populated
+        // b2 has name="" (empty), structureType=null, same nulls except facadeStyle+roofLevels -> 15 populated
         // total populated = 14 + 15 = 29
-        assert_eq!(report.buildings.total_possible, 40);
+        assert_eq!(report.buildings.total_possible, 42);
         assert_eq!(report.buildings.total_populated, 29);
 
-        // roads: 1 feature x 18 fields = 18 total (added name, sidewalkSurface)
-        // subkind=null, name=null, sidewalkSurface=null -> 15 populated
-        assert_eq!(report.roads.total_possible, 18);
+        // roads: 1 feature x 19 fields = 19 total (+roadMesh)
+        // subkind=null, name=null, sidewalkSurface=null, roadMesh=null -> 15 populated
+        assert_eq!(report.roads.total_possible, 19);
         assert_eq!(report.roads.total_populated, 15);
 
         // terrain: 4 cells total, 3 with materials (one is "")

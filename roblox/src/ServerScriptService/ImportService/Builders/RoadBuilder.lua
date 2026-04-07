@@ -1233,6 +1233,40 @@ function RoadMeshAccumulator:addRoadStrip(p1, p2, width, surfaceLift, sideOffset
     self:addQuad(v3, v2, b2, b3, unitPerp)
 end
 
+--- Load a Rust pre-computed road mesh (flat arrays) into this accumulator.
+--- meshData = { vertices = {x,y,z,...}, triangles = {v0,v1,v2,...}, normals = {nx,ny,nz,...} }
+--- originStuds = Vector3 chunk origin to convert from chunk-local to world space.
+function RoadMeshAccumulator:addPrecomputedMesh(meshData, originStuds)
+    local verts = meshData.vertices
+    local tris = meshData.triangles
+    local norms = meshData.normals
+    if not verts or not tris or #verts < 3 or #tris < 3 then
+        return
+    end
+    local triCount = #tris / 3
+    if #self.triangles + triCount > self.MAX_TRIANGLES then
+        self:flush()
+    end
+    if triCount > self.MAX_TRIANGLES then
+        warn(string.format(
+            "[RoadMeshAccumulator] precomputed mesh too large: %d tris (limit %d), may exceed API cap",
+            triCount, self.MAX_TRIANGLES
+        ))
+    end
+    local base = #self.vertices
+    local ox, oy, oz = originStuds.X, originStuds.Y, originStuds.Z
+    for i = 1, #verts, 3 do
+        local vi = base + (i - 1) / 3 + 1
+        self.vertices[vi] = Vector3.new(verts[i] + ox, verts[i + 1] + oy, verts[i + 2] + oz)
+        self.normals[vi] = if norms and #norms >= i + 2
+            then Vector3.new(norms[i], norms[i + 1], norms[i + 2])
+            else Vector3.new(0, 1, 0)
+    end
+    for i = 1, #tris, 3 do
+        self.triangles[#self.triangles + 1] = { base + tris[i] + 1, base + tris[i + 1] + 1, base + tris[i + 2] + 1 }
+    end
+end
+
 function RoadMeshAccumulator:flush()
     if #self.triangles == 0 then
         return
@@ -1396,6 +1430,8 @@ function RoadBuilder.MeshBuildAll(parent, roads, originStuds, chunk, preparedChu
         vertexCount = 0,
         triangleCount = 0,
         meshCreateMs = 0,
+        precomputedMeshCount = 0,
+        runtimeMeshCount = 0,
     }
 
     local meshCollisionPolicy = if type(buildOptions) == "table" then buildOptions.meshCollisionPolicy else nil
@@ -1480,6 +1516,44 @@ function RoadBuilder.MeshBuildAll(parent, roads, originStuds, chunk, preparedChu
             sidewalkAcc:registerRoadSource(road.id)
             curbAcc:registerRoadSource(road.id)
         end
+        -- Fast path: load Rust pre-computed road mesh bundle if available.
+        -- The bundle contains surface + optional sidewalkLeft/Right + curbLeft/Right.
+        -- This replaces per-segment addRoadStrip for ground segments only;
+        -- bridges/tunnels still generate at runtime.
+        local roadMeshBundle = road.roadMesh
+        local hasSurface = roadMeshBundle
+            and roadMeshBundle.surface
+            and roadMeshBundle.surface.vertices
+            and #roadMeshBundle.surface.vertices >= 9
+        -- Legacy flat format: roadMesh has vertices directly (no .surface wrapper)
+        local hasLegacyMesh = not hasSurface
+            and roadMeshBundle
+            and roadMeshBundle.vertices
+            and #roadMeshBundle.vertices >= 9
+        local hasPrecomputedRoadMesh = hasSurface or hasLegacyMesh
+        if hasSurface then
+            roadAcc:addPrecomputedMesh(roadMeshBundle.surface, originStuds)
+            -- Load pre-computed sidewalk and curb meshes if present
+            if sidewalkAcc and roadMeshBundle.sidewalkLeft and roadMeshBundle.sidewalkLeft.vertices then
+                sidewalkAcc:addPrecomputedMesh(roadMeshBundle.sidewalkLeft, originStuds)
+            end
+            if sidewalkAcc and roadMeshBundle.sidewalkRight and roadMeshBundle.sidewalkRight.vertices then
+                sidewalkAcc:addPrecomputedMesh(roadMeshBundle.sidewalkRight, originStuds)
+            end
+            if curbAcc and roadMeshBundle.curbLeft and roadMeshBundle.curbLeft.vertices then
+                curbAcc:addPrecomputedMesh(roadMeshBundle.curbLeft, originStuds)
+            end
+            if curbAcc and roadMeshBundle.curbRight and roadMeshBundle.curbRight.vertices then
+                curbAcc:addPrecomputedMesh(roadMeshBundle.curbRight, originStuds)
+            end
+            stats.precomputedMeshCount += 1
+        elseif hasLegacyMesh then
+            roadAcc:addPrecomputedMesh(roadMeshBundle, originStuds)
+            stats.precomputedMeshCount += 1
+        else
+            stats.runtimeMeshCount += 1
+        end
+
         for _, segment in ipairs(roadPlan.segments) do
             stats.segmentCount += 1
             if segment.mode == "bridge" then
@@ -1495,8 +1569,14 @@ function RoadBuilder.MeshBuildAll(parent, roads, originStuds, chunk, preparedChu
                 )
             elseif segment.mode == "ground" then
                 local surfaceLift = if surfaceRole == "road" then ROAD_SURFACE_LIFT else PAVEMENT_SURFACE_LIFT
-                roadAcc:addRoadStrip(segment.p1, segment.p2, roadPlan.width, surfaceLift)
-                if sidewalkAcc and curbAcc then
+                if not hasPrecomputedRoadMesh then
+                    roadAcc:addRoadStrip(segment.p1, segment.p2, roadPlan.width, surfaceLift)
+                end
+                -- Sidewalks/curbs: use pre-computed if bundle had them, else runtime
+                local sidewalkPrecomputed = hasSurface
+                    and ((hasSidewalkLeft and roadMeshBundle.sidewalkLeft) or not hasSidewalkLeft)
+                    and ((hasSidewalkRight and roadMeshBundle.sidewalkRight) or not hasSidewalkRight)
+                if sidewalkAcc and curbAcc and not sidewalkPrecomputed then
                     if hasSidewalkLeft then
                         sidewalkAcc:addRoadStrip(
                             segment.p1,

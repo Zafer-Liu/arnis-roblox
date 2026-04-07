@@ -163,7 +163,6 @@ impl MeshAccum {
 
 const MIN_EDGE: f64 = 0.5;
 const DEFAULT_WALL_THICKNESS: f64 = 0.6;
-const ROOF_THICKNESS: f64 = 0.8;
 
 /// Build the exterior shell mesh for a building: oriented-box walls for each
 /// footprint edge plus a flat roof slab.
@@ -225,36 +224,10 @@ pub fn build_shell_mesh(
         acc.add_oriented_box(center, right, up, forward, half_size);
     }
 
-    // ---- Flat roof ----
-    // Compute bounding box of the footprint and create a single roof slab.
-    let (mut min_x, mut max_x) = (f64::MAX, f64::MIN);
-    let (mut min_z, mut max_z) = (f64::MAX, f64::MIN);
-    for &(x, z) in footprint {
-        min_x = min_x.min(x);
-        max_x = max_x.max(x);
-        min_z = min_z.min(z);
-        max_z = max_z.max(z);
-    }
-
-    let roof_y = base_y + height;
-    let roof_center: V3 = [
-        (min_x + max_x) * 0.5,
-        roof_y + ROOF_THICKNESS * 0.5,
-        (min_z + max_z) * 0.5,
-    ];
-    let roof_half: V3 = [
-        (max_x - min_x) * 0.5,
-        ROOF_THICKNESS * 0.5,
-        (max_z - min_z) * 0.5,
-    ];
-
-    acc.add_oriented_box(
-        roof_center,
-        [1.0, 0.0, 0.0],
-        [0.0, 1.0, 0.0],
-        [0.0, 0.0, 1.0],
-        roof_half,
-    );
+    // NOTE: Roof geometry is NOT included in the pre-computed shell mesh.
+    // Lua `buildRoof()` owns all roof shapes (flat, gabled, hipped, gambrel)
+    // with material selection, readability cues, and detail geometry.
+    // Including a flat roof slab here would cause double-roof rendering.
 
     acc.into_mesh()
 }
@@ -280,15 +253,15 @@ mod tests {
     #[test]
     fn rect_building_vertex_count() {
         let mesh = build_shell_mesh(&rect_footprint(), 0.0, 12.0, 0.6);
-        // 4 wall boxes × 24 verts + 1 roof box × 24 verts = 120 vertices
-        assert_eq!(mesh.vertex_count(), 120, "expected 5 oriented boxes × 24 verts");
+        // 4 wall boxes × 24 verts = 96 vertices (no roof — Lua owns roofs)
+        assert_eq!(mesh.vertex_count(), 96, "expected 4 wall boxes × 24 verts");
     }
 
     #[test]
     fn rect_building_triangle_count() {
         let mesh = build_shell_mesh(&rect_footprint(), 0.0, 12.0, 0.6);
-        // 5 oriented boxes × 12 triangles = 60 triangles
-        assert_eq!(mesh.triangle_count(), 60, "expected 5 boxes × 12 tris");
+        // 4 wall boxes × 12 triangles = 48 triangles (no roof)
+        assert_eq!(mesh.triangle_count(), 48, "expected 4 wall boxes × 12 tris");
     }
 
     #[test]
@@ -356,8 +329,8 @@ mod tests {
             (5.0, 5.0),
         ];
         let mesh = build_shell_mesh(&fp, 0.0, 10.0, 0.6);
-        // 2 valid edges + 1 roof = 3 boxes × 24 = 72 verts
-        assert_eq!(mesh.vertex_count(), 72);
+        // 2 valid edges × 24 verts = 48 verts (no roof)
+        assert_eq!(mesh.vertex_count(), 48);
     }
 
     #[test]
@@ -374,10 +347,8 @@ mod tests {
         for i in 0..mesh.vertex_count() {
             let y = mesh.vertices[i * 3 + 1];
             // Wall centers at base_y + height/2 = 10, half_height = 5
-            // So min Y = 5.0 (base_y). Roof top at 5+10+0.8 = 15.8.
-            // Bottom of wall boxes: base_y - 0 = 5.0 (wall center_y - half_height)
-            // Actually the lowest vertex is at base_y + height/2 - height/2 = base_y = 5.0
-            // but the bottom face of the roof has Y = roof_y = 15.0 minus ROOF_THICKNESS/2
+            // Lowest vertex is at base_y + height/2 - height/2 = base_y = 5.0
+            // Highest vertex is at base_y + height = 15.0 (walls only, no roof)
             assert!(
                 y >= 4.99, // tiny float tolerance
                 "vertex {} Y={} is below base_y=5.0",
@@ -397,8 +368,137 @@ mod tests {
             (-1.0, 4.0),
         ];
         let mesh = build_shell_mesh(&fp, 0.0, 8.0, 0.6);
-        // 5 wall edges + 1 roof = 6 boxes
-        assert_eq!(mesh.vertex_count(), 144); // 6 × 24
-        assert_eq!(mesh.triangle_count(), 72); // 6 × 12
+        // 5 wall edges × 24 verts = 120 verts (no roof)
+        assert_eq!(mesh.vertex_count(), 120); // 5 × 24
+        assert_eq!(mesh.triangle_count(), 60); // 5 × 12
+    }
+
+    /// Build a shell mesh, embed it in a BuildingShell inside a Chunk,
+    /// serialise to JSON via `Chunk::to_json_pretty`, and verify the
+    /// shellMesh vertices/triangles/normals arrays survive the round-trip
+    /// with correct element counts.
+    #[test]
+    fn shell_mesh_json_round_trip_via_chunk() {
+        use crate::manifest::{BuildingShell, Chunk, GroundPoint};
+        use arbx_geo::{ChunkId, Vec3};
+
+        let footprint = rect_footprint();
+        let mesh = build_shell_mesh(&footprint, 0.0, 12.0, 0.6);
+
+        // Capture expected counts before moving mesh into the shell.
+        // 4 wall boxes × 24 verts = 96 verts (no roof — Lua owns roofs)
+        let expected_vert_floats = mesh.vertices.len();   // 96 verts × 3 = 288
+        let expected_tri_indices = mesh.triangles.len();   // 48 tris × 3  = 144
+        let expected_norm_floats = mesh.normals.len();     // same as vertices = 288
+
+        let shell = BuildingShell {
+            id: "test-bldg".into(),
+            footprint: footprint.iter().map(|&(x, z)| GroundPoint::new(x, z)).collect(),
+            holes: vec![],
+            indices: None,
+            material: "SmoothPlastic".into(),
+            wall_color: None,
+            roof_color: None,
+            roof_shape: None,
+            roof_material: None,
+            usage: None,
+            min_height: None,
+            base_y: 0.0,
+            height: 12.0,
+            height_m: None,
+            levels: None,
+            roof_levels: None,
+            roof: "flat".into(),
+            facade_style: None,
+            structure_type: None,
+            rooms: vec![],
+            roof_height: None,
+            roof_direction: None,
+            roof_angle: None,
+            name: None,
+            shell_mesh: Some(mesh),
+        };
+
+        let chunk = Chunk {
+            id: ChunkId::new(0, 0),
+            origin_studs: Vec3::new(0.0, 0.0, 0.0),
+            terrain: None,
+            terrain_texture_path: None,
+            terrain_texture_rgba_path: None,
+            roads: vec![],
+            rails: vec![],
+            buildings: vec![shell],
+            water: vec![],
+            props: vec![],
+            landuse: vec![],
+            barriers: vec![],
+        };
+
+        let json = chunk.to_json_pretty();
+
+        // ── Verify the shellMesh key exists ──
+        assert!(
+            json.contains("\"shellMesh\""),
+            "JSON must contain shellMesh key"
+        );
+
+        // ── Extract the shellMesh object (everything between its opening { and
+        //    matching closing }) and count array elements. ──
+        let sm_start = json.find("\"shellMesh\"").unwrap();
+        let obj_start = json[sm_start..].find('{').unwrap() + sm_start;
+
+        // Find the matching closing brace (simple depth counter).
+        let mut depth = 0u32;
+        let mut obj_end = obj_start;
+        for (i, ch) in json[obj_start..].char_indices() {
+            match ch {
+                '{' => depth += 1,
+                '}' => {
+                    depth -= 1;
+                    if depth == 0 {
+                        obj_end = obj_start + i;
+                        break;
+                    }
+                }
+                _ => {}
+            }
+        }
+        let mesh_json = &json[obj_start..=obj_end];
+
+        // Helper: count comma-separated elements inside a JSON array value.
+        let count_elements = |key: &str| -> usize {
+            let key_str = format!("\"{}\"", key);
+            let kpos = mesh_json.find(&key_str).unwrap_or_else(|| {
+                panic!("shellMesh JSON missing key '{}'", key);
+            });
+            let arr_open = mesh_json[kpos..].find('[').unwrap() + kpos;
+            let arr_close = mesh_json[arr_open..].find(']').unwrap() + arr_open;
+            let inner = mesh_json[arr_open + 1..arr_close].trim();
+            if inner.is_empty() {
+                0
+            } else {
+                inner.split(',').count()
+            }
+        };
+
+        let vert_count = count_elements("vertices");
+        let tri_count = count_elements("triangles");
+        let norm_count = count_elements("normals");
+
+        assert_eq!(
+            vert_count, expected_vert_floats,
+            "vertices array element count mismatch (expected {} floats)",
+            expected_vert_floats
+        );
+        assert_eq!(
+            tri_count, expected_tri_indices,
+            "triangles array element count mismatch (expected {} indices)",
+            expected_tri_indices
+        );
+        assert_eq!(
+            norm_count, expected_norm_floats,
+            "normals array element count mismatch (expected {} floats)",
+            expected_norm_floats
+        );
     }
 }

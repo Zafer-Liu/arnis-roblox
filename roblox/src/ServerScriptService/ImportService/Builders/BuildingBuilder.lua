@@ -120,6 +120,43 @@ function MeshAccumulator:addTriangle(p1, p2, p3, normal)
     self.triangles[#self.triangles + 1] = { base + 1, base + 2, base + 3 }
 end
 
+--- Load a Rust pre-computed mesh (flat arrays) into this accumulator.
+--- meshData = { vertices = {x,y,z,...}, triangles = {v0,v1,v2,...}, normals = {nx,ny,nz,...} }
+--- originStuds = Vector3 chunk origin to convert from chunk-local to world space.
+--- Rust triangle indices are 0-based; accumulator vertex refs are 1-based.
+function MeshAccumulator:addPrecomputedMesh(meshData, originStuds)
+    local verts = meshData.vertices
+    local tris = meshData.triangles
+    local norms = meshData.normals
+    if not verts or not tris or #verts < 3 or #tris < 3 then
+        return
+    end
+    local triCount = #tris / 3
+    if #self.triangles + triCount > self.MAX_TRIANGLES then
+        self:flush()
+    end
+    if triCount > self.MAX_TRIANGLES then
+        warn(string.format(
+            "[MeshAccumulator] precomputed mesh too large: %d tris (limit %d), may exceed API cap",
+            triCount, self.MAX_TRIANGLES
+        ))
+    end
+    local base = #self.vertices
+    local ox, oy, oz = originStuds.X, originStuds.Y, originStuds.Z
+    -- Load vertices and normals (every 3 floats = one Vector3)
+    for i = 1, #verts, 3 do
+        local vi = base + (i - 1) / 3 + 1
+        self.vertices[vi] = Vector3.new(verts[i] + ox, verts[i + 1] + oy, verts[i + 2] + oz)
+        self.normals[vi] = if norms and #norms >= i + 2
+            then Vector3.new(norms[i], norms[i + 1], norms[i + 2])
+            else Vector3.new(0, 1, 0)
+    end
+    -- Load triangles (convert 0-based Rust indices to 1-based accumulator refs)
+    for i = 1, #tris, 3 do
+        self.triangles[#self.triangles + 1] = { base + tris[i] + 1, base + tris[i + 1] + 1, base + tris[i + 2] + 1 }
+    end
+end
+
 function MeshAccumulator:flush()
     if #self.triangles == 0 then
         return
@@ -3410,6 +3447,8 @@ function BuildingBuilder.MeshBuildAll(parent, buildings, originStuds, chunk, con
         terrainFillMs = 0,
         rooftopDetailMs = 0,
         nameLabelMs = 0,
+        precomputedMeshCount = 0,
+        runtimeMeshCount = 0,
     }
     local buildStartedAt = os.clock()
 
@@ -3633,13 +3672,21 @@ function BuildingBuilder.MeshBuildAll(parent, buildings, originStuds, chunk, con
                 else
                     -- Merge opaque walls into EditableMesh accumulators
                     local acc = getAccumulator(mat, color)
-                    addWallLoopToAccumulator(acc, worldPts, baseY, height)
-                    for _, holeLoop in ipairs(footprintData.holeWorldLoops) do
-                        local liftedHoleLoop = table.create(#holeLoop)
-                        for pointIndex, point in ipairs(holeLoop) do
-                            liftedHoleLoop[pointIndex] = Vector3.new(point.X, baseY, point.Z)
+                    if building.shellMesh and building.shellMesh.vertices and #building.shellMesh.vertices >= 9 then
+                        -- Fast path: load Rust pre-computed wall+roof mesh directly
+                        acc:addPrecomputedMesh(building.shellMesh, originStuds)
+                        buildStats.precomputedMeshCount += 1
+                    else
+                        -- Runtime path: generate wall geometry from footprint
+                        buildStats.runtimeMeshCount += 1
+                        addWallLoopToAccumulator(acc, worldPts, baseY, height)
+                        for _, holeLoop in ipairs(footprintData.holeWorldLoops) do
+                            local liftedHoleLoop = table.create(#holeLoop)
+                            for pointIndex, point in ipairs(holeLoop) do
+                                liftedHoleLoop[pointIndex] = Vector3.new(point.X, baseY, point.Z)
+                            end
+                            addWallLoopToAccumulator(acc, liftedHoleLoop, baseY, height)
                         end
-                        addWallLoopToAccumulator(acc, liftedHoleLoop, baseY, height)
                     end
                 end
 

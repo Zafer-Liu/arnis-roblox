@@ -179,6 +179,21 @@ class AustinRuntimeContractTests(unittest.TestCase):
         self.assertIn("preferPlayVisibleShellWalls", self.building_builder_text)
         self.assertIn("if preferPlayVisibleShellWalls then", self.building_builder_text)
 
+    def test_precomputed_mesh_fast_path_wired_in_building_and_road_builders(self) -> None:
+        # BuildingBuilder: shellMesh fast path in MeshBuildAll
+        self.assertIn("building.shellMesh", self.building_builder_text)
+        self.assertIn("addPrecomputedMesh", self.building_builder_text)
+        self.assertIn("precomputedMeshCount", self.building_builder_text)
+        self.assertIn("runtimeMeshCount", self.building_builder_text)
+        # RoadBuilder: roadMesh fast path in MeshBuildAll
+        self.assertIn("road.roadMesh", self.road_builder_text)
+        self.assertIn("addPrecomputedMesh", self.road_builder_text)
+        self.assertIn("hasPrecomputedRoadMesh", self.road_builder_text)
+        self.assertIn("precomputedMeshCount", self.road_builder_text)
+        # ImportService: telemetry counters wired
+        self.assertIn("buildingPrecomputedMeshCount", self.import_service_text)
+        self.assertIn("roadPrecomputedMeshCount", self.import_service_text)
+
     def test_streaming_service_publishes_startup_residency_telemetry(self) -> None:
         self.assertIn('Workspace:SetAttribute("ArnisStreamingLoadedChunkCount", 0)', self.streaming_text)
         self.assertIn('Workspace:SetAttribute("ArnisStreamingDesiredChunkCount", 0)', self.streaming_text)
