@@ -99,11 +99,9 @@ local CHUTE_DIVE_DESCENT_RATE = -20 -- studs/s when diving
 local CHUTE_DIVE_FORWARD_SPEED = 60 -- studs/s — fast dive like Just Cause
 local CHUTE_DIVE_RECOVERY_TIME = 0.5 -- seconds to smoothly transition out of dive
 
--- Camera
+-- Camera (uses CAR_FOV_MIN/MAX/BOOST from physics block above)
 local CAR_CAM_OFFSET = Vector3.new(0, 8, 22)
 local CAR_CAM_TILT_FACTOR = 0.04
-local CAR_FOV_MIN = 70
-local CAR_FOV_MAX = 105 -- dramatic speed distortion at top speed
 local CAR_FOV_SPEED_RANGE = 130 -- ramp to max over full speed range
 
 local JETPACK_CAM_OFFSET = Vector3.new(0, 4, 16)
@@ -168,6 +166,10 @@ local carIsBraking = false
 local prevBraking = false
 local prevTurnState = 0 -- -1 left, 0 none, 1 right
 local carGyro = nil
+local carThrottleSmooth = 0
+local carBoostActive = false
+local carBoostTimer = 0
+local carBoostCooldown = 0
 
 -- Jetpack state
 local jetpackForce = nil
@@ -1113,6 +1115,10 @@ local function exitCar()
     camCurrentPos = nil -- fix #11: reset here, not in render loop
     prevBraking = false
     prevTurnState = 0
+    carThrottleSmooth = 0
+    carBoostActive = false
+    carBoostTimer = 0
+    carBoostCooldown = 0
     restoreDefaultCamera(hum)
     setHUDMode("none")
 end
@@ -1284,8 +1290,9 @@ local function updateCar(dt)
         camera.CFrame = CFrame.new(camCurrentPos + shakeOffset, lookTarget) * CFrame.Angles(0, 0, tiltAngle)
 
         -- Speed-based FOV (fix #7: dt-scaled lerp)
-        local fovTarget = CAR_FOV_MIN + (speed / CAR_FOV_SPEED_RANGE) * (CAR_FOV_MAX - CAR_FOV_MIN)
-        camTargetFOV = math.clamp(fovTarget, CAR_FOV_MIN, CAR_FOV_MAX)
+        local fovCap = if carBoostActive then CAR_FOV_BOOST else CAR_FOV_MAX
+        local fovTarget = CAR_FOV_MIN + (speed / CAR_FOV_SPEED_RANGE) * (fovCap - CAR_FOV_MIN)
+        camTargetFOV = math.clamp(fovTarget, CAR_FOV_MIN, fovCap)
         camera.FieldOfView = lerp(camera.FieldOfView, camTargetFOV, math.min(1, CAM_LERP_RATE * dt))
     end
 end
@@ -1982,6 +1989,9 @@ local function updateParachute(dt)
         flareInput = 1
     end
 
+    -- Dive input: hold W to tuck and gain speed (Just Cause style)
+    local diveInput = UserInputService:IsKeyDown(Enum.KeyCode.W) and 1 or 0
+
     -- Gamepad thumbstick X for parachute steering (additive, clamped to -1..1) — fix #10
     local gpChute = frameGamepad
     if gpChute and math.abs(gpChute.thumbstickX) > 0.1 then
@@ -2023,10 +2033,24 @@ local function updateParachute(dt)
         -- Canopy collapsed: rapid descent, minimal forward
         descentRate = CHUTE_STALL_DESCENT
         forwardSpeed = CHUTE_FORWARD_SPEED * 0.2
+    elseif diveInput > 0 and flareInput == 0 then
+        -- Dive: trade altitude for speed (Just Cause wingsuit feel)
+        -- Smooth transition into dive using recovery time
+        chuteDiveBlend = math.min((chuteDiveBlend or 0) + dt / CHUTE_DIVE_RECOVERY_TIME, 1)
+        descentRate = lerp(CHUTE_DESCENT_RATE, CHUTE_DIVE_DESCENT_RATE, chuteDiveBlend)
+        forwardSpeed = lerp(CHUTE_FORWARD_SPEED, CHUTE_DIVE_FORWARD_SPEED, chuteDiveBlend)
     elseif flareInput > 0 then
         -- Flare: slow descent, reduce forward speed
+        chuteDiveBlend = 0
         descentRate = CHUTE_DESCENT_RATE + CHUTE_FLARE_LIFT * flareInput
         forwardSpeed = CHUTE_FORWARD_SPEED * (1 - flareInput * 0.4)
+    else
+        -- Normal glide: smoothly recover from dive
+        chuteDiveBlend = math.max((chuteDiveBlend or 0) - dt / CHUTE_DIVE_RECOVERY_TIME, 0)
+        if chuteDiveBlend > 0 then
+            descentRate = lerp(CHUTE_DESCENT_RATE, CHUTE_DIVE_DESCENT_RATE, chuteDiveBlend)
+            forwardSpeed = lerp(CHUTE_FORWARD_SPEED, CHUTE_DIVE_FORWARD_SPEED, chuteDiveBlend)
+        end
     end
 
     -- BodyVelocity controls descent rate and provides a gentle horizontal target

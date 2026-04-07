@@ -2794,6 +2794,7 @@ function StreamingService.Update(focalPoint)
                 loadedChunkLods[chunkRef.id] = nil
                 loadedChunkRings[chunkRef.id] = nil
                 importedBuildingLodById[chunkRef.id] = nil
+                inflightChunkImports[chunkRef.id] = nil
                 refreshMemoryGuardrailTelemetry(memoryGuardrailConfig, deferredAdmissions)
                 break
             end

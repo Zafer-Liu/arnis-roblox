@@ -4386,8 +4386,8 @@ function BuildingBuilder.MeshBuildAll(parent, buildings, originStuds, chunk, con
                 local atlasSize = chunkAtlasImage.Size
                 local cropX = math.floor((uv.x or uv.uvX or 0) * atlasSize.X)
                 local cropY = math.floor((uv.y or uv.uvY or 0) * atlasSize.Y)
-                local cropW = math.max(1, math.floor((uv.width or uv.uvWidth or 0.125) * atlasSize.X))
-                local cropH = math.max(1, math.floor((uv.height or uv.uvHeight or 0.125) * atlasSize.Y))
+                local cropW = math.clamp(math.floor((uv.width or uv.uvWidth or 0.125) * atlasSize.X), 1, atlasSize.X - cropX)
+                local cropH = math.clamp(math.floor((uv.height or uv.uvHeight or 0.125) * atlasSize.Y), 1, atlasSize.Y - cropY)
                 local cropOk, croppedImg = pcall(function()
                     local pixels = chunkAtlasImage:ReadPixelsBuffer(
                         Vector2.new(cropX, cropY),
