@@ -10,6 +10,8 @@ use crate::manifest::{
     PropInstance, RailSegment, RoadSegment, TerrainGrid, WaterFeature as ManifestWaterFeature,
 };
 use crate::materials::StyleMapper;
+use crate::mesh_builder::build_shell_mesh;
+use crate::road_mesh::build_road_strip;
 use crate::subplans::derive_chunk_ref;
 
 pub fn world_to_chunk(position: Vec3, chunk_size_studs: i32) -> ChunkId {
@@ -450,13 +452,24 @@ impl Chunker {
                 for (chunk_id, points) in segments {
                     let chunk = self.ensure_chunk(chunk_id, elevation, style);
                     let origin = chunk.origin_studs;
-                    let relative_points = points
+                    let relative_points: Vec<Vec3> = points
                         .into_iter()
                         .map(|p| Vec3::new(p.x - origin.x, p.y - origin.y, p.z - origin.z))
                         .collect();
 
                     let material = style.get_road_material(&f.kind);
                     let color = style.get_road_color(&f.kind);
+                    // Pre-compute road mesh strip when we have at least 2 points.
+                    let road_mesh = if relative_points.len() >= 2 {
+                        let points_3d: Vec<(f64, f64, f64)> = relative_points
+                            .iter()
+                            .map(|p| (p.x, p.y, p.z))
+                            .collect();
+                        Some(build_road_strip(&points_3d, f.width_studs, 0.2, 0.2))
+                    } else {
+                        None
+                    };
+
                     chunk.roads.push(RoadSegment {
                         id: f.id.clone(),
                         kind: f.kind.clone(),
@@ -477,7 +490,7 @@ impl Chunker {
                         layer: f.layer,
                         name: f.name.clone(),
                         sidewalk_surface: f.sidewalk_surface.clone(),
-                        road_mesh: None,
+                        road_mesh,
                     });
                 }
             }
@@ -655,6 +668,20 @@ impl Chunker {
                 // Resolve roof color: prefer explicit OSM roof:colour, fall back to style
                 let roof_color = f.roof_colour.as_deref().and_then(parse_css_color);
 
+                let rel_base_y = f.base_y - origin.y;
+                let rel_height = f.height * scale;
+
+                // Pre-compute shell mesh when footprint has enough vertices.
+                let shell_mesh = if relative_footprint.len() >= 3 && rel_height > 0.0 {
+                    let footprint_2d: Vec<(f64, f64)> = relative_footprint
+                        .iter()
+                        .map(|p| (p.x, p.z))
+                        .collect();
+                    Some(build_shell_mesh(&footprint_2d, rel_base_y, rel_height, 0.6))
+                } else {
+                    None
+                };
+
                 chunk.buildings.push(BuildingShell {
                     id: f.id,
                     footprint: relative_footprint,
@@ -667,8 +694,8 @@ impl Chunker {
                     roof_material: f.roof_material.clone(),
                     usage: f.usage.clone(),
                     min_height: f.min_height.map(|height| height * scale),
-                    base_y: f.base_y - origin.y,
-                    height: f.height * scale,
+                    base_y: rel_base_y,
+                    height: rel_height,
                     height_m: f.height_m,
                     levels: f.levels,
                     roof_levels: f.roof_levels,
@@ -680,7 +707,7 @@ impl Chunker {
                     roof_direction: f.roof_direction,
                     roof_angle: f.roof_angle,
                     name: f.name.clone(),
-                    shell_mesh: None,
+                    shell_mesh,
                 });
             }
             Feature::Prop(f) => {
