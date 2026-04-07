@@ -722,7 +722,7 @@ resolve_vsync_binary() {
   fi
 
   local discovered_vsync
-  discovered_vsync="$(command -v vsync || true)"
+  discovered_vsync="$(command -v vsync || command -v vertigo-sync || true)"
   if [[ -n "$discovered_vsync" ]]; then
     VSYNC_BINARY="$discovered_vsync"
     VSYNC_SOURCE_REPO=0
