@@ -47,38 +47,57 @@ local CAR_TAG = "PlayerVehiclePart"
 local JETPACK_TAG = "JetpackPart"
 local PARACHUTE_TAG = "ParachutePart"
 
--- Car physics
-local CAR_MAX_SPEED = 120 -- studs/s (~36m/s, fast but controllable)
-local CAR_MOTOR_ANGULAR_VEL = 45 -- rad/s at full throttle (matches wheel radius to ~120 stud/s)
-local CAR_TORQUE = 1800 -- strong acceleration with heavier chassis
-local CAR_STEER_ANGLE = 35 -- degrees — sharp but not twitchy
-local CAR_STEER_SPEED = 8 -- snappy steering response
-local CAR_HIGH_SPEED_STEER_FACTOR = 0.4 -- steering reduction at top speed (prevents spinouts)
-local SUSPENSION_REST_LENGTH = 1.6 -- tighter suspension for less wallow
-local SUSPENSION_STIFFNESS = 1200 -- firm springs — car stays flat in turns
-local SUSPENSION_DAMPING = 120 -- heavy damping kills bounce
-local DRIFT_GRIP_REDUCTION = 0.4
+-- Car physics — Far Cry / Just Cause feel: fast, drifty, weighty
+local CAR_MAX_SPEED = 180 -- studs/s (~54m/s, fast and dynamic like Just Cause)
+local CAR_BOOST_SPEED = 280 -- studs/s during nitro boost
+local CAR_BOOST_DURATION = 3.0 -- seconds of nitro
+local CAR_BOOST_COOLDOWN = 8.0 -- seconds between boosts
+local CAR_MOTOR_ANGULAR_VEL = 55 -- rad/s at full throttle
+local CAR_TORQUE = 2400 -- aggressive acceleration
+local CAR_STEER_ANGLE = 38 -- degrees — responsive
+local CAR_STEER_SPEED = 10 -- quick snap into turns
+local CAR_HIGH_SPEED_STEER_FACTOR = 0.35 -- tight at speed
+local SUSPENSION_REST_LENGTH = 1.6
+local SUSPENSION_STIFFNESS = 1400 -- very firm — planted feeling
+local SUSPENSION_DAMPING = 150 -- no bounce, just bite
+local DRIFT_GRIP_REDUCTION = 0.3 -- more slidey drift (Far Cry style)
 local ENGINE_IDLE_VIBRATION = 0.02
+-- Rapier-style acceleration: jerk-limited smooth ramp instead of instant torque
+local CAR_ACCEL_RAMP_TIME = 0.6 -- seconds from 0 to full torque (smooth curve)
+local CAR_DECEL_RAMP_TIME = 0.3 -- faster braking response than acceleration
+-- Dynamic FOV
+local CAR_FOV_MIN = 70
+local CAR_FOV_MAX = 95 -- cinematic warp at top speed
+local CAR_FOV_BOOST = 105 -- extreme during nitro
 
--- Jetpack physics
-local JETPACK_MAX_THRUST = 5000
-local JETPACK_RAMP_TIME = 0.4 -- slightly longer ramp for smoother feel
-local JETPACK_DAMPING = 0.55 -- much stronger drag: 0.45 * mass * vel per frame
-local JETPACK_MAX_HORIZONTAL_SPEED = 80 -- studs/s hard cap
-local JETPACK_MAX_VERTICAL_SPEED = 60 -- studs/s hard cap
-local JETPACK_FUEL_MAX = 60 -- seconds (enough to reach top of tallest skyscrapers)
-local JETPACK_FUEL_RECHARGE_RATE = 0.5 -- per second on ground
+-- Jetpack physics — Far Cry 4 buzzer / Just Cause thrust vectoring
+local JETPACK_MAX_THRUST = 6500 -- snappier response
+local JETPACK_BOOST_THRUST = 12000 -- hold shift for burst (Just Cause style)
+local JETPACK_BOOST_FUEL_COST = 3.0 -- fuel/second during boost
+local JETPACK_RAMP_TIME = 0.25 -- faster ramp for responsiveness
+local JETPACK_DAMPING = 0.45 -- slightly less drag for more momentum
+local JETPACK_MAX_HORIZONTAL_SPEED = 120 -- studs/s — fast traverse
+local JETPACK_MAX_VERTICAL_SPEED = 80 -- studs/s — quick ascent
+local JETPACK_FUEL_MAX = 45 -- seconds (forces strategic use)
+local JETPACK_FUEL_RECHARGE_RATE = 0.8 -- faster recharge for dynamic play
+-- Rapier-style angular damping: smooth rotation instead of snappy
+local JETPACK_TILT_SPEED = 4.0 -- degrees/frame toward velocity
+local JETPACK_MAX_TILT = 25 -- degrees of character lean
 
--- Parachute physics
-local CHUTE_GLIDE_RATIO = 3.0 -- 3 forward : 1 down
-local CHUTE_DESCENT_RATE = -8 -- studs/s (~2.4m/s, realistic paraglider descent)
+-- Parachute physics — Just Cause wingsuit/chute hybrid
+local CHUTE_GLIDE_RATIO = 4.5 -- better glide (Just Cause style)
+local CHUTE_DESCENT_RATE = -6 -- studs/s (slower, more hang time)
 local CHUTE_FORWARD_SPEED = math.abs(CHUTE_DESCENT_RATE) * CHUTE_GLIDE_RATIO
-local CHUTE_TURN_RATE = 1.6 -- rad/s, smooth turns
-local CHUTE_FLARE_LIFT = 5 -- reduced: flare slows descent, doesn't launch up
-local CHUTE_FLARE_STALL_TIME = 3.0 -- seconds of sustained flare before stall
-local CHUTE_STALL_DESCENT = -30 -- fast but not instant death
-local CHUTE_WIND_STRENGTH = 1.5 -- gentle drift, not a hurricane
-local CHUTE_HORIZONTAL_DRAG = 0.15 -- fraction of horizontal velocity removed per second
+local CHUTE_TURN_RATE = 2.0 -- rad/s, responsive banking
+local CHUTE_FLARE_LIFT = 6 -- decent flare for precision landings
+local CHUTE_FLARE_STALL_TIME = 3.0
+local CHUTE_STALL_DESCENT = -25
+local CHUTE_WIND_STRENGTH = 2.0 -- noticeable wind for dynamic feel
+local CHUTE_HORIZONTAL_DRAG = 0.08 -- less drag = more speed preservation
+-- Dive mechanic: hold W to tuck and gain speed, trade altitude for velocity
+local CHUTE_DIVE_DESCENT_RATE = -20 -- studs/s when diving
+local CHUTE_DIVE_FORWARD_SPEED = 60 -- studs/s — fast dive like Just Cause
+local CHUTE_DIVE_RECOVERY_TIME = 0.5 -- seconds to smoothly transition out of dive
 
 -- Camera
 local CAR_CAM_OFFSET = Vector3.new(0, 8, 22)
@@ -1121,17 +1140,38 @@ local function updateCar(dt)
     -- Handbrake (space)
     local handbrake = UserInputService:IsKeyDown(Enum.KeyCode.Space)
 
+    -- Rapier-style jerk-limited acceleration: smooth ramp instead of instant torque
+    local rampTime = if math.abs(throttle) > math.abs(carThrottleSmooth or 0) then CAR_ACCEL_RAMP_TIME else CAR_DECEL_RAMP_TIME
+    carThrottleSmooth = lerp(carThrottleSmooth or 0, throttle, dt / math.max(rampTime, 0.01))
+
+    -- Nitro boost (LShift while driving)
+    local wantBoost = UserInputService:IsKeyDown(Enum.KeyCode.LeftShift) and math.abs(carThrottleSmooth) > 0.5
+    if wantBoost and (carBoostCooldown or 0) <= 0 then
+        carBoostActive = true
+        carBoostTimer = (carBoostTimer or 0) + dt
+        if carBoostTimer >= CAR_BOOST_DURATION then
+            carBoostActive = false
+            carBoostCooldown = CAR_BOOST_COOLDOWN
+            carBoostTimer = 0
+        end
+    else
+        carBoostActive = false
+        carBoostTimer = 0
+        carBoostCooldown = math.max((carBoostCooldown or 0) - dt, 0)
+    end
+    local effectiveAngVel = if carBoostActive then CAR_MOTOR_ANGULAR_VEL * (CAR_BOOST_SPEED / CAR_MAX_SPEED) else CAR_MOTOR_ANGULAR_VEL
+    local effectiveTorque = if carBoostActive then CAR_TORQUE * 1.8 else CAR_TORQUE
+
     -- Update wheels
     for _, w in ipairs(carWheels) do
-        -- Motor drive: use dedicated angular velocity constant scaled to wheel radius
-        local motorSpeed = throttle * CAR_MOTOR_ANGULAR_VEL
+        local motorSpeed = carThrottleSmooth * effectiveAngVel
         if handbrake and not w.isFront then
-            -- Lock rear wheels for drift
+            -- Lock rear wheels for drift (Far Cry style)
             w.motor.AngularVelocity = 0
-            w.motor.MotorMaxTorque = CAR_TORQUE * 5 -- strong lock
+            w.motor.MotorMaxTorque = effectiveTorque * 5
         else
             w.motor.AngularVelocity = motorSpeed
-            w.motor.MotorMaxTorque = CAR_TORQUE
+            w.motor.MotorMaxTorque = effectiveTorque
         end
 
         -- Steering (front wheels)
