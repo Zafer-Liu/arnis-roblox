@@ -189,6 +189,12 @@ function MeshAccumulator:flush()
 end
 
 local function addOrientedBox(acc, center, rightAxis, upAxis, forwardAxis, size)
+    -- Pre-flush if the entire box (6 quads × 4 triangles = 24) won't fit.
+    -- Prevents splitting a wall box across two MeshParts, which produces
+    -- flat horizontal slabs from incomplete box geometry.
+    if #acc.triangles + 24 > acc.MAX_TRIANGLES then
+        acc:flush()
+    end
     local hx = size.X * 0.5
     local hy = size.Y * 0.5
     local hz = size.Z * 0.5
