@@ -4362,25 +4362,37 @@ function BuildingBuilder.MeshBuildAll(parent, buildings, originStuds, chunk, con
             local heroPbrStartedAt = os.clock()
             local atlasApplied = false
             if chunkAtlasImage and building.atlasUv then
-                -- Atlas fast path: shared EditableImage + per-MeshPart SurfaceAppearance
+                -- Atlas fast path: crop per-building sub-image from chunk atlas
                 local uv = building.atlasUv
-                for _, child in ipairs(shellFolder:GetChildren()) do
-                    if child:IsA("MeshPart") and pbrBudget.used < HERO_PBR_MAX_PER_CHUNK then
-                        local saOk, _ = pcall(function()
-                            local surf = Instance.new("SurfaceAppearance")
-                            surf.ColorMap = Content.fromObject(chunkAtlasImage)
-                            -- UV offset is stored as normalized 0-1 coords; SurfaceAppearance
-                            -- uses tiled UVs, so we set the crop via EditableImage region
-                            -- when available. For now the whole atlas is applied as ColorMap —
-                            -- the correct UV mapping requires MeshPart UV channel support or
-                            -- a per-building cropped sub-image. Apply the full atlas as a
-                            -- visual placeholder until per-face UV mapping is implemented.
-                            surf.Parent = child
-                        end)
-                        if saOk then
-                            atlasApplied = true
-                            buildStats.heroPbrCount += 1
-                            pbrBudget.used += 1
+                local atlasSize = chunkAtlasImage.Size
+                local cropX = math.floor((uv.x or uv.uvX or 0) * atlasSize.X)
+                local cropY = math.floor((uv.y or uv.uvY or 0) * atlasSize.Y)
+                local cropW = math.max(1, math.floor((uv.width or uv.uvWidth or 0.125) * atlasSize.X))
+                local cropH = math.max(1, math.floor((uv.height or uv.uvHeight or 0.125) * atlasSize.Y))
+                local cropOk, croppedImg = pcall(function()
+                    local pixels = chunkAtlasImage:ReadPixelsBuffer(
+                        Vector2.new(cropX, cropY),
+                        Vector2.new(cropW, cropH)
+                    )
+                    local img = AssetService:CreateEditableImage({
+                        Size = Vector2.new(cropW, cropH),
+                    })
+                    img:WritePixelsBuffer(Vector2.new(0, 0), Vector2.new(cropW, cropH), pixels)
+                    return img
+                end)
+                if cropOk and croppedImg then
+                    for _, child in ipairs(shellFolder:GetChildren()) do
+                        if child:IsA("MeshPart") and pbrBudget.used < HERO_PBR_MAX_PER_CHUNK then
+                            local saOk, _ = pcall(function()
+                                local surf = Instance.new("SurfaceAppearance")
+                                surf.ColorMap = Content.fromObject(croppedImg)
+                                surf.Parent = child
+                            end)
+                            if saOk then
+                                atlasApplied = true
+                                buildStats.heroPbrCount += 1
+                                pbrBudget.used += 1
+                            end
                         end
                     end
                 end
