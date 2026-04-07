@@ -44,6 +44,7 @@ fn v3_scale(v: V3, s: f64) -> V3 {
     [v[0] * s, v[1] * s, v[2] * s]
 }
 
+#[allow(dead_code)] // Reserved for future explicit normal computation
 fn v3_cross(a: V3, b: V3) -> V3 {
     [
         a[1] * b[2] - a[2] * b[1],
@@ -52,6 +53,7 @@ fn v3_cross(a: V3, b: V3) -> V3 {
     ]
 }
 
+#[allow(dead_code)]
 fn v3_normalize(v: V3) -> V3 {
     let len = (v[0] * v[0] + v[1] * v[1] + v[2] * v[2]).sqrt();
     if len < 1e-12 {
@@ -60,6 +62,7 @@ fn v3_normalize(v: V3) -> V3 {
     [v[0] / len, v[1] / len, v[2] / len]
 }
 
+#[allow(dead_code)]
 fn v3_length(v: V3) -> f64 {
     (v[0] * v[0] + v[1] * v[1] + v[2] * v[2]).sqrt()
 }
