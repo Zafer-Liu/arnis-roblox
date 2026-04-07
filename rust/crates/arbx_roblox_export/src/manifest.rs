@@ -1119,7 +1119,11 @@ fn write_number(out: &mut String, value: f64) {
     if value.fract() == 0.0 {
         write!(out, "{:.0}", value).unwrap();
     } else {
-        write!(out, "{:.4}", value).unwrap();
+        // Use up to 4 decimal places but trim trailing zeros for compact output.
+        // This matters for terrain grids with 16k+ height values per chunk.
+        let formatted = format!("{:.4}", value);
+        let trimmed = formatted.trim_end_matches('0').trim_end_matches('.');
+        out.push_str(trimmed);
     }
 }
 

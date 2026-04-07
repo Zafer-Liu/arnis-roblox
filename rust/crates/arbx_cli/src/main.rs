@@ -2723,25 +2723,18 @@ fn build_signal_audit(manifest: &Value) -> Result<SignalAuditReport, String> {
             all_barriers.extend(arr.iter().cloned());
         }
 
-        // Terrain: count height cells and satellite material cells
+        // Terrain: count height cells and satellite material cells.
+        // Heights/materials are flat 1D arrays (row-major, width*depth elements).
         if let Some(terrain) = chunk.get("terrain") {
             if let Some(heights) = terrain.get("heights").and_then(|v| v.as_array()) {
-                for row in heights {
-                    if let Some(row_arr) = row.as_array() {
-                        terrain_total_cells += row_arr.len();
-                    }
-                }
+                terrain_total_cells += heights.len();
             }
             if let Some(materials) = terrain.get("materials").and_then(|v| v.as_array()) {
-                for row in materials {
-                    if let Some(row_arr) = row.as_array() {
-                        for cell in row_arr {
-                            if let Some(s) = cell.as_str() {
-                                if !s.is_empty() {
-                                    terrain_sat_cells += 1;
-                                    *material_dist.entry(s.to_string()).or_insert(0) += 1;
-                                }
-                            }
+                for cell in materials {
+                    if let Some(s) = cell.as_str() {
+                        if !s.is_empty() {
+                            terrain_sat_cells += 1;
+                            *material_dist.entry(s.to_string()).or_insert(0) += 1;
                         }
                     }
                 }
@@ -10073,8 +10066,8 @@ mod tests {
             }),
         ];
         let terrain = json!({
-            "heights": [[1.0, 2.0], [3.0, 4.0]],
-            "materials": [["Grass", "Sand"], ["Pavement", ""]]
+            "heights": [1.0, 2.0, 3.0, 4.0],
+            "materials": ["Grass", "Sand", "Pavement", ""]
         });
         let manifest = make_signal_test_manifest(buildings, roads, Some(terrain));
         let report = build_signal_audit(&manifest).unwrap();
