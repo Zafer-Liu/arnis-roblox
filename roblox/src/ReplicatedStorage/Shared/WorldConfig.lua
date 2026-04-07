@@ -72,6 +72,19 @@ local WorldConfig = {
     EnablePalmRendering = true,
 
     -- ═══════════════════════════════════════════════════════════════
+    -- BUILDING LOD POLICY
+    -- ═══════════════════════════════════════════════════════════════
+    -- Controls building detail level per streaming ring.
+    -- "full"    = all facade elements, windows, rooftop equipment, PBR surfaces
+    -- "reduced" = shell walls + roof only, no windows/awnings/facade bands/rooftop equipment/name labels
+    -- "minimal" = single bounding-box Part per building, no EditableMesh
+    BuildingLodPolicy = {
+        NearRingLod = "full",
+        MidRingLod = "reduced",
+        FarRingLod = "minimal",
+    },
+
+    -- ═══════════════════════════════════════════════════════════════
     -- STREAMING & LOD
     -- ═══════════════════════════════════════════════════════════════
     StreamingProfile = "local_dev", -- "local_dev" | "production_server"

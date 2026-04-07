@@ -3618,30 +3618,117 @@ end
 -- rooftop equipment remain as individual Instances (glass needs transparency,
 -- shaped roofs use SpecialMesh/WedgePart).
 -- Returns builtModelsById for RoomBuilder integration.
+--
+-- buildOptions.lodLevel controls detail generation:
+--   "full"    (default/nil) = current behavior, all details
+--   "reduced" = shell walls + roof only, skip windows/awnings/facade bands/rooftop equipment/name labels
+--   "minimal" = single bounding-box Part per building, no EditableMesh
 -------------------------------------------------------------------------------
+local EMPTY_BUILD_STATS = {
+    meshPartCount = 0,
+    vertexCount = 0,
+    triangleCount = 0,
+    meshCreateMs = 0,
+    shellDetailMs = 0,
+    roofMeshPartCount = 0,
+    roofBuildMs = 0,
+    facadeDetailMs = 0,
+    perimeterDetailMs = 0,
+    mergedShellCueMs = 0,
+    terrainFillMs = 0,
+    rooftopDetailMs = 0,
+    nameLabelMs = 0,
+    precomputedMeshCount = 0,
+    runtimeMeshCount = 0,
+}
+
+local function buildMinimalLodBuildings(parent, buildings, originStuds, chunk, config, buildOptions)
+    local builtModelsById = {}
+    local buildStats = table.clone(EMPTY_BUILD_STATS)
+    local meshCollisionPolicy = if type(buildOptions) == "table" then buildOptions.meshCollisionPolicy else nil
+    local buildStartedAt = os.clock()
+
+    for _, building in ipairs(buildings) do
+        local fp = building.footprint
+        if not fp or #fp < 2 then
+            continue
+        end
+
+        local footprintData = buildFootprintData(fp, building.holes, originStuds)
+        local baseY = resolveBuildingBaseY(building, originStuds, chunk)
+        local height = getBuildingHeight(building)
+        local roofOnly = isRoofOnlyStructure(building)
+        if roofOnly then
+            baseY, height = normalizeRoofOnlyPlacement(building, baseY, height)
+        end
+        local mat = getMaterial(building)
+        local color = getColor(building)
+        local bldgName = building.id or "Building"
+
+        -- Compute bounding box from world-space footprint
+        local worldPts = footprintData.worldPts
+        local minX, maxX = math.huge, -math.huge
+        local minZ, maxZ = math.huge, -math.huge
+        for _, pt in ipairs(worldPts) do
+            if pt.X < minX then minX = pt.X end
+            if pt.X > maxX then maxX = pt.X end
+            if pt.Z < minZ then minZ = pt.Z end
+            if pt.Z > maxZ then maxZ = pt.Z end
+        end
+        local sizeX = math.max(maxX - minX, 0.5)
+        local sizeZ = math.max(maxZ - minZ, 0.5)
+        local centerX = (minX + maxX) * 0.5
+        local centerZ = (minZ + maxZ) * 0.5
+
+        local part = Instance.new("Part")
+        part.Name = bldgName
+        part.Anchored = true
+        part.Size = Vector3.new(sizeX, height, sizeZ)
+        part.CFrame = CFrame.new(centerX, baseY + height * 0.5, centerZ)
+        part.Material = mat
+        part.Color = color
+        part.CastShadow = true
+        if meshCollisionPolicy == "visual_only" then
+            part.CanCollide = false
+            part.CanQuery = false
+        end
+        part:SetAttribute("ArnisLodLevel", "minimal")
+        part.Parent = parent
+
+        local buildingId = building.id
+        if type(buildingId) == "string" and buildingId ~= "" then
+            builtModelsById[buildingId] = part
+        end
+        buildStats.meshPartCount += 1
+    end
+
+    buildStats.shellDetailMs = math.max(((os.clock() - buildStartedAt) * 1000), 0)
+    return {
+        builtModelsById = builtModelsById,
+        stats = buildStats,
+    }
+end
+
 function BuildingBuilder.MeshBuildAll(parent, buildings, originStuds, chunk, config, maybeYield, buildOptions)
     if not buildings or #buildings == 0 then
         return {
             builtModelsById = {},
-            stats = {
-                meshPartCount = 0,
-                vertexCount = 0,
-                triangleCount = 0,
-                meshCreateMs = 0,
-                shellDetailMs = 0,
-                roofMeshPartCount = 0,
-                roofBuildMs = 0,
-                facadeDetailMs = 0,
-                perimeterDetailMs = 0,
-                mergedShellCueMs = 0,
-                terrainFillMs = 0,
-                rooftopDetailMs = 0,
-                nameLabelMs = 0,
-            },
+            stats = table.clone(EMPTY_BUILD_STATS),
         }
     end
 
     config = config or WorldConfig
+    local lodLevel = if type(buildOptions) == "table" then buildOptions.lodLevel else nil
+    -- Normalize: nil or "full" means full detail
+    if lodLevel ~= "reduced" and lodLevel ~= "minimal" then
+        lodLevel = "full"
+    end
+
+    -- Minimal LOD: single bounding-box Part per building, no EditableMesh
+    if lodLevel == "minimal" then
+        return buildMinimalLodBuildings(parent, buildings, originStuds, chunk, config, buildOptions)
+    end
+
     local meshCollisionPolicy = if type(buildOptions) == "table" then buildOptions.meshCollisionPolicy else nil
 
     local windowBudget = {
@@ -3697,6 +3784,7 @@ function BuildingBuilder.MeshBuildAll(parent, buildings, originStuds, chunk, con
         trySetModelLevelOfDetail(model, Enum.ModelLevelOfDetail.Automatic)
         model.Parent = parent
         setBuildingAuditAttributes(model, building, baseY, height)
+        model:SetAttribute("ArnisLodLevel", lodLevel)
         local shellFolder = Instance.new("Folder")
         shellFolder.Name = "Shell"
         shellFolder.Parent = model
@@ -3930,7 +4018,7 @@ function BuildingBuilder.MeshBuildAll(parent, buildings, originStuds, chunk, con
             end
         end
 
-        if not roofOnly then
+        if not roofOnly and lodLevel == "full" then
             -- Window bands (individual glass Parts with transparency)
             local usage = building.usage or building.kind or "default"
             local WIN_SPACING = (config.WindowSpacing and config.WindowSpacing[usage])
@@ -4129,8 +4217,8 @@ function BuildingBuilder.MeshBuildAll(parent, buildings, originStuds, chunk, con
             end
         end
 
-        -- Building name label
-        if building.name and building.name ~= "" then
+        -- Building name label (full LOD only)
+        if lodLevel == "full" and building.name and building.name ~= "" then
             local nameLabelStartedAt = os.clock()
             local nameLabel = Instance.new("BillboardGui")
             nameLabel.Name = "BuildingName"

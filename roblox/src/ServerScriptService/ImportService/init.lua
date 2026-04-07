@@ -816,6 +816,7 @@ function ImportService.ImportChunk(chunk, options)
         buildingRooftopDetailMs = 0,
         buildingNameLabelMs = 0,
         buildingRoofMeshPartCount = 0,
+        buildingLodLevel = options.buildingLodLevel or "full",
         buildingFeatureCount = if type(chunk.buildings) == "table" then #chunk.buildings else 0,
         waterMs = 0,
         propsMs = 0,
@@ -1146,6 +1147,7 @@ function ImportService.ImportChunk(chunk, options)
                 maybeYield,
                 {
                     meshCollisionPolicy = options.meshCollisionPolicy,
+                    lodLevel = options.buildingLodLevel,
                 }
             )
             local builtModelsById = meshBuildResult.builtModelsById or {}
@@ -1164,7 +1166,8 @@ function ImportService.ImportChunk(chunk, options)
             chunkProfile.buildingRoofMeshPartCount = tonumber(buildingMeshStats.roofMeshPartCount) or 0
             chunkProfile.buildingPrecomputedMeshCount = tonumber(buildingMeshStats.precomputedMeshCount) or 0
             chunkProfile.buildingRuntimeMeshCount = tonumber(buildingMeshStats.runtimeMeshCount) or 0
-            if config.EnableRoomInteriors ~= false then
+            local effectiveBuildingLodLevel = options.buildingLodLevel or "full"
+            if config.EnableRoomInteriors ~= false and effectiveBuildingLodLevel == "full" then
                 -- Build interiors as an optional overlay on top of canonical shell geometry.
                 local interiorStartedAt = os.clock()
                 RoomBuilder.BuildAll(buildingsFolder, chunk.buildings, chunk.originStuds, builtModelsById)

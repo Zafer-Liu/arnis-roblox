@@ -39,6 +39,23 @@ local MID_RING_TRANSPARENCY_BOOST = 0.05
 
 local LOD_HIGH = "High"
 local LOD_LOW = "Low"
+
+-- Resolve the building LOD level (full/reduced/minimal) for a given streaming ring.
+local function resolveBuildingLodLevel(ringName, config)
+    local policy = type(config) == "table" and config.BuildingLodPolicy or nil
+    if type(policy) ~= "table" then
+        return "full"
+    end
+    if ringName == "near" then
+        return policy.NearRingLod or "full"
+    elseif ringName == "mid" then
+        return policy.MidRingLod or "full"
+    elseif ringName == "far" then
+        return policy.FarRingLod or "full"
+    end
+    return "full"
+end
+
 -- Registry of chunkId -> current LOD level
 local loadedChunkLods = {}
 local lodConfigCache = setmetatable({}, { __mode = "k" })
@@ -1471,7 +1488,7 @@ end
 local hasPendingBuildingSubplans
 local shouldBypassHighDetailSubplanRollout
 
-local function appendStreamingWorkItems(workItems, chunkEntry, chunkOptions, config, targetLod)
+local function appendStreamingWorkItems(workItems, chunkEntry, chunkOptions, config, targetLod, buildingLodLevel)
     local function appendWholeChunkWorkItem(wholeChunkOptions)
         workItems[#workItems + 1] = {
             chunkEntry = chunkEntry,
@@ -1479,6 +1496,7 @@ local function appendStreamingWorkItems(workItems, chunkEntry, chunkOptions, con
             chunkId = chunkRef.id,
             originStuds = chunkRef.originStuds,
             targetLod = targetLod,
+            buildingLodLevel = buildingLodLevel,
             highDetailWholeChunkPriority = wholeChunkOptions.highDetailWholeChunkPriority == true,
             highDetailStructurePriority = wholeChunkOptions.highDetailStructurePriority == true,
         }
@@ -1523,6 +1541,7 @@ local function appendStreamingWorkItems(workItems, chunkEntry, chunkOptions, con
             originStuds = chunkRef.originStuds,
             subplan = subplan,
             targetLod = targetLod,
+            buildingLodLevel = buildingLodLevel,
             highDetailStructurePriority = targetLod == LOD_HIGH
                 and type(subplan) == "table"
                 and subplan.layer == "buildings",
@@ -1579,7 +1598,7 @@ shouldBypassHighDetailSubplanRollout = function(chunkEntry, chunkOptions, target
         and hasPendingBuildingSubplans(chunkEntry.ref, chunkOptions.config)
 end
 
-local function queuePendingSubplans(workItems, chunkEntry, chunkOptions, targetLod)
+local function queuePendingSubplans(workItems, chunkEntry, chunkOptions, targetLod, buildingLodLevel)
     if shouldBypassHighDetailSubplanRollout(chunkEntry, chunkOptions, targetLod) then
         workItems[#workItems + 1] = {
             chunkEntry = chunkEntry,
@@ -1597,6 +1616,7 @@ local function queuePendingSubplans(workItems, chunkEntry, chunkOptions, targetL
             chunkId = chunkEntry.ref.id,
             originStuds = chunkEntry.ref.originStuds,
             targetLod = targetLod,
+            buildingLodLevel = buildingLodLevel,
             highDetailWholeChunkPriority = true,
             highDetailStructurePriority = true,
         }
@@ -1616,6 +1636,7 @@ local function queuePendingSubplans(workItems, chunkEntry, chunkOptions, targetL
             originStuds = chunkEntry.ref.originStuds,
             subplan = subplan,
             targetLod = targetLod,
+            buildingLodLevel = buildingLodLevel,
             highDetailStructurePriority = targetLod == LOD_HIGH
                 and type(subplan) == "table"
                 and subplan.layer == "buildings",
@@ -2228,6 +2249,7 @@ function StreamingService.Update(focalPoint)
                 targetExitRadiusSq
             )
             local ringName = getChunkRingName(schedulerDistSq, resolvedRings)
+            local chunkBuildingLodLevel = resolveBuildingLodLevel(ringName, streamingOptions.config)
 
             if targetLod then
                 local ring = if ringName then resolvedRings[ringName] else nil
@@ -2275,13 +2297,13 @@ function StreamingService.Update(focalPoint)
                     if not changedLayers and currentEntry.configSignature == chunkOptions.configSignature then
                         loadedChunkLods[chunkRef.id] = targetLod
                         desiredChunkIds[chunkRef.id] = true
-                        if queuePendingSubplans(importWorkItems, chunkEntry, chunkOptions, targetLod) then
+                        if queuePendingSubplans(importWorkItems, chunkEntry, chunkOptions, targetLod, chunkBuildingLodLevel) then
                             lastPrefetchReason = "subplan_backfill"
                         end
                         continue
                     end
                     if not changedLayers then
-                        if not queuePendingSubplans(importWorkItems, chunkEntry, chunkOptions, targetLod) then
+                        if not queuePendingSubplans(importWorkItems, chunkEntry, chunkOptions, targetLod, chunkBuildingLodLevel) then
                             loadedChunkLods[chunkRef.id] = targetLod
                         else
                             lastPrefetchReason = "subplan_backfill"
@@ -2301,7 +2323,7 @@ function StreamingService.Update(focalPoint)
                     }
                 end
 
-                appendStreamingWorkItems(importWorkItems, chunkEntry, chunkOptions, chunkOptions.config, targetLod)
+                appendStreamingWorkItems(importWorkItems, chunkEntry, chunkOptions, chunkOptions.config, targetLod, chunkBuildingLodLevel)
                 desiredChunkIds[chunkRef.id] = true
                 if movementLookaheadStuds > 0 then
                     lastPrefetchReason = "movement_lookahead"
@@ -2431,6 +2453,7 @@ function StreamingService.Update(focalPoint)
                     local subplanOptions = table.clone(workItem.chunkOptions)
                     subplanOptions.registrationChunk = chunkRef
                     subplanOptions.chunkSignature = ImportSignatures.GetChunkSignature(chunkRef)
+                    subplanOptions.buildingLodLevel = workItem.buildingLodLevel
                     if terrainNeighborContext ~= nil then
                         subplanOptions.terrainNeighbors = terrainNeighborContext.neighbors
                         subplanOptions.terrainNeighborSignature = terrainNeighborContext.signature
@@ -2439,6 +2462,7 @@ function StreamingService.Update(focalPoint)
                 else
                     local importOptions = table.clone(workItem.chunkOptions)
                     importOptions.chunkSignature = ImportSignatures.GetChunkSignature(chunkRef)
+                    importOptions.buildingLodLevel = workItem.buildingLodLevel
                     if terrainNeighborContext ~= nil then
                         importOptions.terrainNeighbors = terrainNeighborContext.neighbors
                         importOptions.terrainNeighborSignature = terrainNeighborContext.signature
