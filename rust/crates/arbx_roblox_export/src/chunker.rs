@@ -11,7 +11,12 @@ use crate::manifest::{
 };
 use crate::materials::StyleMapper;
 use crate::mesh_builder::build_shell_mesh;
-use crate::prop_mesh::{build_bench_mesh, build_bollard_mesh, build_street_lamp_mesh, build_tree_mesh, resolve_leaf_type};
+use crate::prop_mesh::{
+    build_bench_mesh, build_bollard_mesh, build_bus_stop_mesh, build_fire_hydrant_mesh,
+    build_post_box_mesh, build_street_lamp_mesh, build_telephone_mesh,
+    build_traffic_signal_mesh, build_tree_mesh, build_vending_machine_mesh,
+    build_waste_basket_mesh, resolve_leaf_type,
+};
 use crate::road_mesh::{build_road_bundle, SidewalkMode};
 use crate::subplans::derive_chunk_ref;
 use crate::water_mesh::{build_water_polygon_mesh, build_water_river_mesh};
@@ -775,6 +780,13 @@ impl Chunker {
                     "bench" => Some(build_bench_mesh()),
                     "street_lamp" | "amenity_street_lamp" => Some(build_street_lamp_mesh()),
                     "bollard" => Some(build_bollard_mesh()),
+                    "waste_basket" => Some(build_waste_basket_mesh()),
+                    "fire_hydrant" => Some(build_fire_hydrant_mesh()),
+                    "vending_machine" => Some(build_vending_machine_mesh()),
+                    "bus_stop" => Some(build_bus_stop_mesh()),
+                    "traffic_signal" => Some(build_traffic_signal_mesh()),
+                    "telephone" => Some(build_telephone_mesh()),
+                    "post_box" => Some(build_post_box_mesh()),
                     _ => None,
                 };
 

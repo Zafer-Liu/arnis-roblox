@@ -593,6 +593,58 @@ pub fn build_bench_mesh() -> PropMesh {
     acc.into_prop_mesh()
 }
 
+/// Build a waste basket mesh: small box.
+pub fn build_waste_basket_mesh() -> PropMesh {
+    let mut acc = MeshAccum::new();
+    add_box(&mut acc, [0.0, 0.6, 0.0], [0.8, 1.2, 0.8]);
+    acc.into_prop_mesh()
+}
+
+/// Build a fire hydrant mesh: small box.
+pub fn build_fire_hydrant_mesh() -> PropMesh {
+    let mut acc = MeshAccum::new();
+    add_box(&mut acc, [0.0, 0.5, 0.0], [0.6, 1.0, 0.6]);
+    acc.into_prop_mesh()
+}
+
+/// Build a vending machine mesh: tall box.
+pub fn build_vending_machine_mesh() -> PropMesh {
+    let mut acc = MeshAccum::new();
+    add_box(&mut acc, [0.0, 3.0, 0.0], [3.0, 6.0, 2.5]);
+    acc.into_prop_mesh()
+}
+
+/// Build a bus stop mesh: pole + sign.
+pub fn build_bus_stop_mesh() -> PropMesh {
+    let mut acc = MeshAccum::new();
+    add_cylinder(&mut acc, [0.0, 2.5, 0.0], 0.1, 5.0, 8);
+    add_box(&mut acc, [0.0, 5.2, 0.0], [0.8, 0.5, 0.1]);
+    acc.into_prop_mesh()
+}
+
+/// Build a traffic signal mesh: tall pole + signal housing.
+pub fn build_traffic_signal_mesh() -> PropMesh {
+    let mut acc = MeshAccum::new();
+    add_cylinder(&mut acc, [0.0, 7.5, 0.0], 0.2, 15.0, 8);
+    add_box(&mut acc, [0.0, 13.0, 0.0], [1.5, 4.0, 1.0]);
+    acc.into_prop_mesh()
+}
+
+/// Build a telephone booth mesh: tall glass box.
+pub fn build_telephone_mesh() -> PropMesh {
+    let mut acc = MeshAccum::new();
+    add_box(&mut acc, [0.0, 3.5, 0.0], [3.0, 7.0, 3.0]);
+    acc.into_prop_mesh()
+}
+
+/// Build a post box mesh: box on short base.
+pub fn build_post_box_mesh() -> PropMesh {
+    let mut acc = MeshAccum::new();
+    add_cylinder(&mut acc, [0.0, 0.75, 0.0], 0.2, 1.5, 8);
+    add_box(&mut acc, [0.0, 2.0, 0.0], [1.2, 1.0, 0.8]);
+    acc.into_prop_mesh()
+}
+
 /// Build a street lamp mesh: pole + lamp head.
 /// All geometry in prop-local space with base at Y=0.
 pub fn build_street_lamp_mesh() -> PropMesh {
