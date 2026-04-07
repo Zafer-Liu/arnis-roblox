@@ -1,4 +1,5 @@
 use crate::manifest::Color;
+use crate::regional_styles::RegionalStyle;
 use serde::Deserialize;
 use std::collections::HashMap;
 
@@ -14,6 +15,12 @@ pub struct StyleMapper {
     pub roads: HashMap<String, StyleEntry>,
     pub buildings: HashMap<String, StyleEntry>,
     pub props: HashMap<String, StyleEntry>,
+    /// Optional regional style pack applied on top of the built-in
+    /// building/roof/color tables. When present, a matching regional
+    /// entry for a given usage takes precedence; anything the regional
+    /// pack does not cover falls through to the normal lookup below.
+    #[serde(skip)]
+    pub regional_style: Option<RegionalStyle>,
 }
 
 impl Default for StyleMapper {
@@ -334,6 +341,7 @@ impl Default for StyleMapper {
             roads,
             buildings,
             props,
+            regional_style: None,
         }
     }
 }
@@ -366,11 +374,39 @@ impl StyleMapper {
     }
 
     pub fn get_building_material(&self, kind: &str) -> String {
+        if let Some(regional) = &self.regional_style {
+            if let Some(mat) = regional.building_material(kind) {
+                return mat.to_string();
+            }
+        }
         Self::get_entry(&self.buildings, kind).material.clone()
     }
 
     pub fn get_building_color(&self, kind: &str) -> Option<Color> {
+        if let Some(regional) = &self.regional_style {
+            if let Some(color) = regional.wall_color(kind) {
+                return Some(color);
+            }
+        }
         parse_hex(&Self::get_entry(&self.buildings, kind).color)
+    }
+
+    /// Returns the regional style's preferred roof material, if any.
+    /// Chunker code can consult this when a building has no OSM
+    /// `roof:material` tag.
+    pub fn get_regional_roof_material(&self) -> Option<String> {
+        self.regional_style
+            .as_ref()
+            .and_then(|r| r.roof_material().map(|s| s.to_string()))
+    }
+
+    /// Builder-style helper: attach a regional style pack, consuming
+    /// self and returning the updated mapper. Useful in `export_to_chunks`
+    /// where we want to derive a region-aware copy of the caller's
+    /// configured mapper without mutating the original.
+    pub fn with_regional_style(mut self, regional: RegionalStyle) -> Self {
+        self.regional_style = Some(regional);
+        self
     }
 
     pub fn get_prop_material(&self, kind: &str) -> String {

@@ -1,3 +1,4 @@
+pub mod building_atlas;
 pub mod chunker;
 pub mod lua_runtime_shards;
 pub mod manifest;
@@ -5,6 +6,7 @@ pub mod manifest_store;
 pub mod materials;
 pub mod mesh_builder;
 pub mod prop_mesh;
+pub mod regional_styles;
 pub mod road_mesh;
 pub mod subplans;
 pub mod terrain_mesh;
@@ -17,10 +19,18 @@ use arbx_pipeline::Feature;
 
 use crate::chunker::{build_empty_chunk, ensure_terrain_materials, Chunker};
 use crate::materials::StyleMapper;
+use crate::regional_styles::{resolve_regional_style, RegionalStyle};
+pub use crate::regional_styles::{
+    amsterdam_style, austin_style, default_style, san_francisco_style, tokyo_style,
+};
 pub use arbx_geo::satellite::SatelliteTileProvider;
 pub use lua_runtime_shards::{
     write_lua_value_module, write_runtime_lua_shards_from_sqlite,
     write_runtime_lua_shards_from_stored_subset, RuntimeLuaShardsOptions, RuntimeLuaShardsStats,
+};
+pub use building_atlas::{
+    build_chunk_atlas, AtlasEntry, AtlasUv, BuildingAtlas, ATLAS_MIN_HEIGHT_STUDS,
+    ATLAS_RESOLUTION, MAX_BUILDINGS_PER_ATLAS,
 };
 pub use manifest::{
     BarrierSegment, BuildingShell, Chunk, ChunkManifest, Color, GroundPoint, LanduseShell,
@@ -52,6 +62,11 @@ pub struct ExportConfig {
     pub terrain_cell_size: i32,
     pub include_props: bool,
     pub style: StyleMapper,
+    /// When true (the default), `export_to_chunks` resolves a regional
+    /// style pack from the export bounding box and layers it onto
+    /// `style` before ingestion. Set to false to force the raw
+    /// `StyleMapper` behavior regardless of location.
+    pub regional_style_enabled: bool,
 }
 
 impl Default for ExportConfig {
@@ -63,6 +78,7 @@ impl Default for ExportConfig {
             terrain_cell_size: 2, // 2-stud cells = 128×128 grid = sub-meter precision
             include_props: true,
             style: StyleMapper::default(),
+            regional_style_enabled: true,
         }
     }
 }
@@ -165,6 +181,7 @@ pub fn build_sample_multi_chunk(count_x: i32, count_z: i32) -> ChunkManifest {
                     roof_angle: None,
                     name: None,
                     shell_mesh: None,
+                    atlas_uv: None,
                 });
             }
 
@@ -207,13 +224,24 @@ pub fn export_to_chunks(
         bbox.center(),
     );
 
+    // Resolve a region-aware style overlay from the bbox centroid when
+    // regional style packs are enabled. This is non-invasive: empty
+    // packs (or unknown regions) leave the existing StyleMapper
+    // behavior untouched.
+    let active_style: StyleMapper = if config.regional_style_enabled {
+        let regional: RegionalStyle = resolve_regional_style(&bbox);
+        config.style.clone().with_regional_style(regional)
+    } else {
+        config.style.clone()
+    };
+
     for feature in features {
         if !config.include_props {
             if let Feature::Prop(_) = feature {
                 continue;
             }
         }
-        chunker.ingest(feature, &config.style, elevation);
+        chunker.ingest(feature, &active_style, elevation);
     }
 
     let mut manifest = chunker.finish(ManifestMeta {
@@ -406,11 +434,13 @@ mod tests {
                     roof_angle: None,
                     name: None,
                     shell_mesh: None,
+                    atlas_uv: None,
                 }],
                 water: vec![],
                 props: vec![],
                 landuse: vec![],
                 barriers: vec![],
+                building_atlas: None,
             }],
             chunk_refs: vec![],
         };
@@ -546,6 +576,92 @@ mod tests {
         }
 
         let _ = std::fs::remove_file(db_path);
+    }
+
+    #[test]
+    fn chunker_populates_building_atlas_for_hero_candidates() {
+        // Two named, tall buildings should land in the chunk atlas with
+        // unique UV rects, while a short anonymous one is excluded.
+        let mut features: Vec<Feature> = Vec::new();
+        let make = |id: &str, name: Option<&str>, height: f64, usage: Option<&str>| {
+            Feature::Building(BuildingFeature {
+                id: id.to_string(),
+                footprint: Footprint::new(vec![
+                    Vec2::new(0.0, 0.0),
+                    Vec2::new(20.0, 0.0),
+                    Vec2::new(20.0, 20.0),
+                    Vec2::new(0.0, 20.0),
+                ]),
+                holes: vec![],
+                indices: None,
+                base_y: 0.0,
+                height,
+                height_m: Some(height * 0.3),
+                levels: Some(3),
+                roof_levels: None,
+                min_height: None,
+                usage: usage.map(|s| s.to_string()),
+                roof: "flat".to_string(),
+                colour: None,
+                material_tag: None,
+                roof_colour: None,
+                roof_material: None,
+                roof_height: None,
+                roof_direction: None,
+                roof_angle: None,
+                name: name.map(|s| s.to_string()),
+                facade_style: None,
+                structure_type: None,
+            })
+        };
+        features.push(make("hero_a", Some("Hero A"), 90.0, Some("office")));
+        features.push(make("hero_b", Some("Hero B"), 35.0, Some("warehouse")));
+        features.push(make("short", None, 5.0, Some("residential")));
+
+        let elevation = PerlinElevationProvider::default();
+        let manifest = export_features(&features, &ExportConfig::default(), &elevation);
+
+        let chunk_with_atlas = manifest
+            .chunks
+            .iter()
+            .find(|c| c.building_atlas.is_some())
+            .expect("expected the chunk containing hero buildings to carry an atlas");
+        let atlas = chunk_with_atlas
+            .building_atlas
+            .as_ref()
+            .expect("atlas Option already verified");
+
+        assert_eq!(atlas.entries.len(), 2);
+        assert!(!atlas.png_data.is_empty());
+        assert_eq!(&atlas.png_data[0..8], &[137, 80, 78, 71, 13, 10, 26, 10]);
+
+        let hero_a = chunk_with_atlas
+            .buildings
+            .iter()
+            .find(|b| b.id == "hero_a")
+            .expect("hero_a should be in the chunk");
+        let hero_b = chunk_with_atlas
+            .buildings
+            .iter()
+            .find(|b| b.id == "hero_b")
+            .expect("hero_b should be in the chunk");
+        let short = chunk_with_atlas
+            .buildings
+            .iter()
+            .find(|b| b.id == "short")
+            .expect("short should be in the chunk");
+
+        assert!(hero_a.atlas_uv.is_some(), "hero_a should have an atlas UV");
+        assert!(hero_b.atlas_uv.is_some(), "hero_b should have an atlas UV");
+        assert!(
+            short.atlas_uv.is_none(),
+            "short anonymous building should be excluded from the atlas"
+        );
+
+        let json = manifest.to_json_pretty();
+        assert!(json.contains("\"buildingAtlas\""));
+        assert!(json.contains("\"pngBase64\""));
+        assert!(json.contains("\"atlasUv\""));
     }
 
     #[test]
@@ -1165,6 +1281,169 @@ mod tests {
         assert!(
             terrain.materials.is_none(),
             "terrain materials should stay omitted when no landuse, water, or satellite overrides are applied"
+        );
+    }
+
+    fn make_single_building(id: &str, usage: &str) -> Feature {
+        Feature::Building(BuildingFeature {
+            id: id.to_string(),
+            footprint: Footprint::new(vec![
+                Vec2::new(0.0, 0.0),
+                Vec2::new(16.0, 0.0),
+                Vec2::new(16.0, 16.0),
+                Vec2::new(0.0, 16.0),
+            ]),
+            holes: vec![],
+            indices: None,
+            base_y: 0.0,
+            height: 8.0,
+            height_m: None,
+            levels: Some(2),
+            roof_levels: None,
+            min_height: None,
+            usage: Some(usage.to_string()),
+            roof: "flat".to_string(),
+            colour: None,
+            material_tag: None,
+            roof_colour: None,
+            roof_material: None,
+            roof_height: None,
+            roof_direction: None,
+            roof_angle: None,
+            name: None,
+            facade_style: None,
+            structure_type: None,
+        })
+    }
+
+    #[test]
+    fn regional_style_pack_overrides_building_material_in_austin() {
+        // Bbox centered on the Texas Capitol — should resolve to austin.
+        let bbox = BoundingBox::new(30.263, -97.751, 30.267, -97.748);
+        let features = vec![make_single_building("b1", "civic")];
+        let elevation = FlatElevationProvider { height: 0.0 };
+
+        let manifest = export_to_chunks(
+            features,
+            bbox,
+            &ExportConfig::default(),
+            &elevation,
+            None,
+        );
+
+        let building = &manifest.chunks[0].buildings[0];
+        assert_eq!(
+            building.material, "Limestone",
+            "Austin regional style should prefer Limestone for civic buildings"
+        );
+    }
+
+    #[test]
+    fn regional_style_pack_overrides_building_material_in_amsterdam() {
+        let bbox = BoundingBox::new(52.370, 4.891, 52.374, 4.895);
+        let features = vec![make_single_building("b1", "residential")];
+        let elevation = FlatElevationProvider { height: 0.0 };
+
+        let manifest = export_to_chunks(
+            features,
+            bbox,
+            &ExportConfig::default(),
+            &elevation,
+            None,
+        );
+
+        let building = &manifest.chunks[0].buildings[0];
+        assert_eq!(
+            building.material, "Brick",
+            "Amsterdam regional style should prefer Brick for residential buildings"
+        );
+    }
+
+    #[test]
+    fn regional_style_pack_overrides_building_material_in_tokyo() {
+        let bbox = BoundingBox::new(35.657, 139.699, 35.661, 139.703);
+        let features = vec![make_single_building("b1", "office")];
+        let elevation = FlatElevationProvider { height: 0.0 };
+
+        let manifest = export_to_chunks(
+            features,
+            bbox,
+            &ExportConfig::default(),
+            &elevation,
+            None,
+        );
+
+        let building = &manifest.chunks[0].buildings[0];
+        assert_eq!(
+            building.material, "Glass",
+            "Tokyo regional style should prefer Glass for office buildings"
+        );
+    }
+
+    #[test]
+    fn regional_style_pack_overrides_building_material_in_san_francisco() {
+        let bbox = BoundingBox::new(37.777, -122.420, 37.781, -122.416);
+        let features = vec![make_single_building("b1", "house")];
+        let elevation = FlatElevationProvider { height: 0.0 };
+
+        let manifest = export_to_chunks(
+            features,
+            bbox,
+            &ExportConfig::default(),
+            &elevation,
+            None,
+        );
+
+        let building = &manifest.chunks[0].buildings[0];
+        assert_eq!(
+            building.material, "WoodPlanks",
+            "San Francisco regional style should prefer WoodPlanks for houses"
+        );
+    }
+
+    #[test]
+    fn regional_style_disabled_behaves_like_default_style() {
+        // Same Austin bbox, but regional_style_enabled=false. The
+        // building should come out Concrete (the default StyleMapper's
+        // mapping for "commercial") rather than the Austin override.
+        let bbox = BoundingBox::new(30.263, -97.751, 30.267, -97.748);
+        let features = vec![make_single_building("b1", "commercial")];
+        let elevation = FlatElevationProvider { height: 0.0 };
+
+        let config = ExportConfig {
+            regional_style_enabled: false,
+            ..ExportConfig::default()
+        };
+        let manifest = export_to_chunks(features, bbox, &config, &elevation, None);
+
+        let building = &manifest.chunks[0].buildings[0];
+        let expected = StyleMapper::default().get_building_material("commercial");
+        assert_eq!(
+            building.material, expected,
+            "disabling regional style should preserve the default StyleMapper behavior"
+        );
+    }
+
+    #[test]
+    fn regional_style_falls_back_to_default_outside_known_regions() {
+        // Middle of the Atlantic — no regional match.
+        let bbox = BoundingBox::new(0.0, -30.0, 0.1, -29.9);
+        let features = vec![make_single_building("b1", "commercial")];
+        let elevation = FlatElevationProvider { height: 0.0 };
+
+        let manifest = export_to_chunks(
+            features,
+            bbox,
+            &ExportConfig::default(),
+            &elevation,
+            None,
+        );
+
+        let building = &manifest.chunks[0].buildings[0];
+        let expected = StyleMapper::default().get_building_material("commercial");
+        assert_eq!(
+            building.material, expected,
+            "unknown regions should preserve default StyleMapper behavior"
         );
     }
 }
