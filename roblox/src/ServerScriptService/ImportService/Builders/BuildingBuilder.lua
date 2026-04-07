@@ -69,11 +69,12 @@ function MeshAccumulator.new(parent, materialName, material, color, options)
 end
 
 function MeshAccumulator:addQuad(p1, p2, p3, p4, normal)
-    if #self.triangles + 2 > self.MAX_TRIANGLES then
+    if #self.triangles + 4 > self.MAX_TRIANGLES then
         self:flush()
     end
 
     local base = #self.vertices
+    -- Front-face vertices
     self.vertices[base + 1] = p1
     self.vertices[base + 2] = p2
     self.vertices[base + 3] = p3
@@ -82,26 +83,51 @@ function MeshAccumulator:addQuad(p1, p2, p3, p4, normal)
     self.normals[base + 2] = normal
     self.normals[base + 3] = normal
     self.normals[base + 4] = normal
+    -- Back-face vertices (shared positions, reversed normal)
+    local backNormal = -normal
+    self.vertices[base + 5] = p1
+    self.vertices[base + 6] = p2
+    self.vertices[base + 7] = p3
+    self.vertices[base + 8] = p4
+    self.normals[base + 5] = backNormal
+    self.normals[base + 6] = backNormal
+    self.normals[base + 7] = backNormal
+    self.normals[base + 8] = backNormal
 
-    -- Two triangles: (1,2,3) and (1,3,4)
+    -- Front face: two triangles (1,2,3) and (1,3,4)
     self.triangles[#self.triangles + 1] = { base + 1, base + 2, base + 3 }
     self.triangles[#self.triangles + 1] = { base + 1, base + 3, base + 4 }
+    -- Back face: reversed winding for double-sided rendering
+    self.triangles[#self.triangles + 1] = { base + 7, base + 6, base + 5 }
+    self.triangles[#self.triangles + 1] = { base + 8, base + 7, base + 5 }
 end
 
 function MeshAccumulator:addTriangle(p1, p2, p3, normal)
-    if #self.triangles + 1 > self.MAX_TRIANGLES then
+    if #self.triangles + 2 > self.MAX_TRIANGLES then
         self:flush()
     end
 
     local base = #self.vertices
+    -- Front-face vertices
     self.vertices[base + 1] = p1
     self.vertices[base + 2] = p2
     self.vertices[base + 3] = p3
     self.normals[base + 1] = normal
     self.normals[base + 2] = normal
     self.normals[base + 3] = normal
+    -- Back-face vertices (shared positions, reversed normal)
+    local backNormal = -normal
+    self.vertices[base + 4] = p1
+    self.vertices[base + 5] = p2
+    self.vertices[base + 6] = p3
+    self.normals[base + 4] = backNormal
+    self.normals[base + 5] = backNormal
+    self.normals[base + 6] = backNormal
 
+    -- Front face
     self.triangles[#self.triangles + 1] = { base + 1, base + 2, base + 3 }
+    -- Back face: reversed winding for double-sided rendering
+    self.triangles[#self.triangles + 1] = { base + 6, base + 5, base + 4 }
 end
 
 function MeshAccumulator:flush()
@@ -148,7 +174,6 @@ function MeshAccumulator:flush()
     part.CanCollide = if self.canCollide == nil then true else self.canCollide
     part.CanQuery = if self.canQuery == nil then true else self.canQuery
     part.CastShadow = if self.castShadow == nil then false else self.castShadow
-    part.DoubleSided = true -- Prevent backface culling on thin shell walls
     if self.transparency ~= nil then
         part.Transparency = self.transparency
     end

@@ -1216,6 +1216,36 @@ class AustinRuntimeContractTests(unittest.TestCase):
         self.assertIn("WritePixelsBuffer", src,
                        "Must use WritePixelsBuffer to fill texture")
 
+    def test_mesh_accumulator_addquad_emits_back_face_triangles(self) -> None:
+        """addQuad must emit reversed-winding back-face triangles for double-sided rendering."""
+        src = self.building_builder_text
+        # Front face triangles
+        self.assertIn("{ base + 1, base + 2, base + 3 }", src,
+                       "addQuad must emit front-face triangle (1,2,3)")
+        self.assertIn("{ base + 1, base + 3, base + 4 }", src,
+                       "addQuad must emit front-face triangle (1,3,4)")
+        # Back face triangles with reversed winding
+        self.assertIn("{ base + 7, base + 6, base + 5 }", src,
+                       "addQuad must emit back-face triangle with reversed winding")
+        self.assertIn("{ base + 8, base + 7, base + 5 }", src,
+                       "addQuad must emit back-face triangle with reversed winding")
+        # Back-face normals must be negated
+        self.assertIn("local backNormal = -normal", src,
+                       "Back-face vertices must use negated normal")
+
+    def test_mesh_accumulator_addtriangle_emits_back_face(self) -> None:
+        """addTriangle must emit a reversed-winding back-face triangle."""
+        src = self.building_builder_text
+        self.assertIn("{ base + 6, base + 5, base + 4 }", src,
+                       "addTriangle must emit back-face triangle with reversed winding")
+
+    def test_meshpart_does_not_set_invalid_doublesided_property(self) -> None:
+        """DoubleSided is not a valid MeshPart property; double-sided rendering
+        is achieved via back-face triangles in the EditableMesh itself."""
+        src = self.building_builder_text
+        self.assertNotIn("DoubleSided", src,
+                         "MeshPart does not have DoubleSided; use back-face triangles instead")
+
 
 if __name__ == "__main__":
     unittest.main()
