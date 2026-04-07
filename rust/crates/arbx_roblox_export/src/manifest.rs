@@ -2,6 +2,7 @@ use std::fmt::Write as _;
 
 use arbx_geo::{BoundingBox, ChunkId, Footprint, Vec3};
 
+use crate::road_mesh::RoadMeshStrip;
 use crate::subplans::ChunkRef;
 
 #[derive(Debug, Clone, Copy, PartialEq, serde::Serialize, serde::Deserialize)]
@@ -60,6 +61,7 @@ pub struct RoadSegment {
     pub layer: Option<i32>,
     pub name: Option<String>,
     pub sidewalk_surface: Option<String>,
+    pub road_mesh: Option<RoadMeshStrip>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -631,6 +633,11 @@ impl RoadSegment {
         out.push_str(",\n");
         write_key(out, indent + 2, "points");
         write_vec3_array(out, &self.points, indent + 2);
+        if let Some(ref mesh) = self.road_mesh {
+            out.push_str(",\n");
+            write_key(out, indent + 2, "roadMesh");
+            mesh.write_json(out, indent + 2);
+        }
         out.push('\n');
         write_indent(out, indent);
         out.push('}');

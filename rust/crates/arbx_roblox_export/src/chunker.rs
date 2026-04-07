@@ -477,6 +477,7 @@ impl Chunker {
                         layer: f.layer,
                         name: f.name.clone(),
                         sidewalk_surface: f.sidewalk_surface.clone(),
+                        road_mesh: None,
                     });
                 }
             }

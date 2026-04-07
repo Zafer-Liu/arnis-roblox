@@ -106,6 +106,8 @@ fn build_chunk(input: ChunkInput) -> Chunk {
             oneway: None,
             layer: None,
             name: None,
+            sidewalk_surface: None,
+            road_mesh: None,
         })
         .collect();
 
