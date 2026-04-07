@@ -29,7 +29,7 @@ The active implementation plan is:
 - `python3 -m unittest scripts.tests.test_austin_runtime_contract scripts.tests.test_play_render_truth scripts.tests.test_convergence_guardrails scripts.tests.test_run_studio_harness -v`
   - passed on 2026-04-07 (265 tests, up from 76 at tranche start)
 - `cargo test --manifest-path rust/Cargo.toml --workspace`
-  - passed on 2026-04-07 (257 tests)
+  - passed on 2026-04-07 (269 tests, all green on both primary and tertiary)
 - `git diff --check`
   - passed on 2026-04-07
 
@@ -74,7 +74,16 @@ The active implementation plan is:
 
 ## Status Notes
 
-### 2026-04-07: Rust→Lua Pre-Computed Mesh Consumer Wiring
+### 2026-04-07: Session 2 — Hero PBR, Telemetry Fix, Sidewalk/Curb Rust, Austin Proof
+
+- **Hero PBR surfaces merged**: Procedural SurfaceAppearance with EditableImage on named buildings >20 studs. Three facade types (office/stone/metal) with normal maps, roughness, metalness. Budget-gated to 10 per chunk. Session-level feature detection.
+- **ARNIS_CLIENT_PERF telemetry fixed**: Harness now defaults `ARNIS_TELEMETRY_FAMILIES=client_perf` so frame profiling emits automatically on every play proof.
+- **Sidewalk/curb geometry lowered into Rust**: `RoadMeshBundle` with surface + sidewalkLeft/Right + curbLeft/Right. `SidewalkMode` enum, lateral offset support, 13 new Rust tests. Lua consumer handles both bundle and legacy flat formats.
+- **Double-roof bug fixed**: Rust `build_shell_mesh` stripped of flat roof slab — Lua `buildRoof` is sole roof owner.
+- **Austin Capitol recompile on tertiary**: 100% shellMesh (401 buildings) and 100% roadMesh (3400 roads) coverage confirmed via audit-signal.
+- **269 Rust + 265 Python tests green on both primary and tertiary**.
+
+### 2026-04-07: Session 1 — Rust→Lua Pre-Computed Mesh Consumer Wiring
 
 - **BuildingBuilder pre-computed mesh fast path**: `MeshAccumulator:addPrecomputedMesh()` loads Rust-compiled `shellMesh` (flat vertex/triangle/normal arrays) directly into EditableMesh accumulators, bypassing runtime `addOrientedBox` wall generation. Falls back to runtime generation when shellMesh absent. Coordinate conversion: chunk-local → world-space via originStuds offset. Index conversion: 0-based Rust → 1-based Lua.
 - **RoadBuilder pre-computed mesh fast path**: `RoadMeshAccumulator:addPrecomputedMesh()` loads Rust-compiled `roadMesh` directly, skipping per-segment `addRoadStrip` for ground segments. Bridges, tunnels, sidewalks, and curbs still generate at runtime. Pre-computed mesh loaded once per road before segment loop.
