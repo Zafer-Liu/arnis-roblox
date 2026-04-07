@@ -862,6 +862,27 @@ class RunStudioHarnessTests(unittest.TestCase):
         self.assertIn("if ! ensure_vsync_binary_fresh >&2; then", body)
         self.assertNotIn('if [[ -z "$VSYNC_BINARY" ]]; then', body)
 
+    def test_build_clean_place_patches_lighting_technology_to_future(self) -> None:
+        build_block = re.search(
+            r"build_clean_place\(\) \{\n(?P<body>.*?)\n\}\n\nvsync_repo_dir_looks_usable",
+            self.text,
+            re.DOTALL,
+        )
+        self.assertIsNotNone(build_block, "build_clean_place function not found")
+        body = build_block.group("body")
+        # The lighting patch must run after the vsync build and before the
+        # final printf that returns the place path.
+        self.assertIn('Technology\\">Compatibility', body)
+        self.assertIn('Technology\\">Future', body)
+        self.assertIn('Technology\\">Voxel', body)
+        build_index = body.find('"$VSYNC_BINARY"')
+        patch_index = body.find('Technology\\">Compatibility')
+        printf_index = body.rfind("printf")
+        self.assertGreater(patch_index, build_index,
+                           "lighting patch must come after vsync build")
+        self.assertGreater(printf_index, patch_index,
+                           "printf must come after lighting patch")
+
     def test_play_focused_clean_place_failure_refuses_new_template_fallback(self) -> None:
         auto_prepare_block = re.search(
             r"auto_prepare_place\(\) \{\n(?P<body>.*?)\n\}\n\nwhile \[\[ \$# -gt 0 \]\]; do",

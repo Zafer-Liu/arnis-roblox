@@ -636,6 +636,22 @@ build_clean_place() {
   "$VSYNC_BINARY" --root "$roblox_dir" build --project "$build_project" --output "$output_place" >/dev/null
 
   [[ -f "$output_place" ]]
+
+  # Patch Lighting.Technology to Future to prevent the Lighting Technology
+  # Migration dialog that blocks automated harness runs.  The dialog appears
+  # when a built place still carries Compatibility or Voxel lighting even
+  # though default.project.json requests Future.
+  python3 -c "
+import sys
+p = sys.argv[1]
+t = open(p, 'r').read()
+t = t.replace('<string name=\"Technology\">Compatibility</string>',
+              '<string name=\"Technology\">Future</string>')
+t = t.replace('<string name=\"Technology\">Voxel</string>',
+              '<string name=\"Technology\">Future</string>')
+open(p, 'w').write(t)
+" "$output_place"
+
   printf '%s\n' "$output_place"
 }
 
