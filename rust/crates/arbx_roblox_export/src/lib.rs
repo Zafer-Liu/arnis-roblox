@@ -632,8 +632,8 @@ mod tests {
             .expect("atlas Option already verified");
 
         assert_eq!(atlas.entries.len(), 2);
-        assert!(!atlas.png_data.is_empty());
-        assert_eq!(&atlas.png_data[0..8], &[137, 80, 78, 71, 13, 10, 26, 10]);
+        // Raw RGBA: 512*512*4 = 1,048,576 bytes
+        assert_eq!(atlas.rgba_data.len(), (512 * 512 * 4) as usize);
 
         let hero_a = chunk_with_atlas
             .buildings
@@ -660,7 +660,7 @@ mod tests {
 
         let json = manifest.to_json_pretty();
         assert!(json.contains("\"buildingAtlas\""));
-        assert!(json.contains("\"pngBase64\""));
+        assert!(json.contains("\"rgbaBase64\""));
         assert!(json.contains("\"atlasUv\""));
     }
 

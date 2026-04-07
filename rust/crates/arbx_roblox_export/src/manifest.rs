@@ -1291,8 +1291,8 @@ fn write_building_atlas(out: &mut String, atlas: &BuildingAtlas, indent: usize) 
     write!(out, "{}", atlas.atlas_height).unwrap();
     out.push_str(",\n");
 
-    write_key(out, indent + 2, "pngBase64");
-    let encoded = base64::engine::general_purpose::STANDARD.encode(&atlas.png_data);
+    write_key(out, indent + 2, "rgbaBase64");
+    let encoded = base64::engine::general_purpose::STANDARD.encode(&atlas.rgba_data);
     write_string(out, &encoded);
     out.push_str(",\n");
 

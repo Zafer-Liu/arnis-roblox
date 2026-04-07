@@ -3764,28 +3764,21 @@ function BuildingBuilder.MeshBuildAll(parent, buildings, originStuds, chunk, con
     -- When the atlas is loaded, buildings with atlasUv get a shared SurfaceAppearance
     -- instead of per-building procedural EditableImage generation.
     local enableAtlas = (config.EnableBuildingAtlas == true) and (WorldConfig.EnableBuildingAtlas == true)
-    local chunkAtlasImage = nil -- EditableImage decoded from base64 PNG, or nil
-    if enableAtlas and chunk and chunk.buildingAtlas and type(chunk.buildingAtlas.pngBase64) == "string" then
-        local decodeOk, decoded = pcall(function()
-            local raw = buffer.fromstring(game:GetService("HttpService"):JSONDecode(
-                '"' .. chunk.buildingAtlas.pngBase64 .. '"'
-            ))
-            -- Fallback: if HttpService decode fails, try base64 decode polyfill
-            return raw
-        end)
-        -- Simpler base64 path: Roblox buffer.fromstring with raw decoded bytes
+    local chunkAtlasImage = nil -- EditableImage from decoded RGBA atlas, or nil
+    if enableAtlas and chunk and chunk.buildingAtlas and type(chunk.buildingAtlas.rgbaBase64) == "string" then
         local atlasOk, atlasImg = pcall(function()
-            local pngBytes = decodeOk and decoded or nil
-            if not pngBytes then
-                return nil
-            end
+            -- Decode base64 → raw RGBA pixel buffer (no PNG decoding needed)
+            local rgbaStr = game:GetService("HttpService"):JSONDecode(
+                '"' .. chunk.buildingAtlas.rgbaBase64 .. '"'
+            )
+            local rgbaBuf = buffer.fromstring(rgbaStr)
             local img = AssetService:CreateEditableImage({
                 Size = Vector2.new(
                     chunk.buildingAtlas.atlasWidth or 512,
                     chunk.buildingAtlas.atlasHeight or 512
                 ),
             })
-            img:WritePixelsBuffer(Vector2.new(0, 0), img.Size, pngBytes)
+            img:WritePixelsBuffer(Vector2.new(0, 0), img.Size, rgbaBuf)
             return img
         end)
         if atlasOk and atlasImg then

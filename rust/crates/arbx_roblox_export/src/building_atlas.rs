@@ -57,13 +57,15 @@ impl AtlasEntry {
     }
 }
 
-/// A chunk-scoped facade atlas with the encoded PNG bytes plus per-building
-/// UV rects. `png_data` is raw bytes; the JSON writer base64-encodes them.
+/// A chunk-scoped facade atlas with raw RGBA pixel data plus per-building
+/// UV rects. `rgba_data` is raw 4-bytes-per-pixel; the JSON writer
+/// base64-encodes it so the Lua consumer can decode directly into
+/// `EditableImage:WritePixelsBuffer` without a PNG decoder.
 #[derive(Debug, Clone, PartialEq)]
 pub struct BuildingAtlas {
     pub atlas_width: u32,
     pub atlas_height: u32,
-    pub png_data: Vec<u8>,
+    pub rgba_data: Vec<u8>,
     pub entries: Vec<AtlasEntry>,
 }
 
@@ -203,12 +205,10 @@ pub fn build_chunk_atlas(buildings: &[BuildingShell]) -> Option<BuildingAtlas> {
         });
     }
 
-    let png_data = encode_rgba_png(&pixels, atlas_w, atlas_h);
-
     Some(BuildingAtlas {
         atlas_width: atlas_w,
         atlas_height: atlas_h,
-        png_data,
+        rgba_data: pixels,
         entries,
     })
 }
@@ -321,21 +321,6 @@ fn pseudo_noise(x: i32, y: i32) -> f32 {
     m / 255.0
 }
 
-fn encode_rgba_png(pixels: &[u8], width: u32, height: u32) -> Vec<u8> {
-    let mut out: Vec<u8> = Vec::new();
-    {
-        let mut encoder = png::Encoder::new(&mut out, width, height);
-        encoder.set_color(png::ColorType::Rgba);
-        encoder.set_depth(png::BitDepth::Eight);
-        let mut writer = encoder
-            .write_header()
-            .expect("png header write should succeed for fixed-size buffer");
-        writer
-            .write_image_data(pixels)
-            .expect("png image data write should succeed for fixed-size buffer");
-    }
-    out
-}
 
 #[cfg(test)]
 mod tests {
@@ -407,8 +392,8 @@ mod tests {
         assert_eq!(atlas.atlas_width, ATLAS_RESOLUTION);
         assert_eq!(atlas.atlas_height, ATLAS_RESOLUTION);
         assert_eq!(atlas.entries.len(), 3);
-        assert!(!atlas.png_data.is_empty());
-        assert_eq!(&atlas.png_data[0..8], &[137, 80, 78, 71, 13, 10, 26, 10]);
+        // Raw RGBA: 512*512*4 = 1,048,576 bytes
+        assert_eq!(atlas.rgba_data.len(), (ATLAS_RESOLUTION * ATLAS_RESOLUTION * 4) as usize);
     }
 
     #[test]
@@ -488,7 +473,7 @@ mod tests {
         ];
         let a1 = build_chunk_atlas(&buildings).unwrap();
         let a2 = build_chunk_atlas(&buildings).unwrap();
-        assert_eq!(a1.png_data, a2.png_data);
+        assert_eq!(a1.rgba_data, a2.rgba_data);
         assert_eq!(a1.entries, a2.entries);
     }
 }
