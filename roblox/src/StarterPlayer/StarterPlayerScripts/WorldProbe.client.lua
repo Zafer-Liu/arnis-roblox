@@ -896,14 +896,21 @@ task.defer(function()
         -- for screenshot capture, then restore Custom for player control
         camera.CameraType = Enum.CameraType.Scriptable
         local pos = root.Position
-        -- Default street-level view behind character
-        local cameraPos = pos + Vector3.new(0, 8, 20)
-        local lookAt = pos + Vector3.new(0, 4, -40)
-        camera.CFrame = CFrame.lookAt(cameraPos, lookAt)
-        task.wait(5)
+        -- Cycle through camera angles for automated visual proof.
+        -- Each angle holds for 8s (enough for capture), then moves to next.
+        -- After all angles, restores Custom camera for player control.
+        local angles = {
+            { pos + Vector3.new(0, 8, 20), pos + Vector3.new(0, 4, -40), "street_behind" },
+            { pos + Vector3.new(20, 15, 20), pos + Vector3.new(-20, 4, -20), "street_diagonal" },
+            { pos + Vector3.new(0, 60, 60), pos + Vector3.new(0, 0, -30), "aerial_approach" },
+            { pos + Vector3.new(0, 120, 0), pos + Vector3.new(0, 0, -1), "aerial_topdown" },
+        }
+        for _, angle in ipairs(angles) do
+            camera.CFrame = CFrame.lookAt(angle[1], angle[2])
+            print("ARNIS_CAMERA_ANGLE " .. angle[3])
+            task.wait(8)
+        end
         camera.CameraType = Enum.CameraType.Custom
-        -- Immediately re-set the CFrame to fight the orbit controller
-        camera.CFrame = CFrame.lookAt(cameraPos, lookAt)
     end
 end)
 
