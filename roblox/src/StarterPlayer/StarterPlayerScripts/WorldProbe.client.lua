@@ -883,6 +883,22 @@ Workspace:GetAttributeChangedSignal(WORLD_ROOT_ATTR):Connect(function()
     publishWorldTelemetry()
 end)
 
+-- One-time camera initialization: set the camera to look at the horizon
+-- from behind the character after spawn. Without this, the Studio test-mode
+-- camera starts at whatever angle it was in edit mode (often pointing at sky).
+task.defer(function()
+    local camera = Workspace.CurrentCamera
+    local character = player.Character or player.CharacterAdded:Wait()
+    local root = character:WaitForChild("HumanoidRootPart", 10)
+    if root and camera then
+        local pos = root.Position
+        local behindOffset = Vector3.new(0, 8, 12)
+        local cameraPos = pos + behindOffset
+        local lookAt = pos + Vector3.new(0, 2, -20)
+        camera.CFrame = CFrame.lookAt(cameraPos, lookAt)
+    end
+end)
+
 RunService.Heartbeat:Connect(function(dt)
     recordFrameTime(dt)
     publishPerfTelemetry()
