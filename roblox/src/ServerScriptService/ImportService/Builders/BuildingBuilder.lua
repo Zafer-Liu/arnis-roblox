@@ -34,13 +34,20 @@ local function trySetVertexNormal(mesh, vertexId, normal)
         return
     end
 
-    local ok = pcall(function()
+    local ok, err = pcall(function()
         mesh:SetVertexNormal(vertexId, normal)
     end)
     if ok then
-        editableMeshSetVertexNormalSupported = true
+        if editableMeshSetVertexNormalSupported ~= true then
+            editableMeshSetVertexNormalSupported = true
+            print("[MeshAccumulator] SetVertexNormal: SUPPORTED")
+        end
     else
-        editableMeshSetVertexNormalSupported = false
+        if editableMeshSetVertexNormalSupported ~= false then
+            editableMeshSetVertexNormalSupported = false
+            warn("[MeshAccumulator] SetVertexNormal: NOT SUPPORTED — " .. tostring(err))
+            warn("[MeshAccumulator] All mesh normals will use auto-computed defaults. This may cause invisible faces.")
+        end
     end
 end
 
