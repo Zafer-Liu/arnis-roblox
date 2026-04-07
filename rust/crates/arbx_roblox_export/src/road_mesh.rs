@@ -53,72 +53,8 @@ pub fn build_road_strip(
 
     let thickness = thickness.max(0.05);
 
-    for window in points.windows(2) {
-        let (p1, p2) = (window[0], window[1]);
-
-        let dx = p2.0 - p1.0;
-        let dz = p2.2 - p1.2;
-        let horiz_len = (dx * dx + dz * dz).sqrt();
-        if horiz_len < 0.01 {
-            continue;
-        }
-
-        // Normalised horizontal direction and perpendicular (flat).
-        let hx = dx / horiz_len;
-        let hz = dz / horiz_len;
-        let px = -hz; // perpendicular X
-        let pz = hx; // perpendicular Z
-
-        let half_w = width * 0.5;
-
-        // Top surface vertices — follow per-endpoint Y.
-        let y1 = p1.1 + surface_lift;
-        let y2 = p2.1 + surface_lift;
-
-        // v1..v4 = top quad (near-left, near-right, far-right, far-left)
-        let v1 = (p1.0 - px * half_w, y1, p1.2 - pz * half_w);
-        let v2 = (p1.0 + px * half_w, y1, p1.2 + pz * half_w);
-        let v3 = (p2.0 + px * half_w, y2, p2.2 + pz * half_w);
-        let v4 = (p2.0 - px * half_w, y2, p2.2 - pz * half_w);
-
-        // b1..b4 = bottom quad
-        let b1 = (v1.0, v1.1 - thickness, v1.2);
-        let b2 = (v2.0, v2.1 - thickness, v2.2);
-        let b3 = (v3.0, v3.1 - thickness, v3.2);
-        let b4 = (v4.0, v4.1 - thickness, v4.2);
-
-        let base = (vertices.len() / 3) as u32;
-
-        // Push all 8 vertices.
-        for &(vx, vy, vz) in &[v1, v2, v3, v4, b1, b2, b3, b4] {
-            vertices.push(vx as f32);
-            vertices.push(vy as f32);
-            vertices.push(vz as f32);
-        }
-
-        // Normals per face — 6 quads, each with 4 vertex normals.
-        // But we share vertices across faces, so we store per-vertex normals
-        // matching the 8 unique positions.  For a box the dominant normal per
-        // vertex is the average of its adjacent face normals; for runtime
-        // rendering the Lua path uses flat per-face normals via addQuad.
-        // We replicate the flat-face approach: emit *separate* vertices per
-        // face so each face gets its own normal (24 verts / segment).
-
-        // Actually, to match the Lua path faithfully (which uses per-quad
-        // vertices with flat normals), we need 4 verts per face * 6 faces =
-        // 24 vertices per segment.  Let's redo with that approach.
-        vertices.clear();
-        normals.clear();
-        triangles.clear();
-        // Restart accumulation with per-face vertices.
-        break; // will redo below
-    }
-
-    // --- Per-face vertex approach (matches Lua addQuad calls) ---
-    vertices.clear();
-    normals.clear();
-    triangles.clear();
-
+    // Per-face vertex approach: 4 verts per face * 6 faces = 24 vertices per
+    // segment, with flat per-face normals matching the Lua addQuad calls.
     for window in points.windows(2) {
         let (p1, p2) = (window[0], window[1]);
 

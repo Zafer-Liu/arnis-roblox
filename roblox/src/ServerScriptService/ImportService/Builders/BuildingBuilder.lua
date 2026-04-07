@@ -71,9 +71,9 @@ function MeshAccumulator.new(parent, materialName, material, color, options)
     self.transparency = options.transparency
     self.reflectance = options.reflectance
     self.collisionFidelity = options.collisionFidelity
-    self.vertices = {} -- array of Vector3
-    self.normals = {} -- array of Vector3
-    self.triangles = {} -- array of {v1_idx, v2_idx, v3_idx} (1-indexed)
+    self.vertices = table.create(18000 * 2) -- pre-allocate for max batch
+    self.normals = table.create(18000 * 2)
+    self.triangles = table.create(18000)
     self.meshCount = 0
     self.totalVertexCount = 0
     self.totalTriangleCount = 0
@@ -127,11 +127,6 @@ function MeshAccumulator:flush()
 
     local vertexCount = #self.vertices
     local triangleCount = #self.triangles
-
-    print(string.format(
-        "[MeshAccumulator] flush %s: %d verts, %d tris",
-        self.materialName, vertexCount, triangleCount
-    ))
 
     local meshOk, mesh = pcall(function()
         return AssetService:CreateEditableMesh()

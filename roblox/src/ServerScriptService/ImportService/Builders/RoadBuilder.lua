@@ -1241,11 +1241,6 @@ function RoadMeshAccumulator:flush()
     local vertexCount = #self.vertices
     local triangleCount = #self.triangles
 
-    print(string.format(
-        "[RoadMeshAccumulator] flush %s: %d verts, %d tris",
-        self.name, vertexCount, triangleCount
-    ))
-
     self.totalVertexCount += vertexCount
     self.totalTriangleCount += triangleCount
 

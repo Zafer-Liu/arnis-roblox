@@ -215,7 +215,9 @@ pub fn build_shell_mesh(
         let center_y = base_y + height * 0.5;
         let center: V3 = [mid_x, center_y, mid_z];
 
-        let half_size: V3 = [wall_t * 0.5, height * 0.5, edge_len * 0.5];
+        // Z-extent includes wall_t overlap on each end to match Lua's
+        // addOrientedBox(... Vector3.new(WALL_THICKNESS, height, edgeLen + WALL_THICKNESS))
+        let half_size: V3 = [wall_t * 0.5, height * 0.5, (edge_len + wall_t) * 0.5];
 
         acc.add_oriented_box(center, right, up, forward, half_size);
     }

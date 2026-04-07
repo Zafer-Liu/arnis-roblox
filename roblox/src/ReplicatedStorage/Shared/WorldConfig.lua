@@ -83,6 +83,10 @@ local WorldConfig = {
     StreamingLookaheadSeconds = 1,
     StreamingMaxLookaheadStuds = 512,
     StreamingImportFrameBudgetSeconds = 1 / 240,
+    -- NOTE: These top-level ring defaults are only used when no StreamingProfile
+    -- matches. The active profile is "local_dev" which has reduced budgets
+    -- (16/24/32 chunks) safe for 8GB tertiary. These larger values are for
+    -- high-memory production hosts.
     StreamingRings = {
         near = {
             MaxRadiusStuds = 1024,
