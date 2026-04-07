@@ -896,9 +896,9 @@ task.defer(function()
         -- for screenshot capture, then restore Custom for player control
         camera.CameraType = Enum.CameraType.Scriptable
         local pos = root.Position
-        -- High aerial for debug color overview: see all buildings RED walls vs BLUE roofs
-        local cameraPos = pos + Vector3.new(0, 150, 100)
-        local lookAt = pos + Vector3.new(0, 0, -50)
+        -- Default street-level view behind character
+        local cameraPos = pos + Vector3.new(0, 8, 20)
+        local lookAt = pos + Vector3.new(0, 4, -40)
         camera.CFrame = CFrame.lookAt(cameraPos, lookAt)
         task.wait(5)
         camera.CameraType = Enum.CameraType.Custom

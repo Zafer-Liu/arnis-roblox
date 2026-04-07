@@ -227,7 +227,7 @@ local WorldConfig = {
     -- ═══════════════════════════════════════════════════════════════
     -- DEBUG VISUALIZATION
     -- ═══════════════════════════════════════════════════════════════
-    DebugBuildingColors = true, -- walls=RED, roofs=BLUE, floors=YELLOW; makes broken buildings instantly visible
+    DebugBuildingColors = false, -- walls=RED, roofs=BLUE, floors=YELLOW; makes broken buildings instantly visible
 
     -- ═══════════════════════════════════════════════════════════════
     -- INSTANCE BUDGETS (set high for powerful hardware)
