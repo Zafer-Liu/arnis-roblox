@@ -236,11 +236,24 @@ local function waitForStartupStreamingReady(spawnPoint)
 end
 
 local function resolveHarnessRouteSelection()
-    if type(HarnessRouteConfig) ~= "table" or HarnessRouteConfig.enabled ~= true then
+    if type(HarnessRouteConfig) ~= "table" then
         return {}
     end
 
     local selection = {}
+    -- telemetryFamilies is harness-wide configuration and is independent of
+    -- the route-catalog `enabled` gate. The harness rewrites just the
+    -- telemetryFamilies field when no route is requested, so we must read it
+    -- even when HarnessRouteConfig.enabled is false. Without this, perf
+    -- telemetry (and any other family-gated marker) silently never emits.
+    if type(HarnessRouteConfig.telemetryFamilies) == "string" then
+        selection.telemetryFamilies = HarnessRouteConfig.telemetryFamilies
+    end
+
+    if HarnessRouteConfig.enabled ~= true then
+        return selection
+    end
+
     if type(HarnessRouteConfig.routeCatalogName) == "string" and HarnessRouteConfig.routeCatalogName ~= "" then
         selection.routeCatalogName = HarnessRouteConfig.routeCatalogName
     end
@@ -249,9 +262,6 @@ local function resolveHarnessRouteSelection()
     end
     if type(HarnessRouteConfig.routeStepIndex) == "number" then
         selection.routeStepIndex = math.floor(HarnessRouteConfig.routeStepIndex)
-    end
-    if type(HarnessRouteConfig.telemetryFamilies) == "string" then
-        selection.telemetryFamilies = HarnessRouteConfig.telemetryFamilies
     end
     return selection
 end

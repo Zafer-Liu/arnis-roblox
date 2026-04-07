@@ -504,9 +504,16 @@ class AustinRuntimeContractTests(unittest.TestCase):
     def test_bootstrap_reads_harness_route_config_before_runtime_load(self) -> None:
         self.assertIn("local HarnessRouteConfig = require(script.Parent.ImportService.HarnessRouteConfig)", self.bootstrap_text)
         self.assertIn("local function resolveHarnessRouteSelection()", self.bootstrap_text)
-        self.assertIn("if type(HarnessRouteConfig) ~= \"table\" or HarnessRouteConfig.enabled ~= true then", self.bootstrap_text)
+        self.assertIn("if type(HarnessRouteConfig) ~= \"table\" then", self.bootstrap_text)
         self.assertIn("if type(HarnessRouteConfig.telemetryFamilies) == \"string\"", self.bootstrap_text)
         self.assertIn("selection.telemetryFamilies = HarnessRouteConfig.telemetryFamilies", self.bootstrap_text)
+        # telemetryFamilies must be read independently of the route-catalog
+        # `enabled` gate so perf telemetry emits in default harness runs.
+        telemetry_idx = self.bootstrap_text.find("selection.telemetryFamilies = HarnessRouteConfig.telemetryFamilies")
+        enabled_gate_idx = self.bootstrap_text.find("if HarnessRouteConfig.enabled ~= true then")
+        self.assertNotEqual(telemetry_idx, -1)
+        self.assertNotEqual(enabled_gate_idx, -1)
+        self.assertLess(telemetry_idx, enabled_gate_idx)
         self.assertIn("local ReplicatedStorage = game:GetService(\"ReplicatedStorage\")", self.bootstrap_text)
         self.assertIn("ReplicatedStorage:SetAttribute(\"ArnisTelemetryFamilies\", harnessRouteSelection.telemetryFamilies)", self.bootstrap_text)
         self.assertIn("Workspace:SetAttribute(\"ArnisTelemetryFamilies\", harnessRouteSelection.telemetryFamilies)", self.bootstrap_text)
