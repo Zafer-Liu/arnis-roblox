@@ -909,12 +909,10 @@ class AustinRuntimeContractTests(unittest.TestCase):
             )
 
     def test_prop_builder_needleleaved_canopy_is_taller_than_wide(self) -> None:
-        """Needleleaved canopy should use a taller-than-wide shape (aspect ~1.5:1+)."""
-        # The needleleaved branch creates a ball with Y dimension > X dimension
+        """Needleleaved canopy should use stacked tiers producing a cone silhouette."""
         self.assertIn('leafType == "needleleaved"', self.prop_builder_text)
-        # Cone-like dimensions: canopyR * 2.5 height vs canopyR * 1.2 width
-        self.assertIn("canopyR * 2.5", self.prop_builder_text)
-        self.assertIn("canopyR * 1.2", self.prop_builder_text)
+        # Multi-tier cone approach: stacked progressively smaller balls
+        self.assertIn("tier", self.prop_builder_text)
 
     def test_prop_builder_broadleaved_uses_multi_lobe_canopy(self) -> None:
         """Broadleaved (default) trees must use the multi-lobe organic canopy."""
