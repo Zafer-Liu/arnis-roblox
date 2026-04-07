@@ -48,32 +48,37 @@ local JETPACK_TAG = "JetpackPart"
 local PARACHUTE_TAG = "ParachutePart"
 
 -- Car physics
-local CAR_MAX_SPEED = 160 -- studs/s (~48m/s, feels FAST)
-local CAR_TORQUE = 1200 -- strong acceleration, feel the g-force
-local CAR_STEER_ANGLE = 40 -- degrees — sharp turns possible
-local CAR_STEER_SPEED = 5 -- responsive steering
-local SUSPENSION_REST_LENGTH = 1.8 -- slightly softer, more body roll
-local SUSPENSION_STIFFNESS = 600 -- softer springs = more body roll in turns
-local SUSPENSION_DAMPING = 45 -- less damping = bouncier, more alive
+local CAR_MAX_SPEED = 120 -- studs/s (~36m/s, fast but controllable)
+local CAR_MOTOR_ANGULAR_VEL = 45 -- rad/s at full throttle (matches wheel radius to ~120 stud/s)
+local CAR_TORQUE = 1800 -- strong acceleration with heavier chassis
+local CAR_STEER_ANGLE = 35 -- degrees — sharp but not twitchy
+local CAR_STEER_SPEED = 8 -- snappy steering response
+local CAR_HIGH_SPEED_STEER_FACTOR = 0.4 -- steering reduction at top speed (prevents spinouts)
+local SUSPENSION_REST_LENGTH = 1.6 -- tighter suspension for less wallow
+local SUSPENSION_STIFFNESS = 1200 -- firm springs — car stays flat in turns
+local SUSPENSION_DAMPING = 120 -- heavy damping kills bounce
 local DRIFT_GRIP_REDUCTION = 0.4
-local ENGINE_IDLE_VIBRATION = 0.03
+local ENGINE_IDLE_VIBRATION = 0.02
 
 -- Jetpack physics
-local JETPACK_MAX_THRUST = 6000
-local JETPACK_RAMP_TIME = 0.3
-local JETPACK_DAMPING = 0.92
+local JETPACK_MAX_THRUST = 5000
+local JETPACK_RAMP_TIME = 0.4 -- slightly longer ramp for smoother feel
+local JETPACK_DAMPING = 0.55 -- much stronger drag: 0.45 * mass * vel per frame
+local JETPACK_MAX_HORIZONTAL_SPEED = 80 -- studs/s hard cap
+local JETPACK_MAX_VERTICAL_SPEED = 60 -- studs/s hard cap
 local JETPACK_FUEL_MAX = 60 -- seconds (enough to reach top of tallest skyscrapers)
 local JETPACK_FUEL_RECHARGE_RATE = 0.5 -- per second on ground
 
 -- Parachute physics
 local CHUTE_GLIDE_RATIO = 3.0 -- 3 forward : 1 down
-local CHUTE_DESCENT_RATE = -12
+local CHUTE_DESCENT_RATE = -8 -- studs/s (~2.4m/s, realistic paraglider descent)
 local CHUTE_FORWARD_SPEED = math.abs(CHUTE_DESCENT_RATE) * CHUTE_GLIDE_RATIO
-local CHUTE_TURN_RATE = 2.5
-local CHUTE_FLARE_LIFT = 8
-local CHUTE_STALL_THRESHOLD = -0.7 -- normalized back input
-local CHUTE_STALL_DESCENT = -40
-local CHUTE_WIND_STRENGTH = 3
+local CHUTE_TURN_RATE = 1.6 -- rad/s, smooth turns
+local CHUTE_FLARE_LIFT = 5 -- reduced: flare slows descent, doesn't launch up
+local CHUTE_FLARE_STALL_TIME = 3.0 -- seconds of sustained flare before stall
+local CHUTE_STALL_DESCENT = -30 -- fast but not instant death
+local CHUTE_WIND_STRENGTH = 1.5 -- gentle drift, not a hurricane
+local CHUTE_HORIZONTAL_DRAG = 0.15 -- fraction of horizontal velocity removed per second
 
 -- Camera
 local CAR_CAM_OFFSET = Vector3.new(0, 8, 22)
@@ -716,19 +721,19 @@ local function createCarBody(spawnCF)
     sw.Part1 = seat
     sw.Parent = chassis
 
-    -- Anti-flip gyro
+    -- Anti-flip gyro: keeps car upright with mild yaw damping to prevent spin-outs
     local gyro = Instance.new("BodyGyro")
-    gyro.MaxTorque = Vector3.new(30000, 0, 30000) -- reduced: car CAN flip if reckless
-    gyro.P = 6000
-    gyro.D = 500
+    gyro.MaxTorque = Vector3.new(50000, 5000, 50000) -- strong roll/pitch, mild yaw stabilization
+    gyro.P = 10000
+    gyro.D = 800
     gyro.CFrame = chassis.CFrame
     gyro.Parent = chassis
 
-    -- Engine idle vibration
+    -- Engine idle vibration (subtle, not enough to move the car)
     local idleVib = Instance.new("BodyPosition")
-    idleVib.MaxForce = Vector3.new(0, 50, 0)
-    idleVib.P = 5000
-    idleVib.D = 200
+    idleVib.MaxForce = Vector3.new(0, 20, 0)
+    idleVib.P = 3000
+    idleVib.D = 300
     idleVib.Position = chassis.Position
     idleVib.Parent = chassis
 
@@ -872,9 +877,9 @@ local function createWheelWithSuspension(model, chassis, spawnCF, offset, isFron
     wheel.CFrame = spawnCF * CFrame.new(offset) * CFrame.Angles(0, 0, math.pi / 2)
     wheel.Anchored = false
     wheel.CustomPhysicalProperties = PhysicalProperties.new(
-        isFront and 1.5 or (1.5 * (1 - DRIFT_GRIP_REDUCTION * 0.3)),
-        isFront and 1.0 or 0.4, -- rear wheels: MUCH less friction — tail kicks out in turns
-        0.15,
+        isFront and 1.5 or 1.5,
+        isFront and 1.2 or 0.8, -- rear wheels: slightly less friction for controlled drift, not ice
+        0.2,
         1,
         1
     )
@@ -1107,8 +1112,10 @@ local function updateCar(dt)
     local velocity = carBody.AssemblyLinearVelocity
     local speed = velocity.Magnitude
 
-    -- Steering
-    local targetSteer = steer * CAR_STEER_ANGLE
+    -- Speed-dependent steering: reduce max angle at high speed to prevent spinouts
+    local speedFraction = math.clamp(speed / CAR_MAX_SPEED, 0, 1)
+    local steerReduction = 1 - speedFraction * (1 - CAR_HIGH_SPEED_STEER_FACTOR)
+    local targetSteer = steer * CAR_STEER_ANGLE * steerReduction
     carSteerAngle = lerp(carSteerAngle, targetSteer, dt * CAR_STEER_SPEED)
 
     -- Handbrake (space)
@@ -1116,8 +1123,8 @@ local function updateCar(dt)
 
     -- Update wheels
     for _, w in ipairs(carWheels) do
-        -- Motor drive
-        local motorSpeed = throttle * CAR_MAX_SPEED * 0.5 -- angular velocity
+        -- Motor drive: use dedicated angular velocity constant scaled to wheel radius
+        local motorSpeed = throttle * CAR_MOTOR_ANGULAR_VEL
         if handbrake and not w.isFront then
             -- Lock rear wheels for drift
             w.motor.AngularVelocity = 0
@@ -1384,6 +1391,16 @@ local function deployJetpack()
     jetpackForce.Parent = hrp
     tagPart(jetpackForce, JETPACK_TAG)
 
+    -- Anti-tumble gyro: keeps character upright during flight
+    local jetGyro = Instance.new("BodyGyro")
+    jetGyro.Name = "JetpackGyro"
+    jetGyro.MaxTorque = Vector3.new(40000, 2000, 40000)
+    jetGyro.P = 6000
+    jetGyro.D = 500
+    jetGyro.CFrame = hrp.CFrame
+    jetGyro.Parent = hrp
+    tagPart(jetGyro, JETPACK_TAG)
+
     -- Sounds
     jetpackThrustSound = makeSound(hrp, "JetThrust", true, 0.3, SOUND_JET_THRUST)
     jetpackThrustSound:Play()
@@ -1551,19 +1568,44 @@ local function updateJetpack(dt)
 
     local verticalForce = Vector3.new(0, verticalThrust * JETPACK_MAX_THRUST * jetpackThrustLevel, 0)
 
-    -- Hover when idle (counteract gravity + small oscillation)
+    -- Hover when idle (counteract gravity + gentle oscillation)
     local hoverForce = Vector3.new(0, 0, 0)
     if not isThrusting then
-        hoverForce = gravityCompensation + Vector3.new(0, math.sin(tick() * 3) * 40, 0)
+        hoverForce = gravityCompensation + Vector3.new(0, math.sin(tick() * 2) * 15, 0)
     else
         hoverForce = gravityCompensation * 0.95 -- partial gravity compensation when thrusting
     end
 
-    -- Air resistance / damping at high speed
+    -- Air resistance / damping: much stronger to prevent infinite acceleration
     local vel = hrp.AssemblyLinearVelocity
     local dampingForce = -vel * mass * (1 - JETPACK_DAMPING)
 
+    -- Speed cap: apply strong counter-force when exceeding max speed
+    local horizVel = Vector3.new(vel.X, 0, vel.Z)
+    local horizSpeed = horizVel.Magnitude
+    if horizSpeed > JETPACK_MAX_HORIZONTAL_SPEED then
+        local excess = horizSpeed - JETPACK_MAX_HORIZONTAL_SPEED
+        dampingForce = dampingForce - horizVel.Unit * excess * mass * 3
+    end
+    if math.abs(vel.Y) > JETPACK_MAX_VERTICAL_SPEED then
+        local excessY = math.abs(vel.Y) - JETPACK_MAX_VERTICAL_SPEED
+        dampingForce = dampingForce - Vector3.new(0, math.sign(vel.Y) * excessY * mass * 3, 0)
+    end
+
     jetpackForce.Force = horizontalForce + verticalForce + hoverForce + dampingForce
+
+    -- Update anti-tumble gyro to face movement direction
+    local jetGyro = hrp:FindFirstChild("JetpackGyro")
+    if jetGyro then
+        if horizSpeed > 3 then
+            -- Face movement direction with slight forward tilt
+            local moveDir = horizVel.Unit
+            local tiltAngle = math.clamp(horizSpeed / JETPACK_MAX_HORIZONTAL_SPEED, 0, 1) * math.rad(15)
+            jetGyro.CFrame = CFrame.lookAt(Vector3.zero, moveDir) * CFrame.Angles(tiltAngle, 0, 0)
+        else
+            jetGyro.CFrame = CFrame.new()
+        end
+    end
 
     -- Character tilt based on movement
     -- (Uses a subtle approach: adjust the force direction slightly)
@@ -1702,10 +1744,11 @@ local function deployParachute()
     mainSocket.Parent = canopyRoot
     tagPart(mainSocket, PARACHUTE_TAG)
 
-    -- Keep canopy floating above player with a small upward BodyForce
+    -- Keep canopy floating above player: counteract its own weight plus a small upward bias
+    local canopyMass = canopyRoot:GetMass()
     local canopyLift = Instance.new("BodyForce")
     canopyLift.Name = "CanopyLift"
-    canopyLift.Force = Vector3.new(0, workspace.Gravity * 0.08 * 1.25, 0) -- float at ~1.25× gravity
+    canopyLift.Force = Vector3.new(0, workspace.Gravity * canopyMass * 1.15, 0) -- 1.15x gravity for gentle upward pull
     canopyLift.Parent = canopyRoot
     tagPart(canopyLift, PARACHUTE_TAG)
 
@@ -1776,8 +1819,9 @@ local function deployParachute()
     tagPart(chuteForce, PARACHUTE_TAG)
 
     chuteLift = Instance.new("BodyVelocity")
-    chuteLift.MaxForce = Vector3.new(0, 15000, 0)
+    chuteLift.MaxForce = Vector3.new(4000, 20000, 4000) -- also damp horizontal to prevent wild swings
     chuteLift.Velocity = Vector3.new(0, CHUTE_DESCENT_RATE, 0)
+    chuteLift.P = 2000 -- softer P for smoother velocity tracking
     chuteLift.Parent = hrp
     tagPart(chuteLift, PARACHUTE_TAG)
 
@@ -1907,23 +1951,26 @@ local function updateParachute(dt)
     -- Update heading
     chuteHeading = chuteHeading + steerInput * CHUTE_TURN_RATE * dt
 
-    -- Stall detection
-    if flareInput > CHUTE_STALL_THRESHOLD and chuteStallTimer > 2 then
-        if not chuteStalled then
-            chuteStalled = true
-            chuteStallTimer = 0
-        end
-    end
-
+    -- Stall detection: sustained flare causes canopy collapse
     if chuteStalled then
         chuteStallTimer = chuteStallTimer + dt
         if chuteStallTimer > 1.5 then
-            -- Re-inflate
+            -- Re-inflate after stall recovery period
             chuteStalled = false
             chuteStallTimer = 0
         end
     else
-        chuteStallTimer = chuteStallTimer + dt * flareInput -- accumulate flare time
+        -- Accumulate flare time; reset when not flaring
+        if flareInput > 0 then
+            chuteStallTimer = chuteStallTimer + dt
+        else
+            chuteStallTimer = math.max(0, chuteStallTimer - dt * 0.5) -- slowly recover
+        end
+        -- Trigger stall after sustained flare
+        if chuteStallTimer > CHUTE_FLARE_STALL_TIME then
+            chuteStalled = true
+            chuteStallTimer = 0
+        end
     end
 
     -- Calculate forces
@@ -1942,17 +1989,24 @@ local function updateParachute(dt)
         forwardSpeed = CHUTE_FORWARD_SPEED * (1 - flareInput * 0.4)
     end
 
-    -- BodyVelocity controls descent rate
-    chuteLift.Velocity = Vector3.new(0, descentRate, 0)
+    -- BodyVelocity controls descent rate and provides a gentle horizontal target
+    local targetHorizVel = headingDir * forwardSpeed * 0.3
+    chuteLift.Velocity = Vector3.new(targetHorizVel.X, descentRate, targetHorizVel.Z)
 
     -- BodyForce for forward glide + wind
-    local forwardForce = headingDir * forwardSpeed * mass * 0.5
-    local windForce = chuteWindOffset * mass * 0.3
-    -- Drag: oppose horizontal velocity proportional to speed
+    local forwardForce = headingDir * forwardSpeed * mass
+    -- Gentle, perlin-noise-modulated wind instead of constant random push
+    local windT = tick() * 0.3
+    local windDynamic = Vector3.new(
+        math.noise(windT, 0) * CHUTE_WIND_STRENGTH,
+        0,
+        math.noise(windT, 100) * CHUTE_WIND_STRENGTH
+    ) * mass
+    -- Drag: oppose horizontal velocity proportional to speed (stronger = more stable glide)
     local horizVel = Vector3.new(vel.X, 0, vel.Z)
-    local dragForce = -horizVel * mass * 0.1
+    local dragForce = -horizVel * mass * CHUTE_HORIZONTAL_DRAG
 
-    chuteForce.Force = forwardForce + windForce + dragForce
+    chuteForce.Force = forwardForce + windDynamic + dragForce
 
     -- Bank angle (gyro)
     if chuteGyro then

@@ -268,6 +268,37 @@ local WorldConfig = {
     MaxNPCsPerChunk = 8,
 
     -- ═══════════════════════════════════════════════════════════════
+    -- VEHICLE / TRAVERSAL PHYSICS
+    -- ═══════════════════════════════════════════════════════════════
+    -- These values are reference documentation for the VehicleController.
+    -- To tune, edit the constants at the top of VehicleController.client.lua.
+    VehiclePhysics = {
+        CarMaxSpeed = 120,
+        CarMotorAngularVel = 45,
+        CarTorque = 1800,
+        CarSteerAngle = 35,
+        CarHighSpeedSteerFactor = 0.4,
+        SuspensionStiffness = 1200,
+        SuspensionDamping = 120,
+    },
+    JetpackPhysics = {
+        MaxThrust = 5000,
+        RampTime = 0.4,
+        Damping = 0.55,
+        MaxHorizontalSpeed = 80,
+        MaxVerticalSpeed = 60,
+        FuelMax = 60,
+    },
+    ParachutePhysics = {
+        GlideRatio = 3.0,
+        DescentRate = 8,
+        TurnRate = 1.6,
+        FlareLift = 5,
+        FlareStallTime = 3.0,
+        HorizontalDrag = 0.15,
+    },
+
+    -- ═══════════════════════════════════════════════════════════════
     -- DEBUG VISUALIZATION
     -- ═══════════════════════════════════════════════════════════════
     DebugBuildingColors = false, -- walls=RED, roofs=BLUE, floors=YELLOW; makes broken buildings instantly visible
