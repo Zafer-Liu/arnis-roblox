@@ -1994,6 +1994,14 @@ local PLAY_VISIBLE_SHELL_ROOF_SHAPES = {
 }
 
 local function shouldPreferPlayVisibleShellWalls(building, footprintPointCount, height, holeLoopCount)
+    -- FORCE ALL buildings to explicit Part walls in play mode.
+    -- EditableMesh walls are invisible in play mode (confirmed by user:
+    -- "edit mode looks so much better", "walls are not visible").
+    -- This is the only reliable path until EditableMesh play-mode
+    -- rendering is root-caused and fixed. Higher draw calls but
+    -- ALL walls guaranteed visible.
+    return true
+    --[[ Original threshold logic preserved for reference:
     if shouldPreferSimpleShellDetail(building, footprintPointCount, height) then
         return true
     end
@@ -2018,6 +2026,7 @@ local function shouldPreferPlayVisibleShellWalls(building, footprintPointCount, 
     end
 
     return footprintPointCount <= 10
+    --]]
 end
 
 local function shouldEmitMergedShellReadableCues(building, footprintPointCount, height, holeLoopCount)
