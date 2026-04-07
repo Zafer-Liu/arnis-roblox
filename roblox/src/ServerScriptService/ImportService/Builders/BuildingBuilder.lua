@@ -148,6 +148,7 @@ function MeshAccumulator:flush()
     part.CanCollide = if self.canCollide == nil then true else self.canCollide
     part.CanQuery = if self.canQuery == nil then true else self.canQuery
     part.CastShadow = if self.castShadow == nil then false else self.castShadow
+    part.DoubleSided = true -- Prevent backface culling on thin shell walls
     if self.transparency ~= nil then
         part.Transparency = self.transparency
     end

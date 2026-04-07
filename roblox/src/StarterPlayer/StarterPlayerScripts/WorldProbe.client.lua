@@ -894,8 +894,9 @@ task.defer(function()
     if root and camera then
         camera.CameraType = Enum.CameraType.Scriptable
         local pos = root.Position
-        local cameraPos = pos + Vector3.new(0, 6, 15)
-        local lookAt = pos + Vector3.new(0, 0, -30)
+        -- Position camera higher and further back to see buildings and terrain
+        local cameraPos = pos + Vector3.new(-20, 25, 40)
+        local lookAt = pos + Vector3.new(10, -5, -50)
         camera.CFrame = CFrame.lookAt(cameraPos, lookAt)
         task.wait(0.5)
         camera.CameraType = Enum.CameraType.Custom

@@ -205,7 +205,7 @@ local WorldConfig = {
     EnableAtmosphere = true, -- set false to skip cinematic lighting setup
     EnableDayNightCycle = true,
     DayNightSpeed = 60, -- 60 = 1 game-day per 24 minutes, 0 = frozen
-    DateTime = "auto", -- "auto" = system time at location, or "2024-06-15T14:00" for specific time
+    DateTime = "2024-06-15T14:00", -- Fixed midday for consistent visual proof; change to "auto" for real-time
     AtmosphereDensity = 0.35, -- additive density applied on top of phase presets (world-scale depth cue)
     AtmosphereOffset = 0.2, -- vertical offset for atmosphere gradient start
     AtmosphereHaze = 0.15, -- additive haze layered on top of phase presets for distance fade
