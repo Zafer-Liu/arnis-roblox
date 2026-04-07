@@ -2670,7 +2670,7 @@ fn build_signal_audit(manifest: &Value) -> Result<SignalAuditReport, String> {
         "id", "footprint", "baseY", "height", "material", "wallColor", "roofColor",
         "roofShape", "roofMaterial", "usage", "minHeight", "roofHeight", "name",
         "levels", "facadeStyle", "structureType", "roofLevels", "roofDirection", "roofAngle", "cladding",
-        "shellMesh",
+        "shellMesh", "atlasUv",
     ];
     let road_fields: &[&str] = &[
         "id", "kind", "widthStuds", "points", "material", "hasSidewalk", "elevated",
@@ -2679,11 +2679,11 @@ fn build_signal_audit(manifest: &Value) -> Result<SignalAuditReport, String> {
     ];
     let water_fields: &[&str] = &[
         "id", "kind", "material", "surfaceY", "intermittent", "points", "footprint",
-        "widthStuds", "color", "waterType",
+        "widthStuds", "color", "waterType", "waterMesh",
     ];
     let prop_fields: &[&str] = &[
         "id", "kind", "position", "yawDegrees", "scale", "species", "height",
-        "leafType", "circumference",
+        "leafType", "circumference", "propMesh",
     ];
     let rail_fields: &[&str] = &["id", "kind", "points", "widthStuds", "gauge", "electrified"];
     let landuse_fields: &[&str] = &["id", "kind", "footprint", "material", "color", "name"];
@@ -10076,11 +10076,10 @@ mod tests {
         assert_eq!(report.buildings.feature_count, 2);
         assert_eq!(report.roads.feature_count, 1);
 
-        // buildings: 2 features x 21 fields = 42 total (+shellMesh)
-        // b1 has facadeStyle=null, structureType=null, roofLevels=null, roofDirection=null, roofAngle=null, cladding=null, shellMesh=null -> 14 populated
-        // b2 has name="" (empty), structureType=null, same nulls except facadeStyle+roofLevels -> 15 populated
-        // total populated = 14 + 15 = 29
-        assert_eq!(report.buildings.total_possible, 42);
+        // buildings: 2 features x 22 fields = 44 total (+shellMesh, +atlasUv)
+        // b1/b2 have shellMesh=null, atlasUv=null, facadeStyle/structureType/etc=null
+        // b1: 14 populated, b2: 15 populated => 29 total
+        assert_eq!(report.buildings.total_possible, 44);
         assert_eq!(report.buildings.total_populated, 29);
 
         // roads: 1 feature x 19 fields = 19 total (+roadMesh)
