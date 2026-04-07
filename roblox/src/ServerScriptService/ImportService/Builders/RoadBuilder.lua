@@ -1244,26 +1244,56 @@ function RoadMeshAccumulator:addPrecomputedMesh(meshData, originStuds)
         return
     end
     local triCount = #tris / 3
-    if #self.triangles + triCount > self.MAX_TRIANGLES then
-        self:flush()
+    if #self.triangles + triCount <= self.MAX_TRIANGLES then
+        local base = #self.vertices
+        local ox, oy, oz = originStuds.X, originStuds.Y, originStuds.Z
+        for i = 1, #verts, 3 do
+            local vi = base + (i - 1) / 3 + 1
+            self.vertices[vi] = Vector3.new(verts[i] + ox, verts[i + 1] + oy, verts[i + 2] + oz)
+            self.normals[vi] = if norms and #norms >= i + 2
+                then Vector3.new(norms[i], norms[i + 1], norms[i + 2])
+                else Vector3.new(0, 1, 0)
+        end
+        for i = 1, #tris, 3 do
+            self.triangles[#self.triangles + 1] = { base + tris[i] + 1, base + tris[i + 1] + 1, base + tris[i + 2] + 1 }
+        end
+        return
     end
-    if triCount > self.MAX_TRIANGLES then
-        warn(string.format(
-            "[RoadMeshAccumulator] precomputed mesh too large: %d tris (limit %d), may exceed API cap",
-            triCount, self.MAX_TRIANGLES
-        ))
-    end
-    local base = #self.vertices
+    -- Oversized: flush existing, then split into batches
+    self:flush()
     local ox, oy, oz = originStuds.X, originStuds.Y, originStuds.Z
-    for i = 1, #verts, 3 do
-        local vi = base + (i - 1) / 3 + 1
-        self.vertices[vi] = Vector3.new(verts[i] + ox, verts[i + 1] + oy, verts[i + 2] + oz)
-        self.normals[vi] = if norms and #norms >= i + 2
-            then Vector3.new(norms[i], norms[i + 1], norms[i + 2])
-            else Vector3.new(0, 1, 0)
-    end
-    for i = 1, #tris, 3 do
-        self.triangles[#self.triangles + 1] = { base + tris[i] + 1, base + tris[i + 1] + 1, base + tris[i + 2] + 1 }
+    local maxTrisPerBatch = self.MAX_TRIANGLES
+    for batchStart = 1, #tris, maxTrisPerBatch * 3 do
+        local batchEnd = math.min(batchStart + maxTrisPerBatch * 3 - 1, #tris)
+        local vertexRemap = {}
+        for i = batchStart, batchEnd do
+            local rustIdx = tris[i]
+            if vertexRemap[rustIdx] == nil then
+                local fi = rustIdx * 3 + 1
+                local pos = Vector3.new(
+                    (verts[fi] or 0) + ox,
+                    (verts[fi + 1] or 0) + oy,
+                    (verts[fi + 2] or 0) + oz
+                )
+                local normal = if norms and #norms >= fi + 2
+                    then Vector3.new(norms[fi], norms[fi + 1], norms[fi + 2])
+                    else Vector3.new(0, 1, 0)
+                local vi = #self.vertices + 1
+                self.vertices[vi] = pos
+                self.normals[vi] = normal
+                vertexRemap[rustIdx] = vi
+            end
+        end
+        for i = batchStart, batchEnd, 3 do
+            self.triangles[#self.triangles + 1] = {
+                vertexRemap[tris[i]],
+                vertexRemap[tris[i + 1]],
+                vertexRemap[tris[i + 2]],
+            }
+        end
+        if batchEnd < #tris then
+            self:flush()
+        end
     end
 end
 
