@@ -3,7 +3,7 @@ use std::fmt::Write as _;
 use arbx_geo::{BoundingBox, ChunkId, Footprint, Vec3};
 
 use crate::mesh_builder::PrecomputedMesh;
-use crate::road_mesh::RoadMeshStrip;
+use crate::road_mesh::RoadMeshBundle;
 use crate::subplans::ChunkRef;
 
 #[derive(Debug, Clone, Copy, PartialEq, serde::Serialize, serde::Deserialize)]
@@ -62,7 +62,7 @@ pub struct RoadSegment {
     pub layer: Option<i32>,
     pub name: Option<String>,
     pub sidewalk_surface: Option<String>,
-    pub road_mesh: Option<RoadMeshStrip>,
+    pub road_mesh: Option<RoadMeshBundle>,
 }
 
 #[derive(Debug, Clone, PartialEq)]

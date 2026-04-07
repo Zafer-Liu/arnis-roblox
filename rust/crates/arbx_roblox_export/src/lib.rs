@@ -24,7 +24,9 @@ pub use manifest::{
     ManifestMeta, PropInstance, RailSegment, RoadSegment, TerrainGrid, WaterFeature,
 };
 pub use mesh_builder::{build_shell_mesh, PrecomputedMesh};
-pub use road_mesh::{build_road_strip, RoadMeshStrip};
+pub use road_mesh::{
+    build_road_bundle, build_road_strip, RoadMeshBundle, RoadMeshStrip, SidewalkMode,
+};
 pub use manifest_store::{
     read_manifest_sqlite_all, read_manifest_sqlite_subset, stream_manifest_sqlite_all,
     write_manifest_sqlite, ManifestStoreResult, StoredChunkRecord, StoredManifestMeta,

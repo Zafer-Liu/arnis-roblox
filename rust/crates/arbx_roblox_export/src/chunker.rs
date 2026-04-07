@@ -11,7 +11,7 @@ use crate::manifest::{
 };
 use crate::materials::StyleMapper;
 use crate::mesh_builder::build_shell_mesh;
-use crate::road_mesh::build_road_strip;
+use crate::road_mesh::{build_road_bundle, SidewalkMode};
 use crate::subplans::derive_chunk_ref;
 
 pub fn world_to_chunk(position: Vec3, chunk_size_studs: i32) -> ChunkId {
@@ -459,13 +459,23 @@ impl Chunker {
 
                     let material = style.get_road_material(&f.kind);
                     let color = style.get_road_color(&f.kind);
-                    // Pre-compute road mesh strip when we have at least 2 points.
+                    // Pre-compute road mesh bundle (surface + sidewalks + curbs)
+                    // when we have at least 2 points.
+                    let sidewalk_mode =
+                        SidewalkMode::from_str_opt(f.sidewalk.as_deref());
                     let road_mesh = if relative_points.len() >= 2 {
                         let points_3d: Vec<(f64, f64, f64)> = relative_points
                             .iter()
                             .map(|p| (p.x, p.y, p.z))
                             .collect();
-                        Some(build_road_strip(&points_3d, f.width_studs, 0.2, 0.2))
+                        Some(build_road_bundle(
+                            &points_3d,
+                            f.width_studs,
+                            0.2,
+                            0.2,
+                            f.has_sidewalk,
+                            sidewalk_mode,
+                        ))
                     } else {
                         None
                     };
