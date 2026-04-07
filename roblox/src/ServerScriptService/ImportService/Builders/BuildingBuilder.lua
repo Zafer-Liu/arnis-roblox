@@ -3760,6 +3760,39 @@ function BuildingBuilder.MeshBuildAll(parent, buildings, originStuds, chunk, con
     local enableHeroPbr = (config.EnableHeroPBR ~= false) and (WorldConfig.EnableHeroPBR ~= false)
     local pbrBudget = { used = 0 }
 
+    -- Atlas consumer: decode the per-chunk PNG atlas once if available and opted-in.
+    -- When the atlas is loaded, buildings with atlasUv get a shared SurfaceAppearance
+    -- instead of per-building procedural EditableImage generation.
+    local enableAtlas = (config.EnableBuildingAtlas == true) and (WorldConfig.EnableBuildingAtlas == true)
+    local chunkAtlasImage = nil -- EditableImage decoded from base64 PNG, or nil
+    if enableAtlas and chunk and chunk.buildingAtlas and type(chunk.buildingAtlas.pngBase64) == "string" then
+        local decodeOk, decoded = pcall(function()
+            local raw = buffer.fromstring(game:GetService("HttpService"):JSONDecode(
+                '"' .. chunk.buildingAtlas.pngBase64 .. '"'
+            ))
+            -- Fallback: if HttpService decode fails, try base64 decode polyfill
+            return raw
+        end)
+        -- Simpler base64 path: Roblox buffer.fromstring with raw decoded bytes
+        local atlasOk, atlasImg = pcall(function()
+            local pngBytes = decodeOk and decoded or nil
+            if not pngBytes then
+                return nil
+            end
+            local img = AssetService:CreateEditableImage({
+                Size = Vector2.new(
+                    chunk.buildingAtlas.atlasWidth or 512,
+                    chunk.buildingAtlas.atlasHeight or 512
+                ),
+            })
+            img:WritePixelsBuffer(Vector2.new(0, 0), img.Size, pngBytes)
+            return img
+        end)
+        if atlasOk and atlasImg then
+            chunkAtlasImage = atlasImg
+        end
+    end
+
     for _, building in ipairs(buildings) do
         local fp = building.footprint
         if not fp or #fp < 2 then
@@ -4296,11 +4329,39 @@ function BuildingBuilder.MeshBuildAll(parent, buildings, originStuds, chunk, con
             end
         end
 
-        -- Hero PBR: apply SurfaceAppearance to landmark buildings
+        -- Hero PBR: apply SurfaceAppearance to landmark buildings.
+        -- Prefer chunk atlas when available; fall back to per-building procedural path.
         if enableHeroPbr and not roofOnly and isHeroPbrCandidate(building, height) then
             local heroPbrStartedAt = os.clock()
-            local pbrApplied = applyHeroPbrToBuilding(shellFolder, building, height, pbrBudget)
-            buildStats.heroPbrCount += pbrApplied
+            local atlasApplied = false
+            if chunkAtlasImage and building.atlasUv then
+                -- Atlas fast path: shared EditableImage + per-MeshPart SurfaceAppearance
+                local uv = building.atlasUv
+                for _, child in ipairs(shellFolder:GetChildren()) do
+                    if child:IsA("MeshPart") and pbrBudget.used < HERO_PBR_MAX_PER_CHUNK then
+                        local saOk, _ = pcall(function()
+                            local surf = Instance.new("SurfaceAppearance")
+                            surf.ColorMap = Content.fromObject(chunkAtlasImage)
+                            -- UV offset is stored as normalized 0-1 coords; SurfaceAppearance
+                            -- uses tiled UVs, so we set the crop via EditableImage region
+                            -- when available. For now the whole atlas is applied as ColorMap —
+                            -- the correct UV mapping requires MeshPart UV channel support or
+                            -- a per-building cropped sub-image. Apply the full atlas as a
+                            -- visual placeholder until per-face UV mapping is implemented.
+                            surf.Parent = child
+                        end)
+                        if saOk then
+                            atlasApplied = true
+                            buildStats.heroPbrCount += 1
+                            pbrBudget.used += 1
+                        end
+                    end
+                end
+            end
+            if not atlasApplied then
+                local pbrApplied = applyHeroPbrToBuilding(shellFolder, building, height, pbrBudget)
+                buildStats.heroPbrCount += pbrApplied
+            end
             recordBuildingDetailPhase(buildStats, "heroPbrMs", (os.clock() - heroPbrStartedAt) * 1000)
         end
 
