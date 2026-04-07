@@ -2831,6 +2831,28 @@ function StreamingService.Update(focalPoint)
                     highRadius,
                     interiorRadius
                 )
+                -- Smooth chunk transition: fade in newly imported geometry over 0.3s
+                -- to eliminate pop-in. Runs on a deferred thread so it doesn't block
+                -- the import work loop.
+                if importedChunkEntry.folder and config.EnableChunkFadeIn ~= false then
+                    task.defer(function()
+                        local folder = importedChunkEntry.folder
+                        if not folder or not folder.Parent then
+                            return
+                        end
+                        for _, desc in ipairs(folder:GetDescendants()) do
+                            if desc:IsA("BasePart") and not desc:GetAttribute("ArnisBaseTransparency") then
+                                local baseT = desc.Transparency
+                                desc:SetAttribute("ArnisBaseTransparency", baseT)
+                                desc.Transparency = 1
+                                local TweenService = game:GetService("TweenService")
+                                TweenService:Create(desc, TweenInfo.new(0.3, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {
+                                    Transparency = baseT,
+                                }):Play()
+                            end
+                        end
+                    end)
+                end
             end
             processedWorkItems += 1
         end
