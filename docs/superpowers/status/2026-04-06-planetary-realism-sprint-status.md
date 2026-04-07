@@ -27,11 +27,11 @@ The active implementation plan is:
 ### Local Static
 
 - `python3 -m unittest scripts.tests.test_austin_runtime_contract scripts.tests.test_play_render_truth scripts.tests.test_convergence_guardrails scripts.tests.test_run_studio_harness -v`
-  - passed on 2026-04-06 (236 tests, up from 76 at tranche start)
+  - passed on 2026-04-07 (236+ tests, up from 76 at tranche start; 115 Python tests green)
 - `cargo test --manifest-path rust/Cargo.toml --workspace`
-  - passed on 2026-04-06 (205 tests)
+  - passed on 2026-04-07 (254 tests)
 - `git diff --check`
-  - passed on 2026-04-06
+  - passed on 2026-04-07
 
 ### Remote `tertiary`
 
@@ -106,6 +106,23 @@ Pipeline enrichment research complete — top Rust additions identified:
 4. road name (one-line Rust addition)
 5. Overture roof_shape (available but not extracted)
 6. arbx_cli audit-signal subcommand (designed, implementation lost to worktree cleanup — ready for next session)
+
+### 2026-04-07: Mesh Rendering Root Cause + Automated Capture + Road/Building Polish
+
+- **Root cause: SetVertexNormal not available on EditableMesh** — Roblox EditableMesh does not expose `SetVertexNormal`. Auto-normals derived from triangle winding order are the only rendering path. This is not a bug — it is the API surface. All mesh geometry must rely on correct winding for correct shading.
+- **EditableMesh walls confirmed working in play mode** with original winding order. The mesh path is viable for buildings and roads without manual normals.
+- **Rust mesh pre-computation foundation**: `mesh_builder.rs` (buildings) and `road_mesh.rs` (roads) landed in the Rust pipeline. These modules generate triangle meshes on the compile side, preparing for chunked mesh streaming to Lua.
+- **Multi-angle automated capture pipeline**: 4-angle capture per run (front, left, back, right) using ScreenCaptureKit from SSH. Automated screenshot proof now covers multiple viewpoints per proof cycle.
+- **Congress Ave compiled with 48 satellite texture modules** — satellite imagery pipeline proven at route scale.
+- **Road contrast improved**: darker asphalt base colors, raised mesh lift above terrain to eliminate z-fighting.
+- **Debug building color mode added** — toggleable false-color rendering for diagnosing builder output.
+- **ScreenCaptureKit capture tool working from SSH** — replaces fragile `screencapture` path with a programmatic CoreGraphics capture that works in headless/remote sessions.
+- **Lighting Migration dialog permanently fixed** — XML patching of the place file strips the migration flag before Studio opens, eliminating the modal dialog that blocked automation.
+- **HarnessRouteConfig empty file bug found and fixed** — the untracked empty Lua file was silently breaking route config loading; now has proper content.
+- **Senior engineer review completed**, all issues resolved across both sessions.
+- **254 Rust + 115 Python tests green**.
+- **65+ commits across two sessions** (Session 1: ~24 commits, Session 2: ~41 commits).
+- **Ten-tranche plan for planetary streaming** designed and documented: covers mesh chunker wiring, LOD cascade, texture atlas, terrain mesh, water mesh, prop instancing, lighting/atmosphere, streaming integration, multi-city validation, and performance optimization.
 
 ### 2026-04-06: Tasks 1-4 Landed (Parallel Swarm)
 

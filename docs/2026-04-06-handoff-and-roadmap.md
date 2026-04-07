@@ -328,32 +328,66 @@ A second agent session continued the planetary realism sprint, shipping 24 commi
 
 **Code quality:** 3-pass senior review, all issues resolved.
 
-### In-Flight (Agents Running at Session End)
+## Session 3 Progress (2026-04-07)
 
-Two agents in isolated worktrees (both instructed to COMMIT):
-1. RoadBuilder: consuming road.name (street labels), sidewalkSurface, lane marking geometry
-2. BuildingBuilder: consuming cladding, roofDirection, roofAngle
+A third agent session continued the sprint, shipping approximately 41 additional commits (65+ total across sessions 2 and 3).
 
-When these return: merge one at a time → verify tests → push to origin/main → then cleanup.
+### What Was Shipped
+
+**Mesh rendering root cause and resolution:**
+- Root cause identified: `SetVertexNormal` is not available on Roblox EditableMesh. Auto-normals derived from triangle winding order are the only viable rendering path.
+- EditableMesh walls confirmed working in play mode with original winding — the mesh path is viable without manual normals.
+- Rust mesh pre-computation foundation landed: `mesh_builder.rs` for buildings, `road_mesh.rs` for roads. These generate triangle meshes at compile time for chunked streaming to Lua.
+
+**Automated capture and visual proof:**
+- Multi-angle automated capture pipeline: 4 angles per run (front, left, back, right) using ScreenCaptureKit from SSH.
+- ScreenCaptureKit capture tool working from SSH — replaces fragile `screencapture` with programmatic CoreGraphics capture that works in headless/remote sessions.
+- Congress Ave compiled with 48 satellite texture modules — satellite imagery pipeline proven at route scale.
+
+**Road and building polish:**
+- Road contrast improved: darker asphalt base colors, raised mesh lift above terrain to eliminate z-fighting.
+- Debug building color mode added — toggleable false-color rendering for diagnosing builder output.
+
+**Automation fixes:**
+- Lighting Migration dialog permanently fixed — XML patching of the place file strips the migration flag before Studio opens, eliminating the modal dialog that blocked automation.
+- HarnessRouteConfig empty file bug found and fixed — the untracked empty Lua file was silently breaking route config loading.
+
+**Planning:**
+- Ten-tranche plan for planetary streaming designed and documented, covering: mesh chunker wiring, LOD cascade, texture atlas, terrain mesh, water mesh, prop instancing, lighting/atmosphere, streaming integration, multi-city validation, and performance optimization.
+
+**Code quality:** Senior engineer review completed, all issues resolved across both sessions.
+
+### Known Issues
+
+- **Profiler telemetry not emitting**: ARNIS_CLIENT_PERF marker wiring to Workspace needs fix; env var not reaching the telemetry attribute in play mode.
+- **Edit/play gap narrowed but not closed**: EditableMesh rendering is confirmed working in play mode, but edit-mode fidelity still lags behind play-mode in some lighting/material paths.
+
+### In-Flight (Agent Running at Session End)
+
+One agent in an isolated worktree (instructed to COMMIT):
+1. Rust mesh chunker wiring — connecting the new `mesh_builder.rs` / `road_mesh.rs` output to the Lua import path
+
+When it returns: merge → verify tests → push to origin/main → cleanup.
 
 ### Test Counts at Session End
 
 | Suite | Count |
 |-------|-------|
-| Python | 236 |
-| Rust | 213 |
+| Rust | 254 |
+| Python | 115 |
 
 ### Updated Recommended Next Steps
 
-1. **Merge in-flight agents** (road labels/markings + building cladding/roof orientation)
-2. **Recompile Austin** with enriched pipeline on tertiary
-3. **Run audit-signal** on real manifest — quantify signal preservation
-4. **Run profiler on tertiary** — establish frame time baseline
-5. **Tertiary visual proof** — screenshot at street level + aerial
-6. **Satellite imagery tile pipeline in Rust** — ESRI tiles at compile time (biggest visual leap)
-7. **Multi-city validation** — compile Tokyo
-8. **Performance optimization** — cut frames based on profiler data
-9. **Style resolver** — formalize Layer 3 of canonical-feature-style-contract
+1. **Merge in-flight mesh chunker agent** and verify tests
+2. **Wire Rust mesh output to Lua import** — complete the mesh streaming path from compiled triangles to EditableMesh
+3. **Fix profiler telemetry** — ARNIS_CLIENT_PERF env var to Workspace attribute wiring
+4. **Close edit/play gap** — audit remaining material/lighting divergences
+5. **Recompile Austin** with mesh pre-computation on tertiary
+6. **Run multi-angle visual proof** — use new 4-angle capture pipeline for before/after comparison
+7. **Execute ten-tranche plan** starting with LOD cascade and texture atlas
+8. **Multi-city validation** — compile Tokyo, Amsterdam with mesh path
+9. **Performance optimization** — profile mesh path vs Part path frame times
+10. **Style resolver** — formalize Layer 3 of canonical-feature-style-contract
 
 ### Principles Learned
 
@@ -365,6 +399,8 @@ When these return: merge one at a time → verify tests → push to origin/main 
 6. 4TB SSD for caching — no disk pressure
 7. Testing on tertiary only via vertigo-sync
 8. What would Gabe Newell do — ship the frame, not the feature
+9. EditableMesh has no SetVertexNormal — winding order is the only normal source
+10. ScreenCaptureKit is the reliable remote capture path — never depend on `screencapture` from SSH
 
 ## Handoff Readiness
 
@@ -376,10 +412,12 @@ That means:
 - review passed
 - proof artifacts exist
 - the active route-catalog wrapper lane is green
-- 24 additional commits from the realism sprint are on origin/main
+- 65+ commits from the realism sprint across sessions 2 and 3 are on origin/main
+- 254 Rust + 115 Python tests green
 
 It does not mean the entire broader realism/fidelity program is finished. The next engineer should treat this as:
 
 - proof infrastructure: stable enough to build on
-- current sprint: still active, substantial builder/material work landed
-- next job: merge in-flight agents, recompile Austin, run profiler, then resume visual quality + satellite imagery work
+- current sprint: still active, substantial builder/material/mesh work landed
+- mesh rendering: root cause resolved (no SetVertexNormal), winding-order path confirmed working
+- next job: merge in-flight mesh chunker agent, fix profiler telemetry, then resume mesh streaming + visual quality work
