@@ -821,7 +821,7 @@ class RunStudioHarnessTests(unittest.TestCase):
     def test_harness_captures_preview_telemetry_artifacts(self) -> None:
         self.assertIn("capture_preview_telemetry_artifacts()", self.text)
         self.assertIn('local preview_telemetry_dir="${ARNIS_PREVIEW_TELEMETRY_DIR:-/tmp}"', self.text)
-        self.assertIn('export ARNIS_TELEMETRY_FAMILIES="${ARNIS_TELEMETRY_FAMILIES:-}"', self.text)
+        self.assertIn('export ARNIS_TELEMETRY_FAMILIES="${ARNIS_TELEMETRY_FAMILIES:-client_perf}"', self.text)
         self.assertIn('local requested_telemetry_families="${ARNIS_TELEMETRY_FAMILIES:-}"', self.text)
         self.assertIn('requested_telemetry_families = os.environ.get("ARNIS_TELEMETRY_FAMILIES", "")', self.text)
         self.assertIn('requested_telemetry_families_luau = json.dumps(requested_telemetry_families)', self.text)
