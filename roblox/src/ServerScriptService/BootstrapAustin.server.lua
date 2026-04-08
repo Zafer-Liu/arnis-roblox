@@ -409,6 +409,18 @@ if runtimeWorldConfig.StreamingEnabled then
         frameBudgetSeconds = runtimeWorldConfig.StreamingImportFrameBudgetSeconds,
         preferredLookVector = lookTarget - Vector3.new(spawnPoint.X, spawnSurfaceY, spawnPoint.Z),
     })
+    -- Server-authoritative multiplayer streaming hooks. These are no-ops on
+    -- the single-player path because the streaming Update() loop only consults
+    -- the player focus registry when MultiplayerStreaming.enabled is true in
+    -- the resolved world config. We still install the player lifecycle and
+    -- client position remote unconditionally so a runtime config flip (e.g.
+    -- experimental flag) can enable multiplayer streaming without restarting.
+    if type(StreamingService.BindPlayerLifecycle) == "function" then
+        StreamingService.BindPlayerLifecycle(spawnPoint)
+    end
+    if type(StreamingService.BindClientPositionRemote) == "function" then
+        StreamingService.BindClientPositionRemote()
+    end
     local streamingStartupReady = waitForStartupStreamingReady(spawnPoint)
     if not streamingStartupReady then
         warn("[BootstrapAustin] Startup streaming did not settle the near ring before gameplay readiness.")

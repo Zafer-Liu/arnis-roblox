@@ -102,6 +102,42 @@ local streamingLastPrefetchReason = ""
 local streamingLastEvictionReason = ""
 local getChunkCenter
 
+-- ─── MULTIPLAYER STREAMING STATE ───
+-- Per-player focus registry. Keyed by player UserId so it survives Player
+-- object reference churn during character respawn / leave races. Each entry
+-- holds the most recently reported camera position, optional velocity, and
+-- the wall-clock timestamp the report landed so we can age out stale focuses
+-- when a client stops reporting (network drop, disconnect, etc.).
+--
+-- The single-player path never reads this registry; it remains entirely
+-- opt-in via config.MultiplayerStreaming.enabled. The server-authoritative
+-- path consults this registry inside Update() to compute the union of
+-- desired chunks across all players and to set per-chunk LOD as the maximum
+-- demanded by any player.
+local playerFocusRegistry = {}
+local playerLifecycleConnections = nil
+local clientPositionRemote = nil
+local clientPositionRemoteConnection = nil
+local CLIENT_POSITION_REMOTE_NAME = "ArnisClientStreamingPosition"
+
+local function isMultiplayerStreamingEnabled(config)
+    if type(config) ~= "table" then
+        return false
+    end
+    local mp = config.MultiplayerStreaming
+    if type(mp) ~= "table" then
+        return false
+    end
+    return mp.enabled == true
+end
+
+local function resolveMultiplayerConfig(config)
+    if type(config) == "table" and type(config.MultiplayerStreaming) == "table" then
+        return config.MultiplayerStreaming
+    end
+    return nil
+end
+
 local MEMORY_GUARDRAIL_ATTR_PREFIX = "ArnisStreamingMemoryGuardrail"
 local HOST_PROBE_AVAILABLE_ATTR = "ArnisStreamingHostProbeAvailableBytes"
 local HOST_PROBE_PRESSURE_ATTR = "ArnisStreamingHostProbePressureLevel"
@@ -2178,6 +2214,241 @@ local function resolveCurrentCameraFocusPosition()
     return nil
 end
 
+-- ─── MULTIPLAYER FOCUS REGISTRY HELPERS ───
+
+local function getPlayerUserIdKey(player)
+    if type(player) == "number" then
+        return player
+    end
+    if typeof(player) == "Instance" and player:IsA("Player") then
+        return player.UserId
+    end
+    return nil
+end
+
+-- Resolve the live HumanoidRootPart for a specific player. Used as a fallback
+-- when the client has not (yet) reported its camera position via remote.
+local function resolvePlayerRootPosition(player)
+    if typeof(player) ~= "Instance" or not player:IsA("Player") then
+        return nil, nil
+    end
+    local character = player.Character
+    if not character then
+        return nil, nil
+    end
+    local rootPart = character:FindFirstChild("HumanoidRootPart") or character.PrimaryPart
+    if rootPart and rootPart:IsA("BasePart") then
+        local horizontalVelocity = Vector3.new(
+            rootPart.AssemblyLinearVelocity.X,
+            0,
+            rootPart.AssemblyLinearVelocity.Z
+        )
+        return rootPart.Position, horizontalVelocity
+    end
+    return nil, nil
+end
+
+-- Public: register or update a player's reported focus point. Called from:
+--  • Players.PlayerAdded handler with the spawn point seed
+--  • The client→server position RemoteEvent handler
+--  • Test harnesses that drive multiplayer streaming deterministically
+function StreamingService.RegisterPlayerFocus(player, position, velocity)
+    local key = getPlayerUserIdKey(player)
+    if key == nil then
+        return false
+    end
+    if typeof(position) ~= "Vector3" then
+        return false
+    end
+    local resolvedVelocity = if typeof(velocity) == "Vector3" then velocity else Vector3.zero
+    playerFocusRegistry[key] = {
+        player = if typeof(player) == "Instance" then player else nil,
+        userId = key,
+        position = position,
+        velocity = resolvedVelocity,
+        updatedAt = os.clock(),
+    }
+    return true
+end
+
+-- Public: drop a player from the focus registry. Called on PlayerRemoving and
+-- by tests. After removal the next Update() tick will recompute desired chunks
+-- as the union over the remaining players, naturally evicting any chunks that
+-- were only kept alive by the departing player.
+function StreamingService.UnregisterPlayerFocus(player)
+    local key = getPlayerUserIdKey(player)
+    if key == nil then
+        return false
+    end
+    if playerFocusRegistry[key] == nil then
+        return false
+    end
+    playerFocusRegistry[key] = nil
+    return true
+end
+
+-- Public: snapshot the current set of per-player focus points as an array of
+-- {player, position, velocity, userId, updatedAt} tuples. Stale focuses (older
+-- than MultiplayerStreaming.staleFocusTimeoutSeconds) are excluded; if a stale
+-- entry has a still-connected Player object with a HumanoidRootPart, that root
+-- position is substituted as a best-effort fallback so the player keeps
+-- streaming chunks even when the client position remote stops reporting.
+function StreamingService.GetAllPlayerFocusPoints(config)
+    local resolvedConfig = config or (streamingOptions and streamingOptions.config) or DefaultWorldConfig
+    local mpConfig = resolveMultiplayerConfig(resolvedConfig)
+    local staleTimeout = if type(mpConfig) == "table"
+            and type(mpConfig.staleFocusTimeoutSeconds) == "number"
+            and mpConfig.staleFocusTimeoutSeconds > 0
+        then mpConfig.staleFocusTimeoutSeconds
+        else 5
+    local maxPlayers = if type(mpConfig) == "table"
+            and type(mpConfig.maxPlayers) == "number"
+            and mpConfig.maxPlayers > 0
+        then math.floor(mpConfig.maxPlayers)
+        else math.huge
+
+    local now = os.clock()
+    local focusPoints = {}
+    for userId, entry in pairs(playerFocusRegistry) do
+        local position = entry.position
+        local velocity = entry.velocity or Vector3.zero
+        local updatedAt = entry.updatedAt or now
+        if (now - updatedAt) > staleTimeout then
+            -- Try fallback to live HumanoidRootPart before discarding.
+            local fallbackPos, fallbackVelocity = resolvePlayerRootPosition(entry.player)
+            if typeof(fallbackPos) == "Vector3" then
+                position = fallbackPos
+                velocity = fallbackVelocity or Vector3.zero
+            else
+                position = nil
+            end
+        end
+        if typeof(position) == "Vector3" then
+            focusPoints[#focusPoints + 1] = {
+                player = entry.player,
+                userId = userId,
+                position = position,
+                velocity = velocity,
+                updatedAt = updatedAt,
+            }
+        end
+    end
+
+    if #focusPoints > maxPlayers then
+        -- Deterministic cap: keep the maxPlayers most recently updated entries.
+        table.sort(focusPoints, function(a, b)
+            return (a.updatedAt or 0) > (b.updatedAt or 0)
+        end)
+        for index = #focusPoints, maxPlayers + 1, -1 do
+            focusPoints[index] = nil
+        end
+    end
+
+    return focusPoints
+end
+
+-- Public: project a player's reported position forward by the configured
+-- velocity prediction window so the streaming scheduler prefetches chunks
+-- ahead of where each player is heading.
+function StreamingService.PredictPlayerFocusPosition(focus, config)
+    if type(focus) ~= "table" or typeof(focus.position) ~= "Vector3" then
+        return nil
+    end
+    local mpConfig = resolveMultiplayerConfig(config)
+    local predictionSeconds = if type(mpConfig) == "table"
+            and type(mpConfig.velocityPredictionSeconds) == "number"
+        then math.max(0, mpConfig.velocityPredictionSeconds)
+        else 2
+    if predictionSeconds <= 0 or typeof(focus.velocity) ~= "Vector3" then
+        return focus.position
+    end
+    return focus.position + focus.velocity * predictionSeconds
+end
+
+-- Public: bind Players.PlayerAdded / PlayerRemoving so player focus tracking
+-- stays in sync with connection lifecycle. Idempotent; subsequent calls
+-- replace any previously bound connections.
+function StreamingService.BindPlayerLifecycle(spawnPoint)
+    if playerLifecycleConnections then
+        for _, connection in ipairs(playerLifecycleConnections) do
+            if typeof(connection) == "RBXScriptConnection" then
+                connection:Disconnect()
+            end
+        end
+        playerLifecycleConnections = nil
+    end
+
+    local seedPosition = if typeof(spawnPoint) == "Vector3" then spawnPoint else nil
+
+    local function onPlayerAdded(player)
+        if seedPosition then
+            -- Pre-seed the focus registry so the streaming scheduler will load
+            -- chunks around the player's spawn point BEFORE the character
+            -- materializes. Without this seed, brand-new players would briefly
+            -- look at empty geometry while their first client position report
+            -- propagates to the server.
+            StreamingService.RegisterPlayerFocus(player, seedPosition, Vector3.zero)
+        end
+        player.CharacterAdded:Connect(function(character)
+            local rootPart = character:WaitForChild("HumanoidRootPart", 5)
+            if rootPart and rootPart:IsA("BasePart") then
+                StreamingService.RegisterPlayerFocus(player, rootPart.Position, Vector3.zero)
+            end
+        end)
+    end
+
+    playerLifecycleConnections = {}
+    playerLifecycleConnections[#playerLifecycleConnections + 1] = Players.PlayerAdded:Connect(onPlayerAdded)
+    playerLifecycleConnections[#playerLifecycleConnections + 1] = Players.PlayerRemoving:Connect(function(player)
+        StreamingService.UnregisterPlayerFocus(player)
+    end)
+    -- Seed every player already connected at bind time.
+    for _, player in ipairs(Players:GetPlayers()) do
+        onPlayerAdded(player)
+    end
+end
+
+-- Public: install a server-side RemoteEvent that clients invoke at
+-- MultiplayerStreaming.clientReportIntervalSeconds cadence with their current
+-- camera position and velocity. The remote is created lazily under
+-- ReplicatedStorage so both server and client can resolve it by name.
+function StreamingService.BindClientPositionRemote()
+    if clientPositionRemoteConnection then
+        clientPositionRemoteConnection:Disconnect()
+        clientPositionRemoteConnection = nil
+    end
+    if clientPositionRemote == nil or clientPositionRemote.Parent == nil then
+        local existing = ReplicatedStorage:FindFirstChild(CLIENT_POSITION_REMOTE_NAME)
+        if existing and existing:IsA("RemoteEvent") then
+            clientPositionRemote = existing
+        else
+            clientPositionRemote = Instance.new("RemoteEvent")
+            clientPositionRemote.Name = CLIENT_POSITION_REMOTE_NAME
+            clientPositionRemote.Parent = ReplicatedStorage
+        end
+    end
+    clientPositionRemoteConnection = clientPositionRemote.OnServerEvent:Connect(function(player, position, velocity)
+        if typeof(position) ~= "Vector3" then
+            return
+        end
+        if typeof(velocity) ~= "Vector3" then
+            velocity = Vector3.zero
+        end
+        StreamingService.RegisterPlayerFocus(player, position, velocity)
+    end)
+    return clientPositionRemote
+end
+
+function StreamingService.GetClientPositionRemoteName()
+    return CLIENT_POSITION_REMOTE_NAME
+end
+
+-- Test/diagnostics helper: clear the entire focus registry. Used by harness
+-- specs to reset state between cases.
+function StreamingService.ResetPlayerFocusRegistry()
+    playerFocusRegistry = {}
+end
+
 local function shouldForceMovementLodRefresh()
     if typeof(streamingLastFocalPoint) ~= "Vector3" then
         return false
@@ -2356,6 +2627,22 @@ function StreamingService.Stop()
     lastLODUpdate = 0
     clearMemoryGuardrailTelemetry()
     resetStreamingResidencyTelemetry()
+    -- Drop multiplayer lifecycle bindings on stop. The focus registry itself
+    -- is preserved so a subsequent Start() inherits any focuses that were
+    -- pre-seeded by external bootstrap code; tests can call
+    -- ResetPlayerFocusRegistry() to wipe it explicitly.
+    if playerLifecycleConnections then
+        for _, connection in ipairs(playerLifecycleConnections) do
+            if typeof(connection) == "RBXScriptConnection" then
+                connection:Disconnect()
+            end
+        end
+        playerLifecycleConnections = nil
+    end
+    if clientPositionRemoteConnection then
+        clientPositionRemoteConnection:Disconnect()
+        clientPositionRemoteConnection = nil
+    end
 end
 
 function StreamingService.Update(focalPoint)
@@ -2369,7 +2656,41 @@ function StreamingService.Update(focalPoint)
             return
         end
 
+        local config = streamingOptions.config or DefaultWorldConfig
+
+        -- Multiplayer focus selection. When MultiplayerStreaming is enabled the
+        -- server picks one player as the "primary" focus (the closest to the
+        -- world origin among reported focuses, falling back to whichever player
+        -- has the freshest report) and remembers the rest as `secondaryFocuses`.
+        -- The primary drives the existing single-player Update() body verbatim;
+        -- secondaries are processed by the multiplayer sweep below the main
+        -- candidate loop, which expands desiredChunkIds and queues additional
+        -- import work items so chunks around every player stay loaded.
+        local multiplayerEnabled = isMultiplayerStreamingEnabled(config)
+        local secondaryFocuses = nil
+
         local playerPos = focalPoint
+        if multiplayerEnabled and not playerPos then
+            local mpFocusPoints = StreamingService.GetAllPlayerFocusPoints(config)
+            if #mpFocusPoints > 0 then
+                -- Pick the focus with the freshest update as primary so the
+                -- camera-tracking heuristics (movement prediction, lookahead)
+                -- still see continuous deltas tick-to-tick. The remaining
+                -- focuses are processed in the multiplayer sweep.
+                table.sort(mpFocusPoints, function(a, b)
+                    return (a.updatedAt or 0) > (b.updatedAt or 0)
+                end)
+                local primaryFocus = mpFocusPoints[1]
+                playerPos = StreamingService.PredictPlayerFocusPosition(primaryFocus, config)
+                if #mpFocusPoints > 1 then
+                    secondaryFocuses = {}
+                    for index = 2, #mpFocusPoints do
+                        secondaryFocuses[#secondaryFocuses + 1] = mpFocusPoints[index]
+                    end
+                end
+            end
+        end
+
         if not playerPos then
             local player = Players:GetPlayers()[1]
             local character = player and player.Character
@@ -2380,7 +2701,7 @@ function StreamingService.Update(focalPoint)
             playerPos = rootPart.Position
         end
 
-        local config = streamingOptions.config or DefaultWorldConfig
+        -- (config already resolved above so multiplayer detection runs first)
         pruneStaleResidentEstimatedCosts(streamingOptions.worldRootName)
         observeHostProbeSample()
         local resolvedRings = streamingResolvedRings or resolveStreamingRings(config)
@@ -2855,6 +3176,156 @@ function StreamingService.Update(focalPoint)
                 end
             end
             processedWorkItems += 1
+        end
+
+        -- ─── MULTIPLAYER SECONDARY-PLAYER SWEEP ───
+        -- For every player beyond the primary focus, expand desiredChunkIds
+        -- with chunks within MultiplayerStreaming.perPlayerStreamingRadius of
+        -- that player and queue extra import work items for any chunks that
+        -- are not yet resident. Per-chunk LOD ends up as the maximum demanded
+        -- by any player because chunks already loaded for the primary at
+        -- "near"/"full" detail are simply marked desired here and skipped;
+        -- chunks that the primary placed at "far"/"minimal" but a secondary
+        -- now needs at "full" will be upgraded on a subsequent tick by the
+        -- existing LOD re-import path once that secondary becomes the primary
+        -- (or via an explicit upgrade pass below).
+        if multiplayerEnabled and secondaryFocuses ~= nil and #secondaryFocuses > 0 then
+            local mpConfig = resolveMultiplayerConfig(config)
+            local perPlayerRadius = if type(mpConfig) == "table"
+                    and type(mpConfig.perPlayerStreamingRadius) == "number"
+                    and mpConfig.perPlayerStreamingRadius > 0
+                then mpConfig.perPlayerStreamingRadius
+                else 1024
+            local perPlayerRadiusSq = perPlayerRadius * perPlayerRadius
+            local secondaryWorkItems = {}
+            local seenSecondaryChunks = {}
+            for _, focus in ipairs(secondaryFocuses) do
+                local predicted = StreamingService.PredictPlayerFocusPosition(focus, config) or focus.position
+                local secondaryCandidates =
+                    getSchedulerCandidateChunkRefs(streamingChunkIndex, predicted, predicted, perPlayerRadius)
+                for _, chunkEntry in ipairs(secondaryCandidates) do
+                    local chunkRef = chunkEntry.ref
+                    if seenSecondaryChunks[chunkRef.id] then
+                        continue
+                    end
+                    seenSecondaryChunks[chunkRef.id] = true
+                    local distSq = getChunkDistanceSqToPoint(chunkEntry, predicted)
+                    if distSq > perPlayerRadiusSq then
+                        continue
+                    end
+                    -- Always mark this chunk as desired so the not-desired
+                    -- eviction sweep below leaves it alone.
+                    desiredChunkIds[chunkRef.id] = true
+                    -- Determine the LOD this secondary player demands. Use the
+                    -- closest player's distance for this chunk so per-chunk
+                    -- LOD is correctly the max across all players.
+                    local schedulerDistSq = distSq
+                    local currentLod = loadedChunkLods[chunkRef.id]
+                    local targetLod = chooseTargetLod(
+                        schedulerDistSq,
+                        currentLod,
+                        highRadiusSq,
+                        highExitRadiusSq,
+                        targetRadiusSq,
+                        targetExitRadiusSq
+                    )
+                    if not targetLod then
+                        continue
+                    end
+                    local ringName = getChunkRingName(schedulerDistSq, resolvedRings)
+                    local chunkBuildingLodLevel = resolveBuildingLodLevel(ringName, streamingOptions.config)
+                    if inflightChunkImports[chunkRef.id] then
+                        continue
+                    end
+                    local chunkOptions = streamingChunkOptionsByLod[targetLod]
+                    local currentEntry = ChunkLoader.GetChunkEntry(chunkRef.id, streamingOptions.worldRootName)
+                    if currentEntry then
+                        -- Already resident; skip queuing additional work. The
+                        -- LOD upgrade for this secondary will run on a future
+                        -- tick if/when the primary focus rotates to this
+                        -- player.
+                        loadedChunkLods[chunkRef.id] = loadedChunkLods[chunkRef.id] or targetLod
+                        loadedChunkRings[chunkRef.id] = loadedChunkRings[chunkRef.id] or ringName
+                        continue
+                    end
+                    appendStreamingWorkItems(
+                        secondaryWorkItems,
+                        chunkEntry,
+                        chunkOptions,
+                        chunkOptions.config,
+                        targetLod,
+                        chunkBuildingLodLevel
+                    )
+                    inflightChunkImports[chunkRef.id] = true
+                    loadedChunkRings[chunkRef.id] = ringName
+                    lastPrefetchReason = "multiplayer_secondary"
+                end
+            end
+            -- Process secondary work items under the same per-update budget.
+            ChunkPriority.SortWorkItems(
+                secondaryWorkItems,
+                playerPos,
+                playerPos,
+                chunkSizeStuds,
+                forwardVector,
+                observedChunkImportMsById
+            )
+            for _, workItem in ipairs(secondaryWorkItems) do
+                if processedWorkItems >= maxWorkItemsPerUpdate then
+                    break
+                end
+                local workItemCost = getEstimatedWorkItemCost(workItem)
+                if streamingMemoryGuardrail and streamingMemoryGuardrail:IsPaused() then
+                    break
+                end
+                local chunkEntry = workItem.chunkEntry
+                local chunkRef = chunkEntry.ref
+                local chunk = getMaterializedChunk(chunkEntry)
+                local terrainNeighborContext = buildStreamingTerrainNeighborContext(chunkRef)
+                if streamingMemoryGuardrail then
+                    streamingMemoryGuardrail:AdmitInFlightBytes(workItemCost)
+                end
+                local importOk, importResult = xpcall(function()
+                    if workItem.subplan then
+                        local subplanOptions = table.clone(workItem.chunkOptions)
+                        subplanOptions.registrationChunk = chunkRef
+                        subplanOptions.chunkSignature = ImportSignatures.GetChunkSignature(chunkRef)
+                        subplanOptions.buildingLodLevel = workItem.buildingLodLevel
+                        if terrainNeighborContext ~= nil then
+                            subplanOptions.terrainNeighbors = terrainNeighborContext.neighbors
+                            subplanOptions.terrainNeighborSignature = terrainNeighborContext.signature
+                        end
+                        return ImportService.ImportChunkSubplan(chunk, workItem.subplan, subplanOptions)
+                    else
+                        local importOptions = table.clone(workItem.chunkOptions)
+                        importOptions.chunkSignature = ImportSignatures.GetChunkSignature(chunkRef)
+                        importOptions.buildingLodLevel = workItem.buildingLodLevel
+                        if terrainNeighborContext ~= nil then
+                            importOptions.terrainNeighbors = terrainNeighborContext.neighbors
+                            importOptions.terrainNeighborSignature = terrainNeighborContext.signature
+                        end
+                        return ImportService.ImportChunk(chunk, importOptions)
+                    end
+                end, debug.traceback)
+                if streamingMemoryGuardrail then
+                    streamingMemoryGuardrail:CompleteInFlightBytes(workItemCost)
+                end
+                if not importOk then
+                    inflightChunkImports[chunkRef.id] = nil
+                    error(importResult, 0)
+                end
+                if importResult == nil then
+                    inflightChunkImports[chunkRef.id] = nil
+                else
+                    recordResidentEstimatedCost(workItem, workItemCost)
+                    loadedChunkLods[chunkRef.id] = workItem.targetLod or loadedChunkLods[chunkRef.id]
+                    if workItem.buildingLodLevel and not workItem.subplan then
+                        importedBuildingLodById[chunkRef.id] = workItem.buildingLodLevel
+                    end
+                    inflightChunkImports[chunkRef.id] = nil
+                    processedWorkItems += 1
+                end
+            end
         end
 
         for chunkId, _ in pairs(loadedChunkLods) do
