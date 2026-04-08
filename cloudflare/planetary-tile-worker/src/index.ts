@@ -303,6 +303,25 @@ async function handleManifest(
     );
   }
 
+  // Cache-Control tuning for Cloudflare free tier:
+  //   - /manifests/{city}/index.json → 60s (mutable, a new bake of the
+  //     same city can swap chunk contents under this URL)
+  //   - /manifests/{city}/chunks/{id}.(json|msgpack) → 86400s (24h).
+  //     Chunks are immutable per release; the edge cache hit here
+  //     dramatically reduces R2 Class B GETs (the 1M/month free-tier
+  //     limit) because repeat player joins from the same colo hit the
+  //     cached response without ever touching R2.
+  //   - /stats → 60s (cheap aggregate, OK to recompute)
+  // Any other path falls back to the legacy 5-minute default.
+  const isChunkImmutable =
+    /\/chunks\/[^/]+\.(json|msgpack)$/.test(name) === true;
+  const isCityIndex = /\/index\.json$/.test(name) === true;
+  const chunkCacheControl = isChunkImmutable
+    ? "public, max-age=86400, immutable"
+    : isCityIndex
+      ? "public, max-age=60"
+      : "public, max-age=300";
+
   // Binary msgpack variant: served as raw bytes with the msgpack
   // content-type. The Lua runtime doesn't request these yet, but the
   // format is a parallel drop-in for future decoder work.
@@ -317,7 +336,7 @@ async function handleManifest(
     return corsResponse(obj.body, {
       headers: {
         "content-type": "application/msgpack",
-        "cache-control": "public, max-age=300",
+        "cache-control": chunkCacheControl,
       },
     });
   }
@@ -335,7 +354,7 @@ async function handleManifest(
         return corsResponse(mpObj.body, {
           headers: {
             "content-type": "application/msgpack",
-            "cache-control": "public, max-age=300",
+            "cache-control": chunkCacheControl,
             "x-chunk-format": "msgpack",
           },
         });
@@ -354,7 +373,7 @@ async function handleManifest(
   return corsResponse(obj.body, {
     headers: {
       "content-type": "application/json",
-      "cache-control": "public, max-age=300",
+      "cache-control": chunkCacheControl,
     },
   });
 }

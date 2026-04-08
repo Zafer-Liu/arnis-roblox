@@ -8,13 +8,18 @@ local DefaultWorldConfig = require(ReplicatedStorage.Shared.WorldConfig)
 local StreamingRuntimeConfig = require(ReplicatedStorage.Shared.StreamingRuntimeConfig)
 
 local RunAustin = {}
--- LOAD_RADIUS is the synchronous spawn ring — chunks within this radius are
--- materialized BEFORE the player spawns. Everything outside streams in
--- afterwards via StreamingService.Update on the heartbeat. Tight ring =
--- fast spawn. With chunkSizeStuds=256, a radius of 320 yields 1-7 chunks
--- depending on which corner the spawn point lands in. The previous value
--- of 1500 produced 30+ chunks, blocking the player on ~20s of import.
-RunAustin.LOAD_RADIUS = 320
+-- LOAD_RADIUS is the synchronous spawn ring — chunks within this radius
+-- are materialized BEFORE the player spawns. Everything outside streams
+-- in afterwards via StreamingService.Update on the heartbeat. With
+-- chunkSizeStuds=256:
+--   radius  320 → 1-4 chunks  (fast but player sees a sparse pocket)
+--   radius  768 → 9-18 chunks (reasonable: visible city, ~5s spawn)
+--   radius 1024 → 16-28 chunks (denser: ~8s spawn)
+--   radius 1500 → 30+ chunks  (dense but 20s+ spawn block)
+-- 768 is the sweet spot for "player spawns into a recognizably populated
+-- area" without blowing past 10s total bootstrap. Parallel lazy fetch
+-- keeps network time flat regardless of radius.
+RunAustin.LOAD_RADIUS = 768
 RunAustin.FRAME_BUDGET_SECONDS = 1 / 240
 RunAustin.STARTUP_CHUNK_COUNT = 1
 RunAustin.MANIFEST_WAIT_TIMEOUT_SECONDS = 30

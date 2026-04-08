@@ -338,6 +338,19 @@ end
 
 local harnessRouteSelection = resolveHarnessRouteSelection()
 
+-- Default telemetry families for LIVE production (non-harness) runs. The
+-- harness rewrites HarnessRouteConfig.telemetryFamilies to "client_perf"
+-- at build time; live prod starts with an empty string which gates ALL
+-- client telemetry off. That meant the real-game flickering the user
+-- reported was invisible to the auto-loop because WorldProbe.client.lua
+-- skipped its emit branch. Default to perf + flicker in live prod so the
+-- Cloudflare telemetry endpoint actually receives a diagnosable signal.
+if type(harnessRouteSelection.telemetryFamilies) ~= "string"
+    or harnessRouteSelection.telemetryFamilies == ""
+then
+    harnessRouteSelection.telemetryFamilies = "client_perf,client_flicker"
+end
+
 local function onPlayer(player)
     player:SetAttribute("ArnisTelemetryFamilies", harnessRouteSelection.telemetryFamilies)
     player.CharacterAdded:Connect(function(character)
