@@ -12,6 +12,7 @@ local SUPPORTED_FAMILY_ORDER = {
     "structures",
     "hotspots",
     "client_perf",
+    "client_flicker",
     "player_local",
 }
 WorldProbeTelemetryFlags.SUPPORTED_FAMILY_ORDER = SUPPORTED_FAMILY_ORDER

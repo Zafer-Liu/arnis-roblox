@@ -37,6 +37,43 @@ local BOOTSTRAP_DUPLICATE_COUNT_ATTR = BootstrapStateMachine.DUPLICATE_COUNT_ATT
 local BOOTSTRAP_ENTRY_COUNT_ATTR = BootstrapStateMachine.ENTRY_COUNT_ATTR
 local BOOTSTRAP_LAST_SCRIPT_PATH_ATTR = BootstrapStateMachine.LAST_SCRIPT_PATH_ATTR
 local BOOTSTRAP_ATTEMPT_ID_ATTR = "ArnisAustinBootstrapAttemptId"
+local FLICKER_REMOTE_NAME = "ArnisClientFlickerRemote"
+
+-- Install the client->server flicker sample RemoteEvent. WorldProbe.client.lua
+-- fires each ARNIS_CLIENT_FLICKER sample through this remote so the server
+-- can aggregate it via TelemetryReporter.RecordFlickerSample and include a
+-- `flicker` block in the next TelemetryReporter.Report() POST.
+local function ensureFlickerRemote()
+    local existing = ReplicatedStorage:FindFirstChild(FLICKER_REMOTE_NAME)
+    if existing
+        and (existing:IsA("UnreliableRemoteEvent") or existing:IsA("RemoteEvent"))
+    then
+        return existing
+    end
+    if existing then
+        existing:Destroy()
+    end
+    local remote
+    local okCreate, created = pcall(function()
+        return Instance.new("UnreliableRemoteEvent")
+    end)
+    if okCreate and created then
+        remote = created
+    else
+        remote = Instance.new("RemoteEvent")
+    end
+    remote.Name = FLICKER_REMOTE_NAME
+    remote.Parent = ReplicatedStorage
+    return remote
+end
+
+local flickerRemote = ensureFlickerRemote()
+flickerRemote.OnServerEvent:Connect(function(_player, sample)
+    if type(sample) ~= "table" then
+        return
+    end
+    TelemetryReporter.RecordFlickerSample(sample)
+end)
 local STARTUP_STREAMING_TIMEOUT_SECONDS = 10
 local STARTUP_STREAMING_POLL_INTERVAL_SECONDS = 0.1
 local STARTUP_STREAMING_REQUIRED_READY_POLLS = 3

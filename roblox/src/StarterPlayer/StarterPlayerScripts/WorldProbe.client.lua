@@ -68,6 +68,75 @@ local perfCachedPartCountStale = true
 local perfLastInstanceCountAt = 0
 local perfLastEmitAt = 0
 local PERF_EMIT_INTERVAL = 5
+
+-- ---------------------------------------------------------------------------
+-- Flicker detector state
+-- ---------------------------------------------------------------------------
+-- Runs at FLICKER_SAMPLE_HZ on Heartbeat, emits every FLICKER_EMIT_INTERVAL s.
+-- Budget goal: < ~500 us per heartbeat sample. We use a single OverlapParams
+-- GetPartBoundsInBox for the near-part count (O(near-part-count)) and a
+-- bounded incremental DescendantAdded/Removing watcher for chunk churn — no
+-- full GetDescendants sweeps.
+local FLICKER_SAMPLE_HZ = 10
+local FLICKER_SAMPLE_INTERVAL = 1 / FLICKER_SAMPLE_HZ
+local FLICKER_WINDOW_SECONDS = 6
+local FLICKER_WINDOW_CAPACITY = FLICKER_WINDOW_SECONDS * FLICKER_SAMPLE_HZ
+local FLICKER_EMIT_INTERVAL = 1
+local FLICKER_NEAR_RADIUS_STUDS = 50
+local FLICKER_NEAR_MAX_PARTS = 2048
+local FLICKER_NEAR_BOX_SIZE = Vector3.new(
+    FLICKER_NEAR_RADIUS_STUDS * 2,
+    FLICKER_NEAR_RADIUS_STUDS * 2,
+    FLICKER_NEAR_RADIUS_STUDS * 2
+)
+local FLICKER_RING_BOUNCE_DELTA_BYTES = 64 * 1024 -- 64 KiB minimum swing to count as a bounce
+
+-- Chunk folder names look like "0_-2", "12_3" — two signed integers joined
+-- by underscore. Avoid matching unrelated folders under the world root.
+local function isChunkFolderName(name)
+    if type(name) ~= "string" then
+        return false
+    end
+    return string.match(name, "^%-?%d+_%-?%d+$") ~= nil
+end
+
+local nearPartRing = table.create(FLICKER_WINDOW_CAPACITY, 0)
+local ringResidentNearRing = table.create(FLICKER_WINDOW_CAPACITY, 0)
+local ringResidentMidRing = table.create(FLICKER_WINDOW_CAPACITY, 0)
+local ringResidentFarRing = table.create(FLICKER_WINDOW_CAPACITY, 0)
+local nearPartRingHead = 0
+local nearPartRingCount = 0
+local flickerLastSampleAt = 0
+local flickerLastEmitAt = 0
+local flickerLastFetchFailures = nil
+
+-- Chunk id -> timestamp maps for thrash detection. We keep the last
+-- add/remove wall-clock time for each chunk id seen, and on every emit we
+-- count ids that had BOTH an add and a remove within the active window.
+local flickerChunkAddTimes = {}
+local flickerChunkRemoveTimes = {}
+local flickerChunkThrashCounts = {} -- chunk id -> number of thrash cycles in window
+local flickerWatchedWorldRoot = nil
+local flickerWatchedConnections = {}
+local flickerOverlapParams = OverlapParams.new()
+flickerOverlapParams.MaxParts = FLICKER_NEAR_MAX_PARTS
+flickerOverlapParams.FilterType = Enum.RaycastFilterType.Exclude
+flickerOverlapParams.FilterDescendantsInstances = {}
+flickerOverlapParams.RespectCanCollide = false
+
+-- Mirror of the last published flicker sample, for server-side ingestion.
+local flickerClientRemote = nil
+local function resolveFlickerClientRemote()
+    if flickerClientRemote and flickerClientRemote.Parent ~= nil then
+        return flickerClientRemote
+    end
+    local existing = ReplicatedStorage:FindFirstChild("ArnisClientFlickerRemote")
+    if existing and (existing:IsA("RemoteEvent") or existing:IsA("UnreliableRemoteEvent")) then
+        flickerClientRemote = existing
+    end
+    return flickerClientRemote
+end
+
 local function resolveTelemetryFamilies()
     local playerTelemetryFamilies = player:GetAttribute(WorldProbeTelemetryFlags.PLAYER_ATTR)
     if type(playerTelemetryFamilies) == "string" and playerTelemetryFamilies ~= "" then
@@ -657,6 +726,293 @@ local function publishPerfTelemetry()
     end
 end
 
+local function disconnectFlickerWatchers()
+    for _, conn in ipairs(flickerWatchedConnections) do
+        if conn and conn.Connected then
+            conn:Disconnect()
+        end
+    end
+    flickerWatchedConnections = {}
+    flickerWatchedWorldRoot = nil
+end
+
+local function handleChunkFolderAdded(child)
+    if child == nil or not isChunkFolderName(child.Name) then
+        return
+    end
+    flickerChunkAddTimes[child.Name] = os.clock()
+end
+
+local function handleChunkFolderRemoving(child)
+    if child == nil or not isChunkFolderName(child.Name) then
+        return
+    end
+    local now = os.clock()
+    flickerChunkRemoveTimes[child.Name] = now
+end
+
+local function ensureFlickerWatchers(worldRoot)
+    if worldRoot == flickerWatchedWorldRoot then
+        return
+    end
+    disconnectFlickerWatchers()
+    flickerChunkAddTimes = {}
+    flickerChunkRemoveTimes = {}
+    flickerChunkThrashCounts = {}
+    if worldRoot == nil then
+        return
+    end
+    flickerWatchedWorldRoot = worldRoot
+    -- Seed current chunk folders as already-added so the first window has a
+    -- baseline. Only scan direct children (one level) — cheap.
+    local now = os.clock()
+    for _, child in ipairs(worldRoot:GetChildren()) do
+        if isChunkFolderName(child.Name) then
+            flickerChunkAddTimes[child.Name] = now
+        end
+    end
+    table.insert(flickerWatchedConnections, worldRoot.ChildAdded:Connect(handleChunkFolderAdded))
+    table.insert(flickerWatchedConnections, worldRoot.ChildRemoved:Connect(handleChunkFolderRemoving))
+end
+
+local function countNearPartsAround(rootPart)
+    if rootPart == nil or not rootPart:IsA("BasePart") then
+        return 0
+    end
+    local cframe = CFrame.new(rootPart.Position)
+    local okParts, parts = pcall(function()
+        return Workspace:GetPartBoundsInBox(cframe, FLICKER_NEAR_BOX_SIZE, flickerOverlapParams)
+    end)
+    if not okParts or type(parts) ~= "table" then
+        return 0
+    end
+    return #parts
+end
+
+local function pushNearPartSample(count, ringNear, ringMid, ringFar)
+    nearPartRingHead = nearPartRingHead % FLICKER_WINDOW_CAPACITY + 1
+    nearPartRing[nearPartRingHead] = count
+    ringResidentNearRing[nearPartRingHead] = ringNear
+    ringResidentMidRing[nearPartRingHead] = ringMid
+    ringResidentFarRing[nearPartRingHead] = ringFar
+    if nearPartRingCount < FLICKER_WINDOW_CAPACITY then
+        nearPartRingCount = nearPartRingCount + 1
+    end
+end
+
+local function summarizeNearPartRing()
+    if nearPartRingCount == 0 then
+        return 0, 0, 0, 0, 0
+    end
+    local sum = 0
+    local minV = math.huge
+    local maxV = -math.huge
+    for i = 1, nearPartRingCount do
+        local v = nearPartRing[i]
+        sum = sum + v
+        if v < minV then
+            minV = v
+        end
+        if v > maxV then
+            maxV = v
+        end
+    end
+    local avg = sum / nearPartRingCount
+    local varSum = 0
+    for i = 1, nearPartRingCount do
+        local d = nearPartRing[i] - avg
+        varSum = varSum + d * d
+    end
+    local stdDev = math.sqrt(varSum / nearPartRingCount)
+    return avg, stdDev, minV, maxV, nearPartRingCount
+end
+
+local function summarizeRingResidentDelta(ring)
+    if nearPartRingCount == 0 then
+        return 0
+    end
+    local minV = math.huge
+    local maxV = -math.huge
+    for i = 1, nearPartRingCount do
+        local v = ring[i]
+        if v < minV then
+            minV = v
+        end
+        if v > maxV then
+            maxV = v
+        end
+    end
+    if minV == math.huge then
+        return 0
+    end
+    return maxV - minV
+end
+
+local function countRingBounces(ring)
+    if nearPartRingCount < 3 then
+        return 0
+    end
+    local bounces = 0
+    local prevDir = 0 -- -1 = descending, +1 = ascending
+    local lastExtreme = ring[1]
+    for i = 2, nearPartRingCount do
+        local v = ring[i]
+        local diff = v - lastExtreme
+        if math.abs(diff) >= FLICKER_RING_BOUNCE_DELTA_BYTES then
+            local dir = if diff > 0 then 1 else -1
+            if prevDir ~= 0 and dir ~= prevDir then
+                bounces = bounces + 1
+            end
+            prevDir = dir
+            lastExtreme = v
+        end
+    end
+    return bounces
+end
+
+local function pruneFlickerChunkMaps(windowStart)
+    for id, ts in pairs(flickerChunkAddTimes) do
+        if ts < windowStart then
+            flickerChunkAddTimes[id] = nil
+        end
+    end
+    for id, ts in pairs(flickerChunkRemoveTimes) do
+        if ts < windowStart then
+            flickerChunkRemoveTimes[id] = nil
+        end
+    end
+    for id, _ in pairs(flickerChunkThrashCounts) do
+        if flickerChunkAddTimes[id] == nil and flickerChunkRemoveTimes[id] == nil then
+            flickerChunkThrashCounts[id] = nil
+        end
+    end
+end
+
+local function resolveMemoryPressureLabel()
+    local hostLevel = tonumber(Workspace:GetAttribute("ArnisStreamingMemoryGuardrailHostPressureLevel"))
+    local nearLevel = tonumber(Workspace:GetAttribute("ArnisStreamingRingNearPressureLevel")) or 0
+    local midLevel = tonumber(Workspace:GetAttribute("ArnisStreamingRingMidPressureLevel")) or 0
+    local farLevel = tonumber(Workspace:GetAttribute("ArnisStreamingRingFarPressureLevel")) or 0
+    local peak = math.max(hostLevel or 0, nearLevel, midLevel, farLevel)
+    if peak >= 3 then
+        return "critical"
+    elseif peak >= 2 then
+        return "high"
+    elseif peak >= 1 then
+        return "elevated"
+    end
+    return "ok"
+end
+
+local function sampleFlickerDetector(now)
+    if now - flickerLastSampleAt < FLICKER_SAMPLE_INTERVAL then
+        return
+    end
+    flickerLastSampleAt = now
+    local worldRoot = getWorldRoot()
+    ensureFlickerWatchers(worldRoot)
+    local rootPart = getCharacterRootPart()
+    local nearCount = 0
+    if rootPart and worldRoot then
+        nearCount = countNearPartsAround(rootPart)
+    end
+    local ringNear = tonumber(Workspace:GetAttribute("ArnisStreamingRingNearResidentBytes")) or 0
+    local ringMid = tonumber(Workspace:GetAttribute("ArnisStreamingRingMidResidentBytes")) or 0
+    local ringFar = tonumber(Workspace:GetAttribute("ArnisStreamingRingFarResidentBytes")) or 0
+    pushNearPartSample(nearCount, ringNear, ringMid, ringFar)
+end
+
+local function publishFlickerTelemetry()
+    if not WorldProbeTelemetryFlags.isEnabled(telemetryFlags, "client_flicker") then
+        return
+    end
+    local now = os.clock()
+    sampleFlickerDetector(now)
+    if now - flickerLastEmitAt < FLICKER_EMIT_INTERVAL then
+        return
+    end
+    flickerLastEmitAt = now
+
+    local windowStart = now - FLICKER_WINDOW_SECONDS
+    pruneFlickerChunkMaps(windowStart)
+
+    -- Count ids with BOTH add AND remove within window; track a rolling
+    -- thrash count so the same id thrashing multiple times bumps the signal.
+    local thrashyIdsList = {}
+    local chunkThrashCount = 0
+    for id, addTs in pairs(flickerChunkAddTimes) do
+        local removeTs = flickerChunkRemoveTimes[id]
+        if removeTs ~= nil and addTs >= windowStart and removeTs >= windowStart then
+            chunkThrashCount = chunkThrashCount + 1
+            flickerChunkThrashCounts[id] = (flickerChunkThrashCounts[id] or 0) + 1
+            thrashyIdsList[#thrashyIdsList + 1] = { id = id, count = flickerChunkThrashCounts[id] or 1 }
+        end
+    end
+    table.sort(thrashyIdsList, function(a, b)
+        return a.count > b.count
+    end)
+    local topThrashy = {}
+    for i = 1, math.min(5, #thrashyIdsList) do
+        topThrashy[i] = thrashyIdsList[i].id
+    end
+
+    local avgNear, stdDevNear, minNear, maxNear, sampleCount = summarizeNearPartRing()
+    local ringDeltaNear = summarizeRingResidentDelta(ringResidentNearRing)
+    local ringDeltaMid = summarizeRingResidentDelta(ringResidentMidRing)
+    local ringDeltaFar = summarizeRingResidentDelta(ringResidentFarRing)
+
+    local ringNearLive = tonumber(Workspace:GetAttribute("ArnisStreamingRingNearResidentBytes")) or 0
+    local ringMidLive = tonumber(Workspace:GetAttribute("ArnisStreamingRingMidResidentBytes")) or 0
+    local ringFarLive = tonumber(Workspace:GetAttribute("ArnisStreamingRingFarResidentBytes")) or 0
+
+    local fetchFailuresNow = tonumber(Workspace:GetAttribute("ArnisChunkFetchFailures")) or 0
+    local fetchFailuresDelta = 0
+    if flickerLastFetchFailures ~= nil then
+        fetchFailuresDelta = math.max(0, fetchFailuresNow - flickerLastFetchFailures)
+    end
+    flickerLastFetchFailures = fetchFailuresNow
+
+    local memoryPressure = resolveMemoryPressureLabel()
+
+    local currentNearCount = 0
+    if nearPartRingCount > 0 then
+        currentNearCount = nearPartRing[nearPartRingHead] or 0
+    end
+
+    local flickerPayload = {
+        windowSeconds = FLICKER_WINDOW_SECONDS,
+        sampleCount = sampleCount,
+        chunkThrashCount = chunkThrashCount,
+        thrashyChunkIds = topThrashy,
+        nearPartCount = currentNearCount,
+        nearPartCountAvg = math.round(avgNear * 10) / 10,
+        nearPartCountStdDev = math.round(stdDevNear * 10) / 10,
+        nearPartCountMin = minNear,
+        nearPartCountMax = maxNear,
+        ringResidentBytesNear = ringNearLive,
+        ringResidentBytesMid = ringMidLive,
+        ringResidentBytesFar = ringFarLive,
+        ringDeltaNear = ringDeltaNear,
+        ringDeltaMid = ringDeltaMid,
+        ringDeltaFar = ringDeltaFar,
+        ringBouncesNear = countRingBounces(ringResidentNearRing),
+        ringBouncesMid = countRingBounces(ringResidentMidRing),
+        ringBouncesFar = countRingBounces(ringResidentFarRing),
+        chunkFetchFailuresDelta = fetchFailuresDelta,
+        memoryPressure = memoryPressure,
+    }
+    WorldProbeTelemetryFlags.annotateMarkerPayload(flickerPayload, telemetryFlags)
+    local flickerPayloadJson = HttpService:JSONEncode(flickerPayload)
+    print("ARNIS_CLIENT_FLICKER " .. flickerPayloadJson)
+
+    local remote = resolveFlickerClientRemote()
+    if remote then
+        pcall(function()
+            remote:FireServer(flickerPayload)
+        end)
+    end
+end
+
 local function publishWorldTelemetry()
     refreshTelemetryFlags()
     local rootPart = getCharacterRootPart()
@@ -917,6 +1273,7 @@ end)
 RunService.Heartbeat:Connect(function(dt)
     recordFrameTime(dt)
     publishPerfTelemetry()
+    publishFlickerTelemetry()
     maybeSampleWorldTelemetry()
 end)
 

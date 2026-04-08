@@ -30,6 +30,152 @@ local configuredEndpoint = DEFAULT_ENDPOINT
 local phaseTimestamps = {}
 local phaseOrder = {}
 
+-- ---------------------------------------------------------------------------
+-- Flicker aggregate state
+-- ---------------------------------------------------------------------------
+-- Clients (via WorldProbe.client.lua) fire samples through an
+-- UnreliableRemoteEvent; BootstrapAustin routes each sample through
+-- RecordFlickerSample and the aggregates below are included in the next
+-- Report() payload.
+local PRESSURE_LEVEL_ORDER = {
+    ok = 0,
+    elevated = 1,
+    high = 2,
+    critical = 3,
+}
+local PRESSURE_LEVEL_LABELS = { [0] = "ok", [1] = "elevated", [2] = "high", [3] = "critical" }
+
+local flickerAggregate = {
+    sampleCount = 0,
+    chunkThrashCountTotal = 0,
+    chunkThrashCountPeak = 0,
+    nearPartCountStdDevSum = 0,
+    nearPartCountStdDevPeak = 0,
+    ringBouncesNearTotal = 0,
+    ringBouncesMidTotal = 0,
+    ringBouncesFarTotal = 0,
+    ringDeltaNearPeak = 0,
+    ringDeltaMidPeak = 0,
+    ringDeltaFarPeak = 0,
+    chunkFetchFailuresDeltaTotal = 0,
+    peakMemoryPressureLevel = 0,
+    thrashyChunkIdsSeen = {},
+    lastSampleTimestamp = 0,
+}
+
+function TelemetryReporter.ResetFlickerAggregate()
+    flickerAggregate = {
+        sampleCount = 0,
+        chunkThrashCountTotal = 0,
+        chunkThrashCountPeak = 0,
+        nearPartCountStdDevSum = 0,
+        nearPartCountStdDevPeak = 0,
+        ringBouncesNearTotal = 0,
+        ringBouncesMidTotal = 0,
+        ringBouncesFarTotal = 0,
+        ringDeltaNearPeak = 0,
+        ringDeltaMidPeak = 0,
+        ringDeltaFarPeak = 0,
+        chunkFetchFailuresDeltaTotal = 0,
+        peakMemoryPressureLevel = 0,
+        thrashyChunkIdsSeen = {},
+        lastSampleTimestamp = 0,
+    }
+end
+
+function TelemetryReporter.RecordFlickerSample(sample)
+    if type(sample) ~= "table" then
+        return
+    end
+    flickerAggregate.sampleCount = flickerAggregate.sampleCount + 1
+    flickerAggregate.lastSampleTimestamp = os.time()
+
+    local thrash = tonumber(sample.chunkThrashCount) or 0
+    flickerAggregate.chunkThrashCountTotal = flickerAggregate.chunkThrashCountTotal + thrash
+    if thrash > flickerAggregate.chunkThrashCountPeak then
+        flickerAggregate.chunkThrashCountPeak = thrash
+    end
+
+    local stdDev = tonumber(sample.nearPartCountStdDev) or 0
+    flickerAggregate.nearPartCountStdDevSum = flickerAggregate.nearPartCountStdDevSum + stdDev
+    if stdDev > flickerAggregate.nearPartCountStdDevPeak then
+        flickerAggregate.nearPartCountStdDevPeak = stdDev
+    end
+
+    flickerAggregate.ringBouncesNearTotal = flickerAggregate.ringBouncesNearTotal
+        + (tonumber(sample.ringBouncesNear) or 0)
+    flickerAggregate.ringBouncesMidTotal = flickerAggregate.ringBouncesMidTotal
+        + (tonumber(sample.ringBouncesMid) or 0)
+    flickerAggregate.ringBouncesFarTotal = flickerAggregate.ringBouncesFarTotal
+        + (tonumber(sample.ringBouncesFar) or 0)
+
+    local deltaNear = tonumber(sample.ringDeltaNear) or 0
+    if deltaNear > flickerAggregate.ringDeltaNearPeak then
+        flickerAggregate.ringDeltaNearPeak = deltaNear
+    end
+    local deltaMid = tonumber(sample.ringDeltaMid) or 0
+    if deltaMid > flickerAggregate.ringDeltaMidPeak then
+        flickerAggregate.ringDeltaMidPeak = deltaMid
+    end
+    local deltaFar = tonumber(sample.ringDeltaFar) or 0
+    if deltaFar > flickerAggregate.ringDeltaFarPeak then
+        flickerAggregate.ringDeltaFarPeak = deltaFar
+    end
+
+    flickerAggregate.chunkFetchFailuresDeltaTotal = flickerAggregate.chunkFetchFailuresDeltaTotal
+        + (tonumber(sample.chunkFetchFailuresDelta) or 0)
+
+    local pressure = sample.memoryPressure
+    local pressureLevel = PRESSURE_LEVEL_ORDER[tostring(pressure)] or 0
+    if pressureLevel > flickerAggregate.peakMemoryPressureLevel then
+        flickerAggregate.peakMemoryPressureLevel = pressureLevel
+    end
+
+    if type(sample.thrashyChunkIds) == "table" then
+        for _, id in ipairs(sample.thrashyChunkIds) do
+            if type(id) == "string" and id ~= "" then
+                flickerAggregate.thrashyChunkIdsSeen[id] =
+                    (flickerAggregate.thrashyChunkIdsSeen[id] or 0) + 1
+            end
+        end
+    end
+end
+
+local function buildFlickerBlock()
+    if flickerAggregate.sampleCount <= 0 then
+        return nil
+    end
+    local avgStdDev = flickerAggregate.nearPartCountStdDevSum / flickerAggregate.sampleCount
+    local topThrashy = {}
+    for id, count in pairs(flickerAggregate.thrashyChunkIdsSeen) do
+        topThrashy[#topThrashy + 1] = { id = id, count = count }
+    end
+    table.sort(topThrashy, function(a, b)
+        return a.count > b.count
+    end)
+    local topIds = {}
+    for i = 1, math.min(5, #topThrashy) do
+        topIds[i] = topThrashy[i].id
+    end
+    return {
+        sampleCount = flickerAggregate.sampleCount,
+        chunkThrashCount = flickerAggregate.chunkThrashCountTotal,
+        chunkThrashCountPeak = flickerAggregate.chunkThrashCountPeak,
+        nearPartCountStdDevAvg = math.round(avgStdDev * 10) / 10,
+        nearPartCountStdDevPeak = flickerAggregate.nearPartCountStdDevPeak,
+        ringBouncesNear = flickerAggregate.ringBouncesNearTotal,
+        ringBouncesMid = flickerAggregate.ringBouncesMidTotal,
+        ringBouncesFar = flickerAggregate.ringBouncesFarTotal,
+        ringDeltaNearPeak = flickerAggregate.ringDeltaNearPeak,
+        ringDeltaMidPeak = flickerAggregate.ringDeltaMidPeak,
+        ringDeltaFarPeak = flickerAggregate.ringDeltaFarPeak,
+        chunkFetchFailuresDelta = flickerAggregate.chunkFetchFailuresDeltaTotal,
+        peakMemoryPressure = PRESSURE_LEVEL_LABELS[flickerAggregate.peakMemoryPressureLevel] or "ok",
+        topThrashyChunkIds = topIds,
+        lastSampleTimestamp = flickerAggregate.lastSampleTimestamp,
+    }
+end
+
 function TelemetryReporter.Configure(endpointUrl)
     if type(endpointUrl) == "string" and endpointUrl ~= "" then
         configuredEndpoint = endpointUrl
@@ -123,6 +269,11 @@ local function buildPayload(payloadOverrides)
             sourceUrl = resolveSourceUrl(),
         },
     }
+
+    local flickerBlock = buildFlickerBlock()
+    if flickerBlock ~= nil then
+        payload.flicker = flickerBlock
+    end
 
     return payload
 end

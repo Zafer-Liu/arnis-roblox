@@ -1,6 +1,19 @@
 --[[
     VehicleController.client.lua
-    AAA-grade player vehicle mechanics: car, jetpack, and parachute.
+    AAA-grade player vehicle mechanics: car, jetpack, parachute,
+    wingsuit, and grapple hook.
+
+    DISPATCHER — this file is the thin entry point that wires
+    together the mode modules under `Traversal/`. All shared state,
+    constants, utilities, and HUD construction live in
+    `Traversal/SharedState.lua`. All mode-specific behavior lives in
+    `Traversal/CarController.lua`, `JetpackController.lua`,
+    `ParachuteController.lua`, `WingsuitController.lua`, and
+    `GrappleController.lua`.
+
+    This file owns: character lifecycle, key bindings, mode
+    transitions, full cleanup, and the per-frame render loop that
+    fans out into each mode's update function.
 
     Keybinds:
         V       Spawn car / enter nearby car / exit car
@@ -13,2636 +26,170 @@
         E       Exit vehicle (car)
         A/D     Bank left/right (parachute)
         S       Flare / increase angle of attack (parachute)
-
-    Architecture:
-        - SpringConstraint suspension per wheel
-        - CylindricalConstraint motor per wheel
-        - HingeConstraint steering pivots on front wheels
-        - BodyForce-based jetpack with gradual thrust ramp
-        - Aerodynamic parachute with glide ratio, stall, and wind
-        - Custom chase camera with FOV scaling
-        - Full HUD: speedometer, altimeter, fuel gauge, mode icon
-        - TweenService for all animations
-        - CollectionService tagging for cleanup
-        - Complete cleanup on death/leave/respawn
+        G       Grapple hook (Just Cause style)
+        C       Cinematic orbit camera
 ]]
 
-local Players = game:GetService("Players")
-local UserInputService = game:GetService("UserInputService")
-local RunService = game:GetService("RunService")
-local TweenService = game:GetService("TweenService")
-local CollectionService = game:GetService("CollectionService")
-local Debris = game:GetService("Debris")
-local HttpService = game:GetService("HttpService")
-local Lighting = game:GetService("Lighting")
-local Workspace = game:GetService("Workspace")
-
-local player = Players.LocalPlayer
-local playerGui = player:WaitForChild("PlayerGui")
-
---------------------------------------------------------------------------------
--- Constants
---------------------------------------------------------------------------------
-local CAR_TAG = "PlayerVehiclePart"
-local JETPACK_TAG = "JetpackPart"
-local PARACHUTE_TAG = "ParachutePart"
-
--- Car physics — Far Cry / Just Cause feel: fast, drifty, weighty
-local CAR_MAX_SPEED = 180 -- studs/s (~54m/s, fast and dynamic like Just Cause)
-local CAR_BOOST_SPEED = 280 -- studs/s during nitro boost
-local CAR_BOOST_DURATION = 3.0 -- seconds of nitro
-local CAR_BOOST_COOLDOWN = 8.0 -- seconds between boosts
-local CAR_MOTOR_ANGULAR_VEL = 55 -- rad/s at full throttle
-local CAR_TORQUE = 2400 -- aggressive acceleration
-local CAR_STEER_ANGLE = 38 -- degrees — responsive
-local CAR_STEER_SPEED = 10 -- quick snap into turns
-local CAR_HIGH_SPEED_STEER_FACTOR = 0.35 -- tight at speed
-local SUSPENSION_REST_LENGTH = 1.6
-local SUSPENSION_STIFFNESS = 1400 -- very firm — planted feeling
-local SUSPENSION_DAMPING = 150 -- no bounce, just bite
-local DRIFT_GRIP_REDUCTION = 0.3 -- more slidey drift (Far Cry style)
-local ENGINE_IDLE_VIBRATION = 0.02
--- Rapier-style acceleration: jerk-limited smooth ramp instead of instant torque
-local CAR_ACCEL_RAMP_TIME = 0.6 -- seconds from 0 to full torque (smooth curve)
-local CAR_DECEL_RAMP_TIME = 0.3 -- faster braking response than acceleration
--- Per-road-surface friction (matches OSM surface tags compiled in manifest).
--- Multiplies the base wheel friction. 1.0 = standard asphalt grip.
-local SURFACE_FRICTION = {
-    asphalt = 1.0,
-    concrete = 0.95,
-    paved = 1.0,
-    paving_stones = 0.85,
-    cobblestone = 0.7,
-    sett = 0.7,
-    unpaved = 0.6,
-    compacted = 0.65,
-    gravel = 0.5,
-    fine_gravel = 0.55,
-    pebblestone = 0.45,
-    dirt = 0.5,
-    earth = 0.5,
-    grass = 0.45,
-    sand = 0.35,
-    mud = 0.3,
-    ice = 0.15,
-    snow = 0.25,
-    wood = 0.7,
-    metal = 0.6,
-    rubber = 1.05,
-    default = 0.85,
-}
--- Dynamic FOV
-local CAR_FOV_MIN = 70
-local CAR_FOV_MAX = 95 -- cinematic warp at top speed
-local CAR_FOV_BOOST = 105 -- extreme during nitro
-
--- Jetpack physics — Far Cry 4 buzzer / Just Cause thrust vectoring
-local JETPACK_MAX_THRUST = 6500 -- snappier response
-local JETPACK_BOOST_THRUST = 12000 -- hold shift for burst (Just Cause style)
-local JETPACK_BOOST_FUEL_COST = 3.0 -- fuel/second during boost
-local JETPACK_RAMP_TIME = 0.25 -- faster ramp for responsiveness
-local JETPACK_DAMPING = 0.45 -- slightly less drag for more momentum
-local JETPACK_MAX_HORIZONTAL_SPEED = 120 -- studs/s — fast traverse
-local JETPACK_MAX_VERTICAL_SPEED = 80 -- studs/s — quick ascent
-local JETPACK_FUEL_MAX = 45 -- seconds (forces strategic use)
-local JETPACK_FUEL_RECHARGE_RATE = 0.8 -- faster recharge for dynamic play
--- Rapier-style angular damping: smooth rotation instead of snappy
-local JETPACK_TILT_SPEED = 4.0 -- degrees/frame toward velocity
-local JETPACK_MAX_TILT = 25 -- degrees of character lean
-
--- Parachute physics — Just Cause wingsuit/chute hybrid
-local CHUTE_GLIDE_RATIO = 4.5 -- better glide (Just Cause style)
-local CHUTE_DESCENT_RATE = -6 -- studs/s (slower, more hang time)
-local CHUTE_FORWARD_SPEED = math.abs(CHUTE_DESCENT_RATE) * CHUTE_GLIDE_RATIO
-local CHUTE_TURN_RATE = 2.0 -- rad/s, responsive banking
-local CHUTE_FLARE_LIFT = 6 -- decent flare for precision landings
-local CHUTE_FLARE_STALL_TIME = 3.0
-local CHUTE_STALL_DESCENT = -25
-local CHUTE_WIND_STRENGTH = 2.0 -- noticeable wind for dynamic feel
-local CHUTE_HORIZONTAL_DRAG = 0.08 -- less drag = more speed preservation
--- Dive mechanic: hold W to tuck and gain speed, trade altitude for velocity
-local CHUTE_DIVE_DESCENT_RATE = -20 -- studs/s when diving
-local CHUTE_DIVE_FORWARD_SPEED = 60 -- studs/s — fast dive like Just Cause
-local CHUTE_DIVE_RECOVERY_TIME = 0.5 -- seconds to smoothly transition out of dive
-
--- Grapple hook (Just Cause signature) — raycast from camera, rope-pull toward impact
-local GRAPPLE_MAX_RANGE = 200
-local GRAPPLE_PULL_SPEED = 80
-local GRAPPLE_TIMEOUT = 5
-local GRAPPLE_ARRIVAL_RADIUS = 6 -- studs: auto-release when this close to hit point
-local GRAPPLE_VELOCITY_LERP = 10 -- per-second lerp rate from current vel to pull vel (smooth)
-local GRAPPLE_PULL_MAX_FORCE = 60000 -- BodyVelocity MaxForce component
-local GRAPPLE_BEAM_WIDTH = 0.18
-
--- Wingsuit (auto from freefall) — Far Cry style glide between jetpack / parachute
-local WINGSUIT_GLIDE_RATIO = 4.0
-local WINGSUIT_FORWARD_SPEED = 90
-local WINGSUIT_DESCENT_RATE = -22
-local WINGSUIT_MIN_FREEFALL_TIME = 2
-local WINGSUIT_TILT_LERP = 4.0 -- per-second gyro/velocity lerp rate (smooth)
-local WINGSUIT_PITCH_DEGREES = 35 -- forward tilt of character in glide pose
-local WINGSUIT_MAX_FORCE_H = 8000
-local WINGSUIT_MAX_FORCE_V = 20000
-
--- Camera (uses CAR_FOV_MIN/MAX/BOOST from physics block above)
-local CAR_CAM_OFFSET = Vector3.new(0, 8, 22)
-local CAR_CAM_TILT_FACTOR = 0.04
-local CAR_FOV_SPEED_RANGE = 130 -- ramp to max over full speed range
-
-local JETPACK_CAM_OFFSET = Vector3.new(0, 4, 16)
-local JETPACK_CAM_SHAKE_INTENSITY = 0.15
-
-local CHUTE_CAM_OFFSET = Vector3.new(0, 10, 24)
-local CHUTE_FOV = 90 -- wide panoramic view of the city
-
-local DEFAULT_FOV = 70
-
--- Frame-rate-independent lerp rate (per second)
-local CAM_LERP_RATE = 6
-
--- Pre-computed jetpack flame tiers (fix #1: zero per-frame NumberSequence allocs)
-local FLAME_SIZE_TIERS = {}
-local FLAME_SPEED_TIERS = {}
-for tier = 0, 10 do
-    local t = tier / 10
-    local baseSize = 0.5 + t * 2.0
-    FLAME_SIZE_TIERS[tier] = NumberSequence.new({
-        NumberSequenceKeypoint.new(0, baseSize),
-        NumberSequenceKeypoint.new(0.3, baseSize * 0.6),
-        NumberSequenceKeypoint.new(1, 0),
-    })
-    FLAME_SPEED_TIERS[tier] = NumberRange.new(5 + t * 15, 10 + t * 20)
-end
-
--- Cached Color3 values for brake/turn lights (fix #6: no per-frame Color3 allocs)
-local BRAKE_ON = Color3.fromRGB(255, 20, 20)
-local BRAKE_OFF = Color3.fromRGB(80, 10, 10)
-local TURN_ON = Color3.fromRGB(255, 180, 30)
-local TURN_OFF = Color3.fromRGB(80, 60, 20)
-local FUEL_LOW_COLOR = Color3.fromRGB(255, 60, 60)
-local FUEL_MID_COLOR = Color3.fromRGB(255, 180, 50)
-
--- HUD
-local HUD_FADE_DELAY = 5
-local HUD_FONT = Enum.Font.GothamBold
-local HUD_BG_COLOR = Color3.fromRGB(15, 17, 25)
-local HUD_TEXT_COLOR = Color3.fromRGB(220, 225, 235)
-local HUD_ACCENT_COLOR = Color3.fromRGB(80, 180, 255)
-
---------------------------------------------------------------------------------
--- State
---------------------------------------------------------------------------------
-local mode = "none" -- "none" | "car" | "jetpack" | "parachute" | "wingsuit"
-
--- Grapple hook state (works across all modes)
-local grappleActive = false
-local grappleTargetPos = nil
-local grappleHitInstance = nil
-local grappleTimer = 0
-local grappleBodyVelocity = nil
-local grappleBeam = nil
-local grappleAttachChar = nil
-local grappleAttachTarget = nil
-local grappleAnchorPart = nil -- invisible anchor part at hit point for beam
-
--- Wingsuit state (auto-engages from sustained freefall)
-local wingsuitActive = false
-local wingsuitBodyVelocity = nil
-local wingsuitGyro = nil
-local wingsuitFreefallTimer = 0
-local wingsuitCurrentVel = Vector3.zero
-
--- Car state
-local carModel = nil
-local carBody = nil
-local carSeat = nil
-local carWheels = {} -- { part, motor, spring, steerHinge (front only) }
-local carBrakeLights = {}
-local carExhaustEmitter = nil
-local carEngineSound = nil
-local carTireScreechSound = nil
-local carHornSound = nil
-local carIdleVibration = nil
-local carSteerAngle = 0
-local carPrevSpeed = 0
-local carIsBraking = false
-local prevBraking = false
-local prevTurnState = 0 -- -1 left, 0 none, 1 right
-local carGyro = nil
-local carThrottleSmooth = 0
-local carBoostActive = false
-local carBoostTimer = 0
-local carBoostCooldown = 0
-local carSurfaceFriction = 1.0
-local carSurfaceFrictionTimer = 0
-
--- Jetpack state
-local jetpackForce = nil
-local jetpackEmitters = {}
-local jetpackLights = {}
-local jetpackThrustSound = nil
-local jetpackWindSound = nil
-local jetpackFuel = JETPACK_FUEL_MAX
-local jetpackThrustLevel = 0 -- 0..1 ramp
-local jetpackActive = false
-
--- Parachute state
-local chuteActive = false
-local chuteCanopy = nil
-local chuteForce = nil
-local chuteLift = nil
-local chuteGyro = nil
-local chuteHeading = 0
-local chuteStalled = false
-local chuteStallTimer = 0
-local chuteWindOffset = Vector3.new(0, 0, 0)
-local chuteWindSound = nil
-local chuteFlutterSound = nil
-local chuteLandedConn = nil
-
--- Camera state
-local customCamActive = false
-local camTargetFOV = DEFAULT_FOV
-local camCurrentPos = nil
-
--- G-force tracking
-local lastCarVelocity = Vector3.zero
-
--- Anti-fall-through safety net
-local lastSafePosition = Vector3.new(0, 100, 0)
-
--- Cinematic orbit camera
-local cinematicMode = false
-local cinematicAngle = 0
-
--- Transition state
-local transitionLock = false
-
--- Shared per-frame cached input
-local frameGamepad = nil
-local lastPublishedClientTelemetry = {}
-
---------------------------------------------------------------------------------
--- Utility
---------------------------------------------------------------------------------
-local function tagPart(part, tag)
-    CollectionService:AddTag(part, tag)
-end
-
-local function cleanupByTag(tag)
-    for _, obj in ipairs(CollectionService:GetTagged(tag)) do
-        obj:Destroy()
-    end
-end
-
-local function lerp(a, b, t)
-    return a + (b - a) * math.clamp(t, 0, 1)
-end
-
-local function lerpVector3(a, b, t)
-    return a:Lerp(b, math.clamp(t, 0, 1))
-end
-
-local function getCamera()
-    return Workspace.CurrentCamera
-end
-
-local function tweenProperty(obj, props, duration, style, direction)
-    style = style or Enum.EasingStyle.Quad
-    direction = direction or Enum.EasingDirection.Out
-    local tween = TweenService:Create(obj, TweenInfo.new(duration, style, direction), props)
-    tween:Play()
-    return tween
-end
-
-local function getOrCreateDOF()
-    local dof = Lighting:FindFirstChildOfClass("DepthOfFieldEffect")
-    if not dof then
-        dof = Instance.new("DepthOfFieldEffect")
-        dof.Parent = Lighting
-    end
-    return dof
-end
-
-local function enableCinematicDOF()
-    local dof = getOrCreateDOF()
-    dof.FarIntensity = 0.5
-    dof.FocusDistance = 200
-    dof.InFocusRadius = 100
-    dof.NearIntensity = 0
-    dof.Enabled = true
-end
-
-local function enableParachuteDOF()
-    local dof = getOrCreateDOF()
-    dof.FarIntensity = 0.3
-    dof.FocusDistance = 300
-    dof.InFocusRadius = 200
-    dof.NearIntensity = 0
-    dof.Enabled = true
-end
-
-local function disableDOF()
-    local dof = Lighting:FindFirstChildOfClass("DepthOfFieldEffect")
-    if dof then
-        dof.Enabled = false
-    end
-end
-
-local function restoreDefaultCamera(humanoid)
-    local camera = getCamera()
-    if not camera then
-        return
-    end
-
-    camera.CameraType = Enum.CameraType.Custom
-    if humanoid then
-        camera.CameraSubject = humanoid
-    end
-    tweenProperty(camera, { FieldOfView = DEFAULT_FOV }, 0.4)
-end
-
-local function setPlayerAttributeIfChanged(name, nextValue)
-    if player:GetAttribute(name) == nextValue then
-        return
-    end
-    player:SetAttribute(name, nextValue)
-end
-
-local function publishClientCameraTelemetry(humanoid)
-    local camera = getCamera()
-    local subject = camera and camera.CameraSubject or nil
-    local telemetry = {
-        ArnisClientCameraType = camera and tostring(camera.CameraType) or nil,
-        ArnisClientCameraSubject = subject and subject:GetFullName() or nil,
-        ArnisClientCameraSubjectClass = subject and subject.ClassName or nil,
-        ArnisClientCameraMode = mode,
-    }
-    local telemetryChanged = false
-
-    player:SetAttribute("ArnisVehicleControllerReady", true)
-
-    for attributeName, nextValue in pairs(telemetry) do
-        if lastPublishedClientTelemetry[attributeName] ~= nextValue then
-            setPlayerAttributeIfChanged(attributeName, nextValue)
-            lastPublishedClientTelemetry[attributeName] = nextValue
-            telemetryChanged = true
-        end
-    end
-
-    local humanoidState = humanoid and tostring(humanoid:GetState()) or nil
-    if lastPublishedClientTelemetry.ArnisClientHumanoidState ~= humanoidState then
-        local nextValue = humanoidState
-        setPlayerAttributeIfChanged("ArnisClientHumanoidState", nextValue)
-        lastPublishedClientTelemetry.ArnisClientHumanoidState = nextValue
-        telemetryChanged = true
-    end
-
-    if telemetryChanged then
-        print("ARNIS_CLIENT_CAMERA " .. HttpService:JSONEncode({
-            mode = telemetry.ArnisClientCameraMode,
-            cameraType = telemetry.ArnisClientCameraType,
-            cameraSubject = telemetry.ArnisClientCameraSubject,
-            cameraSubjectClass = telemetry.ArnisClientCameraSubjectClass,
-            humanoidState = humanoidState,
-        }))
-    end
-end
-
--- Sound assets from Roblox library
-local SOUND_ENGINE_LOOP = "rbxassetid://9112854440"
-local SOUND_TIRE_SCREECH = "rbxassetid://9114368685"
-local SOUND_HORN = "rbxassetid://9113651830"
-local SOUND_JET_THRUST = "rbxasset://sounds/action_falling.ogg"
-local SOUND_WIND_RUSH = "rbxasset://sounds/action_falling.ogg"
-local SOUND_CHUTE_DEPLOY = "rbxassetid://9113636898"
-local SOUND_CHUTE_FLUTTER = "rbxasset://sounds/action_falling.ogg"
-
-local function makeSound(parent, name, looped, volume, soundId)
-    local s = Instance.new("Sound")
-    s.Name = name
-    s.Looped = looped or false
-    s.Volume = volume or 0.5
-    s.SoundId = soundId or ""
-    s.Parent = parent
-    return s
-end
-
-local function getCharacter()
-    return player.Character
-end
-
-local function getHRP()
-    local char = getCharacter()
-    return char and char:FindFirstChild("HumanoidRootPart")
-end
-
-local function getHumanoid()
-    local char = getCharacter()
-    return char and char:FindFirstChildOfClass("Humanoid")
-end
-
-local function isOnGround()
-    local hum = getHumanoid()
-    if not hum then
-        return false
-    end
-    local state = hum:GetState()
-    return state == Enum.HumanoidStateType.Running or state == Enum.HumanoidStateType.Landed
-end
-
--- Returns a table with gamepad axis/trigger values, or nil if no gamepad.
--- Fields: thumbstickX, thumbstickY, rightTrigger, leftTrigger
-local function readGamepad()
-    local ok, state = pcall(function()
-        return UserInputService:GetGamepadState(Enum.UserInputType.Gamepad1)
-    end)
-    if not ok or not state then
-        return nil
-    end
-
-    local result = { thumbstickX = 0, thumbstickY = 0, rightTrigger = 0, leftTrigger = 0 }
-    for _, input in ipairs(state) do
-        if input.KeyCode == Enum.KeyCode.Thumbstick1 then
-            result.thumbstickX = input.Position.X
-            result.thumbstickY = input.Position.Y
-        elseif input.KeyCode == Enum.KeyCode.ButtonR2 then
-            result.rightTrigger = input.Position.Z
-        elseif input.KeyCode == Enum.KeyCode.ButtonL2 then
-            result.leftTrigger = input.Position.Z
-        end
-    end
-    return result
-end
-
---------------------------------------------------------------------------------
--- HUD
---------------------------------------------------------------------------------
-local screenGui = Instance.new("ScreenGui")
-screenGui.Name = "VehicleHUD"
-screenGui.ResetOnSpawn = false
-screenGui.IgnoreGuiInset = true
-screenGui.DisplayOrder = 10
-screenGui.Parent = playerGui
-
--- Main container at bottom center
-local hudContainer = Instance.new("Frame")
-hudContainer.Name = "HUDContainer"
-hudContainer.Size = UDim2.new(0, 500, 0, 120)
-hudContainer.Position = UDim2.new(0.5, -250, 1, -130)
-hudContainer.BackgroundTransparency = 1
-hudContainer.Parent = screenGui
-
--- Control hints
-local controlHints = Instance.new("TextLabel")
-controlHints.Name = "ControlHints"
-controlHints.Size = UDim2.new(1, 0, 0, 24)
-controlHints.Position = UDim2.new(0, 0, 1, -24)
-controlHints.BackgroundTransparency = 0.4
-controlHints.BackgroundColor3 = HUD_BG_COLOR
-controlHints.TextColor3 = HUD_TEXT_COLOR
-controlHints.Font = HUD_FONT
-controlHints.TextSize = 13
-controlHints.Text = "[V/Y] Car   [J/X] Jetpack   [P/A] Parachute"
-controlHints.Parent = hudContainer
-Instance.new("UICorner", controlHints).CornerRadius = UDim.new(0, 6)
-
--- Mode icon
-local modeIcon = Instance.new("TextLabel")
-modeIcon.Name = "ModeIcon"
-modeIcon.Size = UDim2.new(0, 40, 0, 40)
-modeIcon.Position = UDim2.new(0, 0, 0, 0)
-modeIcon.BackgroundTransparency = 0.3
-modeIcon.BackgroundColor3 = HUD_BG_COLOR
-modeIcon.TextColor3 = HUD_ACCENT_COLOR
-modeIcon.Font = HUD_FONT
-modeIcon.TextSize = 22
-modeIcon.Text = ""
-modeIcon.Visible = false
-modeIcon.Parent = hudContainer
-Instance.new("UICorner", modeIcon).CornerRadius = UDim.new(0, 8)
-
--- Speedometer
-local speedLabel = Instance.new("TextLabel")
-speedLabel.Name = "Speed"
-speedLabel.Size = UDim2.new(0, 120, 0, 36)
-speedLabel.Position = UDim2.new(0.5, -60, 0, 0)
-speedLabel.BackgroundTransparency = 0.3
-speedLabel.BackgroundColor3 = HUD_BG_COLOR
-speedLabel.TextColor3 = HUD_TEXT_COLOR
-speedLabel.Font = HUD_FONT
-speedLabel.TextSize = 20
-speedLabel.Text = ""
-speedLabel.Visible = false
-speedLabel.Parent = hudContainer
-Instance.new("UICorner", speedLabel).CornerRadius = UDim.new(0, 8)
-
--- Altitude
-local altLabel = Instance.new("TextLabel")
-altLabel.Name = "Altitude"
-altLabel.Size = UDim2.new(0, 100, 0, 30)
-altLabel.Position = UDim2.new(1, -100, 0, 0)
-altLabel.BackgroundTransparency = 0.3
-altLabel.BackgroundColor3 = HUD_BG_COLOR
-altLabel.TextColor3 = HUD_TEXT_COLOR
-altLabel.Font = HUD_FONT
-altLabel.TextSize = 16
-altLabel.Text = ""
-altLabel.Visible = false
-altLabel.Parent = hudContainer
-Instance.new("UICorner", altLabel).CornerRadius = UDim.new(0, 6)
-
--- Fuel bar (jetpack)
-local fuelBarBg = Instance.new("Frame")
-fuelBarBg.Name = "FuelBarBG"
-fuelBarBg.Size = UDim2.new(0, 160, 0, 12)
-fuelBarBg.Position = UDim2.new(0.5, -80, 0, 44)
-fuelBarBg.BackgroundTransparency = 0.3
-fuelBarBg.BackgroundColor3 = HUD_BG_COLOR
-fuelBarBg.Visible = false
-fuelBarBg.Parent = hudContainer
-Instance.new("UICorner", fuelBarBg).CornerRadius = UDim.new(0, 4)
-
-local fuelBarFill = Instance.new("Frame")
-fuelBarFill.Name = "FuelFill"
-fuelBarFill.Size = UDim2.new(1, -4, 1, -4)
-fuelBarFill.Position = UDim2.new(0, 2, 0, 2)
-fuelBarFill.BackgroundColor3 = HUD_ACCENT_COLOR
-fuelBarFill.BorderSizePixel = 0
-fuelBarFill.Parent = fuelBarBg
-Instance.new("UICorner", fuelBarFill).CornerRadius = UDim.new(0, 3)
-
-local controlHintTimer = 0
-local controlHintsVisible = true
-
-local function setHUDMode(newMode)
-    local isCar = newMode == "car"
-    local isJet = newMode == "jetpack"
-    local isChute = newMode == "parachute"
-    local isWing = newMode == "wingsuit"
-    local isActive = isCar or isJet or isChute or isWing
-
-    modeIcon.Visible = isActive
-    speedLabel.Visible = isCar
-    altLabel.Visible = isJet or isChute or isWing
-    fuelBarBg.Visible = isJet
-
-    if isCar then
-        modeIcon.Text = "CAR"
-        controlHints.Text = "[WASD] Drive   [Space] Brake   [H] Horn   [E/B] Exit   [G] Grapple"
-    elseif isJet then
-        modeIcon.Text = "JET"
-        controlHints.Text = "[WASD/LS] Move   [Space/RT] Up   [Shift/LT] Down   [J/X] Off   [G] Grapple"
-    elseif isChute then
-        modeIcon.Text = "CHUTE"
-        controlHints.Text = "[A/D/LS] Steer   [S] Flare   [P/B] Cut away   [G] Grapple"
-    elseif isWing then
-        modeIcon.Text = "WINGSUIT"
-        controlHints.Text = "[A/D] Bank   [P] Chute   [J] Jetpack   [G] Grapple"
-    else
-        modeIcon.Text = ""
-        controlHints.Text = "[V/Y] Car   [J/X] Jetpack   [P/A] Parachute   [G] Grapple"
-    end
-
-    -- Show hints, start fade timer
-    controlHintTimer = HUD_FADE_DELAY
-    if not controlHintsVisible then
-        controlHintsVisible = true
-        tweenProperty(controlHints, { TextTransparency = 0, BackgroundTransparency = 0.4 }, 0.3)
-    end
-end
-
-local function updateHUDValues(dt)
-    -- Control hints fade
-    if controlHintTimer > 0 then
-        controlHintTimer = controlHintTimer - dt
-        if controlHintTimer <= 0 and controlHintsVisible then
-            controlHintsVisible = false
-            tweenProperty(controlHints, { TextTransparency = 1, BackgroundTransparency = 1 }, 0.8)
-        end
-    end
-
-    local hrp = getHRP()
-    if not hrp then
-        return
-    end
-
-    -- Speed (car)
-    if mode == "car" and carBody then
-        local speed = carBody.AssemblyLinearVelocity.Magnitude
-        speedLabel.Text = string.format("%d km/h", math.floor(speed * 0.5))
-    end
-
-    -- Altitude
-    if mode == "jetpack" or mode == "parachute" or mode == "wingsuit" then
-        altLabel.Text = string.format("ALT %d", math.floor(hrp.Position.Y))
-    end
-
-    -- Fuel bar
-    if mode == "jetpack" then
-        local frac = math.clamp(jetpackFuel / JETPACK_FUEL_MAX, 0, 1)
-        local barWidth = math.max(0, frac)
-        fuelBarFill.Size = UDim2.new(barWidth, 0, 1, -4)
-        if frac < 0.2 then
-            fuelBarFill.BackgroundColor3 = FUEL_LOW_COLOR
-        elseif frac < 0.5 then
-            fuelBarFill.BackgroundColor3 = FUEL_MID_COLOR
-        else
-            fuelBarFill.BackgroundColor3 = HUD_ACCENT_COLOR
-        end
-    end
-end
-
---------------------------------------------------------------------------------
--- CAR CONSTRUCTION
---------------------------------------------------------------------------------
-local function createCarBody(spawnCF)
-    local model = Instance.new("Model")
-    model.Name = "PlayerCar"
-
-    -- Main chassis (lower body, heavy for stability)
-    local chassis = Instance.new("Part")
-    chassis.Name = "Chassis"
-    chassis.Size = Vector3.new(7, 1.5, 15)
-    chassis.Material = Enum.Material.SmoothPlastic
-    chassis.Color = Color3.fromRGB(25, 25, 30)
-    chassis.CFrame = spawnCF * CFrame.new(0, 1.2, 0)
-    chassis.Anchored = false
-    chassis.CustomPhysicalProperties = PhysicalProperties.new(8, 0.3, 0.1, 1, 1) -- heavy bottom
-    chassis.Parent = model
-    tagPart(chassis, CAR_TAG)
-
-    -- Upper body shell
-    local bodyLower = Instance.new("Part")
-    bodyLower.Name = "BodyLower"
-    bodyLower.Size = Vector3.new(7.4, 2.2, 15.2)
-    bodyLower.Material = Enum.Material.SmoothPlastic
-    bodyLower.Color = Color3.fromRGB(180, 28, 28)
-    bodyLower.CFrame = spawnCF * CFrame.new(0, 2.8, 0)
-    bodyLower.Anchored = false
-    bodyLower.CanCollide = false
-    bodyLower.Massless = true
-    bodyLower.Parent = model
-    tagPart(bodyLower, CAR_TAG)
-    local bw1 = Instance.new("WeldConstraint")
-    bw1.Part0 = chassis
-    bw1.Part1 = bodyLower
-    bw1.Parent = chassis
-
-    -- Hood (sloped front)
-    local hood = Instance.new("Part")
-    hood.Name = "Hood"
-    hood.Size = Vector3.new(6.8, 1.0, 5)
-    hood.Material = Enum.Material.SmoothPlastic
-    hood.Color = Color3.fromRGB(175, 25, 25)
-    hood.CFrame = spawnCF * CFrame.new(0, 3.6, -5.5) * CFrame.Angles(math.rad(-12), 0, 0)
-    hood.Anchored = false
-    hood.CanCollide = false
-    hood.Massless = true
-    hood.Parent = model
-    tagPart(hood, CAR_TAG)
-    local hw = Instance.new("WeldConstraint")
-    hw.Part0 = chassis
-    hw.Part1 = hood
-    hw.Parent = chassis
-
-    -- Trunk (slightly sloped rear)
-    local trunk = Instance.new("Part")
-    trunk.Name = "Trunk"
-    trunk.Size = Vector3.new(6.8, 0.8, 4)
-    trunk.Material = Enum.Material.SmoothPlastic
-    trunk.Color = Color3.fromRGB(175, 25, 25)
-    trunk.CFrame = spawnCF * CFrame.new(0, 3.6, 5) * CFrame.Angles(math.rad(6), 0, 0)
-    trunk.Anchored = false
-    trunk.CanCollide = false
-    trunk.Massless = true
-    trunk.Parent = model
-    tagPart(trunk, CAR_TAG)
-    local tw = Instance.new("WeldConstraint")
-    tw.Part0 = chassis
-    tw.Part1 = trunk
-    tw.Parent = chassis
-
-    -- Roof / cabin
-    local cabin = Instance.new("Part")
-    cabin.Name = "Cabin"
-    cabin.Size = Vector3.new(6.6, 2.2, 6)
-    cabin.Material = Enum.Material.SmoothPlastic
-    cabin.Color = Color3.fromRGB(165, 22, 22)
-    cabin.CFrame = spawnCF * CFrame.new(0, 5, 0.5)
-    cabin.Anchored = false
-    cabin.CanCollide = false
-    cabin.Massless = true
-    cabin.Parent = model
-    tagPart(cabin, CAR_TAG)
-    local cw = Instance.new("WeldConstraint")
-    cw.Part0 = chassis
-    cw.Part1 = cabin
-    cw.Parent = chassis
-
-    -- Windshield (glass, transparent, angled)
-    local windshield = Instance.new("Part")
-    windshield.Name = "Windshield"
-    windshield.Size = Vector3.new(6.2, 2.4, 0.2)
-    windshield.Material = Enum.Material.Glass
-    windshield.Color = Color3.fromRGB(180, 210, 235)
-    windshield.Transparency = 0.6
-    windshield.CFrame = spawnCF * CFrame.new(0, 5, -2.6) * CFrame.Angles(math.rad(-20), 0, 0)
-    windshield.Anchored = false
-    windshield.CanCollide = false
-    windshield.Massless = true
-    windshield.Parent = model
-    tagPart(windshield, CAR_TAG)
-    local wsw = Instance.new("WeldConstraint")
-    wsw.Part0 = chassis
-    wsw.Part1 = windshield
-    wsw.Parent = chassis
-
-    -- Rear windshield
-    local rearGlass = Instance.new("Part")
-    rearGlass.Name = "RearGlass"
-    rearGlass.Size = Vector3.new(6.2, 2.0, 0.2)
-    rearGlass.Material = Enum.Material.Glass
-    rearGlass.Color = Color3.fromRGB(170, 200, 225)
-    rearGlass.Transparency = 0.65
-    rearGlass.CFrame = spawnCF * CFrame.new(0, 5, 3.6) * CFrame.Angles(math.rad(15), 0, 0)
-    rearGlass.Anchored = false
-    rearGlass.CanCollide = false
-    rearGlass.Massless = true
-    rearGlass.Parent = model
-    tagPart(rearGlass, CAR_TAG)
-    local rgw = Instance.new("WeldConstraint")
-    rgw.Part0 = chassis
-    rgw.Part1 = rearGlass
-    rgw.Parent = chassis
-
-    -- Dashboard (visible through windshield)
-    local dashboard = Instance.new("Part")
-    dashboard.Name = "Dashboard"
-    dashboard.Size = Vector3.new(5.8, 0.6, 2)
-    dashboard.Material = Enum.Material.SmoothPlastic
-    dashboard.Color = Color3.fromRGB(40, 40, 45)
-    dashboard.CFrame = spawnCF * CFrame.new(0, 3.8, -1.5)
-    dashboard.Anchored = false
-    dashboard.CanCollide = false
-    dashboard.Massless = true
-    dashboard.Parent = model
-    tagPart(dashboard, CAR_TAG)
-    local dw = Instance.new("WeldConstraint")
-    dw.Part0 = chassis
-    dw.Part1 = dashboard
-    dw.Parent = chassis
-
-    -- VehicleSeat
-    local seat = Instance.new("VehicleSeat")
-    seat.Name = "DriveSeat"
-    seat.Size = Vector3.new(4, 0.5, 3)
-    seat.CFrame = spawnCF * CFrame.new(0, 2.5, 0.5)
-    seat.Anchored = false
-    seat.CanCollide = false
-    seat.Massless = true
-    seat.MaxSpeed = CAR_MAX_SPEED
-    seat.Torque = 0 -- we drive motors manually
-    seat.TurnSpeed = 0
-    seat.Parent = model
-    tagPart(seat, CAR_TAG)
-    local sw = Instance.new("WeldConstraint")
-    sw.Part0 = chassis
-    sw.Part1 = seat
-    sw.Parent = chassis
-
-    -- Anti-flip gyro: keeps car upright with mild yaw damping to prevent spin-outs
-    local gyro = Instance.new("BodyGyro")
-    gyro.MaxTorque = Vector3.new(50000, 5000, 50000) -- strong roll/pitch, mild yaw stabilization
-    gyro.P = 10000
-    gyro.D = 800
-    gyro.CFrame = chassis.CFrame
-    gyro.Parent = chassis
-
-    -- Engine idle vibration (subtle, not enough to move the car)
-    local idleVib = Instance.new("BodyPosition")
-    idleVib.MaxForce = Vector3.new(0, 20, 0)
-    idleVib.P = 3000
-    idleVib.D = 300
-    idleVib.Position = chassis.Position
-    idleVib.Parent = chassis
-
-    -- Headlights
-    for _, side in ipairs({ -2.5, 2.5 }) do
-        local light = Instance.new("Part")
-        light.Name = "Headlight"
-        light.Shape = Enum.PartType.Ball
-        light.Size = Vector3.new(1.2, 1.2, 1.2)
-        light.Material = Enum.Material.Neon
-        light.Color = Color3.fromRGB(255, 250, 230)
-        light.CFrame = spawnCF * CFrame.new(side, 2.8, -7.8)
-        light.Anchored = false
-        light.CanCollide = false
-        light.Massless = true
-        light.Parent = model
-        tagPart(light, CAR_TAG)
-        local lw = Instance.new("WeldConstraint")
-        lw.Part0 = chassis
-        lw.Part1 = light
-        lw.Parent = chassis
-
-        local spot = Instance.new("SpotLight")
-        spot.Range = 80
-        spot.Brightness = 3
-        spot.Angle = 50
-        spot.Face = Enum.NormalId.Front
-        spot.Color = Color3.fromRGB(255, 248, 225)
-        spot.Parent = light
-    end
-
-    -- Brake / tail lights
-    local brakeLights = {}
-    for _, side in ipairs({ -2.8, 2.8 }) do
-        local tail = Instance.new("Part")
-        tail.Name = "BrakeLight"
-        tail.Size = Vector3.new(1.6, 0.9, 0.3)
-        tail.Material = Enum.Material.Neon
-        tail.Color = Color3.fromRGB(80, 10, 10) -- dim by default
-        tail.CFrame = spawnCF * CFrame.new(side, 2.8, 7.8)
-        tail.Anchored = false
-        tail.CanCollide = false
-        tail.Massless = true
-        tail.Parent = model
-        tagPart(tail, CAR_TAG)
-        local tlw = Instance.new("WeldConstraint")
-        tlw.Part0 = chassis
-        tlw.Part1 = tail
-        tlw.Parent = chassis
-        table.insert(brakeLights, tail)
-    end
-
-    -- Turn signal lights
-    for _, data in ipairs({
-        { side = -3.6, name = "TurnL" },
-        { side = 3.6, name = "TurnR" },
-    }) do
-        local sig = Instance.new("Part")
-        sig.Name = data.name
-        sig.Size = Vector3.new(0.4, 0.6, 0.3)
-        sig.Material = Enum.Material.Neon
-        sig.Color = Color3.fromRGB(60, 40, 5) -- dim amber
-        sig.CFrame = spawnCF * CFrame.new(data.side, 2.8, -7.5)
-        sig.Anchored = false
-        sig.CanCollide = false
-        sig.Massless = true
-        sig.Parent = model
-        tagPart(sig, CAR_TAG)
-        local sigw = Instance.new("WeldConstraint")
-        sigw.Part0 = chassis
-        sigw.Part1 = sig
-        sigw.Parent = chassis
-    end
-
-    -- Exhaust particles
-    local exhaustAttach = Instance.new("Attachment")
-    exhaustAttach.Position = Vector3.new(2, 0.5, 7.8)
-    exhaustAttach.Parent = chassis
-
-    local exhaust = Instance.new("ParticleEmitter")
-    exhaust.Rate = 15
-    exhaust.Speed = NumberRange.new(2, 5)
-    exhaust.Lifetime = NumberRange.new(0.4, 1.0)
-    exhaust.Size = NumberSequence.new({
-        NumberSequenceKeypoint.new(0, 0.3),
-        NumberSequenceKeypoint.new(1, 1.2),
-    })
-    exhaust.Color = ColorSequence.new({
-        ColorSequenceKeypoint.new(0, Color3.fromRGB(120, 120, 130)),
-        ColorSequenceKeypoint.new(1, Color3.fromRGB(80, 80, 85)),
-    })
-    exhaust.Transparency = NumberSequence.new({
-        NumberSequenceKeypoint.new(0, 0.5),
-        NumberSequenceKeypoint.new(1, 1),
-    })
-    exhaust.LightEmission = 0
-    exhaust.SpreadAngle = Vector2.new(10, 10)
-    exhaust.Parent = exhaustAttach
-
-    -- Sounds
-    local engineSnd = makeSound(chassis, "Engine", true, 0.4, SOUND_ENGINE_LOOP)
-    local screechSnd = makeSound(chassis, "TireScreech", false, 0.3, SOUND_TIRE_SCREECH)
-    local hornSnd = makeSound(chassis, "Horn", false, 0.6, SOUND_HORN)
-
-    model.PrimaryPart = chassis
-
-    return {
-        model = model,
-        chassis = chassis,
-        seat = seat,
-        gyro = gyro,
-        idleVib = idleVib,
-        brakeLights = brakeLights,
-        exhaust = exhaust,
-        engineSound = engineSnd,
-        screechSound = screechSnd,
-        hornSound = hornSnd,
-    }
-end
-
-local function createWheelWithSuspension(model, chassis, spawnCF, offset, isFront)
-    -- Wheel axle (invisible anchor for suspension)
-    local axle = Instance.new("Part")
-    axle.Name = "Axle_" .. tostring(offset)
-    axle.Size = Vector3.new(0.5, 0.5, 0.5)
-    axle.Transparency = 1
-    axle.CanCollide = false
-    axle.Massless = true
-    axle.CFrame = spawnCF * CFrame.new(offset)
-    axle.Anchored = false
-    axle.Parent = model
-    tagPart(axle, CAR_TAG)
-
-    -- Wheel part
-    local wheel = Instance.new("Part")
-    wheel.Name = "Wheel"
-    wheel.Shape = Enum.PartType.Cylinder
-    wheel.Size = Vector3.new(2.2, 2.8, 2.8)
-    wheel.Material = Enum.Material.SmoothPlastic
-    wheel.Color = Color3.fromRGB(30, 30, 35)
-    wheel.CFrame = spawnCF * CFrame.new(offset) * CFrame.Angles(0, 0, math.pi / 2)
-    wheel.Anchored = false
-    wheel.CustomPhysicalProperties = PhysicalProperties.new(
-        isFront and 1.5 or 1.5,
-        isFront and 1.2 or 0.8, -- rear wheels: slightly less friction for controlled drift, not ice
-        0.2,
-        1,
-        1
-    )
-    wheel.Parent = model
-    tagPart(wheel, CAR_TAG)
-
-    -- Hub cap (visual detail)
-    local hub = Instance.new("Part")
-    hub.Name = "Hub"
-    hub.Shape = Enum.PartType.Cylinder
-    hub.Size = Vector3.new(0.3, 2.0, 2.0)
-    hub.Material = Enum.Material.Metal
-    hub.Color = Color3.fromRGB(160, 165, 175)
-    hub.CFrame = wheel.CFrame
-    hub.Anchored = false
-    hub.CanCollide = false
-    hub.Massless = true
-    hub.Parent = model
-    tagPart(hub, CAR_TAG)
-    local hubWeld = Instance.new("WeldConstraint")
-    hubWeld.Part0 = wheel
-    hubWeld.Part1 = hub
-    hubWeld.Parent = wheel
-
-    -- Suspension: SpringConstraint between chassis and axle
-    local chassisAttach = Instance.new("Attachment")
-    chassisAttach.Position = offset + Vector3.new(0, 0.5, 0)
-    chassisAttach.Parent = chassis
-
-    local axleAttach = Instance.new("Attachment")
-    axleAttach.Position = Vector3.new(0, 0, 0)
-    axleAttach.Parent = axle
-
-    local spring = Instance.new("SpringConstraint")
-    spring.Attachment0 = chassisAttach
-    spring.Attachment1 = axleAttach
-    spring.FreeLength = SUSPENSION_REST_LENGTH
-    spring.Stiffness = SUSPENSION_STIFFNESS
-    spring.Damping = SUSPENSION_DAMPING
-    spring.LimitsEnabled = true
-    spring.MinLength = 0.5
-    spring.MaxLength = 2.5
-    spring.Visible = false
-    spring.Parent = chassis
-
-    -- Prismatic constraint to keep wheel under the chassis (vertical only)
-    local prismatic = Instance.new("PrismaticConstraint")
-    prismatic.Attachment0 = chassisAttach
-    prismatic.Attachment1 = axleAttach
-    prismatic.LimitsEnabled = true
-    prismatic.LowerLimit = -1.5
-    prismatic.UpperLimit = 0.5
-    prismatic.Parent = chassis
-
-    -- Motor: CylindricalConstraint for spinning
-    local motorAttach0 = Instance.new("Attachment")
-    motorAttach0.Parent = axle
-
-    local motorAttach1 = Instance.new("Attachment")
-    motorAttach1.Parent = wheel
-
-    local motor = Instance.new("CylindricalConstraint")
-    motor.Attachment0 = motorAttach0
-    motor.Attachment1 = motorAttach1
-    motor.MotorType = Enum.ActuatorType.Motor
-    motor.AngularVelocity = 0
-    motor.MotorMaxTorque = CAR_TORQUE
-    motor.MotorMaxAngularAcceleration = 200
-    motor.InclinationAngle = 90
-    motor.RotationAxisVisible = false
-    motor.Parent = axle
-
-    -- Steering hinge (front wheels only)
-    local steerHinge = nil
-    if isFront then
-        local hingeA0 = Instance.new("Attachment")
-        hingeA0.Parent = chassis
-        hingeA0.CFrame = CFrame.new(offset)
-
-        local hingeA1 = Instance.new("Attachment")
-        hingeA1.Parent = axle
-
-        steerHinge = Instance.new("HingeConstraint")
-        steerHinge.Attachment0 = hingeA0
-        steerHinge.Attachment1 = hingeA1
-        steerHinge.ActuatorType = Enum.ActuatorType.Servo
-        steerHinge.TargetAngle = 0
-        steerHinge.AngularSpeed = math.rad(120)
-        steerHinge.ServoMaxTorque = 20000
-        steerHinge.LimitsEnabled = true
-        steerHinge.LowerAngle = -CAR_STEER_ANGLE
-        steerHinge.UpperAngle = CAR_STEER_ANGLE
-        steerHinge.Parent = chassis
-    end
-
-    return {
-        part = wheel,
-        axle = axle,
-        motor = motor,
-        spring = spring,
-        steerHinge = steerHinge,
-        isFront = isFront,
-    }
-end
-
-local function spawnCar()
-    local hrp = getHRP()
-    if not hrp then
-        return
-    end
-
-    local spawnPos = hrp.Position + hrp.CFrame.LookVector * 14
-    local spawnCF = CFrame.new(spawnPos)
-
-    local carData = createCarBody(spawnCF)
-    local mdl = carData.model
-    local chassis = carData.chassis
-
-    -- Create wheels with suspension
-    local wheelOffsets = {
-        { offset = Vector3.new(-3.5, -0.5, -5.5), front = true },
-        { offset = Vector3.new(3.5, -0.5, -5.5), front = true },
-        { offset = Vector3.new(-3.5, -0.5, 5.5), front = false },
-        { offset = Vector3.new(3.5, -0.5, 5.5), front = false },
-    }
-
-    local wheels = {}
-    for _, wd in ipairs(wheelOffsets) do
-        local w = createWheelWithSuspension(mdl, chassis, spawnCF, wd.offset, wd.front)
-        table.insert(wheels, w)
-    end
-
-    mdl.Parent = workspace
-
-    carModel = mdl
-    carBody = chassis
-    carSeat = carData.seat
-    carWheels = wheels
-    carBrakeLights = carData.brakeLights
-    carExhaustEmitter = carData.exhaust
-    carEngineSound = carData.engineSound
-    carTireScreechSound = carData.screechSound
-    carHornSound = carData.hornSound
-    carGyro = carData.gyro
-    carIdleVibration = carData.idleVib
-    carSteerAngle = 0
-    carPrevSpeed = 0
-    carIsBraking = false
-
-    -- Start engine sound
-    carEngineSound:Play()
-
-    return carData.seat
-end
-
-local function destroyCar()
-    if carModel then
-        -- Fade out engine
-        if carEngineSound and carEngineSound.IsPlaying then
-            tweenProperty(carEngineSound, { Volume = 0 }, 0.3)
-            task.delay(0.35, function()
-                if carModel then
-                    carModel:Destroy()
-                end
-            end)
-        else
-            carModel:Destroy()
-        end
-    end
-
-    carModel = nil
-    carBody = nil
-    carSeat = nil
-    carWheels = {}
-    carBrakeLights = {}
-    carExhaustEmitter = nil
-    carEngineSound = nil
-    carTireScreechSound = nil
-    carHornSound = nil
-    carGyro = nil
-    carIdleVibration = nil
-    cleanupByTag(CAR_TAG)
-end
-
-local function enterCar(seat)
-    local hum = getHumanoid()
-    if not hum or not seat then
-        return
-    end
-
-    -- Fix #13: let the engine handle seat entry — no CFrame tween
-    seat:Sit(hum)
-    mode = "car"
-    customCamActive = true
-    setHUDMode("car")
-end
-
-local function exitCar()
-    local hum = getHumanoid()
-    if hum then
-        hum.Sit = false
-        -- Small upward impulse on exit
-        local hrp = getHRP()
-        if hrp then
-            task.defer(function()
-                hrp.AssemblyLinearVelocity = hrp.AssemblyLinearVelocity + Vector3.new(0, 10, 0)
-            end)
-        end
-    end
-    mode = "none"
-    customCamActive = false
-    camCurrentPos = nil -- fix #11: reset here, not in render loop
-    prevBraking = false
-    prevTurnState = 0
-    carThrottleSmooth = 0
-    carBoostActive = false
-    carBoostTimer = 0
-    carBoostCooldown = 0
-    restoreDefaultCamera(hum)
-    setHUDMode("none")
-end
-
---------------------------------------------------------------------------------
--- CAR UPDATE (per-frame)
---------------------------------------------------------------------------------
-local function updateCar(dt)
-    if mode ~= "car" or not carBody or not carSeat then
-        return
-    end
-
-    local throttle = carSeat.ThrottleFloat -- -1 to 1 from VehicleSeat
-    local steer = carSeat.SteerFloat -- -1 to 1
-
-    local velocity = carBody.AssemblyLinearVelocity
-    local speed = velocity.Magnitude
-
-    -- Per-road-surface friction is handled automatically by Roblox physics:
-    -- RoadBuilder applies CustomPhysicalProperties per OSM surface tag (asphalt
-    -- 0.75, gravel 0.38, ice 0.12, etc.) so wheel grip is realistic without
-    -- runtime raycasts. The carSurfaceFriction multiplier below is reserved
-    -- for future driving-feel adjustments (e.g. reduced top speed on dirt).
-    carSurfaceFriction = 1.0
-
-    -- Speed-dependent steering: reduce max angle at high speed to prevent spinouts
-    local speedFraction = math.clamp(speed / CAR_MAX_SPEED, 0, 1)
-    local steerReduction = 1 - speedFraction * (1 - CAR_HIGH_SPEED_STEER_FACTOR)
-    local targetSteer = steer * CAR_STEER_ANGLE * steerReduction
-    carSteerAngle = lerp(carSteerAngle, targetSteer, dt * CAR_STEER_SPEED)
-
-    -- Handbrake (space)
-    local handbrake = UserInputService:IsKeyDown(Enum.KeyCode.Space)
-
-    -- Rapier-style jerk-limited acceleration: smooth ramp instead of instant torque
-    local rampTime = if math.abs(throttle) > math.abs(carThrottleSmooth or 0) then CAR_ACCEL_RAMP_TIME else CAR_DECEL_RAMP_TIME
-    carThrottleSmooth = lerp(carThrottleSmooth or 0, throttle, dt / math.max(rampTime, 0.01))
-
-    -- Nitro boost (LShift while driving)
-    local wantBoost = UserInputService:IsKeyDown(Enum.KeyCode.LeftShift) and math.abs(carThrottleSmooth) > 0.5
-    if wantBoost and (carBoostCooldown or 0) <= 0 then
-        carBoostActive = true
-        carBoostTimer = (carBoostTimer or 0) + dt
-        if carBoostTimer >= CAR_BOOST_DURATION then
-            carBoostActive = false
-            carBoostCooldown = CAR_BOOST_COOLDOWN
-            carBoostTimer = 0
-        end
-    else
-        carBoostActive = false
-        carBoostTimer = 0
-        carBoostCooldown = math.max((carBoostCooldown or 0) - dt, 0)
-    end
-    local effectiveAngVel = if carBoostActive then CAR_MOTOR_ANGULAR_VEL * (CAR_BOOST_SPEED / CAR_MAX_SPEED) else CAR_MOTOR_ANGULAR_VEL
-    -- Surface friction modulates available torque: low friction = wheels slip,
-    -- effective forward force is reduced. This creates the realistic feel of
-    -- driving on grass/dirt vs asphalt.
-    local effectiveTorque = if carBoostActive then CAR_TORQUE * 1.8 else CAR_TORQUE
-    effectiveTorque = effectiveTorque * carSurfaceFriction
-
-    -- Update wheels
-    for _, w in ipairs(carWheels) do
-        local motorSpeed = carThrottleSmooth * effectiveAngVel
-        if handbrake and not w.isFront then
-            -- Lock rear wheels for drift (Far Cry style)
-            w.motor.AngularVelocity = 0
-            w.motor.MotorMaxTorque = effectiveTorque * 5
-        else
-            w.motor.AngularVelocity = motorSpeed
-            w.motor.MotorMaxTorque = effectiveTorque
-        end
-
-        -- Steering (front wheels)
-        if w.steerHinge then
-            w.steerHinge.TargetAngle = carSteerAngle
-        end
-    end
-
-    -- Brake lights: activate on deceleration or handbrake (fix #6: only write on change)
-    local decelerating = speed > 2 and (speed < carPrevSpeed - 0.5 or throttle < -0.1)
-    carIsBraking = decelerating or handbrake
-    if carIsBraking ~= prevBraking then
-        prevBraking = carIsBraking
-        local brakeColor = carIsBraking and BRAKE_ON or BRAKE_OFF
-        for _, bl in ipairs(carBrakeLights) do
-            bl.Color = brakeColor
-        end
-    end
-
-    -- Turn signals (fix #6: only write on change, use cached Color3)
-    local turnState = (steer < -0.5 and -1) or (steer > 0.5 and 1) or 0
-    if turnState ~= prevTurnState and carModel then
-        prevTurnState = turnState
-        local turnL = carModel:FindFirstChild("TurnL")
-        local turnR = carModel:FindFirstChild("TurnR")
-        if turnL then
-            turnL.Color = (turnState == -1) and TURN_ON or TURN_OFF
-        end
-        if turnR then
-            turnR.Color = (turnState == 1) and TURN_ON or TURN_OFF
-        end
-    end
-
-    -- Exhaust: more particles when accelerating
-    if carExhaustEmitter then
-        carExhaustEmitter.Rate = math.abs(throttle) > 0.1 and 40 or 12
-    end
-
-    -- Engine sound pitch scales with speed
-    if carEngineSound then
-        carEngineSound.PlaybackSpeed = 0.8 + (speed / CAR_MAX_SPEED) * 1.2
-        carEngineSound.Volume = 0.3 + (speed / CAR_MAX_SPEED) * 0.4
-    end
-
-    -- Tire screech on hard turns at speed or handbrake (fix #9: fade instead of hard stop)
-    if carTireScreechSound then
-        local shouldScreech = (math.abs(steer) > 0.7 and speed > 30) or (handbrake and speed > 15)
-        if shouldScreech then
-            if not carTireScreechSound.IsPlaying then
-                carTireScreechSound.Volume = 0.3
-                carTireScreechSound:Play()
-            end
-        elseif carTireScreechSound.IsPlaying then
-            carTireScreechSound.Volume = lerp(carTireScreechSound.Volume, 0, math.min(1, 10 * dt))
-            if carTireScreechSound.Volume < 0.01 then
-                carTireScreechSound:Stop()
-            end
-        end
-    end
-
-    -- Anti-flip gyro: keep upright
-    if carGyro then
-        carGyro.CFrame = CFrame.new(carBody.Position)
-            * CFrame.Angles(0, select(2, carBody.CFrame:ToEulerAnglesYXZ()), 0)
-    end
-
-    -- Engine idle vibration
-    if carIdleVibration then
-        local vibAmt = ENGINE_IDLE_VIBRATION * (1 + speed * 0.005)
-        carIdleVibration.Position = carBody.Position + Vector3.new(0, math.sin(tick() * 30) * vibAmt, 0)
-    end
-
-    -- G-force camera shake: measure velocity delta since last frame
-    local velocityDelta = (carBody.AssemblyLinearVelocity - lastCarVelocity).Magnitude
-    local accelShake = math.clamp(velocityDelta * 0.001, 0, 0.02)
-    lastCarVelocity = carBody.AssemblyLinearVelocity
-
-    carPrevSpeed = speed
-
-    -- Chase camera
-    if customCamActive then
-        local camera = getCamera()
-        if not camera then
-            return
-        end
-        local carCF = carBody.CFrame
-        local targetPos = (carCF * CFrame.new(
-            -steer * 2, -- slight offset into turn
-            CAR_CAM_OFFSET.Y,
-            CAR_CAM_OFFSET.Z
-        )).Position
-
-        if camCurrentPos then
-            camCurrentPos = lerpVector3(camCurrentPos, targetPos, math.min(1, CAM_LERP_RATE * dt))
-        else
-            camCurrentPos = targetPos
-        end
-
-        -- Tilt into turns
-        local tiltAngle = -steer * CAR_CAM_TILT_FACTOR
-        local lookTarget = carCF.Position + carCF.LookVector * 20
-
-        -- G-force shake offset (noise-based, barely perceptible)
-        local t = tick()
-        local shakeX = (math.noise(t * 10, 0) * 2 - 1) * accelShake
-        local shakeY = (math.noise(t * 10 + 100, 0) * 2 - 1) * accelShake
-        local shakeOffset = Vector3.new(shakeX, shakeY, 0)
-
-        camera.CameraType = Enum.CameraType.Scriptable
-        camera.CFrame = CFrame.new(camCurrentPos + shakeOffset, lookTarget) * CFrame.Angles(0, 0, tiltAngle)
-
-        -- Speed-based FOV (fix #7: dt-scaled lerp)
-        local fovCap = if carBoostActive then CAR_FOV_BOOST else CAR_FOV_MAX
-        local fovTarget = CAR_FOV_MIN + (speed / CAR_FOV_SPEED_RANGE) * (fovCap - CAR_FOV_MIN)
-        camTargetFOV = math.clamp(fovTarget, CAR_FOV_MIN, fovCap)
-        camera.FieldOfView = lerp(camera.FieldOfView, camTargetFOV, math.min(1, CAM_LERP_RATE * dt))
-    end
-end
-
---------------------------------------------------------------------------------
--- JETPACK CONSTRUCTION
---------------------------------------------------------------------------------
-local function deployJetpack()
-    local hrp = getHRP()
-    local char = getCharacter()
-    if not hrp or not char then
-        return
-    end
-
-    jetpackActive = true
-    jetpackThrustLevel = 0
-
-    -- Backpack model
-    local pack = Instance.new("Part")
-    pack.Name = "JetpackBody"
-    pack.Size = Vector3.new(3, 3.5, 1.5)
-    pack.Material = Enum.Material.Metal
-    pack.Color = Color3.fromRGB(60, 62, 68)
-    pack.CFrame = hrp.CFrame * CFrame.new(0, 0, 1)
-    pack.Anchored = false
-    pack.CanCollide = false
-    pack.Massless = true
-    pack.Parent = char
-    tagPart(pack, JETPACK_TAG)
-    local packWeld = Instance.new("WeldConstraint")
-    packWeld.Part0 = hrp
-    packWeld.Part1 = pack
-    packWeld.Parent = hrp
-
-    -- Nozzles
-    for _, offset in ipairs({ Vector3.new(-0.8, -1.5, 0.3), Vector3.new(0.8, -1.5, 0.3) }) do
-        local nozzle = Instance.new("Part")
-        nozzle.Name = "Nozzle"
-        nozzle.Shape = Enum.PartType.Cylinder
-        nozzle.Size = Vector3.new(1.2, 0.8, 0.8)
-        nozzle.Material = Enum.Material.Metal
-        nozzle.Color = Color3.fromRGB(45, 45, 50)
-        nozzle.CFrame = pack.CFrame * CFrame.new(offset) * CFrame.Angles(math.rad(90), 0, 0)
-        nozzle.Anchored = false
-        nozzle.CanCollide = false
-        nozzle.Massless = true
-        nozzle.Parent = char
-        tagPart(nozzle, JETPACK_TAG)
-        local nw = Instance.new("WeldConstraint")
-        nw.Part0 = pack
-        nw.Part1 = nozzle
-        nw.Parent = pack
-
-        -- Flame particles per nozzle
-        local attach = Instance.new("Attachment")
-        attach.Position = Vector3.new(0, -0.5, 0)
-        attach.Parent = nozzle
-
-        local emitter = Instance.new("ParticleEmitter")
-        emitter.Rate = 120
-        emitter.Speed = NumberRange.new(12, 25)
-        emitter.Lifetime = NumberRange.new(0.15, 0.4)
-        emitter.Size = NumberSequence.new({
-            NumberSequenceKeypoint.new(0, 1.8),
-            NumberSequenceKeypoint.new(0.3, 1.0),
-            NumberSequenceKeypoint.new(1, 0),
-        })
-        emitter.Color = ColorSequence.new({
-            ColorSequenceKeypoint.new(0, Color3.fromRGB(130, 180, 255)), -- blue core
-            ColorSequenceKeypoint.new(0.3, Color3.fromRGB(255, 200, 60)), -- orange mantle
-            ColorSequenceKeypoint.new(0.7, Color3.fromRGB(255, 100, 20)), -- deep orange
-            ColorSequenceKeypoint.new(1, Color3.fromRGB(60, 40, 20)), -- dark smoke tip
-        })
-        emitter.Transparency = NumberSequence.new({
-            NumberSequenceKeypoint.new(0, 0),
-            NumberSequenceKeypoint.new(0.6, 0.3),
-            NumberSequenceKeypoint.new(1, 1),
-        })
-        emitter.LightEmission = 1
-        emitter.LightInfluence = 0
-        emitter.SpreadAngle = Vector2.new(8, 8)
-        emitter.Parent = attach
-        table.insert(jetpackEmitters, emitter)
-
-        -- Heat shimmer (second emitter with high LightEmission)
-        local shimmer = Instance.new("ParticleEmitter")
-        shimmer.Rate = 40
-        shimmer.Speed = NumberRange.new(5, 10)
-        shimmer.Lifetime = NumberRange.new(0.3, 0.6)
-        shimmer.Size = NumberSequence.new({
-            NumberSequenceKeypoint.new(0, 3),
-            NumberSequenceKeypoint.new(1, 5),
-        })
-        shimmer.Transparency = NumberSequence.new({
-            NumberSequenceKeypoint.new(0, 0.85),
-            NumberSequenceKeypoint.new(1, 1),
-        })
-        shimmer.LightEmission = 1
-        shimmer.LightInfluence = 0
-        shimmer.Color = ColorSequence.new(Color3.fromRGB(255, 240, 200))
-        shimmer.Parent = attach
-
-        -- Nozzle glow
-        local glow = Instance.new("PointLight")
-        glow.Range = 12
-        glow.Brightness = 2
-        glow.Color = Color3.fromRGB(255, 180, 60)
-        glow.Parent = nozzle
-        table.insert(jetpackLights, glow)
-    end
-
-    -- Trail
-    local trailA0 = Instance.new("Attachment")
-    trailA0.Position = Vector3.new(-1, -2, 1)
-    trailA0.Parent = hrp
-    tagPart(trailA0, JETPACK_TAG)
-
-    local trailA1 = Instance.new("Attachment")
-    trailA1.Position = Vector3.new(1, -2, 1)
-    trailA1.Parent = hrp
-    tagPart(trailA1, JETPACK_TAG)
-
-    local trail = Instance.new("Trail")
-    trail.Attachment0 = trailA0
-    trail.Attachment1 = trailA1
-    trail.Lifetime = 0.8
-    trail.MinLength = 0.1
-    trail.Color = ColorSequence.new({
-        ColorSequenceKeypoint.new(0, Color3.fromRGB(255, 200, 80)),
-        ColorSequenceKeypoint.new(1, Color3.fromRGB(100, 60, 20)),
-    })
-    trail.Transparency = NumberSequence.new({
-        NumberSequenceKeypoint.new(0, 0.4),
-        NumberSequenceKeypoint.new(1, 1),
-    })
-    trail.LightEmission = 0.5
-    trail.FaceCamera = true
-    trail.Parent = hrp
-
-    -- Physics force
-    jetpackForce = Instance.new("BodyForce")
-    jetpackForce.Force = Vector3.new(0, 0, 0)
-    jetpackForce.Parent = hrp
-    tagPart(jetpackForce, JETPACK_TAG)
-
-    -- Anti-tumble gyro: keeps character upright during flight
-    local jetGyro = Instance.new("BodyGyro")
-    jetGyro.Name = "JetpackGyro"
-    jetGyro.MaxTorque = Vector3.new(40000, 2000, 40000)
-    jetGyro.P = 6000
-    jetGyro.D = 500
-    jetGyro.CFrame = hrp.CFrame
-    jetGyro.Parent = hrp
-    tagPart(jetGyro, JETPACK_TAG)
-
-    -- Sounds
-    jetpackThrustSound = makeSound(hrp, "JetThrust", true, 0.3, SOUND_JET_THRUST)
-    jetpackThrustSound:Play()
-    tagPart(jetpackThrustSound, JETPACK_TAG)
-
-    jetpackWindSound = makeSound(hrp, "JetWind", true, 0, SOUND_WIND_RUSH)
-    jetpackWindSound:Play()
-    tagPart(jetpackWindSound, JETPACK_TAG)
-
-    -- Startup whoosh
-    local startupSnd = makeSound(hrp, "JetStart", false, 0.5, SOUND_JET_THRUST)
-    startupSnd:Play()
-    Debris:AddItem(startupSnd, 2)
-
-    mode = "jetpack"
-    customCamActive = true
-    setHUDMode("jetpack")
-end
-
-local function cleanupJetpack()
-    if not jetpackActive then
-        return
-    end
-    jetpackActive = false
-
-    -- Shutdown sound
-    local hrp = getHRP()
-    if hrp then
-        local shutdownSnd = makeSound(hrp, "JetStop", false, 0.4, SOUND_JET_THRUST)
-        shutdownSnd:Play()
-        Debris:AddItem(shutdownSnd, 2)
-    end
-
-    -- Cleanup all tagged parts
-    cleanupByTag(JETPACK_TAG)
-
-    jetpackForce = nil
-    jetpackEmitters = {}
-    jetpackLights = {}
-    jetpackThrustSound = nil
-    jetpackWindSound = nil
-    jetpackThrustLevel = 0
-
-    if mode == "jetpack" then
-        mode = "none"
-        customCamActive = false
-        camCurrentPos = nil -- fix #11: reset here, not in render loop
-        restoreDefaultCamera(getHumanoid())
-        setHUDMode("none")
-    end
-end
-
---------------------------------------------------------------------------------
--- JETPACK UPDATE (per-frame)
---------------------------------------------------------------------------------
-local function updateJetpack(dt)
-    if not jetpackActive or not jetpackForce then
-        return
-    end
-
-    local hrp = getHRP()
-    if not hrp then
-        return
-    end
-
-    -- Fuel
-    jetpackFuel = jetpackFuel - dt
-    if jetpackFuel <= 0 then
-        jetpackFuel = 0
-        cleanupJetpack()
-        return
-    end
-
-    -- Input
-    local cam = workspace.CurrentCamera
-    local look = cam.CFrame.LookVector
-    local right = cam.CFrame.RightVector
-
-    local thrustDir = Vector3.new(0, 0, 0)
-    local isThrusting = false
-
-    -- Keyboard
-    if UserInputService:IsKeyDown(Enum.KeyCode.W) then
-        thrustDir = thrustDir + Vector3.new(look.X, 0, look.Z).Unit
-        isThrusting = true
-    end
-    if UserInputService:IsKeyDown(Enum.KeyCode.S) then
-        thrustDir = thrustDir - Vector3.new(look.X, 0, look.Z).Unit
-        isThrusting = true
-    end
-    if UserInputService:IsKeyDown(Enum.KeyCode.A) then
-        thrustDir = thrustDir - Vector3.new(right.X, 0, right.Z).Unit
-        isThrusting = true
-    end
-    if UserInputService:IsKeyDown(Enum.KeyCode.D) then
-        thrustDir = thrustDir + Vector3.new(right.X, 0, right.Z).Unit
-        isThrusting = true
-    end
-
-    -- Gamepad thumbstick (additive to keyboard) — fix #10: use cached frameGamepad
-    local gp = frameGamepad
-    if gp then
-        local stickMag = math.sqrt(gp.thumbstickX ^ 2 + gp.thumbstickY ^ 2)
-        if stickMag > 0.1 then
-            local flatLook = Vector3.new(look.X, 0, look.Z)
-            local flatRight = Vector3.new(right.X, 0, right.Z)
-            -- Normalize only if non-zero to avoid NaN
-            if flatLook.Magnitude > 0.001 then
-                flatLook = flatLook.Unit
-            end
-            if flatRight.Magnitude > 0.001 then
-                flatRight = flatRight.Unit
-            end
-            thrustDir = thrustDir + flatLook * gp.thumbstickY + flatRight * gp.thumbstickX
-            isThrusting = true
-        end
-    end
-
-    -- Clamp thrustDir to horizontal unit (after combining all sources)
-    local thrustH = Vector3.new(thrustDir.X, 0, thrustDir.Z)
-    if thrustH.Magnitude > 1 then
-        thrustDir = thrustH.Unit
-    else
-        thrustDir = thrustH
-    end
-
-    local verticalThrust = 0
-    if UserInputService:IsKeyDown(Enum.KeyCode.Space) then
-        verticalThrust = 1
-        isThrusting = true
-    elseif UserInputService:IsKeyDown(Enum.KeyCode.LeftShift) then
-        verticalThrust = -0.5
-        isThrusting = true
-    end
-
-    -- Gamepad triggers for vertical (additive, clamped) — fix #10: reuse cached gp
-    if gp then
-        if gp.rightTrigger > 0.05 then
-            verticalThrust = math.max(verticalThrust, gp.rightTrigger)
-            isThrusting = true
-        end
-        if gp.leftTrigger > 0.05 then
-            -- descend is -0.5 max; scale trigger to same range
-            local descendVal = -0.5 * gp.leftTrigger
-            verticalThrust = math.min(verticalThrust, descendVal)
-            isThrusting = true
-        end
-    end
-
-    -- Thrust ramp (gradual buildup over JETPACK_RAMP_TIME)
-    if isThrusting then
-        jetpackThrustLevel = math.min(1, jetpackThrustLevel + dt / JETPACK_RAMP_TIME)
-    else
-        jetpackThrustLevel = math.max(0, jetpackThrustLevel - dt / (JETPACK_RAMP_TIME * 2))
-    end
-
-    -- Calculate force
-    local mass = hrp.AssemblyMass
-    local gravityCompensation = Vector3.new(0, mass * workspace.Gravity, 0)
-
-    local horizontalForce = Vector3.new(0, 0, 0)
-    if thrustDir.Magnitude > 0.01 then
-        horizontalForce = thrustDir.Unit * JETPACK_MAX_THRUST * jetpackThrustLevel
-    end
-
-    local verticalForce = Vector3.new(0, verticalThrust * JETPACK_MAX_THRUST * jetpackThrustLevel, 0)
-
-    -- Hover when idle (counteract gravity + gentle oscillation)
-    local hoverForce = Vector3.new(0, 0, 0)
-    if not isThrusting then
-        hoverForce = gravityCompensation + Vector3.new(0, math.sin(tick() * 2) * 15, 0)
-    else
-        hoverForce = gravityCompensation * 0.95 -- partial gravity compensation when thrusting
-    end
-
-    -- Air resistance / damping: much stronger to prevent infinite acceleration
-    local vel = hrp.AssemblyLinearVelocity
-    local dampingForce = -vel * mass * (1 - JETPACK_DAMPING)
-
-    -- Speed cap: apply strong counter-force when exceeding max speed
-    local horizVel = Vector3.new(vel.X, 0, vel.Z)
-    local horizSpeed = horizVel.Magnitude
-    if horizSpeed > JETPACK_MAX_HORIZONTAL_SPEED then
-        local excess = horizSpeed - JETPACK_MAX_HORIZONTAL_SPEED
-        dampingForce = dampingForce - horizVel.Unit * excess * mass * 3
-    end
-    if math.abs(vel.Y) > JETPACK_MAX_VERTICAL_SPEED then
-        local excessY = math.abs(vel.Y) - JETPACK_MAX_VERTICAL_SPEED
-        dampingForce = dampingForce - Vector3.new(0, math.sign(vel.Y) * excessY * mass * 3, 0)
-    end
-
-    jetpackForce.Force = horizontalForce + verticalForce + hoverForce + dampingForce
-
-    -- Update anti-tumble gyro to face movement direction
-    local jetGyro = hrp:FindFirstChild("JetpackGyro")
-    if jetGyro then
-        if horizSpeed > 3 then
-            -- Face movement direction with slight forward tilt
-            local moveDir = horizVel.Unit
-            local tiltAngle = math.clamp(horizSpeed / JETPACK_MAX_HORIZONTAL_SPEED, 0, 1) * math.rad(15)
-            jetGyro.CFrame = CFrame.lookAt(Vector3.zero, moveDir) * CFrame.Angles(tiltAngle, 0, 0)
-        else
-            jetGyro.CFrame = CFrame.new()
-        end
-    end
-
-    -- Character tilt based on movement
-    -- (Uses a subtle approach: adjust the force direction slightly)
-
-    -- Particle intensity scales with thrust (fix #1: pre-computed tier lookup, zero allocs)
-    local tier = math.floor(jetpackThrustLevel * 10 + 0.5)
-    tier = math.clamp(tier, 0, 10)
-    for _, em in ipairs(jetpackEmitters) do
-        em.Size = FLAME_SIZE_TIERS[tier]
-        em.Speed = FLAME_SPEED_TIERS[tier]
-        em.Rate = 50 + jetpackThrustLevel * 150
-    end
-
-    -- Nozzle glow intensity
-    for _, gl in ipairs(jetpackLights) do
-        gl.Brightness = 0.5 + jetpackThrustLevel * 3
-        gl.Range = 6 + jetpackThrustLevel * 10
-    end
-
-    -- Sound: pitch and volume scale with thrust
-    if jetpackThrustSound then
-        jetpackThrustSound.Volume = 0.15 + jetpackThrustLevel * 0.5
-        jetpackThrustSound.PlaybackSpeed = 0.7 + jetpackThrustLevel * 0.8
-    end
-
-    -- Wind sound at high speed
-    if jetpackWindSound then
-        local speedFrac = math.clamp(vel.Magnitude / 100, 0, 1)
-        jetpackWindSound.Volume = speedFrac * 0.4
-        jetpackWindSound.PlaybackSpeed = 0.8 + speedFrac * 0.4
-    end
-
-    -- Camera
-    if customCamActive then
-        local camera = getCamera()
-        if not camera then
-            return
-        end
-        local targetPos = (hrp.CFrame * CFrame.new(0, JETPACK_CAM_OFFSET.Y, JETPACK_CAM_OFFSET.Z)).Position
-
-        if camCurrentPos then
-            camCurrentPos = lerpVector3(camCurrentPos, targetPos, math.min(1, CAM_LERP_RATE * dt))
-        else
-            camCurrentPos = targetPos
-        end
-
-        -- Slight shake at full thrust (fix #2: math.noise for smooth, deterministic shake)
-        local shake = Vector3.zero
-        if jetpackThrustLevel > 0.7 then
-            local shakeAmt = (jetpackThrustLevel - 0.7) / 0.3 * JETPACK_CAM_SHAKE_INTENSITY
-            local t = tick()
-            shake = Vector3.new(math.noise(t * 12, 0) * shakeAmt, math.noise(t * 12, 100) * shakeAmt, 0)
-        end
-
-        camera.CameraType = Enum.CameraType.Scriptable
-        camera.CFrame = CFrame.new(camCurrentPos + shake, hrp.Position + hrp.CFrame.LookVector * 10)
-
-        -- Pull FOV back slightly (fix #7: dt-scaled lerp)
-        local jetFov = DEFAULT_FOV + jetpackThrustLevel * 8
-        camera.FieldOfView = lerp(camera.FieldOfView, jetFov, math.min(1, CAM_LERP_RATE * dt))
-    end
-end
-
---------------------------------------------------------------------------------
--- PARACHUTE CONSTRUCTION
---------------------------------------------------------------------------------
-local retractParachute
-
-local function deployParachute()
-    local hrp = getHRP()
-    local hum = getHumanoid()
-    local char = getCharacter()
-    if not hrp or not hum or not char then
-        return
-    end
-
-    -- Only deploy when falling fast enough
-    if hrp.AssemblyLinearVelocity.Y > -5 then
-        -- Flash HUD red to show deploy failed
-        local originalColor = controlHints.TextColor3
-        controlHints.TextColor3 = Color3.fromRGB(255, 80, 80)
-        controlHints.Text = "Need more altitude to deploy!"
-        controlHintTimer = HUD_FADE_DELAY
-        if not controlHintsVisible then
-            controlHintsVisible = true
-            tweenProperty(controlHints, { TextTransparency = 0, BackgroundTransparency = 0.4 }, 0.3)
-        end
-        task.delay(1.5, function()
-            controlHints.TextColor3 = originalColor
-            setHUDMode(mode)
-        end)
-        return
-    end
-
-    chuteActive = true
-    chuteStalled = false
-    chuteStallTimer = 0
-    chuteHeading = select(2, hrp.CFrame:ToEulerAnglesYXZ())
-
-    -- Random wind offset
-    chuteWindOffset =
-        Vector3.new((math.random() - 0.5) * CHUTE_WIND_STRENGTH * 2, 0, (math.random() - 0.5) * CHUTE_WIND_STRENGTH * 2)
-
-    -- Rectangular canopy from multiple panels
-    local canopyRoot = Instance.new("Part")
-    canopyRoot.Name = "CanopyRoot"
-    canopyRoot.Size = Vector3.new(2, 2, 2) -- some volume for physics presence
-    canopyRoot.Transparency = 1
-    canopyRoot.CanCollide = false
-    canopyRoot.Massless = false -- real mass enables pendulum swing
-    canopyRoot.CustomPhysicalProperties = PhysicalProperties.new(0.05, 0, 0, 0, 0)
-    canopyRoot.Anchored = false
-    canopyRoot.CFrame = hrp.CFrame * CFrame.new(0, 18, 0)
-    canopyRoot.Parent = char
-    tagPart(canopyRoot, PARACHUTE_TAG)
-
-    -- Weld canopy root to follow player via BallSocketConstraint (allows swing)
-    local rootAttachHRP = Instance.new("Attachment")
-    rootAttachHRP.Position = Vector3.new(0, 2, 0)
-    rootAttachHRP.Parent = hrp
-    tagPart(rootAttachHRP, PARACHUTE_TAG)
-
-    local rootAttachCanopy = Instance.new("Attachment")
-    rootAttachCanopy.Position = Vector3.new(0, -8, 0) -- bottom of the "rope"
-    rootAttachCanopy.Parent = canopyRoot
-    tagPart(rootAttachCanopy, PARACHUTE_TAG)
-
-    -- BallSocketConstraint: keeps canopy tethered at correct distance, allows swing
-    local mainSocket = Instance.new("BallSocketConstraint")
-    mainSocket.Attachment0 = rootAttachHRP
-    mainSocket.Attachment1 = rootAttachCanopy
-    mainSocket.LimitsEnabled = true
-    mainSocket.UpperAngle = 25 -- max pendulum swing angle (degrees)
-    mainSocket.Restitution = 0 -- no bounce
-    mainSocket.Visible = false
-    mainSocket.Parent = canopyRoot
-    tagPart(mainSocket, PARACHUTE_TAG)
-
-    -- Keep canopy floating above player: counteract its own weight plus a small upward bias
-    local canopyMass = canopyRoot:GetMass()
-    local canopyLift = Instance.new("BodyForce")
-    canopyLift.Name = "CanopyLift"
-    canopyLift.Force = Vector3.new(0, workspace.Gravity * canopyMass * 1.15, 0) -- 1.15x gravity for gentle upward pull
-    canopyLift.Parent = canopyRoot
-    tagPart(canopyLift, PARACHUTE_TAG)
-
-    chuteCanopy = canopyRoot
-
-    -- Canopy panels (rectangular, alternating orange and white)
-    local panelCount = 7
-    local panelWidth = 3.5
-    local panelHeight = 0.4
-    local panelDepth = 8
-
-    for i = 1, panelCount do
-        local panel = Instance.new("Part")
-        panel.Name = "Panel" .. i
-        panel.Size = Vector3.new(panelWidth - 0.1, panelHeight, panelDepth)
-        panel.Material = Enum.Material.Fabric
-
-        -- White canopy with red center panel
-        if i == math.ceil(panelCount / 2) then
-            panel.Color = Color3.fromRGB(200, 30, 30) -- red center panel
-        else
-            panel.Color = Color3.fromRGB(245, 245, 245) -- clean white
-        end
-
-        local xOff = (i - (panelCount + 1) / 2) * panelWidth
-        panel.CFrame = canopyRoot.CFrame * CFrame.new(xOff, 0, 0)
-        panel.Anchored = false
-        panel.CanCollide = false
-        panel.Massless = true
-        panel.Parent = char
-        tagPart(panel, PARACHUTE_TAG)
-
-        local pw = Instance.new("WeldConstraint")
-        pw.Part0 = canopyRoot
-        pw.Part1 = panel
-        pw.Parent = canopyRoot
-
-        -- Lines from each panel edge to player
-        for _, lineXOff in ipairs({ -panelWidth / 2 + 0.3, panelWidth / 2 - 0.3 }) do
-            local lineAttachTop = Instance.new("Attachment")
-            lineAttachTop.Position = Vector3.new(xOff + lineXOff, -panelHeight / 2, 0)
-            lineAttachTop.Parent = canopyRoot
-
-            local lineAttachBot = Instance.new("Attachment")
-            lineAttachBot.Position = Vector3.new(
-                (xOff + lineXOff) * 0.15, -- converge toward center at player
-                2,
-                0
-            )
-            lineAttachBot.Parent = hrp
-            tagPart(lineAttachBot, PARACHUTE_TAG)
-
-            local beam = Instance.new("Beam")
-            beam.Attachment0 = lineAttachTop
-            beam.Attachment1 = lineAttachBot
-            beam.Width0 = 0.05
-            beam.Width1 = 0.05
-            beam.Color = ColorSequence.new(Color3.fromRGB(180, 180, 180))
-            beam.FaceCamera = true
-            beam.Parent = canopyRoot
-        end
-    end
-
-    -- Physics: BodyForce for lift, BodyVelocity for descent rate limiting
-    chuteForce = Instance.new("BodyForce")
-    chuteForce.Force = Vector3.new(0, 0, 0)
-    chuteForce.Parent = hrp
-    tagPart(chuteForce, PARACHUTE_TAG)
-
-    chuteLift = Instance.new("BodyVelocity")
-    chuteLift.MaxForce = Vector3.new(4000, 20000, 4000) -- also damp horizontal to prevent wild swings
-    chuteLift.Velocity = Vector3.new(0, CHUTE_DESCENT_RATE, 0)
-    chuteLift.P = 2000 -- softer P for smoother velocity tracking
-    chuteLift.Parent = hrp
-    tagPart(chuteLift, PARACHUTE_TAG)
-
-    -- Gyro for controlled heading
-    chuteGyro = Instance.new("BodyGyro")
-    chuteGyro.MaxTorque = Vector3.new(10000, 10000, 10000)
-    chuteGyro.P = 3000
-    chuteGyro.D = 200
-    chuteGyro.Parent = hrp
-    tagPart(chuteGyro, PARACHUTE_TAG)
-
-    -- Sounds
-    chuteWindSound = makeSound(hrp, "ChuteWind", true, 0.3, SOUND_WIND_RUSH)
-    chuteWindSound:Play()
-    tagPart(chuteWindSound, PARACHUTE_TAG)
-
-    chuteFlutterSound = makeSound(hrp, "ChuteFlutter", true, 0.15, SOUND_CHUTE_FLUTTER)
-    chuteFlutterSound:Play()
-    tagPart(chuteFlutterSound, PARACHUTE_TAG)
-
-    -- Deploy whoosh
-    local deploySnd = makeSound(hrp, "ChuteDeploy", false, 0.5, SOUND_CHUTE_DEPLOY)
-    deploySnd:Play()
-    Debris:AddItem(deploySnd, 2)
-
-    -- Auto-retract on landing
-    chuteLandedConn = hum.StateChanged:Connect(function(_, newState)
-        if newState == Enum.HumanoidStateType.Landed or newState == Enum.HumanoidStateType.Running then
-            retractParachute()
-        end
-    end)
-
-    enableParachuteDOF()
-
-    mode = "parachute"
-    customCamActive = true
-    setHUDMode("parachute")
-end
-
-retractParachute = function()
-    if not chuteActive then
-        return
-    end
-    chuteActive = false
-
-    if chuteLandedConn then
-        chuteLandedConn:Disconnect()
-        chuteLandedConn = nil
-    end
-
-    -- Fix #5: destroy physics forces IMMEDIATELY (no lingering drag/lift)
-    if chuteForce then
-        chuteForce:Destroy()
-    end
-    if chuteLift then
-        chuteLift:Destroy()
-    end
-    if chuteGyro then
-        chuteGyro:Destroy()
-    end
-    chuteForce = nil
-    chuteLift = nil
-    chuteGyro = nil
-
-    -- Visual parts fade out over 1 second (fix #14: guard nil via IsA check)
-    local canopyParts = CollectionService:GetTagged(PARACHUTE_TAG)
-    for _, obj in ipairs(canopyParts) do
-        if obj and obj:IsA("BasePart") and obj.Name ~= "HumanoidRootPart" then
-            tweenProperty(obj, { Transparency = 1 }, 1.0)
-        end
-    end
-
-    task.delay(1.1, function()
-        cleanupByTag(PARACHUTE_TAG)
-    end)
-
-    chuteCanopy = nil
-    chuteWindSound = nil
-    chuteFlutterSound = nil
-
-    if mode == "parachute" then
-        disableDOF()
-        mode = "none"
-        customCamActive = false
-        camCurrentPos = nil -- fix #11: reset here, not in render loop
-        restoreDefaultCamera(getHumanoid())
-        setHUDMode("none")
-    end
-end
-
---------------------------------------------------------------------------------
--- PARACHUTE UPDATE (per-frame)
---------------------------------------------------------------------------------
-local function updateParachute(dt)
-    if not chuteActive or not chuteForce or not chuteLift then
-        return
-    end
-
-    local hrp = getHRP()
-    if not hrp then
-        return
-    end
-
-    local vel = hrp.AssemblyLinearVelocity
-    local mass = hrp.AssemblyMass
-
-    -- Steering input
-    local steerInput = 0
-    local flareInput = 0
-
-    if UserInputService:IsKeyDown(Enum.KeyCode.A) then
-        steerInput = -1
-    elseif UserInputService:IsKeyDown(Enum.KeyCode.D) then
-        steerInput = 1
-    end
-
-    if UserInputService:IsKeyDown(Enum.KeyCode.S) then
-        flareInput = 1
-    end
-
-    -- Dive input: hold W to tuck and gain speed (Just Cause style)
-    local diveInput = UserInputService:IsKeyDown(Enum.KeyCode.W) and 1 or 0
-
-    -- Gamepad thumbstick X for parachute steering (additive, clamped to -1..1) — fix #10
-    local gpChute = frameGamepad
-    if gpChute and math.abs(gpChute.thumbstickX) > 0.1 then
-        steerInput = math.clamp(steerInput + gpChute.thumbstickX, -1, 1)
-    end
-
-    -- Update heading
-    chuteHeading = chuteHeading + steerInput * CHUTE_TURN_RATE * dt
-
-    -- Stall detection: sustained flare causes canopy collapse
-    if chuteStalled then
-        chuteStallTimer = chuteStallTimer + dt
-        if chuteStallTimer > 1.5 then
-            -- Re-inflate after stall recovery period
-            chuteStalled = false
-            chuteStallTimer = 0
-        end
-    else
-        -- Accumulate flare time; reset when not flaring
-        if flareInput > 0 then
-            chuteStallTimer = chuteStallTimer + dt
-        else
-            chuteStallTimer = math.max(0, chuteStallTimer - dt * 0.5) -- slowly recover
-        end
-        -- Trigger stall after sustained flare
-        if chuteStallTimer > CHUTE_FLARE_STALL_TIME then
-            chuteStalled = true
-            chuteStallTimer = 0
-        end
-    end
-
-    -- Calculate forces
-    local headingDir = Vector3.new(math.sin(chuteHeading), 0, math.cos(chuteHeading))
-
-    local descentRate = CHUTE_DESCENT_RATE
-    local forwardSpeed = CHUTE_FORWARD_SPEED
-
-    if chuteStalled then
-        -- Canopy collapsed: rapid descent, minimal forward
-        descentRate = CHUTE_STALL_DESCENT
-        forwardSpeed = CHUTE_FORWARD_SPEED * 0.2
-    elseif diveInput > 0 and flareInput == 0 then
-        -- Dive: trade altitude for speed (Just Cause wingsuit feel)
-        -- Smooth transition into dive using recovery time
-        chuteDiveBlend = math.min((chuteDiveBlend or 0) + dt / CHUTE_DIVE_RECOVERY_TIME, 1)
-        descentRate = lerp(CHUTE_DESCENT_RATE, CHUTE_DIVE_DESCENT_RATE, chuteDiveBlend)
-        forwardSpeed = lerp(CHUTE_FORWARD_SPEED, CHUTE_DIVE_FORWARD_SPEED, chuteDiveBlend)
-    elseif flareInput > 0 then
-        -- Flare: slow descent, reduce forward speed
-        chuteDiveBlend = 0
-        descentRate = CHUTE_DESCENT_RATE + CHUTE_FLARE_LIFT * flareInput
-        forwardSpeed = CHUTE_FORWARD_SPEED * (1 - flareInput * 0.4)
-    else
-        -- Normal glide: smoothly recover from dive
-        chuteDiveBlend = math.max((chuteDiveBlend or 0) - dt / CHUTE_DIVE_RECOVERY_TIME, 0)
-        if chuteDiveBlend > 0 then
-            descentRate = lerp(CHUTE_DESCENT_RATE, CHUTE_DIVE_DESCENT_RATE, chuteDiveBlend)
-            forwardSpeed = lerp(CHUTE_FORWARD_SPEED, CHUTE_DIVE_FORWARD_SPEED, chuteDiveBlend)
-        end
-    end
-
-    -- BodyVelocity controls descent rate and provides a gentle horizontal target
-    local targetHorizVel = headingDir * forwardSpeed * 0.3
-    chuteLift.Velocity = Vector3.new(targetHorizVel.X, descentRate, targetHorizVel.Z)
-
-    -- BodyForce for forward glide + wind
-    local forwardForce = headingDir * forwardSpeed * mass
-    -- Gentle, perlin-noise-modulated wind instead of constant random push
-    local windT = tick() * 0.3
-    local windDynamic = Vector3.new(
-        math.noise(windT, 0) * CHUTE_WIND_STRENGTH,
-        0,
-        math.noise(windT, 100) * CHUTE_WIND_STRENGTH
-    ) * mass
-    -- Drag: oppose horizontal velocity proportional to speed (stronger = more stable glide)
-    local horizVel = Vector3.new(vel.X, 0, vel.Z)
-    local dragForce = -horizVel * mass * CHUTE_HORIZONTAL_DRAG
-
-    chuteForce.Force = forwardForce + windDynamic + dragForce
-
-    -- Bank angle (gyro)
-    if chuteGyro then
-        local bankAngle = steerInput * math.rad(15)
-        chuteGyro.CFrame = CFrame.new(hrp.Position)
-            * CFrame.Angles(0, chuteHeading, bankAngle)
-            * CFrame.Angles(math.rad(-10 - flareInput * 15), 0, 0) -- slight forward lean, more on flare
-    end
-
-    -- Pendulum swing: apply a small lateral impulse opposite to turn direction
-    -- so the canopy visibly swings when the player steers.
-    if chuteCanopy then
-        if math.abs(steerInput) > 0.1 then
-            -- Push canopy laterally against the turn (rope swings outward)
-            local rightVec = CFrame.Angles(0, chuteHeading, 0).RightVector
-            local swingForce = rightVec * steerInput * -60 * dt
-            -- Apply as a small velocity nudge (mass is 0.05 kg)
-            chuteCanopy.AssemblyLinearVelocity = chuteCanopy.AssemblyLinearVelocity + swingForce
-        end
-    end
-
-    -- Sound
-    if chuteWindSound then
-        local speedFrac = math.clamp(vel.Magnitude / 60, 0, 1)
-        chuteWindSound.Volume = 0.15 + speedFrac * 0.35
-        chuteWindSound.PlaybackSpeed = 0.8 + speedFrac * 0.4
-    end
-
-    if chuteFlutterSound then
-        chuteFlutterSound.Volume = chuteStalled and 0.4 or 0.15
-    end
-
-    -- Camera: wide FOV, above and behind, looking down slightly
-    if customCamActive then
-        local camera = getCamera()
-        if not camera then
-            return
-        end
-        local behindOffset = -headingDir * CHUTE_CAM_OFFSET.Z + Vector3.new(0, CHUTE_CAM_OFFSET.Y, 0)
-        local targetPos = hrp.Position + behindOffset
-
-        if camCurrentPos then
-            camCurrentPos = lerpVector3(camCurrentPos, targetPos, math.min(1, CAM_LERP_RATE * dt))
-        else
-            camCurrentPos = targetPos
-        end
-
-        camera.CameraType = Enum.CameraType.Scriptable
-        camera.CFrame = CFrame.new(camCurrentPos, hrp.Position + Vector3.new(0, -3, 0))
-        camera.FieldOfView = lerp(camera.FieldOfView, CHUTE_FOV, math.min(1, CAM_LERP_RATE * dt))
-    end
-end
-
---------------------------------------------------------------------------------
--- GRAPPLE HOOK (G) — Just Cause signature traversal, works in any mode
---------------------------------------------------------------------------------
-local function releaseGrapple()
-    if not grappleActive then
-        return
-    end
-    grappleActive = false
-    grappleTargetPos = nil
-    grappleHitInstance = nil
-    grappleTimer = 0
-
-    if grappleBodyVelocity then
-        grappleBodyVelocity:Destroy()
-        grappleBodyVelocity = nil
-    end
-    if grappleBeam then
-        grappleBeam:Destroy()
-        grappleBeam = nil
-    end
-    if grappleAttachChar then
-        grappleAttachChar:Destroy()
-        grappleAttachChar = nil
-    end
-    if grappleAttachTarget then
-        grappleAttachTarget:Destroy()
-        grappleAttachTarget = nil
-    end
-    if grappleAnchorPart then
-        grappleAnchorPart:Destroy()
-        grappleAnchorPart = nil
-    end
-end
-
-local function fireGrapple()
-    if grappleActive then
-        -- toggle: second press cancels
-        releaseGrapple()
-        return
-    end
-
-    local hrp = getHRP()
-    local camera = getCamera()
-    if not hrp or not camera then
-        return
-    end
-
-    -- Raycast from camera along lookat
-    local origin = camera.CFrame.Position
-    local direction = camera.CFrame.LookVector * GRAPPLE_MAX_RANGE
-
-    local params = RaycastParams.new()
-    params.FilterType = Enum.RaycastFilterType.Exclude
-    local filter = {}
-    local char = getCharacter()
-    if char then
-        table.insert(filter, char)
-    end
-    if carModel then
-        table.insert(filter, carModel)
-    end
-    params.FilterDescendantsInstances = filter
-    params.IgnoreWater = false
-
-    local result = Workspace:Raycast(origin, direction, params)
-    if not result then
-        return
-    end
-
-    grappleActive = true
-    grappleTargetPos = result.Position
-    grappleHitInstance = result.Instance
-    grappleTimer = 0
-
-    -- Smooth BodyVelocity-based pull with damped MaxForce (no instant snap)
-    local bv = Instance.new("BodyVelocity")
-    bv.Name = "GrappleBodyVelocity"
-    bv.MaxForce = Vector3.new(GRAPPLE_PULL_MAX_FORCE, GRAPPLE_PULL_MAX_FORCE, GRAPPLE_PULL_MAX_FORCE)
-    bv.P = 3000
-    bv.Velocity = hrp.AssemblyLinearVelocity -- start from current vel to avoid snap
-    bv.Parent = hrp
-    grappleBodyVelocity = bv
-
-    -- Anchor an invisible, anchored part at the hit position so the beam stays put
-    -- even if the hit instance moves or is destroyed during the pull.
-    local anchor = Instance.new("Part")
-    anchor.Name = "GrappleAnchor"
-    anchor.Size = Vector3.new(0.1, 0.1, 0.1)
-    anchor.Transparency = 1
-    anchor.CanCollide = false
-    anchor.Anchored = true
-    anchor.CFrame = CFrame.new(grappleTargetPos)
-    anchor.Parent = Workspace
-    grappleAnchorPart = anchor
-
-    local a0 = Instance.new("Attachment")
-    a0.Name = "GrappleA0"
-    a0.Parent = hrp
-    grappleAttachChar = a0
-
-    local a1 = Instance.new("Attachment")
-    a1.Name = "GrappleA1"
-    a1.Parent = anchor
-    grappleAttachTarget = a1
-
-    local beam = Instance.new("Beam")
-    beam.Attachment0 = a0
-    beam.Attachment1 = a1
-    beam.Width0 = GRAPPLE_BEAM_WIDTH
-    beam.Width1 = GRAPPLE_BEAM_WIDTH
-    beam.Color = ColorSequence.new(Color3.fromRGB(30, 30, 30))
-    beam.LightEmission = 0.1
-    beam.FaceCamera = true
-    beam.Segments = 6
-    beam.Parent = hrp
-    grappleBeam = beam
-end
-
-local function updateGrapple(dt)
-    if not grappleActive or not grappleTargetPos or not grappleBodyVelocity then
-        return
-    end
-
-    local hrp = getHRP()
-    if not hrp then
-        releaseGrapple()
-        return
-    end
-
-    grappleTimer = grappleTimer + dt
-    if grappleTimer >= GRAPPLE_TIMEOUT then
-        releaseGrapple()
-        return
-    end
-
-    local toTarget = grappleTargetPos - hrp.Position
-    local distance = toTarget.Magnitude
-    if distance <= GRAPPLE_ARRIVAL_RADIUS then
-        releaseGrapple()
-        return
-    end
-
-    -- Smooth velocity lerp toward pull direction (no snaps)
-    local desiredDir = toTarget.Unit
-    local desiredVel = desiredDir * GRAPPLE_PULL_SPEED
-    local current = grappleBodyVelocity.Velocity
-    local t = math.clamp(GRAPPLE_VELOCITY_LERP * dt, 0, 1)
-    grappleBodyVelocity.Velocity = current:Lerp(desiredVel, t)
-end
-
---------------------------------------------------------------------------------
--- WINGSUIT — auto-engages after sustained freefall, glides between chute/jetpack
---------------------------------------------------------------------------------
-local function exitWingsuit()
-    if not wingsuitActive then
-        return
-    end
-    wingsuitActive = false
-    wingsuitFreefallTimer = 0
-    wingsuitCurrentVel = Vector3.zero
-
-    if wingsuitBodyVelocity then
-        wingsuitBodyVelocity:Destroy()
-        wingsuitBodyVelocity = nil
-    end
-    if wingsuitGyro then
-        wingsuitGyro:Destroy()
-        wingsuitGyro = nil
-    end
-
-    if mode == "wingsuit" then
-        mode = "none"
-        customCamActive = false
-        camCurrentPos = nil
-        restoreDefaultCamera(getHumanoid())
-        setHUDMode("none")
-    end
-end
-
-local function enterWingsuit()
-    if wingsuitActive then
-        return
-    end
-
-    local hrp = getHRP()
-    if not hrp then
-        return
-    end
-
-    wingsuitActive = true
-
-    -- BodyVelocity: damped horizontal + vertical for smooth glide (no snap)
-    local bv = Instance.new("BodyVelocity")
-    bv.Name = "WingsuitBodyVelocity"
-    bv.MaxForce = Vector3.new(WINGSUIT_MAX_FORCE_H, WINGSUIT_MAX_FORCE_V, WINGSUIT_MAX_FORCE_H)
-    bv.P = 1500 -- soft P for smooth velocity tracking
-    bv.Velocity = hrp.AssemblyLinearVelocity -- start from current velocity, no snap
-    bv.Parent = hrp
-    wingsuitBodyVelocity = bv
-    wingsuitCurrentVel = bv.Velocity
-
-    -- BodyGyro: tilts character into glide pose with stable damping
-    local gyro = Instance.new("BodyGyro")
-    gyro.Name = "WingsuitGyro"
-    gyro.MaxTorque = Vector3.new(20000, 20000, 20000)
-    gyro.P = 2500
-    gyro.D = 250
-    gyro.CFrame = hrp.CFrame
-    gyro.Parent = hrp
-    wingsuitGyro = gyro
-
-    mode = "wingsuit"
-    customCamActive = false -- let default camera follow; wingsuit is a lightweight mode
-    setHUDMode("wingsuit")
-end
-
-local function updateWingsuit(dt)
-    -- Auto-detection of freefall (only when in a passive mode)
-    if mode == "none" and not wingsuitActive and not chuteActive and not jetpackActive then
-        local hum = getHumanoid()
-        local hrp = getHRP()
-        if hum and hrp then
-            local state = hum:GetState()
-            local isFalling = state == Enum.HumanoidStateType.Freefall
-                or state == Enum.HumanoidStateType.FallingDown
-            if isFalling then
-                wingsuitFreefallTimer = wingsuitFreefallTimer + dt
-                if wingsuitFreefallTimer >= WINGSUIT_MIN_FREEFALL_TIME then
-                    enterWingsuit()
-                end
-            else
-                wingsuitFreefallTimer = 0
-            end
-        end
-    elseif mode ~= "wingsuit" then
-        wingsuitFreefallTimer = 0
-    end
-
-    if not wingsuitActive or not wingsuitBodyVelocity then
-        return
-    end
-
-    local hrp = getHRP()
-    if not hrp then
-        exitWingsuit()
-        return
-    end
-
-    -- If we've landed, drop out of wingsuit
-    local hum = getHumanoid()
-    if hum then
-        local state = hum:GetState()
-        if state == Enum.HumanoidStateType.Running
-            or state == Enum.HumanoidStateType.Landed
-            or state == Enum.HumanoidStateType.Climbing
-        then
-            exitWingsuit()
-            return
-        end
-    end
-
-    -- Steer from camera lookat (horizontal projection), WASD for subtle correction
-    local camera = getCamera()
-    if not camera then
-        return
-    end
-    local look = camera.CFrame.LookVector
-    local flatLook = Vector3.new(look.X, 0, look.Z)
-    if flatLook.Magnitude < 0.001 then
-        return
-    end
-    flatLook = flatLook.Unit
-
-    local right = camera.CFrame.RightVector
-    local flatRight = Vector3.new(right.X, 0, right.Z)
-    if flatRight.Magnitude > 0.001 then
-        flatRight = flatRight.Unit
-    end
-
-    -- Compute desired velocity from glide physics
-    -- 4:1 glide ratio: forward 90 studs/s, descent -22 studs/s
-    local desiredHoriz = flatLook * WINGSUIT_FORWARD_SPEED
-    -- Respect glide ratio math (forward/descent ratio should equal WINGSUIT_GLIDE_RATIO)
-    local desiredVert = WINGSUIT_DESCENT_RATE
-    -- Ensure forward matches declared ratio (keeps constants coherent if later tuned)
-    local ratioCorrected = math.abs(desiredVert) * WINGSUIT_GLIDE_RATIO
-    desiredHoriz = flatLook * ratioCorrected
-
-    -- Subtle WASD bank/nudge (A/D) without snapping direction
-    local bank = 0
-    if UserInputService:IsKeyDown(Enum.KeyCode.A) then
-        bank = bank - 1
-    end
-    if UserInputService:IsKeyDown(Enum.KeyCode.D) then
-        bank = bank + 1
-    end
-    if bank ~= 0 then
-        desiredHoriz = desiredHoriz + flatRight * bank * (ratioCorrected * 0.15)
-    end
-
-    local desired = Vector3.new(desiredHoriz.X, desiredVert, desiredHoriz.Z)
-
-    -- Smooth lerp from current to desired velocity (no snaps)
-    local t = math.clamp(WINGSUIT_TILT_LERP * dt, 0, 1)
-    wingsuitCurrentVel = wingsuitCurrentVel:Lerp(desired, t)
-    wingsuitBodyVelocity.Velocity = wingsuitCurrentVel
-
-    -- Smooth pitch-forward gyro (glide pose) aligned with flight direction
-    if wingsuitGyro then
-        local pitch = math.rad(-WINGSUIT_PITCH_DEGREES)
-        local targetCFrame = CFrame.lookAt(hrp.Position, hrp.Position + flatLook)
-            * CFrame.Angles(pitch, 0, math.rad(bank * 18))
-        -- BodyGyro naturally damps via P/D; passing the target CFrame is already smooth.
-        wingsuitGyro.CFrame = targetCFrame
-    end
-end
+local SharedState = require(script.Parent.Traversal.SharedState)
+local CarController = require(script.Parent.Traversal.CarController)
+local JetpackController = require(script.Parent.Traversal.JetpackController)
+local ParachuteController = require(script.Parent.Traversal.ParachuteController)
+local WingsuitController = require(script.Parent.Traversal.WingsuitController)
+local GrappleController = require(script.Parent.Traversal.GrappleController)
+
+local S = SharedState
+
+local Players = S.Players
+local UserInputService = S.UserInputService
+local RunService = S.RunService
+local player = S.player
+
+-- Local aliases of frequently called mode functions (no semantic change,
+-- just avoids repeating module prefix in the transitions/input/render blocks).
+local spawnCar = CarController.spawnCar
+local destroyCar = CarController.destroyCar
+local enterCar = CarController.enterCar
+local exitCar = CarController.exitCar
+local updateCar = CarController.updateCar
+
+local deployJetpack = JetpackController.deployJetpack
+local cleanupJetpack = JetpackController.cleanupJetpack
+local updateJetpack = JetpackController.updateJetpack
+
+local deployParachute = ParachuteController.deployParachute
+local retractParachute = ParachuteController.retractParachute
+local updateParachute = ParachuteController.updateParachute
+
+local enterWingsuit = WingsuitController.enterWingsuit
+local exitWingsuit = WingsuitController.exitWingsuit
+local updateWingsuit = WingsuitController.updateWingsuit
+
+local fireGrapple = GrappleController.fireGrapple
+local releaseGrapple = GrappleController.releaseGrapple
+local updateGrapple = GrappleController.updateGrapple
 
 --------------------------------------------------------------------------------
 -- TRANSITIONS
 --------------------------------------------------------------------------------
 -- Fix #3: all transitions use task.delay instead of task.wait (no yielding in render thread)
 local function transitionToJetpack()
-    if transitionLock then
+    if S.transitionLock then
         return
     end
-    transitionLock = true
+    S.transitionLock = true
 
-    local hrp = getHRP()
+    local hrp = S.getHRP()
 
     -- If wingsuit active, exit it first (no task.delay needed, purely local cleanup)
-    if mode == "wingsuit" then
+    if S.mode == "wingsuit" then
         exitWingsuit()
     end
 
     -- If in car, eject upward then deploy after delay
-    if mode == "car" then
+    if S.mode == "car" then
         exitCar()
         if hrp then
             hrp.AssemblyLinearVelocity = hrp.AssemblyLinearVelocity + Vector3.new(0, 40, 0)
         end
         task.delay(0.3, function()
             deployJetpack()
-            transitionLock = false
+            S.transitionLock = false
         end)
         return
     end
 
     -- If parachute active, retract first
-    if mode == "parachute" then
+    if S.mode == "parachute" then
         retractParachute()
         task.delay(0.15, function()
             deployJetpack()
-            transitionLock = false
+            S.transitionLock = false
         end)
         return
     end
 
     deployJetpack()
-    transitionLock = false
+    S.transitionLock = false
 end
 
 local function transitionToParachute()
-    if transitionLock then
+    if S.transitionLock then
         return
     end
-    transitionLock = true
+    S.transitionLock = true
 
     -- If wingsuit active, drop it before deploying chute (smooth handoff)
-    if mode == "wingsuit" then
+    if S.mode == "wingsuit" then
         exitWingsuit()
     end
 
     -- If jetpack active, swap seamlessly
-    if mode == "jetpack" then
+    if S.mode == "jetpack" then
         cleanupJetpack()
         task.delay(0.1, function()
             deployParachute()
-            transitionLock = false
+            S.transitionLock = false
         end)
         return
     end
 
     -- If in car, eject first
-    if mode == "car" then
+    if S.mode == "car" then
         exitCar()
         task.delay(0.2, function()
             deployParachute()
-            transitionLock = false
+            S.transitionLock = false
         end)
         return
     end
 
     deployParachute()
-    transitionLock = false
+    S.transitionLock = false
 end
 
 local function transitionToCar()
-    if transitionLock then
+    if S.transitionLock then
         return
     end
-    transitionLock = true
+    S.transitionLock = true
 
     local function doCarEntry()
         -- Check if a car already exists nearby (proximity entry)
-        if carModel and carSeat then
-            local hrp = getHRP()
-            if hrp and (hrp.Position - carSeat.Position).Magnitude < 15 then
-                enterCar(carSeat)
-                transitionLock = false
+        if S.carModel and S.carSeat then
+            local hrp = S.getHRP()
+            if hrp and (hrp.Position - S.carSeat.Position).Magnitude < 15 then
+                enterCar(S.carSeat)
+                S.transitionLock = false
                 return
             else
                 destroyCar()
             end
         end
 
-        if not carModel then
+        if not S.carModel then
             local seat = spawnCar()
             if seat then
                 task.delay(0.3, function()
                     enterCar(seat)
-                    transitionLock = false
+                    S.transitionLock = false
                 end)
                 return
             end
         end
 
-        transitionLock = false
+        S.transitionLock = false
     end
 
     -- Clean up other modes
-    if mode == "wingsuit" then
+    if S.mode == "wingsuit" then
         exitWingsuit()
     end
-    if mode == "jetpack" then
+    if S.mode == "jetpack" then
         cleanupJetpack()
         task.delay(0.1, doCarEntry)
         return
     end
-    if mode == "parachute" then
+    if S.mode == "parachute" then
         retractParachute()
         task.delay(0.1, doCarEntry)
         return
@@ -2652,7 +199,7 @@ local function transitionToCar()
 end
 
 local function toggleCarMode()
-    if mode == "car" then
+    if S.mode == "car" then
         exitCar()
     else
         task.spawn(transitionToCar)
@@ -2660,7 +207,7 @@ local function toggleCarMode()
 end
 
 local function toggleJetpackMode()
-    if mode == "jetpack" then
+    if S.mode == "jetpack" then
         cleanupJetpack()
     else
         task.spawn(transitionToJetpack)
@@ -2668,7 +215,7 @@ local function toggleJetpackMode()
 end
 
 local function toggleParachuteMode()
-    if mode == "parachute" then
+    if S.mode == "parachute" then
         retractParachute()
     else
         task.spawn(transitionToParachute)
@@ -2679,7 +226,7 @@ end
 -- CLEANUP ON DEATH / RESPAWN
 --------------------------------------------------------------------------------
 local function fullCleanup()
-    if mode == "car" then
+    if S.mode == "car" then
         exitCar()
     end
     cleanupJetpack()
@@ -2688,17 +235,17 @@ local function fullCleanup()
     releaseGrapple()
     destroyCar()
 
-    mode = "none"
-    customCamActive = false
-    cinematicMode = false
-    camCurrentPos = nil
-    jetpackFuel = JETPACK_FUEL_MAX
+    S.mode = "none"
+    S.customCamActive = false
+    S.cinematicMode = false
+    S.camCurrentPos = nil
+    S.jetpackFuel = S.JETPACK_FUEL_MAX
 
-    disableDOF()
+    S.disableDOF()
 
-    restoreDefaultCamera(getHumanoid())
+    S.restoreDefaultCamera(S.getHumanoid())
 
-    setHUDMode("none")
+    S.setHUDMode("none")
 end
 
 local function onCharacterAdded(character)
@@ -2706,8 +253,8 @@ local function onCharacterAdded(character)
 
     local hum = character:WaitForChild("Humanoid", 10)
     if hum then
-        restoreDefaultCamera(hum)
-        publishClientCameraTelemetry(hum)
+        S.restoreDefaultCamera(hum)
+        S.publishClientCameraTelemetry(hum)
         hum.Died:Connect(function()
             fullCleanup()
         end)
@@ -2733,7 +280,7 @@ UserInputService.InputBegan:Connect(function(input, gameProcessed)
     if gameProcessed then
         return
     end
-    local character = getCharacter()
+    local character = S.getCharacter()
     if not character then
         return
     end
@@ -2744,38 +291,38 @@ UserInputService.InputBegan:Connect(function(input, gameProcessed)
         toggleCarMode()
     elseif keyCode == Enum.KeyCode.J or keyCode == Enum.KeyCode.ButtonX then
         toggleJetpackMode()
-    elseif keyCode == Enum.KeyCode.P or (keyCode == Enum.KeyCode.ButtonA and mode ~= "car") then
+    elseif keyCode == Enum.KeyCode.P or (keyCode == Enum.KeyCode.ButtonA and S.mode ~= "car") then
         toggleParachuteMode()
     elseif keyCode == Enum.KeyCode.G or keyCode == Enum.KeyCode.ButtonL1 then
         fireGrapple()
-    elseif keyCode == Enum.KeyCode.E and mode == "car" then
+    elseif keyCode == Enum.KeyCode.E and S.mode == "car" then
         exitCar()
-    elseif keyCode == Enum.KeyCode.H and mode == "car" then
-        if carHornSound and not carHornSound.IsPlaying then
-            carHornSound:Play()
+    elseif keyCode == Enum.KeyCode.H and S.mode == "car" then
+        if S.carHornSound and not S.carHornSound.IsPlaying then
+            S.carHornSound:Play()
         end
     elseif keyCode == Enum.KeyCode.C then
-        cinematicMode = not cinematicMode
-        if cinematicMode then
-            enableCinematicDOF()
-            controlHints.Text = "[C] Exit cinematic view"
-            controlHintTimer = HUD_FADE_DELAY
-            if not controlHintsVisible then
-                controlHintsVisible = true
-                tweenProperty(controlHints, { TextTransparency = 0, BackgroundTransparency = 0.4 }, 0.3)
+        S.cinematicMode = not S.cinematicMode
+        if S.cinematicMode then
+            S.enableCinematicDOF()
+            S.controlHints.Text = "[C] Exit cinematic view"
+            S.controlHintTimer = S.HUD_FADE_DELAY
+            if not S.controlHintsVisible then
+                S.controlHintsVisible = true
+                S.tweenProperty(S.controlHints, { TextTransparency = 0, BackgroundTransparency = 0.4 }, 0.3)
             end
         else
-            disableDOF()
-            restoreDefaultCamera(getHumanoid())
-            setHUDMode(mode)
+            S.disableDOF()
+            S.restoreDefaultCamera(S.getHumanoid())
+            S.setHUDMode(S.mode)
         end
     elseif keyCode == Enum.KeyCode.ButtonB then
         -- ButtonB exits the current active mode
-        if mode == "car" then
+        if S.mode == "car" then
             exitCar()
-        elseif mode == "jetpack" then
+        elseif S.mode == "jetpack" then
             cleanupJetpack()
-        elseif mode == "parachute" then
+        elseif S.mode == "parachute" then
             retractParachute()
         end
     end
@@ -2786,7 +333,7 @@ end)
 --------------------------------------------------------------------------------
 RunService.RenderStepped:Connect(function(dt)
     -- Fix #12: resolve character references once at top of render loop
-    local char = getCharacter()
+    local char = S.getCharacter()
     if not char then
         return
     end
@@ -2797,7 +344,7 @@ RunService.RenderStepped:Connect(function(dt)
     end
 
     -- Fix #10: read gamepad once per frame
-    frameGamepad = readGamepad()
+    S.frameGamepad = S.readGamepad()
 
     -- Update active mode
     updateCar(dt)
@@ -2807,59 +354,59 @@ RunService.RenderStepped:Connect(function(dt)
     updateGrapple(dt)
 
     -- Update HUD values
-    updateHUDValues(dt)
+    S.updateHUDValues(dt)
 
     -- Jetpack fuel recharge on ground
-    if not jetpackActive and isOnGround() then
-        jetpackFuel = math.min(JETPACK_FUEL_MAX, jetpackFuel + JETPACK_FUEL_RECHARGE_RATE * dt)
+    if not S.jetpackActive and S.isOnGround() then
+        S.jetpackFuel = math.min(S.JETPACK_FUEL_MAX, S.jetpackFuel + S.JETPACK_FUEL_RECHARGE_RATE * dt)
     end
 
     -- Detect if player fell out of car seat
-    if mode == "car" and carSeat then
+    if S.mode == "car" and S.carSeat then
         if hum and not hum.Sit then
-            mode = "none"
-            customCamActive = false
-            camCurrentPos = nil -- fix #11
-            restoreDefaultCamera(hum)
-            setHUDMode("none")
+            S.mode = "none"
+            S.customCamActive = false
+            S.camCurrentPos = nil -- fix #11
+            S.restoreDefaultCamera(hum)
+            S.setHUDMode("none")
         end
     end
 
     -- Anti-fall-through safety net for car
-    if mode == "car" and carBody then
-        if carBody.Position.Y < -50 then
-            carBody.CFrame = CFrame.new(lastSafePosition + Vector3.new(0, 5, 0))
-            carBody.AssemblyLinearVelocity = Vector3.zero
-            carBody.AssemblyAngularVelocity = Vector3.zero
+    if S.mode == "car" and S.carBody then
+        if S.carBody.Position.Y < -50 then
+            S.carBody.CFrame = CFrame.new(S.lastSafePosition + Vector3.new(0, 5, 0))
+            S.carBody.AssemblyLinearVelocity = Vector3.zero
+            S.carBody.AssemblyAngularVelocity = Vector3.zero
         else
-            lastSafePosition = carBody.Position
+            S.lastSafePosition = S.carBody.Position
         end
     end
 
     -- Cinematic orbit camera (fix #8: lerp FOV instead of hard-set 60)
-    if cinematicMode then
-        local camera = getCamera()
+    if S.cinematicMode then
+        local camera = S.getCamera()
         if not camera then
             return
         end
-        cinematicAngle = cinematicAngle + dt * 0.3
+        S.cinematicAngle = S.cinematicAngle + dt * 0.3
         local radius = 150
         local height = 80
         local target = hrp.Position
         local camPos = target
-            + Vector3.new(math.cos(cinematicAngle) * radius, height, math.sin(cinematicAngle) * radius)
+            + Vector3.new(math.cos(S.cinematicAngle) * radius, height, math.sin(S.cinematicAngle) * radius)
         camera.CameraType = Enum.CameraType.Scriptable
         camera.CFrame = CFrame.lookAt(camPos, target)
-        camera.FieldOfView = lerp(camera.FieldOfView, 60, math.min(1, 4 * dt))
-    elseif mode == "none" and not customCamActive and hum then
-        local camera = getCamera()
+        camera.FieldOfView = S.lerp(camera.FieldOfView, 60, math.min(1, 4 * dt))
+    elseif S.mode == "none" and not S.customCamActive and hum then
+        local camera = S.getCamera()
         if camera and (camera.CameraType == Enum.CameraType.Fixed or camera.CameraSubject ~= hum) then
-            restoreDefaultCamera(hum)
+            S.restoreDefaultCamera(hum)
         end
     end
 
     if hum then
-        publishClientCameraTelemetry(hum)
+        S.publishClientCameraTelemetry(hum)
     end
 
     -- Fix #11: removed prevMode comparison; camCurrentPos is now reset in exit functions
