@@ -30,6 +30,7 @@ DO_PLAY=1
 KEEP_RUNALL_ENABLED=0
 RUNALL_EDIT_ENABLED=0
 RUNALL_PLAY_ENABLED=0
+FORCE_SMALL_PLACE=0
 RUNALL_SPEC_FILTER=""
 CLOSE_ON_EXIT=1
 ALLOW_TAKEOVER=0
@@ -583,6 +584,7 @@ Options:
   --hard-restart       Force a full Studio quit/relaunch cycle even when reuse would otherwise be allowed.
   --relaunch-play      Relaunch Studio before Play mode. Disabled by default to avoid save-dialog churn on fresh templates.
   --skip-plugin-smoke Skip the final Vertigo Sync Studio log smoke check.
+  --small-place        Build a script-only place that excludes ServerStorage SampleData. Use with WorldConfig.ManifestSource configured for external_url or roblox_asset so runtime can stream manifest data without bloating the rbxlx.
   --memory-limit-mb MB Aggregate RSS budget for Roblox Studio + vsync server + MCP helper during the harness run. Set 0 to disable the fail-fast guard. Default: ${HARNESS_MEMORY_LIMIT_MB:-4096}
   --memory-sample-sec SEC  Seconds between harness memory telemetry samples. Default: ${HARNESS_MEMORY_SAMPLE_SECONDS:-2}
   HARNESS_ALLOW_HEAVY_PREVIEW_SOURCE=1  Allow the harness to run against preview sample data that looks like insane/yolo terrain density.
@@ -922,6 +924,14 @@ auto_prepare_place() {
     include_runtime_sample_data="false"
   fi
 
+  # --small-place forces SampleData to be excluded even in play mode so the
+  # resulting .rbxlx contains only scripts (~10MB), suitable for Roblox upload.
+  # The runtime is expected to load manifest data from external storage via
+  # WorldConfig.ManifestSource (mode = "external_url" or "roblox_asset").
+  if [[ $FORCE_SMALL_PLACE -eq 1 ]]; then
+    include_runtime_sample_data="false"
+  fi
+
   if output_place="$(build_clean_place "$include_runtime_sample_data")"; then
     PLACE_PATH="$output_place"
     PLACE_PATH_CUSTOM=1
@@ -1018,6 +1028,10 @@ while [[ $# -gt 0 ]]; do
       ;;
     --skip-plugin-smoke)
       SKIP_PLUGIN_SMOKE=1
+      shift
+      ;;
+    --small-place)
+      FORCE_SMALL_PLACE=1
       shift
       ;;
     --memory-limit-mb)
