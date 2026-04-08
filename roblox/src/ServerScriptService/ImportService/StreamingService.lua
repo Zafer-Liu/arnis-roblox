@@ -911,6 +911,65 @@ local function isChunkLoadedInWorldRoot(chunkId, worldRootName)
     return chunkEntry ~= nil and chunkEntryBelongsToWorldRoot(chunkEntry, worldRootName)
 end
 
+local function selectPressureReplacementChunk(
+    workItem,
+    projectedUsage,
+    desiredChunkIds,
+    focusPoint,
+    chunkSizeStuds,
+    forwardVector,
+    memoryGuardrailConfig
+)
+    if memoryGuardrailConfig.CountResidentChunkCost == false then
+        return nil, 0
+    end
+
+    local budgetBytes = normalizeNonNegativeNumber(memoryGuardrailConfig.EstimatedBudgetBytes)
+    if budgetBytes <= 0 then
+        return nil, 0
+    end
+
+    local selectedChunkId = nil
+    local selectedResidentCost = 0
+
+    for _, residentChunkId in ipairs(ChunkLoader.ListLoadedChunks(streamingOptions.worldRootName)) do
+        if
+            residentChunkId ~= workItem.chunkId
+            and desiredChunkIds[residentChunkId] == true
+            and isChunkLoadedInWorldRoot(residentChunkId, streamingOptions.worldRootName)
+        then
+            local residentChunkRef = streamingChunkRefsById and streamingChunkRefsById[residentChunkId] or nil
+            local residentCost = getResidentEstimatedCostForChunkId(residentChunkId)
+            if residentChunkRef ~= nil and residentCost > 0 and projectedUsage - residentCost <= budgetBytes then
+                local residentWorkItem = {
+                    chunkEntry = {
+                        ref = residentChunkRef,
+                    },
+                    chunkId = residentChunkId,
+                    originStuds = residentChunkRef.originStuds,
+                    targetLod = loadedChunkLods[residentChunkId],
+                }
+                if
+                    ChunkPriority.CompareWorkItems(
+                        workItem,
+                        residentWorkItem,
+                        focusPoint,
+                        chunkSizeStuds,
+                        forwardVector,
+                        observedChunkImportMsById
+                    )
+                    and (selectedChunkId == nil or residentCost > selectedResidentCost)
+                then
+                    selectedChunkId = residentChunkId
+                    selectedResidentCost = residentCost
+                end
+            end
+        end
+    end
+
+    return selectedChunkId, selectedResidentCost
+end
+
 local function pruneStaleResidentEstimatedCosts(worldRootName)
     local staleChunkIds = {}
     local seenChunkIds = {}
@@ -3032,6 +3091,55 @@ function StreamingService.Update(focalPoint)
                 + effectiveWorkItemCost
             refreshMemoryGuardrailTelemetry(memoryGuardrailConfig, deferredAdmissions, projectedUsage)
             if streamingMemoryGuardrail and streamingMemoryGuardrail:IsPaused() then
+                local pressureReplacementChunkId, pressureReplacementCost = selectPressureReplacementChunk(
+                    workItem,
+                    projectedUsage,
+                    desiredChunkIds,
+                    schedulerFocusPoint,
+                    chunkSizeStuds,
+                    forwardVector,
+                    memoryGuardrailConfig
+                )
+                if pressureReplacementChunkId ~= nil and pressureReplacementCost > 0 then
+                    ChunkLoader.UnloadChunk(pressureReplacementChunkId, nil, streamingOptions.worldRootName)
+                    ImportService.ResetSubplanState(pressureReplacementChunkId, streamingOptions.worldRootName)
+                    clearResidentEstimatedCostForChunk(pressureReplacementChunkId)
+                    clearObservedImportCostForChunk(pressureReplacementChunkId)
+                    loadedChunkLods[pressureReplacementChunkId] = nil
+                    evictedEstimatedCost += pressureReplacementCost
+                    evictedChunkCount += 1
+                    lastEvictionReason = "pressure_replacement"
+                    projectedUsage -= pressureReplacementCost
+                    refreshMemoryGuardrailTelemetry(
+                        memoryGuardrailConfig,
+                        deferredAdmissions,
+                        projectedUsage
+                    )
+                    if not streamingMemoryGuardrail or not streamingMemoryGuardrail:IsPaused() then
+                        refreshMemoryGuardrailTelemetry(memoryGuardrailConfig, deferredAdmissions, projectedUsage)
+                    else
+                        updateStreamingResidencyTelemetry(
+                            playerPos,
+                            schedulerFocusPoint,
+                            movementDeltaStuds,
+                            movementLookaheadStuds,
+                            resolvedRings,
+                            desiredRingStats,
+                            candidateChunkEntries,
+                            desiredChunkCount,
+                            processedWorkItems,
+                            queuedEstimatedCost,
+                            queuedWorkItemCount,
+                            evictedEstimatedCost,
+                            evictedChunkCount,
+                            lastPrefetchReason,
+                            lastEvictionReason,
+                            "guardrail_paused"
+                        )
+                        break
+                    end
+                end
+                if streamingMemoryGuardrail and streamingMemoryGuardrail:IsPaused() then
                 deferredAdmissions = math.max(1, maxWorkItemsPerUpdate - processedWorkItems)
                 if #importWorkItems >= workItemIndex then
                     deferredAdmissions = math.min(deferredAdmissions, #importWorkItems - workItemIndex + 1)
@@ -3059,9 +3167,10 @@ function StreamingService.Update(focalPoint)
                     evictedChunkCount,
                     lastPrefetchReason,
                     lastEvictionReason,
-                    "guardrail_paused"
-                )
+                        "guardrail_paused"
+                    )
                 break
+                end
             end
 
             local chunkEntry = workItem.chunkEntry

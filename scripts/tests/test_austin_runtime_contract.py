@@ -350,6 +350,7 @@ class AustinRuntimeContractTests(unittest.TestCase):
         self.assertIn("ArnisStreamingPredictedFocalX", self.streaming_text)
         self.assertIn("ArnisStreamingMovementLookaheadStuds", self.streaming_text)
         self.assertIn('lastPrefetchReason = "movement_lookahead"', self.streaming_text)
+        self.assertIn('"pressure_replacement"', self.streaming_text)
 
     def test_startup_import_and_streaming_share_chunk_signature_contract(self) -> None:
         self.assertIn("local ImportSignatures = require(script.Parent.ImportSignatures)", self.streaming_text)

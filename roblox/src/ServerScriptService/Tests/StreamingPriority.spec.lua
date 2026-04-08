@@ -868,6 +868,106 @@ return function()
 
         importOrder = {}
         clearMemoryGuardrailAttrs()
+        ChunkLoader.Clear()
+        StreamingService.Stop()
+
+        local pressureReplacementManifest = {
+            schemaVersion = "0.4.0",
+            meta = manifest.meta,
+            chunkRefs = {
+                {
+                    id = "behind_pressure_anchor",
+                    originStuds = { x = -100, y = 0, z = 0 },
+                    shards = { "fake" },
+                    featureCount = 1,
+                    streamingCost = 8,
+                    estimatedMemoryCost = 90,
+                },
+                {
+                    id = "ahead_pressure_replacement",
+                    originStuds = { x = 200, y = 0, z = 0 },
+                    shards = { "fake" },
+                    featureCount = 1,
+                    streamingCost = 4,
+                    estimatedMemoryCost = 20,
+                },
+            },
+            GetChunk = function(_, chunkId)
+                if chunkId == "behind_pressure_anchor" then
+                    return makeChunk(chunkId, -100)
+                elseif chunkId == "ahead_pressure_replacement" then
+                    return makeChunk(chunkId, 200)
+                end
+                return makeChunk(chunkId, 0)
+            end,
+        }
+        local pressureReplacementOptions = {
+            worldRootName = "StreamingPriorityPressureReplacementWorld",
+            config = {
+                StreamingEnabled = true,
+                StreamingTargetRadius = 400,
+                HighDetailRadius = 400,
+                ChunkSizeStuds = 100,
+                StreamingMaxWorkItemsPerUpdate = 1,
+                StreamingLookaheadSeconds = 1,
+                StreamingMaxLookaheadStuds = 200,
+                TerrainMode = "none",
+                RoadMode = "mesh",
+                BuildingMode = "shellMesh",
+                WaterMode = "mesh",
+                LanduseMode = "fill",
+                MemoryGuardrails = {
+                    Enabled = true,
+                    EstimatedBudgetBytes = 100,
+                    ResumeBudgetRatio = 0.85,
+                    CountResidentChunkCost = true,
+                    CountInFlightCost = true,
+                    HostProbe = {
+                        Enabled = false,
+                    },
+                },
+            },
+        }
+
+        StreamingService.Start(pressureReplacementManifest, pressureReplacementOptions)
+        StreamingService.Update(Vector3.new(0, 0, 0))
+        Assert.equal(
+            importOrder[1],
+            "behind_pressure_anchor",
+            "expected the warm pressure-replacement pass to load the initial behind chunk"
+        )
+        StreamingService.Update(Vector3.new(50, 0, 0))
+        Assert.falsy(
+            ChunkLoader.GetChunkEntry("behind_pressure_anchor", pressureReplacementOptions.worldRootName),
+            "expected memory pressure to proactively shed the lower-value behind chunk before waiting for it to drift outside the target radius"
+        )
+        Assert.equal(
+            importOrder[2],
+            "ahead_pressure_replacement",
+            "expected proactive pressure shedding to admit the ahead-of-motion chunk in the same movement-driven update"
+        )
+        Assert.truthy(
+            ChunkLoader.GetChunkEntry("ahead_pressure_replacement", pressureReplacementOptions.worldRootName),
+            "expected proactive pressure shedding to make room for the ahead-of-motion replacement chunk"
+        )
+        Assert.equal(
+            Workspace:GetAttribute("ArnisStreamingLastEvictionReason"),
+            "pressure_replacement",
+            "expected proactive pressure shedding to publish a concrete replacement eviction reason"
+        )
+        Assert.equal(
+            Workspace:GetAttribute("ArnisStreamingEvictedChunkCount"),
+            1,
+            "expected proactive pressure shedding to count the evicted resident chunk"
+        )
+        Assert.equal(
+            Workspace:GetAttribute("ArnisStreamingEvictedEstimatedCost"),
+            90,
+            "expected proactive pressure shedding to publish the resident estimated cost it freed"
+        )
+
+        importOrder = {}
+        clearMemoryGuardrailAttrs()
         clearHostProbeInputAttrs()
         ChunkLoader.Clear()
         StreamingService.Stop()
