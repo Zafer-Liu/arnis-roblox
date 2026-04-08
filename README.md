@@ -1,5 +1,9 @@
 # Arnis Roblox — Real-World Cities in Roblox
 
+[![CI](https://github.com/adpena/arnis-roblox/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/adpena/arnis-roblox/actions/workflows/ci.yml)
+[![Release](https://github.com/adpena/arnis-roblox/actions/workflows/release.yml/badge.svg)](https://github.com/adpena/arnis-roblox/actions/workflows/release.yml)
+[![Fuzz](https://github.com/adpena/arnis-roblox/actions/workflows/fuzz.yml/badge.svg?branch=main)](https://github.com/adpena/arnis-roblox/actions/workflows/fuzz.yml)
+
 Generate any location on Earth in Roblox with high fidelity. An open-source pipeline that transforms OpenStreetMap geodata, real-world elevation, and satellite imagery into playable Roblox worlds with cars, jetpacks, and parachutes.
 
 > **One command. Any city. Any planet.**

@@ -1,0 +1,36 @@
+# CODEOWNERS for arnis-roblox
+#
+# Each line maps a glob to one or more owners who are automatically
+# requested for review when a PR touches matching paths. The last
+# matching pattern wins.
+#
+# See: https://docs.github.com/en/repositories/managing-your-repositorys-settings-and-security/customizing-your-repository/about-code-owners
+
+# Default owner for everything
+*                                                   @adpena
+
+# Rust pipeline, exporters, and CLI
+/rust/                                              @adpena
+/rust/crates/arbx_geo/                              @adpena
+/rust/crates/arbx_pipeline/                         @adpena
+/rust/crates/arbx_roblox_export/                    @adpena
+/rust/crates/arbx_cli/                              @adpena
+/rust/fuzz/                                         @adpena
+
+# Roblox server authority (canonical world, builders, import service)
+/roblox/src/ServerScriptService/                    @adpena
+/roblox/src/ServerScriptService/ImportService/      @adpena
+/roblox/src/ReplicatedStorage/Shared/               @adpena
+
+# Python tooling and studio harness scripts
+/scripts/                                           @adpena
+/scripts/tests/                                     @adpena
+
+# CI/CD and repo automation
+/.github/                                           @adpena
+/.github/workflows/                                 @adpena
+/.githooks/                                         @adpena
+
+# Docs and specs
+/docs/superpowers/                                  @adpena
+/specs/                                             @adpena
