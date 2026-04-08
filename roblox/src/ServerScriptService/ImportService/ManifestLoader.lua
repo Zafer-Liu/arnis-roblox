@@ -1327,6 +1327,39 @@ function ManifestLoader.loadFromExternalSource(sourceUrl, options)
     end
 
     local manifest = decodeManifestJson(response, sourceUrl)
+
+    -- Split manifest support: if the index has chunkBaseUrl, chunks are fetched
+    -- individually on demand instead of being embedded in the index JSON.
+    -- This enables streaming manifests of any size via small per-chunk HTTP requests.
+    if manifest.chunkBaseUrl and (not manifest.chunks or #manifest.chunks == 0) then
+        print(("[ManifestLoader] Split manifest detected: %d chunkRefs, fetching chunks from %s"):format(
+            manifest.chunkCount or 0, manifest.chunkBaseUrl))
+        manifest.chunks = {}
+        local chunkBaseUrl = manifest.chunkBaseUrl
+        local fetchedCount = 0
+        for _, ref in ipairs(manifest.chunkRefs or {}) do
+            local chunkUrl = chunkBaseUrl .. ref.id .. ".json"
+            local chunkOk, chunkResponse = pcall(function()
+                return HttpService:GetAsync(chunkUrl, true)
+            end)
+            if chunkOk and chunkResponse then
+                local chunkOkDecode, chunkData = pcall(function()
+                    return HttpService:JSONDecode(chunkResponse)
+                end)
+                if chunkOkDecode and chunkData then
+                    table.insert(manifest.chunks, chunkData)
+                    fetchedCount += 1
+                else
+                    warn(("[ManifestLoader] Failed to decode chunk %s"):format(ref.id))
+                end
+            else
+                warn(("[ManifestLoader] Failed to fetch chunk %s: %s"):format(ref.id, tostring(chunkResponse)))
+            end
+        end
+        print(("[ManifestLoader] Fetched %d/%d chunks from %s"):format(
+            fetchedCount, manifest.chunkCount or 0, chunkBaseUrl))
+    end
+
     local handle = buildInMemoryHandle(manifest, djb2Fingerprint(response))
     handle.manifestSourceKind = "external_url"
     handle.manifestSourceName = sourceUrl

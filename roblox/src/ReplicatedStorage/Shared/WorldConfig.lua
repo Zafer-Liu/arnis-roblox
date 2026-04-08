@@ -30,7 +30,7 @@ local WorldConfig = {
     -- embedded SampleData path so harness/dev workflows keep working.
     ManifestSource = {
         mode = "external_url", -- "embedded" | "external_url" | "roblox_asset"
-        externalUrl = "https://planetary.adpena.workers.dev/manifests/austin.json",
+        externalUrl = "https://planetary.adpena.workers.dev/manifests/austin/index.json",
         robloxAssetId = 0,
     },
 

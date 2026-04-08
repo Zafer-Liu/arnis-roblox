@@ -196,8 +196,11 @@ export default {
       return handleTile(env, provider, z, x, y);
     }
 
-    if (parts[0] === "manifests" && parts.length === 2) {
-      return handleManifest(env, parts[1]);
+    if (parts[0] === "manifests" && parts.length >= 2) {
+      // Support nested paths: /manifests/austin.json, /manifests/austin/index.json,
+      // /manifests/austin/chunks/0_0.json — all map to R2 key after "manifests/"
+      const r2Key = parts.slice(1).join("/");
+      return handleManifest(env, r2Key);
     }
 
     return corsResponse(
