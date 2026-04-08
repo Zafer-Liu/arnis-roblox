@@ -125,6 +125,25 @@ local CHUTE_DIVE_DESCENT_RATE = -20 -- studs/s when diving
 local CHUTE_DIVE_FORWARD_SPEED = 60 -- studs/s — fast dive like Just Cause
 local CHUTE_DIVE_RECOVERY_TIME = 0.5 -- seconds to smoothly transition out of dive
 
+-- Grapple hook (Just Cause signature) — raycast from camera, rope-pull toward impact
+local GRAPPLE_MAX_RANGE = 200
+local GRAPPLE_PULL_SPEED = 80
+local GRAPPLE_TIMEOUT = 5
+local GRAPPLE_ARRIVAL_RADIUS = 6 -- studs: auto-release when this close to hit point
+local GRAPPLE_VELOCITY_LERP = 10 -- per-second lerp rate from current vel to pull vel (smooth)
+local GRAPPLE_PULL_MAX_FORCE = 60000 -- BodyVelocity MaxForce component
+local GRAPPLE_BEAM_WIDTH = 0.18
+
+-- Wingsuit (auto from freefall) — Far Cry style glide between jetpack / parachute
+local WINGSUIT_GLIDE_RATIO = 4.0
+local WINGSUIT_FORWARD_SPEED = 90
+local WINGSUIT_DESCENT_RATE = -22
+local WINGSUIT_MIN_FREEFALL_TIME = 2
+local WINGSUIT_TILT_LERP = 4.0 -- per-second gyro/velocity lerp rate (smooth)
+local WINGSUIT_PITCH_DEGREES = 35 -- forward tilt of character in glide pose
+local WINGSUIT_MAX_FORCE_H = 8000
+local WINGSUIT_MAX_FORCE_V = 20000
+
 -- Camera (uses CAR_FOV_MIN/MAX/BOOST from physics block above)
 local CAR_CAM_OFFSET = Vector3.new(0, 8, 22)
 local CAR_CAM_TILT_FACTOR = 0.04
@@ -173,7 +192,25 @@ local HUD_ACCENT_COLOR = Color3.fromRGB(80, 180, 255)
 --------------------------------------------------------------------------------
 -- State
 --------------------------------------------------------------------------------
-local mode = "none" -- "none" | "car" | "jetpack" | "parachute"
+local mode = "none" -- "none" | "car" | "jetpack" | "parachute" | "wingsuit"
+
+-- Grapple hook state (works across all modes)
+local grappleActive = false
+local grappleTargetPos = nil
+local grappleHitInstance = nil
+local grappleTimer = 0
+local grappleBodyVelocity = nil
+local grappleBeam = nil
+local grappleAttachChar = nil
+local grappleAttachTarget = nil
+local grappleAnchorPart = nil -- invisible anchor part at hit point for beam
+
+-- Wingsuit state (auto-engages from sustained freefall)
+local wingsuitActive = false
+local wingsuitBodyVelocity = nil
+local wingsuitGyro = nil
+local wingsuitFreefallTimer = 0
+local wingsuitCurrentVel = Vector3.zero
 
 -- Car state
 local carModel = nil
@@ -542,25 +579,29 @@ local function setHUDMode(newMode)
     local isCar = newMode == "car"
     local isJet = newMode == "jetpack"
     local isChute = newMode == "parachute"
-    local isActive = isCar or isJet or isChute
+    local isWing = newMode == "wingsuit"
+    local isActive = isCar or isJet or isChute or isWing
 
     modeIcon.Visible = isActive
     speedLabel.Visible = isCar
-    altLabel.Visible = isJet or isChute
+    altLabel.Visible = isJet or isChute or isWing
     fuelBarBg.Visible = isJet
 
     if isCar then
         modeIcon.Text = "CAR"
-        controlHints.Text = "[WASD] Drive   [Space] Brake   [H] Horn   [E/B] Exit"
+        controlHints.Text = "[WASD] Drive   [Space] Brake   [H] Horn   [E/B] Exit   [G] Grapple"
     elseif isJet then
         modeIcon.Text = "JET"
-        controlHints.Text = "[WASD/LS] Move   [Space/RT] Up   [Shift/LT] Down   [J/X] Off"
+        controlHints.Text = "[WASD/LS] Move   [Space/RT] Up   [Shift/LT] Down   [J/X] Off   [G] Grapple"
     elseif isChute then
         modeIcon.Text = "CHUTE"
-        controlHints.Text = "[A/D/LS] Steer   [S] Flare   [P/B] Cut away"
+        controlHints.Text = "[A/D/LS] Steer   [S] Flare   [P/B] Cut away   [G] Grapple"
+    elseif isWing then
+        modeIcon.Text = "WINGSUIT"
+        controlHints.Text = "[A/D] Bank   [P] Chute   [J] Jetpack   [G] Grapple"
     else
         modeIcon.Text = ""
-        controlHints.Text = "[V/Y] Car   [J/X] Jetpack   [P/A] Parachute"
+        controlHints.Text = "[V/Y] Car   [J/X] Jetpack   [P/A] Parachute   [G] Grapple"
     end
 
     -- Show hints, start fade timer
@@ -593,7 +634,7 @@ local function updateHUDValues(dt)
     end
 
     -- Altitude
-    if mode == "jetpack" or mode == "parachute" then
+    if mode == "jetpack" or mode == "parachute" or mode == "wingsuit" then
         altLabel.Text = string.format("ALT %d", math.floor(hrp.Position.Y))
     end
 
@@ -2164,6 +2205,323 @@ local function updateParachute(dt)
 end
 
 --------------------------------------------------------------------------------
+-- GRAPPLE HOOK (G) — Just Cause signature traversal, works in any mode
+--------------------------------------------------------------------------------
+local function releaseGrapple()
+    if not grappleActive then
+        return
+    end
+    grappleActive = false
+    grappleTargetPos = nil
+    grappleHitInstance = nil
+    grappleTimer = 0
+
+    if grappleBodyVelocity then
+        grappleBodyVelocity:Destroy()
+        grappleBodyVelocity = nil
+    end
+    if grappleBeam then
+        grappleBeam:Destroy()
+        grappleBeam = nil
+    end
+    if grappleAttachChar then
+        grappleAttachChar:Destroy()
+        grappleAttachChar = nil
+    end
+    if grappleAttachTarget then
+        grappleAttachTarget:Destroy()
+        grappleAttachTarget = nil
+    end
+    if grappleAnchorPart then
+        grappleAnchorPart:Destroy()
+        grappleAnchorPart = nil
+    end
+end
+
+local function fireGrapple()
+    if grappleActive then
+        -- toggle: second press cancels
+        releaseGrapple()
+        return
+    end
+
+    local hrp = getHRP()
+    local camera = getCamera()
+    if not hrp or not camera then
+        return
+    end
+
+    -- Raycast from camera along lookat
+    local origin = camera.CFrame.Position
+    local direction = camera.CFrame.LookVector * GRAPPLE_MAX_RANGE
+
+    local params = RaycastParams.new()
+    params.FilterType = Enum.RaycastFilterType.Exclude
+    local filter = {}
+    local char = getCharacter()
+    if char then
+        table.insert(filter, char)
+    end
+    if carModel then
+        table.insert(filter, carModel)
+    end
+    params.FilterDescendantsInstances = filter
+    params.IgnoreWater = false
+
+    local result = Workspace:Raycast(origin, direction, params)
+    if not result then
+        return
+    end
+
+    grappleActive = true
+    grappleTargetPos = result.Position
+    grappleHitInstance = result.Instance
+    grappleTimer = 0
+
+    -- Smooth BodyVelocity-based pull with damped MaxForce (no instant snap)
+    local bv = Instance.new("BodyVelocity")
+    bv.Name = "GrappleBodyVelocity"
+    bv.MaxForce = Vector3.new(GRAPPLE_PULL_MAX_FORCE, GRAPPLE_PULL_MAX_FORCE, GRAPPLE_PULL_MAX_FORCE)
+    bv.P = 3000
+    bv.Velocity = hrp.AssemblyLinearVelocity -- start from current vel to avoid snap
+    bv.Parent = hrp
+    grappleBodyVelocity = bv
+
+    -- Anchor an invisible, anchored part at the hit position so the beam stays put
+    -- even if the hit instance moves or is destroyed during the pull.
+    local anchor = Instance.new("Part")
+    anchor.Name = "GrappleAnchor"
+    anchor.Size = Vector3.new(0.1, 0.1, 0.1)
+    anchor.Transparency = 1
+    anchor.CanCollide = false
+    anchor.Anchored = true
+    anchor.CFrame = CFrame.new(grappleTargetPos)
+    anchor.Parent = Workspace
+    grappleAnchorPart = anchor
+
+    local a0 = Instance.new("Attachment")
+    a0.Name = "GrappleA0"
+    a0.Parent = hrp
+    grappleAttachChar = a0
+
+    local a1 = Instance.new("Attachment")
+    a1.Name = "GrappleA1"
+    a1.Parent = anchor
+    grappleAttachTarget = a1
+
+    local beam = Instance.new("Beam")
+    beam.Attachment0 = a0
+    beam.Attachment1 = a1
+    beam.Width0 = GRAPPLE_BEAM_WIDTH
+    beam.Width1 = GRAPPLE_BEAM_WIDTH
+    beam.Color = ColorSequence.new(Color3.fromRGB(30, 30, 30))
+    beam.LightEmission = 0.1
+    beam.FaceCamera = true
+    beam.Segments = 6
+    beam.Parent = hrp
+    grappleBeam = beam
+end
+
+local function updateGrapple(dt)
+    if not grappleActive or not grappleTargetPos or not grappleBodyVelocity then
+        return
+    end
+
+    local hrp = getHRP()
+    if not hrp then
+        releaseGrapple()
+        return
+    end
+
+    grappleTimer = grappleTimer + dt
+    if grappleTimer >= GRAPPLE_TIMEOUT then
+        releaseGrapple()
+        return
+    end
+
+    local toTarget = grappleTargetPos - hrp.Position
+    local distance = toTarget.Magnitude
+    if distance <= GRAPPLE_ARRIVAL_RADIUS then
+        releaseGrapple()
+        return
+    end
+
+    -- Smooth velocity lerp toward pull direction (no snaps)
+    local desiredDir = toTarget.Unit
+    local desiredVel = desiredDir * GRAPPLE_PULL_SPEED
+    local current = grappleBodyVelocity.Velocity
+    local t = math.clamp(GRAPPLE_VELOCITY_LERP * dt, 0, 1)
+    grappleBodyVelocity.Velocity = current:Lerp(desiredVel, t)
+end
+
+--------------------------------------------------------------------------------
+-- WINGSUIT — auto-engages after sustained freefall, glides between chute/jetpack
+--------------------------------------------------------------------------------
+local function exitWingsuit()
+    if not wingsuitActive then
+        return
+    end
+    wingsuitActive = false
+    wingsuitFreefallTimer = 0
+    wingsuitCurrentVel = Vector3.zero
+
+    if wingsuitBodyVelocity then
+        wingsuitBodyVelocity:Destroy()
+        wingsuitBodyVelocity = nil
+    end
+    if wingsuitGyro then
+        wingsuitGyro:Destroy()
+        wingsuitGyro = nil
+    end
+
+    if mode == "wingsuit" then
+        mode = "none"
+        customCamActive = false
+        camCurrentPos = nil
+        restoreDefaultCamera(getHumanoid())
+        setHUDMode("none")
+    end
+end
+
+local function enterWingsuit()
+    if wingsuitActive then
+        return
+    end
+
+    local hrp = getHRP()
+    if not hrp then
+        return
+    end
+
+    wingsuitActive = true
+
+    -- BodyVelocity: damped horizontal + vertical for smooth glide (no snap)
+    local bv = Instance.new("BodyVelocity")
+    bv.Name = "WingsuitBodyVelocity"
+    bv.MaxForce = Vector3.new(WINGSUIT_MAX_FORCE_H, WINGSUIT_MAX_FORCE_V, WINGSUIT_MAX_FORCE_H)
+    bv.P = 1500 -- soft P for smooth velocity tracking
+    bv.Velocity = hrp.AssemblyLinearVelocity -- start from current velocity, no snap
+    bv.Parent = hrp
+    wingsuitBodyVelocity = bv
+    wingsuitCurrentVel = bv.Velocity
+
+    -- BodyGyro: tilts character into glide pose with stable damping
+    local gyro = Instance.new("BodyGyro")
+    gyro.Name = "WingsuitGyro"
+    gyro.MaxTorque = Vector3.new(20000, 20000, 20000)
+    gyro.P = 2500
+    gyro.D = 250
+    gyro.CFrame = hrp.CFrame
+    gyro.Parent = hrp
+    wingsuitGyro = gyro
+
+    mode = "wingsuit"
+    customCamActive = false -- let default camera follow; wingsuit is a lightweight mode
+    setHUDMode("wingsuit")
+end
+
+local function updateWingsuit(dt)
+    -- Auto-detection of freefall (only when in a passive mode)
+    if mode == "none" and not wingsuitActive and not chuteActive and not jetpackActive then
+        local hum = getHumanoid()
+        local hrp = getHRP()
+        if hum and hrp then
+            local state = hum:GetState()
+            local isFalling = state == Enum.HumanoidStateType.Freefall
+                or state == Enum.HumanoidStateType.FallingDown
+            if isFalling then
+                wingsuitFreefallTimer = wingsuitFreefallTimer + dt
+                if wingsuitFreefallTimer >= WINGSUIT_MIN_FREEFALL_TIME then
+                    enterWingsuit()
+                end
+            else
+                wingsuitFreefallTimer = 0
+            end
+        end
+    elseif mode ~= "wingsuit" then
+        wingsuitFreefallTimer = 0
+    end
+
+    if not wingsuitActive or not wingsuitBodyVelocity then
+        return
+    end
+
+    local hrp = getHRP()
+    if not hrp then
+        exitWingsuit()
+        return
+    end
+
+    -- If we've landed, drop out of wingsuit
+    local hum = getHumanoid()
+    if hum then
+        local state = hum:GetState()
+        if state == Enum.HumanoidStateType.Running
+            or state == Enum.HumanoidStateType.Landed
+            or state == Enum.HumanoidStateType.Climbing
+        then
+            exitWingsuit()
+            return
+        end
+    end
+
+    -- Steer from camera lookat (horizontal projection), WASD for subtle correction
+    local camera = getCamera()
+    if not camera then
+        return
+    end
+    local look = camera.CFrame.LookVector
+    local flatLook = Vector3.new(look.X, 0, look.Z)
+    if flatLook.Magnitude < 0.001 then
+        return
+    end
+    flatLook = flatLook.Unit
+
+    local right = camera.CFrame.RightVector
+    local flatRight = Vector3.new(right.X, 0, right.Z)
+    if flatRight.Magnitude > 0.001 then
+        flatRight = flatRight.Unit
+    end
+
+    -- Compute desired velocity from glide physics
+    -- 4:1 glide ratio: forward 90 studs/s, descent -22 studs/s
+    local desiredHoriz = flatLook * WINGSUIT_FORWARD_SPEED
+    -- Respect glide ratio math (forward/descent ratio should equal WINGSUIT_GLIDE_RATIO)
+    local desiredVert = WINGSUIT_DESCENT_RATE
+    -- Ensure forward matches declared ratio (keeps constants coherent if later tuned)
+    local ratioCorrected = math.abs(desiredVert) * WINGSUIT_GLIDE_RATIO
+    desiredHoriz = flatLook * ratioCorrected
+
+    -- Subtle WASD bank/nudge (A/D) without snapping direction
+    local bank = 0
+    if UserInputService:IsKeyDown(Enum.KeyCode.A) then
+        bank = bank - 1
+    end
+    if UserInputService:IsKeyDown(Enum.KeyCode.D) then
+        bank = bank + 1
+    end
+    if bank ~= 0 then
+        desiredHoriz = desiredHoriz + flatRight * bank * (ratioCorrected * 0.15)
+    end
+
+    local desired = Vector3.new(desiredHoriz.X, desiredVert, desiredHoriz.Z)
+
+    -- Smooth lerp from current to desired velocity (no snaps)
+    local t = math.clamp(WINGSUIT_TILT_LERP * dt, 0, 1)
+    wingsuitCurrentVel = wingsuitCurrentVel:Lerp(desired, t)
+    wingsuitBodyVelocity.Velocity = wingsuitCurrentVel
+
+    -- Smooth pitch-forward gyro (glide pose) aligned with flight direction
+    if wingsuitGyro then
+        local pitch = math.rad(-WINGSUIT_PITCH_DEGREES)
+        local targetCFrame = CFrame.lookAt(hrp.Position, hrp.Position + flatLook)
+            * CFrame.Angles(pitch, 0, math.rad(bank * 18))
+        -- BodyGyro naturally damps via P/D; passing the target CFrame is already smooth.
+        wingsuitGyro.CFrame = targetCFrame
+    end
+end
+
+--------------------------------------------------------------------------------
 -- TRANSITIONS
 --------------------------------------------------------------------------------
 -- Fix #3: all transitions use task.delay instead of task.wait (no yielding in render thread)
@@ -2174,6 +2532,11 @@ local function transitionToJetpack()
     transitionLock = true
 
     local hrp = getHRP()
+
+    -- If wingsuit active, exit it first (no task.delay needed, purely local cleanup)
+    if mode == "wingsuit" then
+        exitWingsuit()
+    end
 
     -- If in car, eject upward then deploy after delay
     if mode == "car" then
@@ -2207,6 +2570,11 @@ local function transitionToParachute()
         return
     end
     transitionLock = true
+
+    -- If wingsuit active, drop it before deploying chute (smooth handoff)
+    if mode == "wingsuit" then
+        exitWingsuit()
+    end
 
     -- If jetpack active, swap seamlessly
     if mode == "jetpack" then
@@ -2266,6 +2634,9 @@ local function transitionToCar()
     end
 
     -- Clean up other modes
+    if mode == "wingsuit" then
+        exitWingsuit()
+    end
     if mode == "jetpack" then
         cleanupJetpack()
         task.delay(0.1, doCarEntry)
@@ -2313,6 +2684,8 @@ local function fullCleanup()
     end
     cleanupJetpack()
     retractParachute()
+    exitWingsuit()
+    releaseGrapple()
     destroyCar()
 
     mode = "none"
@@ -2373,6 +2746,8 @@ UserInputService.InputBegan:Connect(function(input, gameProcessed)
         toggleJetpackMode()
     elseif keyCode == Enum.KeyCode.P or (keyCode == Enum.KeyCode.ButtonA and mode ~= "car") then
         toggleParachuteMode()
+    elseif keyCode == Enum.KeyCode.G or keyCode == Enum.KeyCode.ButtonL1 then
+        fireGrapple()
     elseif keyCode == Enum.KeyCode.E and mode == "car" then
         exitCar()
     elseif keyCode == Enum.KeyCode.H and mode == "car" then
@@ -2428,6 +2803,8 @@ RunService.RenderStepped:Connect(function(dt)
     updateCar(dt)
     updateJetpack(dt)
     updateParachute(dt)
+    updateWingsuit(dt)
+    updateGrapple(dt)
 
     -- Update HUD values
     updateHUDValues(dt)
