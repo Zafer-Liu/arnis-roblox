@@ -30,8 +30,29 @@ local WorldConfig = {
     -- embedded SampleData path so harness/dev workflows keep working.
     ManifestSource = {
         mode = "embedded", -- "embedded" | "external_url" | "roblox_asset"
-        externalUrl = "", -- e.g. "https://cdn.example.com/austin.json"
+        externalUrl = "", -- e.g. "https://planetary.adpena.workers.dev/manifests/austin.json"
         robloxAssetId = 0, -- e.g. 0123456789
+    },
+
+    -- ═══════════════════════════════════════════════════════════════
+    -- PLANETARY FILLER
+    -- ═══════════════════════════════════════════════════════════════
+    -- True infinite-scale streaming: when the player crosses outside any
+    -- compiled city manifest region, PlanetaryFiller generates procedural
+    -- ocean or satellite-textured terrain tiles on demand. This is the
+    -- difference between "islands of detailed cities in a void" and
+    -- "real Earth-scale planet you can fly anywhere across".
+    PlanetaryFiller = {
+        enabled = false, -- opt-in until satellite tile pipeline is fully proven
+        seaLevelStuds = 0,
+        tileChunkSize = 256,
+        satelliteTileZoom = 14, -- coarser than city zoom 17 for performance
+        oceanColor = Color3.fromRGB(20, 60, 100),
+        -- Tile source — defaults to ESRI World Imagery (free, no key).
+        -- Override with a Cloudflare Worker URL that decodes JPEG → RGBA:
+        -- "https://planetary.adpena.workers.dev/tile/esri/{z}/{x}/{y}"
+        tileUrlTemplate = "https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}",
+        maxFillerTilesPerUpdate = 4, -- budget per streaming tick
     },
 
     -- ═══════════════════════════════════════════════════════════════

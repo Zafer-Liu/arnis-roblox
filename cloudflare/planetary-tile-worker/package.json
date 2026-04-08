@@ -1,0 +1,17 @@
+{
+  "name": "planetary-tile-worker",
+  "version": "0.1.0",
+  "description": "Cloudflare Worker for arnis-roblox planetary streaming: tile proxy + manifest CDN",
+  "private": true,
+  "main": "src/index.ts",
+  "scripts": {
+    "dev": "wrangler dev",
+    "deploy": "wrangler deploy",
+    "tail": "wrangler tail"
+  },
+  "devDependencies": {
+    "@cloudflare/workers-types": "^4.20241127.0",
+    "typescript": "^5.6.3",
+    "wrangler": "^3.86.0"
+  }
+}

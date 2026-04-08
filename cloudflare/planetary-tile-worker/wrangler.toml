@@ -1,0 +1,29 @@
+name = "planetary"
+main = "src/index.ts"
+compatibility_date = "2024-11-01"
+compatibility_flags = ["nodejs_compat"]
+
+# Account ID and API token live in `~/.config/wrangler/config.toml` or
+# the `CLOUDFLARE_API_TOKEN` env var. Run `wrangler login` once to set
+# them up. The user already has Cloudflare credentials configured.
+
+[vars]
+DEFAULT_TILE_PROVIDER = "esri"
+TILE_CACHE_TTL_SECONDS = "604800" # 7 days
+
+# KV namespace for cached tile RGBA blobs.
+# Create with: `wrangler kv:namespace create planetary_tile_cache`
+# Then paste the returned ID below and uncomment.
+# [[kv_namespaces]]
+# binding = "TILE_CACHE"
+# id = "<paste-id-here>"
+
+# R2 bucket for compiled city manifests.
+# Create with: `wrangler r2 bucket create planetary-manifests`
+# [[r2_buckets]]
+# binding = "MANIFESTS"
+# bucket_name = "planetary-manifests"
+
+# Routes (configure after first deploy via dashboard or wrangler):
+# planetary.adpena.workers.dev/tile/*  → this worker
+# planetary.adpena.workers.dev/manifests/* → this worker (R2 proxy)
