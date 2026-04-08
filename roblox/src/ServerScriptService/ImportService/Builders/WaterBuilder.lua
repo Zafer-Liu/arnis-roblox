@@ -87,8 +87,11 @@ local function createWaterSurface(parent, cframe, size, name, surfaceType, water
     surface.Size = size
     surface.CFrame = cframe
     surface.Material = Enum.Material.Glass
-    surface.Color = waterColor or DEFAULT_WATER_COLOR
-    surface.Transparency = (kindProps and kindProps.transparency) or 0.4
+    -- Per-body color from manifest (lake/river/pond differentiation), falling
+    -- back to a cool dark hue that gives the Cesium 3D / Google Earth sky-mirror
+    -- sheen on still bodies. Per-kind transparency overrides wetlands/rivers.
+    surface.Color = waterColor or Color3.fromRGB(34, 70, 110)
+    surface.Transparency = (kindProps and kindProps.transparency) or 0.34
     surface:SetAttribute("BaseTransparency", surface.Transparency)
     surface:SetAttribute("ArnisBaseTransparency", surface.Transparency)
     if type(surfaceType) == "string" and surfaceType ~= "" then
@@ -100,7 +103,7 @@ local function createWaterSurface(parent, cframe, size, name, surfaceType, water
     if type(waterId) == "string" and waterId ~= "" then
         surface:SetAttribute("ArnisWaterSourceId", waterId)
     end
-    surface.Reflectance = (kindProps and kindProps.reflectance) or 0.35
+    surface.Reflectance = (kindProps and kindProps.reflectance) or 0.5
     surface.Anchored = true
     surface.CanCollide = false
     surface.CastShadow = false
