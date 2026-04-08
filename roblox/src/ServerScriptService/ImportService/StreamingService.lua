@@ -2780,6 +2780,19 @@ function StreamingService.Update(focalPoint)
         local forwardVector = movementForward or streamingPreferredForward
 
         local desiredChunkIds = {}
+        -- Incrementally maintained count of `desiredChunkIds` so we can skip
+        -- an O(n) `for _, _ in pairs(...)` sweep later in this function. The
+        -- main candidate loop and the multiplayer secondary sweep both mark
+        -- chunks desired through the helper below; callers that previously
+        -- assigned `desiredChunkIds[id] = true` go through setDesiredChunkId
+        -- to keep the count in sync.
+        local desiredChunkCount = 0
+        local function setDesiredChunkId(chunkId)
+            if not desiredChunkIds[chunkId] then
+                desiredChunkIds[chunkId] = true
+                desiredChunkCount += 1
+            end
+        end
         local desiredRingStats = {
             near = { chunkCount = 0, estimatedCost = 0 },
             mid = { chunkCount = 0, estimatedCost = 0 },
@@ -2940,7 +2953,7 @@ function StreamingService.Update(focalPoint)
                 -- prior tick; the ongoing import will land soon and setting desired
                 -- keeps eviction logic happy without burning redundant work items.
                 if inflightChunkImports[chunkRef.id] then
-                    desiredChunkIds[chunkRef.id] = true
+                    setDesiredChunkId(chunkRef.id)
                     continue
                 end
                 if currentEntry then
@@ -2967,7 +2980,7 @@ function StreamingService.Update(focalPoint)
                         Workspace:SetAttribute("ArnisStreamingLodUpgradeCount", lodUpgradeCount)
                         appendStreamingWorkItems(importWorkItems, chunkEntry, chunkOptions, chunkOptions.config, targetLod, chunkBuildingLodLevel)
                         inflightChunkImports[chunkRef.id] = true
-                        desiredChunkIds[chunkRef.id] = true
+                        setDesiredChunkId(chunkRef.id)
                         lastPrefetchReason = "lod_upgrade"
                         continue
                     end
@@ -2976,7 +2989,7 @@ function StreamingService.Update(focalPoint)
                         computeChangedLayers(currentEntry.layerSignatures, chunkOptions.layerSignatures)
                     if not changedLayers and currentEntry.configSignature == chunkOptions.configSignature then
                         loadedChunkLods[chunkRef.id] = targetLod
-                        desiredChunkIds[chunkRef.id] = true
+                        setDesiredChunkId(chunkRef.id)
                         if queuePendingSubplans(importWorkItems, chunkEntry, chunkOptions, targetLod, chunkBuildingLodLevel) then
                             lastPrefetchReason = "subplan_backfill"
                         end
@@ -2988,7 +3001,7 @@ function StreamingService.Update(focalPoint)
                         else
                             lastPrefetchReason = "subplan_backfill"
                         end
-                        desiredChunkIds[chunkRef.id] = true
+                        setDesiredChunkId(chunkRef.id)
                         continue
                     end
                     chunkOptions = {
@@ -3005,7 +3018,7 @@ function StreamingService.Update(focalPoint)
 
                 appendStreamingWorkItems(importWorkItems, chunkEntry, chunkOptions, chunkOptions.config, targetLod, chunkBuildingLodLevel)
                 inflightChunkImports[chunkRef.id] = true
-                desiredChunkIds[chunkRef.id] = true
+                setDesiredChunkId(chunkRef.id)
                 if movementLookaheadStuds > 0 then
                     lastPrefetchReason = "movement_lookahead"
                 elseif movementForward ~= nil then
@@ -3030,10 +3043,7 @@ function StreamingService.Update(focalPoint)
             end
         end
 
-        local desiredChunkCount = 0
-        for _, _ in pairs(desiredChunkIds) do
-            desiredChunkCount += 1
-        end
+        -- desiredChunkCount is now maintained incrementally via setDesiredChunkId.
 
         ChunkPriority.SortWorkItems(
             importWorkItems,
@@ -3324,7 +3334,7 @@ function StreamingService.Update(focalPoint)
                     end
                     -- Always mark this chunk as desired so the not-desired
                     -- eviction sweep below leaves it alone.
-                    desiredChunkIds[chunkRef.id] = true
+                    setDesiredChunkId(chunkRef.id)
                     -- Determine the LOD this secondary player demands. Use the
                     -- closest player's distance for this chunk so per-chunk
                     -- LOD is correctly the max across all players.
@@ -3479,7 +3489,10 @@ function StreamingService.Update(focalPoint)
             loadedChunkRings[chunkId] = nil
             importedBuildingLodById[chunkId] = nil
             inflightChunkImports[chunkId] = nil
-            desiredChunkIds[chunkId] = nil
+            if desiredChunkIds[chunkId] then
+                desiredChunkIds[chunkId] = nil
+                desiredChunkCount -= 1
+            end
             lastEvictionReason = ringName .. "_ring_budget_exceeded"
             return cost
         end

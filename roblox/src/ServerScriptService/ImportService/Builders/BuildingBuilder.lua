@@ -246,42 +246,24 @@ function MeshAccumulator:flush()
         return
     end
 
-    -- Add all vertices and set normals. Once we know the runtime doesn't
-    -- support SetVertexNormal (common on current Roblox versions) we skip the
-    -- per-vertex pcall entirely — it was previously paying a pcall + method
-    -- lookup for every vertex in the mesh, dominating flush time for large
-    -- shell meshes. The first failure latches the support flag to false.
+    -- Add all vertices, then (optionally) set normals via trySetVertexNormal.
+    -- Splitting into two loops lets the AddVertex hot loop run tight, and —
+    -- more importantly — when the runtime has already latched the support
+    -- flag to false we skip the normal-apply loop entirely, saving a pcall
+    -- per vertex (previously the dominant cost in flush for large shell
+    -- meshes). The first flush on an unknown runtime still probes via
+    -- trySetVertexNormal so the latch is established.
     local vertices = self.vertices
     local normals = self.normals
     local vertexIds = table.create(vertexCount)
-    if editableMeshSetVertexNormalSupported == false then
+    for i = 1, vertexCount do
+        vertexIds[i] = mesh:AddVertex(vertices[i])
+    end
+    if editableMeshSetVertexNormalSupported ~= false then
         for i = 1, vertexCount do
-            vertexIds[i] = mesh:AddVertex(vertices[i])
-        end
-    elseif editableMeshSetVertexNormalSupported == true then
-        for i = 1, vertexCount do
-            local id = mesh:AddVertex(vertices[i])
-            vertexIds[i] = id
-            mesh:SetVertexNormal(id, normals[i])
-        end
-    else
-        -- Unknown support state: probe on the first vertex via trySetVertexNormal
-        -- which will latch the support flag, then switch to the fast branch.
-        for i = 1, vertexCount do
-            local id = mesh:AddVertex(vertices[i])
-            vertexIds[i] = id
-            trySetVertexNormal(mesh, id, normals[i])
+            trySetVertexNormal(mesh, vertexIds[i], normals[i])
+            -- Probe latched to false on the first call: abort the loop.
             if editableMeshSetVertexNormalSupported == false then
-                for j = i + 1, vertexCount do
-                    vertexIds[j] = mesh:AddVertex(vertices[j])
-                end
-                break
-            elseif editableMeshSetVertexNormalSupported == true then
-                for j = i + 1, vertexCount do
-                    local jid = mesh:AddVertex(vertices[j])
-                    vertexIds[j] = jid
-                    mesh:SetVertexNormal(jid, normals[j])
-                end
                 break
             end
         end
