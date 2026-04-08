@@ -291,12 +291,56 @@ async function handleTelemetryLatest(env: Env, url: URL): Promise<Response> {
   });
 }
 
-async function handleManifest(env: Env, name: string): Promise<Response> {
+async function handleManifest(
+  env: Env,
+  name: string,
+  request: Request,
+): Promise<Response> {
   if (!env.MANIFESTS) {
     return corsResponse(
       JSON.stringify({ error: "R2 binding not configured" }),
       { status: 500, headers: { "content-type": "application/json" } },
     );
+  }
+
+  // Binary msgpack variant: served as raw bytes with the msgpack
+  // content-type. The Lua runtime doesn't request these yet, but the
+  // format is a parallel drop-in for future decoder work.
+  if (name.endsWith(".msgpack")) {
+    const obj = await env.MANIFESTS.get(name);
+    if (!obj) {
+      return corsResponse(
+        JSON.stringify({ error: `manifest not found: ${name}` }),
+        { status: 404, headers: { "content-type": "application/json" } },
+      );
+    }
+    return corsResponse(obj.body, {
+      headers: {
+        "content-type": "application/msgpack",
+        "cache-control": "public, max-age=300",
+      },
+    });
+  }
+
+  // Advisory Accept negotiation: if the caller asks for msgpack and a
+  // sibling .msgpack variant exists in R2, serve that instead. This is
+  // purely opt-in — the default behavior for Accept: application/json
+  // (and the Lua runtime default) stays unchanged.
+  if (name.endsWith(".json")) {
+    const accept = (request.headers.get("accept") || "").toLowerCase();
+    if (accept.includes("application/msgpack")) {
+      const mpKey = name.slice(0, -".json".length) + ".msgpack";
+      const mpObj = await env.MANIFESTS.get(mpKey);
+      if (mpObj) {
+        return corsResponse(mpObj.body, {
+          headers: {
+            "content-type": "application/msgpack",
+            "cache-control": "public, max-age=300",
+            "x-chunk-format": "msgpack",
+          },
+        });
+      }
+    }
   }
 
   const obj = await env.MANIFESTS.get(name);
@@ -311,6 +355,52 @@ async function handleManifest(env: Env, name: string): Promise<Response> {
     headers: {
       "content-type": "application/json",
       "cache-control": "public, max-age=300",
+    },
+  });
+}
+
+async function handleManifestStats(env: Env, name: string): Promise<Response> {
+  if (!env.MANIFESTS) {
+    return corsResponse(
+      JSON.stringify({ error: "R2 binding not configured" }),
+      { status: 500, headers: { "content-type": "application/json" } },
+    );
+  }
+
+  // Strip optional extension and probe both variants so callers can
+  // pass either `.../chunks/-6_-4`, `.../chunks/-6_-4.json`, or
+  // `.../chunks/-6_-4.msgpack`.
+  let base = name;
+  if (base.endsWith(".json")) base = base.slice(0, -".json".length);
+  else if (base.endsWith(".msgpack")) base = base.slice(0, -".msgpack".length);
+
+  const jsonKey = `${base}.json`;
+  const msgpackKey = `${base}.msgpack`;
+  const [jsonHead, msgpackHead] = await Promise.all([
+    env.MANIFESTS.head(jsonKey),
+    env.MANIFESTS.head(msgpackKey),
+  ]);
+
+  if (!jsonHead && !msgpackHead) {
+    return corsResponse(
+      JSON.stringify({ error: `no variants found for ${base}` }),
+      { status: 404, headers: { "content-type": "application/json" } },
+    );
+  }
+
+  const body: Record<string, number | null> = {
+    json: jsonHead ? jsonHead.size : null,
+    msgpack: msgpackHead ? msgpackHead.size : null,
+    ratio:
+      jsonHead && msgpackHead && msgpackHead.size > 0
+        ? jsonHead.size / msgpackHead.size
+        : null,
+  };
+
+  return corsResponse(JSON.stringify(body), {
+    headers: {
+      "content-type": "application/json",
+      "cache-control": "public, max-age=60",
     },
   });
 }
@@ -353,8 +443,15 @@ export default {
     if (parts[0] === "manifests" && parts.length >= 2) {
       // Support nested paths: /manifests/austin.json, /manifests/austin/index.json,
       // /manifests/austin/chunks/0_0.json — all map to R2 key after "manifests/"
-      const r2Key = parts.slice(1).join("/");
-      return handleManifest(env, r2Key);
+      // Trailing /stats segment returns a size/ratio summary across json
+      // and msgpack variants of a single chunk.
+      const rest = parts.slice(1);
+      if (rest.length >= 2 && rest[rest.length - 1] === "stats") {
+        const r2Key = rest.slice(0, -1).join("/");
+        return handleManifestStats(env, r2Key);
+      }
+      const r2Key = rest.join("/");
+      return handleManifest(env, r2Key, request);
     }
 
     return corsResponse(

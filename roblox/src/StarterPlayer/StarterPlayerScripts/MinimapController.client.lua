@@ -40,6 +40,32 @@ local COLORS = table.freeze({
     border = { 50, 55, 65, 255 },
 })
 
+local MAJOR_ROAD_KINDS = table.freeze({
+    primary = true,
+    secondary = true,
+    tertiary = true,
+    trunk = true,
+    motorway = true,
+})
+
+local COMPASS_DIRS = table.freeze({ "N", "NE", "E", "SE", "S", "SW", "W", "NW" })
+
+-- Telemetry attribute set; module-level so publishMinimapTelemetry is not
+-- rebuilding this table every call.
+local TELEMETRY_ATTR_NAMES = table.freeze({
+    "ArnisMinimapEnabled",
+    "ArnisMinimapGuiReady",
+    "ArnisMinimapWorldRootName",
+    "ArnisMinimapSnapshotCount",
+    "ArnisMinimapFullscreen",
+    "ArnisMinimapError",
+})
+
+-- Scratch buffers reused across renders so we don't churn the allocator at
+-- the minimap's render cadence. Never hand these out across yields.
+local scanlineIntersections = table.create(16)
+local snapshotIterBuffer = {}
+
 local screenGui = nil
 local imageLabel = nil
 local mapLabel = nil
@@ -70,23 +96,30 @@ local function setPlayerAttributeIfChanged(name, nextValue)
     player:SetAttribute(name, nextValue)
 end
 
-local function publishMinimapTelemetry(extra)
-    local payload = {
-        enabled = Workspace:GetAttribute(ENABLED_ATTR) == true,
-        guiReady = screenGui ~= nil and screenGui.Parent == playerGui and screenGui.Enabled == true,
-        worldRootName = Workspace:GetAttribute(WORLD_ROOT_ATTR),
-        snapshotCount = 0,
-        fullscreen = isFullscreen,
-        error = extra and extra.error or nil,
-    }
-
+local function countChunkSnapshots()
+    local count = 0
     for _ in pairs(chunkSnapshotsByFolder) do
-        payload.snapshotCount += 1
+        count += 1
     end
+    return count
+end
 
-    local changed = false
-    local structuralChange = false
-    local attributes = {
+local function buildTelemetryPayload(extra)
+    local payload = {}
+    payload.enabled = Workspace:GetAttribute(ENABLED_ATTR) == true
+    payload.guiReady = screenGui ~= nil and screenGui.Parent == playerGui and screenGui.Enabled == true
+    payload.worldRootName = Workspace:GetAttribute(WORLD_ROOT_ATTR)
+    payload.snapshotCount = countChunkSnapshots()
+    payload.fullscreen = isFullscreen
+    payload.error = extra and extra.error or nil
+    return payload
+end
+
+-- Returns (changed, structuralChange) describing whether any tracked player
+-- attribute drifted and whether that drift was more than just the snapshot
+-- count bumping (which fires on every chunk register/clear).
+local function diffTelemetryAttributes(payload)
+    local pending = {
         ArnisMinimapEnabled = payload.enabled,
         ArnisMinimapGuiReady = payload.guiReady,
         ArnisMinimapWorldRootName = payload.worldRootName,
@@ -94,8 +127,10 @@ local function publishMinimapTelemetry(extra)
         ArnisMinimapFullscreen = payload.fullscreen,
         ArnisMinimapError = payload.error,
     }
-
-    for attributeName, nextValue in pairs(attributes) do
+    local changed = false
+    local structuralChange = false
+    for _, attributeName in ipairs(TELEMETRY_ATTR_NAMES) do
+        local nextValue = pending[attributeName]
         if lastTelemetry[attributeName] ~= nextValue then
             setPlayerAttributeIfChanged(attributeName, nextValue)
             lastTelemetry[attributeName] = nextValue
@@ -105,8 +140,20 @@ local function publishMinimapTelemetry(extra)
             end
         end
     end
+    return changed, structuralChange
+end
 
-    if changed and (structuralChange or payload.snapshotCount <= 1 or payload.snapshotCount % 10 == 0) then
+local function shouldLogTelemetry(changed, structuralChange, snapshotCount)
+    if not changed then
+        return false
+    end
+    return structuralChange or snapshotCount <= 1 or snapshotCount % 10 == 0
+end
+
+local function publishMinimapTelemetry(extra)
+    local payload = buildTelemetryPayload(extra)
+    local changed, structuralChange = diffTelemetryAttributes(payload)
+    if shouldLogTelemetry(changed, structuralChange, payload.snapshotCount) then
         print("ARNIS_CLIENT_MINIMAP " .. HttpService:JSONEncode(payload))
     end
 end
@@ -207,41 +254,62 @@ local function footprintToPixelPoints(footprint, ox, oz, camX, camZ)
     return pixelPoints
 end
 
+local function polygonYBounds(pixelPoints)
+    local minY = math.huge
+    local maxY = -math.huge
+    for _, point in ipairs(pixelPoints) do
+        if point.y < minY then
+            minY = point.y
+        end
+        if point.y > maxY then
+            maxY = point.y
+        end
+    end
+    return math.max(0, math.floor(minY)), math.min(MAP_SIZE - 1, math.ceil(maxY))
+end
+
+local function gatherScanlineIntersections(pixelPoints, y, intersections)
+    local count = 0
+    local pointCount = #pixelPoints
+    for index = 1, pointCount do
+        local p1 = pixelPoints[index]
+        local p2 = pixelPoints[index % pointCount + 1]
+        local y1 = p1.y
+        local y2 = p2.y
+        local crosses = (y1 <= y and y2 > y) or (y2 <= y and y1 > y)
+        if crosses then
+            local t = (y - y1) / (y2 - y1)
+            count += 1
+            intersections[count] = p1.x + (p2.x - p1.x) * t
+        end
+    end
+    return count
+end
+
+local function drawScanlineSpans(intersections, count, y, color)
+    for index = 1, count - 1, 2 do
+        drawRect(intersections[index], y, intersections[index + 1], y, color)
+    end
+end
+
 local function drawFilledPolygon(pixelPoints, color)
     if #pixelPoints < 3 then
         return
     end
 
-    local minY = math.huge
-    local maxY = -math.huge
-    for _, point in ipairs(pixelPoints) do
-        minY = math.min(minY, point.y)
-        maxY = math.max(maxY, point.y)
-    end
-
-    minY = math.max(0, math.floor(minY))
-    maxY = math.min(MAP_SIZE - 1, math.ceil(maxY))
+    local minY, maxY = polygonYBounds(pixelPoints)
+    local intersections = scanlineIntersections
 
     for y = minY, maxY do
-        local intersections = {}
-        for index = 1, #pixelPoints do
-            local p1 = pixelPoints[index]
-            local p2 = pixelPoints[index % #pixelPoints + 1]
-            local y1 = p1.y
-            local y2 = p2.y
-            if (y1 <= y and y2 > y) or (y2 <= y and y1 > y) then
-                local t = (y - y1) / (y2 - y1)
-                intersections[#intersections + 1] = p1.x + (p2.x - p1.x) * t
+        local count = gatherScanlineIntersections(pixelPoints, y, intersections)
+        if count >= 2 then
+            -- Partial sort over the filled prefix only; table.sort operates
+            -- on [1..#t], so clear the tail we don't use this pass.
+            for i = count + 1, #intersections do
+                intersections[i] = nil
             end
-        end
-
-        table.sort(intersections)
-        for index = 1, #intersections, 2 do
-            local startX = intersections[index]
-            local endX = intersections[index + 1]
-            if startX and endX then
-                drawRect(startX, y, endX, y, color)
-            end
+            table.sort(intersections)
+            drawScanlineSpans(intersections, count, y, color)
         end
     end
 end
@@ -266,83 +334,142 @@ local function drawPlayerHeading(camYaw)
     drawLine(tipX, tipY, rightX, rightY, COLORS.player_dir, 1)
 end
 
-local function iterChunkSnapshots()
-    local snapshots = {}
+local function refreshChunkSnapshotList()
+    local list = snapshotIterBuffer
+    local count = 0
     for _, snapshot in pairs(chunkSnapshotsByFolder) do
-        snapshots[#snapshots + 1] = snapshot
+        count += 1
+        list[count] = snapshot
     end
-    return snapshots
+    for i = count + 1, #list do
+        list[i] = nil
+    end
+    return list, count
+end
+
+local LANDUSE_COLOR_BY_KIND = table.freeze({
+    forest = COLORS.forest,
+    wood = COLORS.forest,
+    parking = COLORS.parking,
+})
+
+local function landuseColor(kind)
+    return LANDUSE_COLOR_BY_KIND[kind] or COLORS.park
+end
+
+local function drawChunkLanduse(chunk, ox, oz, camX, camZ)
+    for _, lu in ipairs(chunk.landuse or {}) do
+        local fp = lu.footprint
+        if fp and #fp >= 3 then
+            drawFilledPolygon(
+                footprintToPixelPoints(fp, ox, oz, camX, camZ),
+                landuseColor(lu.kind)
+            )
+        end
+    end
+end
+
+local function drawWaterPolyline(water, ox, oz, camX, camZ, activeRadius)
+    local points = water.points
+    if not points then
+        return
+    end
+    local widthPx = math.max(2, math.floor((water.widthStuds or 8) * MAP_SIZE / (activeRadius * 2)))
+    for i = 1, #points - 1 do
+        local p1 = points[i]
+        local p2 = points[i + 1]
+        local px1, py1 = worldToPixel(p1.x + ox, p1.z + oz, camX, camZ)
+        local px2, py2 = worldToPixel(p2.x + ox, p2.z + oz, camX, camZ)
+        drawLine(px1, py1, px2, py2, COLORS.water, widthPx)
+    end
+end
+
+local function drawChunkWater(chunk, ox, oz, camX, camZ, activeRadius)
+    for _, water in ipairs(chunk.water or {}) do
+        local fp = water.footprint
+        if fp and #fp >= 3 then
+            drawFilledPolygon(footprintToPixelPoints(fp, ox, oz, camX, camZ), COLORS.water)
+        else
+            drawWaterPolyline(water, ox, oz, camX, camZ, activeRadius)
+        end
+    end
+end
+
+local function drawChunkBuildings(chunk, ox, oz, camX, camZ)
+    for _, building in ipairs(chunk.buildings or {}) do
+        local fp = building.footprint
+        if fp and #fp >= 3 then
+            drawFilledPolygon(footprintToPixelPoints(fp, ox, oz, camX, camZ), COLORS.building)
+        end
+    end
+end
+
+local function roadColor(kind)
+    if MAJOR_ROAD_KINDS[kind] then
+        return COLORS.road
+    end
+    return COLORS.road_minor
+end
+
+local function roadWidthPixels(road, activeRadius)
+    local widthPx = math.max(1, math.floor((road.widthStuds or 10) * MAP_SIZE / (activeRadius * 2) * 0.5))
+    return math.min(widthPx, 4)
+end
+
+local function drawRoadSegments(road, ox, oz, camX, camZ, activeRadius)
+    local points = road.points
+    if not points then
+        return
+    end
+    local color = roadColor(road.kind)
+    local widthPx = roadWidthPixels(road, activeRadius)
+    for i = 1, #points - 1 do
+        local p1 = points[i]
+        local p2 = points[i + 1]
+        local px1, py1 = worldToPixel(p1.x + ox, p1.z + oz, camX, camZ)
+        local px2, py2 = worldToPixel(p2.x + ox, p2.z + oz, camX, camZ)
+        drawLine(px1, py1, px2, py2, color, widthPx)
+    end
+end
+
+local function drawChunkRoads(chunk, ox, oz, camX, camZ, activeRadius)
+    for _, road in ipairs(chunk.roads or {}) do
+        drawRoadSegments(road, ox, oz, camX, camZ, activeRadius)
+    end
+end
+
+-- Painter's order preserved: landuse -> water -> buildings -> roads, matching
+-- the pre-split rendering loop exactly.
+local function drawChunk(chunk, camX, camZ, activeRadius)
+    local origin = chunk.originStuds
+    local ox = (origin and origin.x) or 0
+    local oz = (origin and origin.z) or 0
+    drawChunkLanduse(chunk, ox, oz, camX, camZ)
+    drawChunkWater(chunk, ox, oz, camX, camZ, activeRadius)
+    drawChunkBuildings(chunk, ox, oz, camX, camZ)
+    drawChunkRoads(chunk, ox, oz, camX, camZ, activeRadius)
+end
+
+local function drawBorder()
+    local lastIndex = MAP_SIZE - 1
+    for i = 0, lastIndex do
+        for t = 0, BORDER_WIDTH - 1 do
+            setPixel(i, t, COLORS.border)
+            setPixel(i, lastIndex - t, COLORS.border)
+            setPixel(t, i, COLORS.border)
+            setPixel(lastIndex - t, i, COLORS.border)
+        end
+    end
 end
 
 local function renderMap(camX, camZ)
     clearBuffer()
     local activeRadius = isFullscreen and MAP_RADIUS_FULL or MAP_RADIUS
-
-    for _, chunk in ipairs(iterChunkSnapshots()) do
-        local ox = ((chunk.originStuds or {}).x or 0)
-        local oz = ((chunk.originStuds or {}).z or 0)
-
-        for _, lu in ipairs(chunk.landuse or {}) do
-            local color = COLORS.park
-            if lu.kind == "forest" or lu.kind == "wood" then
-                color = COLORS.forest
-            elseif lu.kind == "parking" then
-                color = COLORS.parking
-            end
-            local fp = lu.footprint
-            if fp and #fp >= 3 then
-                drawFilledPolygon(footprintToPixelPoints(fp, ox, oz, camX, camZ), color)
-            end
-        end
-
-        for _, water in ipairs(chunk.water or {}) do
-            if water.footprint and #water.footprint >= 3 then
-                drawFilledPolygon(footprintToPixelPoints(water.footprint, ox, oz, camX, camZ), COLORS.water)
-            elseif water.points then
-                for i = 1, #water.points - 1 do
-                    local p1 = water.points[i]
-                    local p2 = water.points[i + 1]
-                    local px1, py1 = worldToPixel(p1.x + ox, p1.z + oz, camX, camZ)
-                    local px2, py2 = worldToPixel(p2.x + ox, p2.z + oz, camX, camZ)
-                    local widthPx = math.max(2, math.floor((water.widthStuds or 8) * MAP_SIZE / (activeRadius * 2)))
-                    drawLine(px1, py1, px2, py2, COLORS.water, widthPx)
-                end
-            end
-        end
-
-        for _, building in ipairs(chunk.buildings or {}) do
-            local fp = building.footprint
-            if fp and #fp >= 3 then
-                drawFilledPolygon(footprintToPixelPoints(fp, ox, oz, camX, camZ), COLORS.building)
-            end
-        end
-
-        for _, road in ipairs(chunk.roads or {}) do
-            local color = COLORS.road
-            local majorKinds = { primary = true, secondary = true, tertiary = true, trunk = true, motorway = true }
-            if not majorKinds[road.kind] then
-                color = COLORS.road_minor
-            end
-            local widthPx = math.max(1, math.floor((road.widthStuds or 10) * MAP_SIZE / (activeRadius * 2) * 0.5))
-            widthPx = math.min(widthPx, 4)
-            for i = 1, #(road.points or {}) - 1 do
-                local p1 = road.points[i]
-                local p2 = road.points[i + 1]
-                local px1, py1 = worldToPixel(p1.x + ox, p1.z + oz, camX, camZ)
-                local px2, py2 = worldToPixel(p2.x + ox, p2.z + oz, camX, camZ)
-                drawLine(px1, py1, px2, py2, color, widthPx)
-            end
-        end
+    local snapshots, count = refreshChunkSnapshotList()
+    for i = 1, count do
+        drawChunk(snapshots[i], camX, camZ, activeRadius)
     end
-
-    for i = 0, MAP_SIZE - 1 do
-        for t = 0, BORDER_WIDTH - 1 do
-            setPixel(i, t, COLORS.border)
-            setPixel(i, MAP_SIZE - 1 - t, COLORS.border)
-            setPixel(t, i, COLORS.border)
-            setPixel(MAP_SIZE - 1 - t, i, COLORS.border)
-        end
-    end
+    drawBorder()
 end
 
 local function ensureGui()
@@ -584,20 +711,29 @@ RunService.Heartbeat:Connect(function(dt)
     local camYaw = math.atan2(camLook.X, camLook.Z)
     local heading = math.floor((camYaw * 180 / math.pi) % 360)
     local headingBucket = math.floor(heading / HEADING_BUCKET_DEGREES)
-    local movedEnough = if lastRenderedCamX == nil or lastRenderedCamZ == nil
-        then true
-        else ((camPos.X - lastRenderedCamX) ^ 2 + (camPos.Z - lastRenderedCamZ) ^ 2) >= (MIN_RENDER_MOVE_STUDS ^ 2)
+    local movedEnough
+    if lastRenderedCamX == nil or lastRenderedCamZ == nil then
+        movedEnough = true
+    else
+        local dxMoved = camPos.X - lastRenderedCamX
+        local dzMoved = camPos.Z - lastRenderedCamZ
+        movedEnough = dxMoved * dxMoved + dzMoved * dzMoved >= MIN_RENDER_MOVE_STUDS * MIN_RENDER_MOVE_STUDS
+    end
     local needsRender = movedEnough
         or lastRenderedSnapshotRevision ~= chunkSnapshotRevision
         or lastRenderedFullscreen ~= isFullscreen
         or lastRenderedHeadingBucket ~= headingBucket
 
-    if not needsRender then
-        if not isFullscreen and mapLabel then
-            local dirs = { "N", "NE", "E", "SE", "S", "SW", "W", "NW" }
-            local dirIdx = math.floor((heading + 22.5) / 45) % 8 + 1
-            mapLabel.Text = string.format("MAP  %s %d°", dirs[dirIdx], heading)
+    local function updateHeadingLabel()
+        if isFullscreen or not mapLabel then
+            return
         end
+        local dirIdx = math.floor((heading + 22.5) / 45) % 8 + 1
+        mapLabel.Text = string.format("MAP  %s %d°", COMPASS_DIRS[dirIdx], heading)
+    end
+
+    if not needsRender then
+        updateHeadingLabel()
         return
     end
 
@@ -610,9 +746,5 @@ RunService.Heartbeat:Connect(function(dt)
     lastRenderedFullscreen = isFullscreen
     lastRenderedHeadingBucket = headingBucket
 
-    if not isFullscreen and mapLabel then
-        local dirs = { "N", "NE", "E", "SE", "S", "SW", "W", "NW" }
-        local dirIdx = math.floor((heading + 22.5) / 45) % 8 + 1
-        mapLabel.Text = string.format("MAP  %s %d°", dirs[dirIdx], heading)
-    end
+    updateHeadingLabel()
 end)

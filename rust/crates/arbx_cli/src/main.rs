@@ -3340,6 +3340,193 @@ fn cmd_profile(args: &[String]) -> Result<(), String> {
     Ok(())
 }
 
+fn cmd_pack_chunks(args: &[String]) -> Result<(), String> {
+    // Usage:
+    //   arbx_cli pack-chunks <split-index-json-path> [--out DIR] [--format msgpack|json|both]
+    //
+    // Loads each chunk JSON sibling to the split index and writes a
+    // parallel `.msgpack` (and optionally a re-emitted `.json`) variant
+    // in an output chunks/ directory. Uses rmp_serde::to_vec_named so
+    // the binary keeps field names and a worker can translate it back
+    // to JSON without a separate schema.
+    let mut index_path: Option<String> = None;
+    let mut out_dir: Option<PathBuf> = None;
+    let mut format = "msgpack".to_string();
+
+    let mut i = 0;
+    while i < args.len() {
+        match args[i].as_str() {
+            "--out" => {
+                i += 1;
+                out_dir = Some(PathBuf::from(
+                    args.get(i).ok_or("--out requires a directory path")?,
+                ));
+            }
+            "--format" => {
+                i += 1;
+                format = args
+                    .get(i)
+                    .ok_or("--format requires msgpack|json|both")?
+                    .to_string();
+            }
+            arg if !arg.starts_with("--") && index_path.is_none() => {
+                index_path = Some(arg.to_string());
+            }
+            arg => return Err(format!("unknown arg: {arg}")),
+        }
+        i += 1;
+    }
+
+    let want_msgpack = matches!(format.as_str(), "msgpack" | "both");
+    let want_json = matches!(format.as_str(), "json" | "both");
+    if !want_msgpack && !want_json {
+        return Err(format!("unknown --format value: {format}"));
+    }
+
+    let index_path = index_path.ok_or("pack-chunks requires a split index JSON path")?;
+    let index_pathbuf = PathBuf::from(&index_path);
+    let chunks_dir = index_pathbuf
+        .parent()
+        .map(|p| p.join("chunks"))
+        .ok_or("split index must have a parent directory")?;
+    if !chunks_dir.is_dir() {
+        return Err(format!(
+            "expected chunks directory at {}",
+            chunks_dir.display()
+        ));
+    }
+
+    let out_chunks_dir = match out_dir {
+        Some(ref d) => d.join("chunks"),
+        None => chunks_dir.clone(),
+    };
+    fs::create_dir_all(&out_chunks_dir)
+        .map_err(|e| format!("failed to create {}: {}", out_chunks_dir.display(), e))?;
+
+    let index_raw = fs::read(&index_pathbuf)
+        .map_err(|e| format!("failed to read {}: {}", index_path, e))?;
+    let index: Value = serde_json::from_slice(&index_raw)
+        .map_err(|e| format!("invalid JSON in {}: {}", index_path, e))?;
+    let chunk_refs = index
+        .get("chunkRefs")
+        .and_then(|v| v.as_array())
+        .ok_or("split index missing chunkRefs array")?;
+
+    struct Row {
+        id: String,
+        json_bytes: u64,
+        msgpack_bytes: u64,
+    }
+
+    let rows: Vec<Result<Row, String>> = chunk_refs
+        .par_iter()
+        .map(|chunk_ref| {
+            let id = chunk_ref
+                .get("id")
+                .and_then(|v| v.as_str())
+                .ok_or("chunkRef missing id")?
+                .to_string();
+            let src = chunks_dir.join(format!("{}.json", id));
+            let chunk_raw = fs::read(&src)
+                .map_err(|e| format!("failed to read {}: {}", src.display(), e))?;
+            let json_bytes = chunk_raw.len() as u64;
+            let chunk_value: Value = serde_json::from_slice(&chunk_raw)
+                .map_err(|e| format!("invalid JSON in {}: {}", src.display(), e))?;
+
+            let mut msgpack_bytes: u64 = 0;
+            if want_msgpack {
+                let packed = rmp_serde::to_vec_named(&chunk_value)
+                    .map_err(|e| format!("msgpack encode failed for {}: {}", id, e))?;
+                msgpack_bytes = packed.len() as u64;
+                let dst = out_chunks_dir.join(format!("{}.msgpack", id));
+                fs::write(&dst, &packed)
+                    .map_err(|e| format!("failed to write {}: {}", dst.display(), e))?;
+            }
+            if want_json && out_chunks_dir != chunks_dir {
+                let dst = out_chunks_dir.join(format!("{}.json", id));
+                fs::write(&dst, &chunk_raw)
+                    .map_err(|e| format!("failed to write {}: {}", dst.display(), e))?;
+            }
+            Ok(Row {
+                id,
+                json_bytes,
+                msgpack_bytes,
+            })
+        })
+        .collect();
+
+    let mut collected: Vec<Row> = Vec::with_capacity(rows.len());
+    for row in rows {
+        collected.push(row?);
+    }
+
+    collected.sort_by(|a, b| a.id.cmp(&b.id));
+
+    let mut total_json: u64 = 0;
+    let mut total_msgpack: u64 = 0;
+    let mut best: Option<(String, f64)> = None;
+    let mut worst: Option<(String, f64)> = None;
+
+    println!(
+        "{:<14} {:>14} {:>14} {:>8}",
+        "chunk_id", "json_bytes", "msgpack_bytes", "ratio"
+    );
+    for row in &collected {
+        total_json += row.json_bytes;
+        total_msgpack += row.msgpack_bytes;
+        let ratio = if row.msgpack_bytes > 0 {
+            row.json_bytes as f64 / row.msgpack_bytes as f64
+        } else {
+            0.0
+        };
+        println!(
+            "{:<14} {:>14} {:>14} {:>8.3}",
+            row.id, row.json_bytes, row.msgpack_bytes, ratio
+        );
+        if row.msgpack_bytes > 0 {
+            match best {
+                Some((_, br)) if ratio <= br => {}
+                _ => best = Some((row.id.clone(), ratio)),
+            }
+            match worst {
+                Some((_, wr)) if ratio >= wr => {}
+                _ => worst = Some((row.id.clone(), ratio)),
+            }
+        }
+    }
+
+    let total_ratio = if total_msgpack > 0 {
+        total_json as f64 / total_msgpack as f64
+    } else {
+        0.0
+    };
+    let avg_ratio = if !collected.is_empty() && total_msgpack > 0 {
+        let sum: f64 = collected
+            .iter()
+            .filter(|r| r.msgpack_bytes > 0)
+            .map(|r| r.json_bytes as f64 / r.msgpack_bytes as f64)
+            .sum();
+        sum / collected.len() as f64
+    } else {
+        0.0
+    };
+
+    println!();
+    println!("chunks:           {}", collected.len());
+    println!("total json bytes: {}", total_json);
+    println!("total msgpack:    {}", total_msgpack);
+    println!("total ratio:      {:.3}x", total_ratio);
+    println!("avg per-chunk:    {:.3}x", avg_ratio);
+    if let Some((id, r)) = &best {
+        println!("best compression: {} ({:.3}x)", id, r);
+    }
+    if let Some((id, r)) = &worst {
+        println!("worst compression: {} ({:.3}x)", id, r);
+    }
+    println!("out dir:          {}", out_chunks_dir.display());
+    Ok(())
+}
+
 fn cmd_planetary_store(args: &[String]) -> Result<(), String> {
     let Some(subcommand) = args.first().map(String::as_str) else {
         return Err(
@@ -7377,6 +7564,7 @@ fn main() {
         "emit-runtime-lua" => cmd_emit_runtime_lua(&args[1..]),
         "audit-signal" => cmd_audit_signal(&args[1..]),
         "profile" => cmd_profile(&args[1..]),
+        "pack-chunks" => cmd_pack_chunks(&args[1..]),
         "planetary-store" => cmd_planetary_store(&args[1..]),
         "explain" => {
             cmd_explain();
