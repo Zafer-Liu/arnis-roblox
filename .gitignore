@@ -70,3 +70,40 @@ rust/fuzz/coverage/
 .env.*
 *.pem
 *.key
+*.p12
+*.pfx
+*credentials*
+*secrets*
+.npmrc
+
+# Cloudflare Wrangler
+.dev.vars
+.dev.vars.*
+.wrangler/
+**/.wrangler/
+wrangler.local.toml
+**/wrangler.local.toml
+
+# Cloudflare API tokens / account state (never commit)
+.cloudflare/
+cloudflare-api-token.txt
+CLOUDFLARE_API_TOKEN
+CLOUDFLARE_ACCOUNT_ID
+
+# Roblox Open Cloud API keys (never commit)
+.roblox/
+roblox-api-key.txt
+ROBLOX_OPEN_CLOUD_API_KEY
+roblox-secrets.json
+
+# Node / TypeScript build artifacts (Cloudflare worker)
+cloudflare/**/dist/
+cloudflare/**/.wrangler/
+cloudflare/**/node_modules/
+
+# Backups, swap, editor temp
+*.bak
+*.swp
+*.swo
+*~
+.DS_Store
