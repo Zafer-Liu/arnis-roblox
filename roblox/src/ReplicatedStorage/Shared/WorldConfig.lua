@@ -66,6 +66,11 @@ local WorldConfig = {
     -- the runtime atlas applier lands.
     EnableBuildingAtlas = false,
     EnableBuildingNameLabels = true,
+    -- When true, BuildingBuilder.MeshBuildAll emits an ARNIS_BUILDER_PERF
+    -- marker per chunk summarising time spent in shell / roof / facade /
+    -- perimeter / rooftop / mesh-create phases. Off by default so production
+    -- logs stay quiet; flip on when capturing a perf trace via the harness.
+    PerformanceLogging = false,
     WindowSpacing = { -- studs between windows by building usage
         office = 4,
         residential = 6,
@@ -289,9 +294,9 @@ local WorldConfig = {
     EnableDayNightCycle = true,
     DayNightSpeed = 60, -- 60 = 1 game-day per 24 minutes, 0 = frozen
     DateTime = "2024-06-15T14:00", -- Fixed midday for consistent visual proof; change to "auto" for real-time
-    AtmosphereDensity = 0.45, -- additive density applied on top of phase presets (world-scale depth cue)
-    AtmosphereOffset = 0.25, -- vertical offset for atmosphere gradient start
-    AtmosphereHaze = 0.22, -- additive haze layered on top of phase presets for distance fade
+    AtmosphereDensity = 0.52, -- additive density applied on top of phase presets (world-scale depth cue); tuned up for Cesium-like distance depth
+    AtmosphereOffset = 0.26, -- vertical offset for atmosphere gradient start
+    AtmosphereHaze = 0.28, -- additive haze layered on top of phase presets for distance fade; deeper for planetary scale
 
     -- ═══════════════════════════════════════════════════════════════
     -- MINIMAP

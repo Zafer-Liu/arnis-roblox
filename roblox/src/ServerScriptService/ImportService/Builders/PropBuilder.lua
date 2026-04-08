@@ -199,6 +199,25 @@ local function getCanopyColor(species)
     return SPECIES_COLOR.default
 end
 
+-- Per-tree hash-driven hue/saturation/value jitter applied on top of the
+-- species canopy color. Rotates hue within a bounded green-centric window so
+-- no two neighbouring trees read the same, without sliding off-palette.
+-- The jitter is deterministic from the prop id so re-imports are stable.
+local function jitterCanopyColor(color, propId)
+    local seed = hashId(propId or "tree")
+    local h, s, v = Color3.toHSV(color)
+    local hueDelta = (deterministicUnitFloat(seed) - 0.5) * 0.10 -- +/- 5% (~18 deg)
+    local satDelta = (deterministicUnitFloat(seed + 17) - 0.5) * 0.18
+    local valDelta = (deterministicUnitFloat(seed + 31) - 0.5) * 0.16
+    h = (h + hueDelta) % 1
+    if h < 0 then
+        h += 1
+    end
+    s = math.clamp(s + satDelta, 0.15, 1)
+    v = math.clamp(v + valDelta, 0.18, 1)
+    return Color3.fromHSV(h, s, v)
+end
+
 local function getCanopyScale(species)
     if not species then
         return 1.0
@@ -548,7 +567,7 @@ local function buildTree(parent, prop, originStuds, baseYOverride)
     -- Canopy: shape depends on leafType
     local trunkTop = worldPos + Vector3.new(0, trunkH, 0)
     local canopyBrickColor = getCanopyColor(prop.species)
-    local canopyColor3 = canopyBrickColor.Color
+    local canopyColor3 = jitterCanopyColor(canopyBrickColor.Color, prop.id or prop.species or "tree")
 
     if leafType == "needleleaved" then
         -- Stacked tapered tiers for a visually distinct conifer silhouette.
@@ -624,7 +643,7 @@ function PropBuilder.Build(parent, prop, originStuds, chunk)
             if meshPart then
                 -- Apply species-specific canopy color
                 local canopyBrickColor = getCanopyColor(prop.species)
-                meshPart.Color = canopyBrickColor.Color
+                meshPart.Color = jitterCanopyColor(canopyBrickColor.Color, prop.id or prop.species or "tree")
                 meshPart.Name = prop.id or "Tree"
                 meshPart.Parent = detailParent
                 precomputedPropCount += 1

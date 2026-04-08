@@ -74,6 +74,15 @@ function MeshAccumulator.new(parent, materialName, material, color, options)
     self.vertices = table.create(18000 * 2) -- pre-allocate for max batch
     self.normals = table.create(18000 * 2)
     self.triangles = table.create(18000)
+    -- Cached logical lengths for the buffers above. Hot addQuad/addTriangle
+    -- paths previously hit `#self.triangles` / `#self.vertices` up to four
+    -- times per call; caching integers in locals shaves the length-operator
+    -- work. Combined with `table.clear` in :flush this also lets the
+    -- pre-allocated arrays be reused across batches instead of being replaced
+    -- with fresh empty tables every flush (the prior code's `self.vertices =
+    -- {}` reset threw away the 36000-slot capacity on the very first flush).
+    self.vertexCount = 0
+    self.triangleCount = 0
     self.meshCount = 0
     self.totalVertexCount = 0
     self.totalTriangleCount = 0
@@ -83,41 +92,51 @@ function MeshAccumulator.new(parent, materialName, material, color, options)
 end
 
 function MeshAccumulator:addQuad(p1, p2, p3, p4, normal)
-    if #self.triangles + 2 > self.MAX_TRIANGLES then
+    local triangleCount = self.triangleCount
+    if triangleCount + 2 > self.MAX_TRIANGLES then
         self:flush()
+        triangleCount = self.triangleCount
     end
 
-    local base = #self.vertices
-    self.vertices[base + 1] = p1
-    self.vertices[base + 2] = p2
-    self.vertices[base + 3] = p3
-    self.vertices[base + 4] = p4
-    self.normals[base + 1] = normal
-    self.normals[base + 2] = normal
-    self.normals[base + 3] = normal
-    self.normals[base + 4] = normal
+    local vertices = self.vertices
+    local normals = self.normals
+    local base = self.vertexCount
+    vertices[base + 1] = p1
+    vertices[base + 2] = p2
+    vertices[base + 3] = p3
+    vertices[base + 4] = p4
+    normals[base + 1] = normal
+    normals[base + 2] = normal
+    normals[base + 3] = normal
+    normals[base + 4] = normal
+    self.vertexCount = base + 4
 
     -- Standard winding: {1,2,3} and {1,3,4}. Auto-normals computed by Roblox
     -- from triangle winding (SetVertexNormal not available on this version).
-    -- This matches the road mesh accumulator which renders correctly.
-    self.triangles[#self.triangles + 1] = { base + 1, base + 2, base + 3 }
-    self.triangles[#self.triangles + 1] = { base + 1, base + 3, base + 4 }
+    local triangles = self.triangles
+    triangles[triangleCount + 1] = { base + 1, base + 2, base + 3 }
+    triangles[triangleCount + 2] = { base + 1, base + 3, base + 4 }
+    self.triangleCount = triangleCount + 2
 end
 
 function MeshAccumulator:addTriangle(p1, p2, p3, normal)
-    if #self.triangles + 1 > self.MAX_TRIANGLES then
+    local triangleCount = self.triangleCount
+    if triangleCount + 1 > self.MAX_TRIANGLES then
         self:flush()
+        triangleCount = self.triangleCount
     end
 
-    local base = #self.vertices
+    local base = self.vertexCount
     self.vertices[base + 1] = p1
     self.vertices[base + 2] = p2
     self.vertices[base + 3] = p3
     self.normals[base + 1] = normal
     self.normals[base + 2] = normal
     self.normals[base + 3] = normal
+    self.vertexCount = base + 3
 
-    self.triangles[#self.triangles + 1] = { base + 1, base + 2, base + 3 }
+    self.triangles[triangleCount + 1] = { base + 1, base + 2, base + 3 }
+    self.triangleCount = triangleCount + 1
 end
 
 --- Load a Rust pre-computed mesh (flat arrays) into this accumulator.
@@ -132,20 +151,32 @@ function MeshAccumulator:addPrecomputedMesh(meshData, originStuds)
         return
     end
     local triCount = #tris / 3
+    local vertsLen = #verts
+    local trisLen = #tris
+    local normsLen = if norms then #norms else 0
+    local defaultNormal = Vector3.new(0, 1, 0)
     -- If the entire precomputed mesh fits alongside existing buffered data, fast path.
-    if #self.triangles + triCount <= self.MAX_TRIANGLES then
-        local base = #self.vertices
+    if self.triangleCount + triCount <= self.MAX_TRIANGLES then
+        local base = self.vertexCount
         local ox, oy, oz = originStuds.X, originStuds.Y, originStuds.Z
-        for i = 1, #verts, 3 do
-            local vi = base + (i - 1) / 3 + 1
-            self.vertices[vi] = Vector3.new(verts[i] + ox, verts[i + 1] + oy, verts[i + 2] + oz)
-            self.normals[vi] = if norms and #norms >= i + 2
+        local vertices = self.vertices
+        local normalsArr = self.normals
+        local triangles = self.triangles
+        local vi = base
+        for i = 1, vertsLen, 3 do
+            vi += 1
+            vertices[vi] = Vector3.new(verts[i] + ox, verts[i + 1] + oy, verts[i + 2] + oz)
+            normalsArr[vi] = if norms and normsLen >= i + 2
                 then Vector3.new(norms[i], norms[i + 1], norms[i + 2])
-                else Vector3.new(0, 1, 0)
+                else defaultNormal
         end
-        for i = 1, #tris, 3 do
-            self.triangles[#self.triangles + 1] = { base + tris[i] + 1, base + tris[i + 1] + 1, base + tris[i + 2] + 1 }
+        self.vertexCount = vi
+        local ti = self.triangleCount
+        for i = 1, trisLen, 3 do
+            ti += 1
+            triangles[ti] = { base + tris[i] + 1, base + tris[i + 1] + 1, base + tris[i + 2] + 1 }
         end
+        self.triangleCount = ti
         return
     end
     -- Oversized mesh: flush existing, then split into MAX_TRIANGLES batches.
@@ -154,10 +185,12 @@ function MeshAccumulator:addPrecomputedMesh(meshData, originStuds)
     self:flush()
     local ox, oy, oz = originStuds.X, originStuds.Y, originStuds.Z
     local maxTrisPerBatch = self.MAX_TRIANGLES
-    for batchStart = 1, #tris, maxTrisPerBatch * 3 do
-        local batchEnd = math.min(batchStart + maxTrisPerBatch * 3 - 1, #tris)
+    for batchStart = 1, trisLen, maxTrisPerBatch * 3 do
+        local batchEnd = math.min(batchStart + maxTrisPerBatch * 3 - 1, trisLen)
         -- Gather unique vertex indices referenced by this batch
         local vertexRemap = {} -- 0-based Rust index → 1-based accumulator index
+        local vertices = self.vertices
+        local normalsArr = self.normals
         for i = batchStart, batchEnd do
             local rustIdx = tris[i]
             if vertexRemap[rustIdx] == nil then
@@ -167,37 +200,42 @@ function MeshAccumulator:addPrecomputedMesh(meshData, originStuds)
                     (verts[fi + 1] or 0) + oy,
                     (verts[fi + 2] or 0) + oz
                 )
-                local normal = if norms and #norms >= fi + 2
+                local normal = if norms and normsLen >= fi + 2
                     then Vector3.new(norms[fi], norms[fi + 1], norms[fi + 2])
-                    else Vector3.new(0, 1, 0)
-                local vi = #self.vertices + 1
-                self.vertices[vi] = pos
-                self.normals[vi] = normal
+                    else defaultNormal
+                local vi = self.vertexCount + 1
+                vertices[vi] = pos
+                normalsArr[vi] = normal
+                self.vertexCount = vi
                 vertexRemap[rustIdx] = vi
             end
         end
         -- Add triangles using remapped indices
+        local triangles = self.triangles
+        local ti = self.triangleCount
         for i = batchStart, batchEnd, 3 do
-            self.triangles[#self.triangles + 1] = {
+            ti += 1
+            triangles[ti] = {
                 vertexRemap[tris[i]],
                 vertexRemap[tris[i + 1]],
                 vertexRemap[tris[i + 2]],
             }
         end
+        self.triangleCount = ti
         -- Flush this batch if there's more data to process
-        if batchEnd < #tris then
+        if batchEnd < trisLen then
             self:flush()
         end
     end
 end
 
 function MeshAccumulator:flush()
-    if #self.triangles == 0 then
+    if self.triangleCount == 0 then
         return
     end
 
-    local vertexCount = #self.vertices
-    local triangleCount = #self.triangles
+    local vertexCount = self.vertexCount
+    local triangleCount = self.triangleCount
 
     local meshOk, mesh = pcall(function()
         return AssetService:CreateEditableMesh()
@@ -208,15 +246,51 @@ function MeshAccumulator:flush()
         return
     end
 
-    -- Add all vertices and set normals
-    local vertexIds = table.create(#self.vertices)
-    for i, pos in ipairs(self.vertices) do
-        vertexIds[i] = mesh:AddVertex(pos)
-        trySetVertexNormal(mesh, vertexIds[i], self.normals[i])
+    -- Add all vertices and set normals. Once we know the runtime doesn't
+    -- support SetVertexNormal (common on current Roblox versions) we skip the
+    -- per-vertex pcall entirely — it was previously paying a pcall + method
+    -- lookup for every vertex in the mesh, dominating flush time for large
+    -- shell meshes. The first failure latches the support flag to false.
+    local vertices = self.vertices
+    local normals = self.normals
+    local vertexIds = table.create(vertexCount)
+    if editableMeshSetVertexNormalSupported == false then
+        for i = 1, vertexCount do
+            vertexIds[i] = mesh:AddVertex(vertices[i])
+        end
+    elseif editableMeshSetVertexNormalSupported == true then
+        for i = 1, vertexCount do
+            local id = mesh:AddVertex(vertices[i])
+            vertexIds[i] = id
+            mesh:SetVertexNormal(id, normals[i])
+        end
+    else
+        -- Unknown support state: probe on the first vertex via trySetVertexNormal
+        -- which will latch the support flag, then switch to the fast branch.
+        for i = 1, vertexCount do
+            local id = mesh:AddVertex(vertices[i])
+            vertexIds[i] = id
+            trySetVertexNormal(mesh, id, normals[i])
+            if editableMeshSetVertexNormalSupported == false then
+                for j = i + 1, vertexCount do
+                    vertexIds[j] = mesh:AddVertex(vertices[j])
+                end
+                break
+            elseif editableMeshSetVertexNormalSupported == true then
+                for j = i + 1, vertexCount do
+                    local jid = mesh:AddVertex(vertices[j])
+                    vertexIds[j] = jid
+                    mesh:SetVertexNormal(jid, normals[j])
+                end
+                break
+            end
+        end
     end
 
     -- Add all triangles
-    for _, tri in ipairs(self.triangles) do
+    local triangles = self.triangles
+    for i = 1, triangleCount do
+        local tri = triangles[i]
         mesh:AddTriangle(vertexIds[tri[1]], vertexIds[tri[2]], vertexIds[tri[3]])
     end
 
@@ -257,25 +331,35 @@ function MeshAccumulator:flush()
     end
     part.Parent = self.parent
 
-    -- Reset buffers for next batch
-    self.vertices = {}
-    self.normals = {}
-    self.triangles = {}
+    -- Reset buffers for next batch. `table.clear` keeps the pre-allocated
+    -- capacity (18000 * 2 slots) so subsequent batches don't re-grow the
+    -- arrays from scratch; the cached counters drop back to zero so addQuad
+    -- / addTriangle start writing at slot 1.
+    table.clear(self.vertices)
+    table.clear(self.normals)
+    table.clear(self.triangles)
+    self.vertexCount = 0
+    self.triangleCount = 0
 end
 
 -- Fallback: emit simple box Parts when EditableMesh/CreateMeshPartAsync is
 -- unavailable (e.g. play-mode permission restrictions).  Each buffered
 -- triangle pair is approximated as a flat Part spanning its bounding box.
 function MeshAccumulator:flushAsParts()
+    local fallbackVertexCount = self.vertexCount
+    local fallbackTriangleCount = self.triangleCount
     warn(string.format(
         "[MeshAccumulator] flushAsParts fallback for %s: %d verts, %d tris",
-        self.materialName, #self.vertices, #self.triangles
+        self.materialName, fallbackVertexCount, fallbackTriangleCount
     ))
+    if fallbackVertexCount == 0 then
+        return
+    end
     self.meshCount += 1
     -- Compute the AABB of the entire buffered geometry
     local minBound = self.vertices[1]
     local maxBound = self.vertices[1]
-    for i = 2, #self.vertices do
+    for i = 2, fallbackVertexCount do
         local pos = self.vertices[i]
         minBound = Vector3.new(
             math.min(minBound.X, pos.X),
@@ -314,18 +398,20 @@ function MeshAccumulator:flushAsParts()
     end
     part.Parent = self.parent
 
-    self.totalVertexCount += #self.vertices
-    self.totalTriangleCount += #self.triangles
+    self.totalVertexCount += fallbackVertexCount
+    self.totalTriangleCount += fallbackTriangleCount
 
-    -- Reset buffers
-    self.vertices = {}
-    self.normals = {}
-    self.triangles = {}
+    -- Reset buffers (see :flush for rationale on table.clear over `= {}`).
+    table.clear(self.vertices)
+    table.clear(self.normals)
+    table.clear(self.triangles)
+    self.vertexCount = 0
+    self.triangleCount = 0
 end
 
 local function addOrientedBox(acc, center, rightAxis, upAxis, forwardAxis, size)
     -- Pre-flush if the entire box (6 quads × 12 triangles) won't fit atomically.
-    if #acc.triangles + 12 > acc.MAX_TRIANGLES then
+    if acc.triangleCount + 12 > acc.MAX_TRIANGLES then
         acc:flush()
     end
     local hx = size.X * 0.5
@@ -617,16 +703,26 @@ end
 -- building always gets the same shade, yet neighbouring buildings vary.
 local MATERIAL_COLOR_RANGES = {
     [Enum.Material.Brick] = {
-        { 180, 80, 60 },
-        { 160, 90, 70 },
-        { 200, 100, 75 },
-        { 140, 75, 55 },
+        { 180, 80, 60 }, -- classic red
+        { 160, 90, 70 }, -- aged red
+        { 200, 100, 75 }, -- bright red-orange
+        { 140, 75, 55 }, -- dark weathered red
+        { 175, 135, 105 }, -- tan brick
+        { 155, 120, 95 }, -- warm tan
+        { 110, 70, 55 }, -- dark smoked brick
+        { 190, 150, 120 }, -- sandstone-tinted brick
+        { 125, 85, 70 }, -- weathered terracotta
     },
     [Enum.Material.Concrete] = {
-        { 180, 178, 175 },
-        { 170, 168, 165 },
-        { 190, 188, 185 },
-        { 160, 158, 155 },
+        { 180, 178, 175 }, -- smooth
+        { 170, 168, 165 }, -- smooth-aged
+        { 190, 188, 185 }, -- smooth-bright
+        { 160, 158, 155 }, -- mid aged
+        { 148, 146, 143 }, -- darker aged
+        { 135, 132, 128 }, -- rough weathered
+        { 200, 198, 193 }, -- bright polished
+        { 172, 170, 165 }, -- warm aged
+        { 158, 160, 162 }, -- cool aged
     },
     [Enum.Material.Limestone] = {
         { 230, 220, 200 },
@@ -689,6 +785,85 @@ local function getMaterialColor(material, buildingId)
     return Color3.fromRGB(c[1], c[2], c[3])
 end
 
+-- Usage-driven color bias. Applied as a small deterministic tint on top of
+-- the material palette so office towers feel cool grey-blue, residential
+-- buildings feel warm cream, retail pops a bit warmer, and industrial
+-- buildings feel darker. Per-building hash decides which tint variant is
+-- used so neighbours vary instead of all looking identical.
+local USAGE_COLOR_BIAS = {
+    office = {
+        { r = -10, g = -4, b = 12 }, -- cool grey-blue
+        { r = -14, g = -6, b = 14 },
+        { r = -8, g = -2, b = 10 },
+    },
+    commercial = {
+        { r = -8, g = -3, b = 10 },
+        { r = -12, g = -4, b = 12 },
+    },
+    bank = {
+        { r = -6, g = -2, b = 10 },
+    },
+    hotel = {
+        { r = 6, g = 2, b = -4 },
+        { r = 10, g = 4, b = -2 },
+    },
+    retail = {
+        { r = 14, g = 2, b = -6 }, -- warmer pop
+        { r = 18, g = 4, b = -4 },
+        { r = 10, g = 0, b = -8 },
+    },
+    mall = {
+        { r = 8, g = 0, b = -4 },
+    },
+    residential = {
+        { r = 12, g = 6, b = -2 }, -- warm cream
+        { r = 16, g = 8, b = 0 },
+        { r = 8, g = 4, b = -4 },
+    },
+    apartments = {
+        { r = 10, g = 4, b = -2 },
+        { r = 14, g = 6, b = 0 },
+        { r = 6, g = 2, b = -4 },
+    },
+    house = {
+        { r = 14, g = 6, b = 0 },
+        { r = 18, g = 8, b = 2 },
+    },
+    detached = {
+        { r = 16, g = 6, b = 0 },
+    },
+    terrace = {
+        { r = 12, g = 4, b = -2 },
+    },
+    dormitory = {
+        { r = 10, g = 4, b = 0 },
+    },
+    industrial = {
+        { r = -18, g = -16, b = -12 }, -- darker
+        { r = -22, g = -18, b = -14 },
+        { r = -14, g = -12, b = -8 },
+    },
+    warehouse = {
+        { r = -20, g = -16, b = -12 },
+        { r = -16, g = -12, b = -8 },
+    },
+    factory = {
+        { r = -22, g = -18, b = -14 },
+    },
+}
+
+local function applyUsageColorBias(color, usage, id)
+    local biases = USAGE_COLOR_BIAS[usage]
+    if not biases then
+        return color
+    end
+    local variant = biases[(hashId(id) % #biases) + 1]
+    local r = math.clamp(math.floor(color.R * 255 + variant.r), 0, 255)
+    local g = math.clamp(math.floor(color.G * 255 + variant.g), 0, 255)
+    local b = math.clamp(math.floor(color.B * 255 + variant.b), 0, 255)
+    return Color3.fromRGB(r, g, b)
+end
+
 local function getColor(building)
     if building.wallColor and building.wallColor.r then
         local r, g, b = building.wallColor.r, building.wallColor.g, building.wallColor.b
@@ -704,12 +879,14 @@ local function getColor(building)
     -- Prefer a material-appropriate color palette for richer visual variety
     local id = building.id or tostring(building)
     local mat = getMaterial(building)
+    local usage = string.lower(tostring(building.usage or building.kind or "default"))
     local matColor = getMaterialColor(mat, id)
     if matColor then
-        return matColor
+        return applyUsageColorBias(matColor, usage, id)
     end
     -- Final fallback: generic building palette
-    return BUILDING_PALETTE[(hashId(id) % #BUILDING_PALETTE) + 1]
+    local paletteColor = BUILDING_PALETTE[(hashId(id) % #BUILDING_PALETTE) + 1]
+    return applyUsageColorBias(paletteColor, usage, id)
 end
 
 local getRoofMaterial -- forward declaration; defined after ROOF_MATERIAL_LOOKUP tables
@@ -3223,9 +3400,19 @@ function BuildingBuilder.FallbackBuild(parent, building, originStuds, chunk, win
 
     local n = #worldPts
     -- Sky-reflecting glass: higher Reflectance for that Cesium/Google Earth
-    -- bluish curtain-wall sheen on near-ring towers.
+    -- bluish curtain-wall sheen on near-ring towers. Named landmark
+    -- buildings >20 studs tall also get a subtle PBR sheen (low reflectance
+    -- bump) on any material so they read as "hero" structures in the skyline.
     local glassTransparency = if mat == Enum.Material.Glass then 0.28 else nil
     local glassReflectance = if mat == Enum.Material.Glass then 0.32 else nil
+    if
+        glassReflectance == nil
+        and type(building.name) == "string"
+        and building.name ~= ""
+        and height >= 20
+    then
+        glassReflectance = 0.06
+    end
     buildWallLoopParts(
         shellFolder,
         bldgName,
@@ -4449,6 +4636,31 @@ function BuildingBuilder.MeshBuildAll(parent, buildings, originStuds, chunk, con
     end
 
     buildStats.shellDetailMs = math.max(((os.clock() - buildStartedAt) * 1000) - buildStats.meshCreateMs, 0)
+
+    if config.PerformanceLogging == true or WorldConfig.PerformanceLogging == true then
+        -- ARNIS_BUILDER_PERF: single-line marker consumed by the harness /
+        -- studio_workflow profiler to chart per-chunk builder cost. Shape is
+        -- stable (key=value pairs); extend additively when adding new
+        -- phases so existing parsers keep working.
+        local chunkId = (chunk and chunk.ref and chunk.ref.id) or (chunk and chunk.id) or "unknown"
+        print(string.format(
+            "ARNIS_BUILDER_PERF chunk=%s buildings=%d lod=%s shellMs=%.2f roofMs=%.2f facadeMs=%.2f perimeterMs=%.2f rooftopMs=%.2f meshCreateMs=%.2f meshParts=%d verts=%d tris=%d precomputed=%d runtime=%d",
+            tostring(chunkId),
+            #buildings,
+            tostring(lodLevel),
+            buildStats.shellDetailMs,
+            buildStats.roofBuildMs,
+            buildStats.facadeDetailMs,
+            buildStats.perimeterDetailMs,
+            buildStats.rooftopDetailMs,
+            buildStats.meshCreateMs,
+            buildStats.meshPartCount,
+            buildStats.vertexCount,
+            buildStats.triangleCount,
+            buildStats.precomputedMeshCount,
+            buildStats.runtimeMeshCount
+        ))
+    end
 
     return {
         builtModelsById = builtModelsById,

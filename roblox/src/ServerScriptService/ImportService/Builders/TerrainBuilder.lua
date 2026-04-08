@@ -612,8 +612,15 @@ local function buildChunkPlan(chunk, options)
             if ok and m then
                 baseMat = m
             else
-                baseMat = Enum.Material.Grass
+                -- LeafyGrass is richer/more natural than plain Grass and is a
+                -- first-class satellite-palette entry. Default to it so untagged
+                -- cells feel closer to Google Earth / Cesium baseline ground.
+                baseMat = Enum.Material.LeafyGrass
             end
+        end
+        -- Promote plain Grass to LeafyGrass for better foliage detail.
+        if baseMat == Enum.Material.Grass then
+            baseMat = Enum.Material.LeafyGrass
         end
 
         -- Slope-based classification is a fallback when satellite material is absent.
