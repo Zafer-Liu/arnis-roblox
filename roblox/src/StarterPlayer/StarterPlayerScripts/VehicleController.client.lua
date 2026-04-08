@@ -65,6 +65,32 @@ local ENGINE_IDLE_VIBRATION = 0.02
 -- Rapier-style acceleration: jerk-limited smooth ramp instead of instant torque
 local CAR_ACCEL_RAMP_TIME = 0.6 -- seconds from 0 to full torque (smooth curve)
 local CAR_DECEL_RAMP_TIME = 0.3 -- faster braking response than acceleration
+-- Per-road-surface friction (matches OSM surface tags compiled in manifest).
+-- Multiplies the base wheel friction. 1.0 = standard asphalt grip.
+local SURFACE_FRICTION = {
+    asphalt = 1.0,
+    concrete = 0.95,
+    paved = 1.0,
+    paving_stones = 0.85,
+    cobblestone = 0.7,
+    sett = 0.7,
+    unpaved = 0.6,
+    compacted = 0.65,
+    gravel = 0.5,
+    fine_gravel = 0.55,
+    pebblestone = 0.45,
+    dirt = 0.5,
+    earth = 0.5,
+    grass = 0.45,
+    sand = 0.35,
+    mud = 0.3,
+    ice = 0.15,
+    snow = 0.25,
+    wood = 0.7,
+    metal = 0.6,
+    rubber = 1.05,
+    default = 0.85,
+}
 -- Dynamic FOV
 local CAR_FOV_MIN = 70
 local CAR_FOV_MAX = 95 -- cinematic warp at top speed
@@ -170,6 +196,8 @@ local carThrottleSmooth = 0
 local carBoostActive = false
 local carBoostTimer = 0
 local carBoostCooldown = 0
+local carSurfaceFriction = 1.0
+local carSurfaceFrictionTimer = 0
 
 -- Jetpack state
 local jetpackForce = nil
@@ -1137,6 +1165,13 @@ local function updateCar(dt)
     local velocity = carBody.AssemblyLinearVelocity
     local speed = velocity.Magnitude
 
+    -- Per-road-surface friction is handled automatically by Roblox physics:
+    -- RoadBuilder applies CustomPhysicalProperties per OSM surface tag (asphalt
+    -- 0.75, gravel 0.38, ice 0.12, etc.) so wheel grip is realistic without
+    -- runtime raycasts. The carSurfaceFriction multiplier below is reserved
+    -- for future driving-feel adjustments (e.g. reduced top speed on dirt).
+    carSurfaceFriction = 1.0
+
     -- Speed-dependent steering: reduce max angle at high speed to prevent spinouts
     local speedFraction = math.clamp(speed / CAR_MAX_SPEED, 0, 1)
     local steerReduction = 1 - speedFraction * (1 - CAR_HIGH_SPEED_STEER_FACTOR)
@@ -1166,7 +1201,11 @@ local function updateCar(dt)
         carBoostCooldown = math.max((carBoostCooldown or 0) - dt, 0)
     end
     local effectiveAngVel = if carBoostActive then CAR_MOTOR_ANGULAR_VEL * (CAR_BOOST_SPEED / CAR_MAX_SPEED) else CAR_MOTOR_ANGULAR_VEL
+    -- Surface friction modulates available torque: low friction = wheels slip,
+    -- effective forward force is reduced. This creates the realistic feel of
+    -- driving on grass/dirt vs asphalt.
     local effectiveTorque = if carBoostActive then CAR_TORQUE * 1.8 else CAR_TORQUE
+    effectiveTorque = effectiveTorque * carSurfaceFriction
 
     -- Update wheels
     for _, w in ipairs(carWheels) do
