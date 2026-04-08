@@ -25,10 +25,10 @@ local function ensureAtmosphere()
     -- Stronger depth cue for distant skylines (Cesium/Google Earth feel).
     -- DayNightCycle re-tunes these per phase, but we set sensible defaults
     -- that already match a cinematic midday look.
-    atmosphere.Density = 0.42
-    atmosphere.Offset = 0.25
-    atmosphere.Glare = 0.15
-    atmosphere.Haze = 1.4
+    atmosphere.Density = 0.2
+    atmosphere.Offset = 0.15
+    atmosphere.Glare = 0.0
+    atmosphere.Haze = 0.0
     atmosphere.Color = Color3.fromRGB(199, 210, 225)
     atmosphere.Decay = Color3.fromRGB(92, 104, 124)
 end

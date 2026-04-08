@@ -36,8 +36,8 @@ end
 -- Per-phase atmospheric targets.
 local PHASE_SETTINGS = table.freeze({
     dawn = {
-        density = 0.5,
-        haze = 2,
+        density = 0.25,
+        haze = 0.3,
         atmosphereColor = Color3.fromRGB(220, 180, 140),
         decayColor = Color3.fromRGB(180, 120, 80),
         bloomIntensity = 0.8,
@@ -50,8 +50,8 @@ local PHASE_SETTINGS = table.freeze({
     day = {
         -- Slightly cooler, denser midday atmosphere — matches Cesium 3D
         -- aerial perspective when looking across a city skyline.
-        density = 0.32,
-        haze = 1.1,
+        density = 0.2,
+        haze = 0.0,
         atmosphereColor = Color3.fromRGB(186, 204, 226),
         decayColor = Color3.fromRGB(96, 110, 130),
         bloomIntensity = 0.55,
@@ -62,8 +62,8 @@ local PHASE_SETTINGS = table.freeze({
         lightsOn = false,
     },
     golden = {
-        density = 0.34,
-        haze = 1.4,
+        density = 0.25,
+        haze = 0.2,
         atmosphereColor = Color3.fromRGB(245, 198, 140),
         decayColor = Color3.fromRGB(206, 124, 60),
         bloomIntensity = 0.85,
@@ -74,8 +74,8 @@ local PHASE_SETTINGS = table.freeze({
         lightsOn = false,
     },
     dusk = {
-        density = 0.35,
-        haze = 1.5,
+        density = 0.25,
+        haze = 0.3,
         atmosphereColor = Color3.fromRGB(120, 100, 140),
         decayColor = Color3.fromRGB(60, 50, 80),
         bloomIntensity = 0.6,
@@ -86,8 +86,8 @@ local PHASE_SETTINGS = table.freeze({
         lightsOn = true,
     },
     night = {
-        density = 0.4,
-        haze = 0.5,
+        density = 0.3,
+        haze = 0.1,
         atmosphereColor = Color3.fromRGB(30, 35, 55),
         decayColor = Color3.fromRGB(15, 18, 30),
         bloomIntensity = 0.9,

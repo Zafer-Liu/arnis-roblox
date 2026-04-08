@@ -315,9 +315,9 @@ local WorldConfig = {
     EnableDayNightCycle = true,
     DayNightSpeed = 60, -- 60 = 1 game-day per 24 minutes, 0 = frozen
     DateTime = "2024-06-15T14:00", -- Fixed midday for consistent visual proof; change to "auto" for real-time
-    AtmosphereDensity = 0.3, -- reduced from 0.52; too hazy in live game
-    AtmosphereOffset = 0.2, -- vertical offset for atmosphere gradient start
-    AtmosphereHaze = 0.12, -- reduced from 0.28; was overwhelming in live game
+    AtmosphereDensity = 0.1, -- minimal; previous values were compounding with DayNightCycle
+    AtmosphereOffset = 0.1,
+    AtmosphereHaze = 0.0, -- zero additive haze; DayNightCycle provides its own
 
     -- ═══════════════════════════════════════════════════════════════
     -- MINIMAP
