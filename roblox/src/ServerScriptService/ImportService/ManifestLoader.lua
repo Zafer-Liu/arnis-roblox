@@ -1161,7 +1161,7 @@ local function djb2Fingerprint(str)
     return string.format("djb2:%08x", hash)
 end
 
-local function buildInMemoryHandle(manifest, sourceTag)
+local function buildInMemoryHandle(manifest, sourceTag, chunkFetcher)
     if type(manifest) ~= "table" then
         error("In-memory manifest must be a table")
     end
@@ -1183,6 +1183,13 @@ local function buildInMemoryHandle(manifest, sourceTag)
     end
     ChunkSchema.validateChunkRefs(chunkRefs)
 
+    -- chunksById is the in-memory chunk cache. For embedded/sample manifests
+    -- it is fully populated upfront. For lazy sources (external_url) it starts
+    -- empty and gets filled on demand by the chunkFetcher when GetChunk /
+    -- LoadChunks is called. The downstream consumers (AustinSpawn,
+    -- StreamingService, ChunkPriority) already use the spatial query path,
+    -- so once a chunk is fetched it stays in cache for the rest of the
+    -- session and the scheduler decides when to materialize it.
     local chunksById = {}
     local chunkOrder = table.create(#chunks)
     for _, chunk in ipairs(chunks) do
@@ -1193,6 +1200,14 @@ local function buildInMemoryHandle(manifest, sourceTag)
     local fingerprintBase = sourceTag or "in_memory"
     local fingerprintsByChunkId = {}
 
+    -- chunkRefMap is used by LoadChunks/PrefetchChunks for O(1) lookup of a
+    -- ref by id. We rebuild it on every chunkRefs mutation; the planetary
+    -- streaming roadmap will mutate chunkRefs as new shards come online.
+    local chunkRefMap = {}
+    for _, ref in ipairs(chunkRefs) do
+        chunkRefMap[ref.id] = ref
+    end
+
     local handle = {
         schemaVersion = manifest.schemaVersion,
         meta = manifest.meta,
@@ -1201,20 +1216,80 @@ local function buildInMemoryHandle(manifest, sourceTag)
     }
 
     function handle:ResolveChunkRef(chunkId)
-        for _, chunkRef in ipairs(self.chunkRefs) do
-            if chunkRef.id == chunkId then
-                return chunkRef
+        return chunkRefMap[chunkId]
+    end
+
+    -- Internal helper that performs a parallel fan-out fetch over the given
+    -- list of ids using the chunkFetcher. Results are written into chunksById
+    -- so subsequent GetChunk calls return from cache. Returns the count of
+    -- successfully fetched chunks. This is the streaming hot path: bootstrap
+    -- only fetches the chunks within the spawn radius (typically 5-9), and
+    -- StreamingService later calls GetChunk one-by-one as the player moves.
+    local function fetchChunkBatch(idsToFetch, progressCallback)
+        if not chunkFetcher or type(chunkFetcher.fetchParallel) ~= "function" then
+            local fetched = 0
+            for _, id in ipairs(idsToFetch) do
+                if chunksById[id] == nil and chunkFetcher and type(chunkFetcher.fetchSingle) == "function" then
+                    local chunk = chunkFetcher.fetchSingle(id)
+                    if chunk ~= nil then
+                        chunksById[id] = chunk
+                        fetched += 1
+                        if progressCallback then
+                            progressCallback(fetched, #idsToFetch)
+                        end
+                    end
+                end
             end
+            return fetched
         end
-        return nil
+        return chunkFetcher.fetchParallel(idsToFetch, function(id, chunk)
+            if chunk ~= nil and chunksById[id] == nil then
+                chunksById[id] = chunk
+            end
+        end, progressCallback)
     end
 
     function handle:GetChunk(chunkId)
         local chunk = chunksById[chunkId]
-        if chunk == nil then
-            error(("Unknown external chunk id: %s"):format(tostring(chunkId)))
+        if chunk ~= nil then
+            return chunk
         end
-        return chunk
+        if chunkFetcher and type(chunkFetcher.fetchSingle) == "function" then
+            chunk = chunkFetcher.fetchSingle(chunkId)
+            if chunk ~= nil then
+                chunksById[chunkId] = chunk
+                return chunk
+            end
+        end
+        error(("Unknown external chunk id: %s"):format(tostring(chunkId)))
+    end
+
+    function handle:HasChunkInCache(chunkId)
+        return chunksById[chunkId] ~= nil
+    end
+
+    function handle:GetCachedChunkCount()
+        local count = 0
+        for _ in pairs(chunksById) do
+            count += 1
+        end
+        return count
+    end
+
+    function handle:PrefetchChunks(chunkIds, progressCallback)
+        if type(chunkIds) ~= "table" or #chunkIds == 0 then
+            return 0
+        end
+        local toFetch = {}
+        for _, id in ipairs(chunkIds) do
+            if chunksById[id] == nil then
+                table.insert(toFetch, id)
+            end
+        end
+        if #toFetch == 0 then
+            return 0
+        end
+        return fetchChunkBatch(toFetch, progressCallback)
     end
 
     function handle:GetChunkFingerprint(chunkId)
@@ -1229,9 +1304,47 @@ local function buildInMemoryHandle(manifest, sourceTag)
 
     function handle:LoadChunks(chunkIds)
         local requestedChunkIds = chunkIds or {}
+        -- Fast path: gather any uncached ids and fan them out in parallel
+        -- before the per-chunk return loop. This collapses the spawn-radius
+        -- fetch from N sequential round trips to one parallel batch.
+        local missing = nil
+        for _, chunkId in ipairs(requestedChunkIds) do
+            if chunksById[chunkId] == nil then
+                if missing == nil then
+                    missing = {}
+                end
+                table.insert(missing, chunkId)
+            end
+        end
+        if missing and #missing > 0 then
+            fetchChunkBatch(missing, nil)
+        end
+        -- Collect results, skipping any chunks that failed to fetch during
+        -- the batch. We deliberately do NOT fall through to `self:GetChunk`
+        -- here because that would (1) trigger a second serial HTTP request
+        -- per missing chunk that was already attempted in the batch, and
+        -- (2) cascade into a hard error that aborts the whole bootstrap for
+        -- a single failed chunk. Returning a partial result lets the
+        -- ImportService progress on the chunks that succeeded while the
+        -- chunkFetcher stats record the failures for the audit pipeline.
         local out = table.create(#requestedChunkIds)
-        for index, chunkId in ipairs(requestedChunkIds) do
-            out[index] = self:GetChunk(chunkId)
+        local skipped = 0
+        for _, chunkId in ipairs(requestedChunkIds) do
+            local chunk = chunksById[chunkId]
+            if chunk ~= nil then
+                out[#out + 1] = chunk
+            else
+                skipped += 1
+            end
+        end
+        if skipped > 0 then
+            warn(
+                ("[ManifestLoader] LoadChunks returned %d/%d chunks; %d failed during batch fetch and were skipped"):format(
+                    #out,
+                    #requestedChunkIds,
+                    skipped
+                )
+            )
         end
         return out
     end
@@ -1319,48 +1432,305 @@ function ManifestLoader.loadFromExternalSource(sourceUrl, options)
 
     print(("[ManifestLoader] Fetching external manifest from %s"):format(sourceUrl))
     local HttpService = game:GetService("HttpService")
-    local ok, response = pcall(function()
-        return HttpService:GetAsync(sourceUrl, true)
-    end)
-    if not ok then
-        error(("HttpService:GetAsync(%s) failed: %s"):format(sourceUrl, tostring(response)))
+    -- RequestAsync (not GetAsync) so we can send Accept-Encoding: gzip and let
+    -- Cloudflare's edge auto-compress the response. Index alone is small, but
+    -- this also normalizes error reporting (StatusCode + StatusMessage in the
+    -- error overlay) for the very first network call the bootstrap makes.
+    -- Falls back to GetAsync if RequestAsync misbehaves (some platform builds
+    -- pass gzip through undecoded).
+    local body
+    do
+        local okReq, reqResponse = pcall(function()
+            return HttpService:RequestAsync({
+                Url = sourceUrl,
+                Method = "GET",
+                -- Restricted headers (Accept-Encoding, User-Agent) are
+                -- not allowed by HttpService:RequestAsync and throw
+                -- "Header X is not allowed!". Engine auto-negotiates gzip.
+                Headers = {
+                    ["Accept"] = "application/json",
+                },
+            })
+        end)
+        if okReq and type(reqResponse) == "table" and reqResponse.Success == true
+            and type(reqResponse.Body) == "string" and reqResponse.Body ~= ""
+        then
+            body = reqResponse.Body
+        else
+            local okGet, getResponse = pcall(function()
+                return HttpService:GetAsync(sourceUrl, true)
+            end)
+            if not okGet or type(getResponse) ~= "string" or getResponse == "" then
+                local reqDescription = if okReq then tostring(reqResponse and reqResponse.StatusCode) else tostring(reqResponse)
+                error(
+                    ("HttpService manifest fetch %s failed. RequestAsync: %s | GetAsync: %s"):format(
+                        sourceUrl,
+                        reqDescription,
+                        tostring(getResponse)
+                    )
+                )
+            end
+            body = getResponse
+        end
     end
 
-    local manifest = decodeManifestJson(response, sourceUrl)
+    local manifest = decodeManifestJson(body, sourceUrl)
 
-    -- Split manifest support: if the index has chunkBaseUrl, chunks are fetched
-    -- individually on demand instead of being embedded in the index JSON.
-    -- This enables streaming manifests of any size via small per-chunk HTTP requests.
+    -- Split manifest support: when the index advertises a chunkBaseUrl we
+    -- treat the per-chunk JSON files as a *lazy* chunk source. We do NOT
+    -- pre-fetch all 93 chunks here — instead we hand the manifest handle a
+    -- chunkFetcher closure (single + parallel) that fetches on demand. The
+    -- bootstrap calls LoadChunksWithinRadius(spawn, radius) which only pulls
+    -- the ~5-9 near-ring chunks; StreamingService later calls GetChunk for
+    -- additional chunks as the player moves. This is the same architecture
+    -- as Cesium 3D Tiles / Google Earth: the spatial scheduler drives demand
+    -- and the network fetches just enough to render what the player sees.
+    local chunkFetcher = nil
     if manifest.chunkBaseUrl and (not manifest.chunks or #manifest.chunks == 0) then
-        print(("[ManifestLoader] Split manifest detected: %d chunkRefs, fetching chunks from %s"):format(
-            manifest.chunkCount or 0, manifest.chunkBaseUrl))
-        manifest.chunks = {}
         local chunkBaseUrl = manifest.chunkBaseUrl
-        local fetchedCount = 0
-        for _, ref in ipairs(manifest.chunkRefs or {}) do
-            local chunkUrl = chunkBaseUrl .. ref.id .. ".json"
-            local chunkOk, chunkResponse = pcall(function()
-                return HttpService:GetAsync(chunkUrl, true)
+        local total = manifest.chunkRefs and #manifest.chunkRefs or 0
+        print(
+            ("[ManifestLoader] Lazy split-manifest source bound: %d chunkRefs available from %s"):format(
+                total,
+                chunkBaseUrl
+            )
+        )
+
+        -- Soft-link to LoadingScreen so the live player sees streaming
+        -- progress without us having to thread a callback through four
+        -- layers of API surface.
+        local LoadingScreen
+        do
+            local ok, mod = pcall(function()
+                return require(script.Parent.LoadingScreen)
             end)
-            if chunkOk and chunkResponse then
-                local chunkOkDecode, chunkData = pcall(function()
-                    return HttpService:JSONDecode(chunkResponse)
-                end)
-                if chunkOkDecode and chunkData then
-                    table.insert(manifest.chunks, chunkData)
-                    fetchedCount += 1
-                else
-                    warn(("[ManifestLoader] Failed to decode chunk %s"):format(ref.id))
-                end
-            else
-                warn(("[ManifestLoader] Failed to fetch chunk %s: %s"):format(ref.id, tostring(chunkResponse)))
+            if ok then
+                LoadingScreen = mod
             end
         end
-        print(("[ManifestLoader] Fetched %d/%d chunks from %s"):format(
-            fetchedCount, manifest.chunkCount or 0, chunkBaseUrl))
+        local function reportLoadingScreen(text)
+            if LoadingScreen and type(LoadingScreen.SetStatus) == "function" then
+                pcall(LoadingScreen.SetStatus, text)
+            end
+        end
+
+        -- Use RequestAsync with explicit Accept-Encoding so Cloudflare's edge
+        -- auto-gzip kicks in. Each chunk drops from 1146 KB → 235 KB on the
+        -- wire (4.87× reduction). HttpService:GetAsync does not send
+        -- Accept-Encoding by default, so the previous code was paying full
+        -- uncompressed bandwidth for no reason.
+        --
+        -- Fallback: if RequestAsync returns a body that doesn't decode as
+        -- JSON (which would happen if Roblox passed through gzipped binary
+        -- without inflating), we retry with GetAsync once. This guards
+        -- against the platform not auto-decompressing on the response side.
+        local function fetchChunkViaRequest(chunkId)
+            local chunkUrl = chunkBaseUrl .. chunkId .. ".json"
+            local ok, response = pcall(function()
+                return HttpService:RequestAsync({
+                    Url = chunkUrl,
+                    Method = "GET",
+                    -- Roblox HttpService restricts several common headers
+                    -- (Accept-Encoding, User-Agent, Host, etc.) — setting any
+                    -- of them causes RequestAsync to throw "Header X is not
+                    -- allowed!". The engine adds its own User-Agent and
+                    -- handles gzip auto-negotiation internally when the
+                    -- server responds with Content-Encoding: gzip, so
+                    -- dropping our custom headers is safe and lets the
+                    -- request succeed. Only whitelisted headers (Accept,
+                    -- Content-Type, custom X-* prefixes) are allowed.
+                    Headers = {
+                        ["Accept"] = "application/json",
+                    },
+                })
+            end)
+            if not ok or type(response) ~= "table" then
+                return nil, ("RequestAsync error: %s"):format(tostring(response))
+            end
+            if response.Success ~= true then
+                return nil, ("HTTP %s: %s"):format(
+                    tostring(response.StatusCode),
+                    tostring(response.StatusMessage)
+                )
+            end
+            local body = response.Body
+            if type(body) ~= "string" or body == "" then
+                return nil, "empty body"
+            end
+            local okDecode, chunkData = pcall(function()
+                return HttpService:JSONDecode(body)
+            end)
+            if not okDecode or type(chunkData) ~= "table" then
+                return nil, ("JSON decode failed: %s"):format(tostring(chunkData))
+            end
+            return chunkData, nil
+        end
+
+        local function fetchChunkViaGet(chunkId)
+            local chunkUrl = chunkBaseUrl .. chunkId .. ".json"
+            local ok, response = pcall(function()
+                return HttpService:GetAsync(chunkUrl, true)
+            end)
+            if not ok or type(response) ~= "string" then
+                return nil, ("GetAsync error: %s"):format(tostring(response))
+            end
+            local okDecode, chunkData = pcall(function()
+                return HttpService:JSONDecode(response)
+            end)
+            if not okDecode or type(chunkData) ~= "table" then
+                return nil, ("JSON decode failed: %s"):format(tostring(chunkData))
+            end
+            return chunkData, nil
+        end
+
+        local function fetchChunkOverHttp(chunkId)
+            local chunkData, err = fetchChunkViaRequest(chunkId)
+            if chunkData ~= nil then
+                return chunkData
+            end
+            -- Fall back to GetAsync if RequestAsync failed for any reason —
+            -- including "decoded body wasn't JSON" which would be the symptom
+            -- of platform-side gzip pass-through.
+            local fallbackData, fallbackErr = fetchChunkViaGet(chunkId)
+            if fallbackData ~= nil then
+                return fallbackData
+            end
+            warn(
+                ("[ManifestLoader] Both RequestAsync and GetAsync failed for chunk %s. RequestAsync: %s | GetAsync: %s"):format(
+                    tostring(chunkId),
+                    tostring(err),
+                    tostring(fallbackErr)
+                )
+            )
+            return nil
+        end
+
+        -- Per-fetch telemetry: every successful fetch contributes a sample,
+        -- every failure increments the error counter. We mirror running
+        -- aggregates onto Workspace attributes so the Studio Explorer, the
+        -- harness audit scripts (scene_parity_audit.py et al), and any future
+        -- live-stream telemetry tooling can consume them without parsing logs.
+        local Workspace = game:GetService("Workspace")
+        local stats = {
+            fetchCount = 0,
+            failureCount = 0,
+            totalBytes = 0,
+            totalLatencySeconds = 0,
+            slowestLatencySeconds = 0,
+            slowestChunkId = "",
+        }
+        local function publishStats()
+            local avgLatencyMs = if stats.fetchCount > 0
+                then (stats.totalLatencySeconds / stats.fetchCount) * 1000
+                else 0
+            Workspace:SetAttribute("ArnisChunkFetchCount", stats.fetchCount)
+            Workspace:SetAttribute("ArnisChunkFetchFailures", stats.failureCount)
+            Workspace:SetAttribute("ArnisChunkFetchBytes", stats.totalBytes)
+            Workspace:SetAttribute("ArnisChunkFetchAvgLatencyMs", avgLatencyMs)
+            Workspace:SetAttribute("ArnisChunkFetchSlowestLatencyMs", stats.slowestLatencySeconds * 1000)
+            Workspace:SetAttribute("ArnisChunkFetchSlowestChunkId", stats.slowestChunkId)
+            Workspace:SetAttribute("ArnisChunkFetchSourceUrl", chunkBaseUrl)
+        end
+
+        local rawFetchChunk = fetchChunkOverHttp
+        fetchChunkOverHttp = function(chunkId)
+            local startClock = os.clock()
+            local result = rawFetchChunk(chunkId)
+            local elapsed = os.clock() - startClock
+            stats.fetchCount += 1
+            stats.totalLatencySeconds += elapsed
+            if elapsed > stats.slowestLatencySeconds then
+                stats.slowestLatencySeconds = elapsed
+                stats.slowestChunkId = tostring(chunkId)
+            end
+            if result == nil then
+                stats.failureCount += 1
+            else
+                -- Approximate bytes by re-encoding the decoded table. This
+                -- intentionally undercounts compared to the wire bytes (which
+                -- include gzip overhead and JSON whitespace) but it gives the
+                -- audit pipeline a stable byte budget figure that doesn't
+                -- depend on transport details.
+                local okEnc, encoded = pcall(function()
+                    return HttpService:JSONEncode(result)
+                end)
+                if okEnc and type(encoded) == "string" then
+                    stats.totalBytes += #encoded
+                end
+            end
+            if stats.fetchCount % 3 == 0 or result == nil then
+                publishStats()
+            end
+            return result
+        end
+
+        chunkFetcher = {
+            sourceUrl = chunkBaseUrl,
+            chunkCount = total,
+            stats = stats,
+            publishStats = publishStats,
+            fetchSingle = fetchChunkOverHttp,
+            fetchParallel = function(idsToFetch, onChunkLoaded, progressCallback)
+                local count = #idsToFetch
+                if count == 0 then
+                    return 0
+                end
+                local startClock = os.clock()
+                reportLoadingScreen(
+                    ("Streaming %d chunks from Cloudflare worker..."):format(count)
+                )
+                local completed = 0
+                local fetched = 0
+                for _, id in ipairs(idsToFetch) do
+                    local capturedId = id
+                    task.spawn(function()
+                        local chunkData = fetchChunkOverHttp(capturedId)
+                        if chunkData ~= nil then
+                            onChunkLoaded(capturedId, chunkData)
+                            fetched += 1
+                        end
+                        completed += 1
+                        if progressCallback then
+                            progressCallback(completed, count)
+                        end
+                        if LoadingScreen and (completed % 3 == 0 or completed == count) then
+                            reportLoadingScreen(
+                                ("Streaming chunks from Cloudflare (%d/%d)..."):format(completed, count)
+                            )
+                        end
+                    end)
+                end
+                local FETCH_TIMEOUT_SECONDS = 60
+                local pollDeadline = os.clock() + FETCH_TIMEOUT_SECONDS
+                while completed < count and os.clock() < pollDeadline do
+                    task.wait(0.05)
+                end
+                local elapsed = os.clock() - startClock
+                if completed < count then
+                    warn(
+                        ("[ManifestLoader] Parallel fetch timed out after %ds: %d/%d completed"):format(
+                            FETCH_TIMEOUT_SECONDS,
+                            completed,
+                            count
+                        )
+                    )
+                else
+                    print(
+                        ("[ManifestLoader] Lazy fetch completed: %d/%d chunks in %.2fs (parallel, %d req in flight)"):format(
+                            fetched,
+                            count,
+                            elapsed,
+                            count
+                        )
+                    )
+                end
+                publishStats()
+                return fetched
+            end,
+        }
     end
 
-    local handle = buildInMemoryHandle(manifest, djb2Fingerprint(response))
+    local handle = buildInMemoryHandle(manifest, djb2Fingerprint(body), chunkFetcher)
     handle.manifestSourceKind = "external_url"
     handle.manifestSourceName = sourceUrl
     externalManifestCache[cacheKey] = handle

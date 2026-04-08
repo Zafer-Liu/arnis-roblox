@@ -1,6 +1,14 @@
 {
-  "name": "ArnisRoblox",
-  "servePort": 34872,
+  "name": "ArnisRobloxStreaming",
+  "servePort": 34874,
+  "globIgnorePaths": [
+    "src/ServerScriptService/StudioPreview/AustinPreviewManifestChunks/**",
+    "src/ServerScriptService/StudioPreview/AustinPreviewManifestIndex.lua",
+    "src/ServerStorage/SampleData/AustinHarnessManifestChunks/**",
+    "src/ServerStorage/SampleData/AustinHarnessManifestIndex.lua",
+    "src/ServerStorage/SampleData/AustinManifestChunks/**",
+    "src/ServerStorage/SampleData/AustinManifestIndex.lua"
+  ],
   "tree": {
     "$className": "DataModel",
     "ReplicatedStorage": {
@@ -10,7 +18,7 @@
       "$path": "src/ServerScriptService"
     },
     "ServerStorage": {
-      "$path": "src/ServerStorage"
+      "$className": "ServerStorage"
     },
     "HttpService": {
       "$className": "HttpService",

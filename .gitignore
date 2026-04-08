@@ -101,6 +101,10 @@ cloudflare/**/dist/
 cloudflare/**/.wrangler/
 cloudflare/**/node_modules/
 
+# Local-only remote Studio harness profiles — machine-specific, never committed.
+scripts/remote_studio_profiles.local.sh
+scripts/remote_studio_profiles.*.local.sh
+
 # Backups, swap, editor temp
 *.bak
 *.swp

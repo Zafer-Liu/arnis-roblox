@@ -166,10 +166,36 @@ function CanonicalWorldContract.loadCanonicalManifestSource(policyMode, timeoutS
             })
             return externalHandle, externalHandle.manifestSourceName or manifestSourceConfig.mode, canonicalFamily
         end
+        -- When the operator explicitly chose a non-embedded source we MUST
+        -- surface the real failure in live (production) Roblox so the user
+        -- can see what actually broke. In Studio/harness/test we keep the
+        -- silent fallback so dev workflows can run against embedded
+        -- SampleData even when no HTTP egress is available. The opt-in
+        -- `fallbackToEmbedded` flag forces fallback in all environments.
+        local externalErr = tostring(externalHandle)
+        local RunService = game:GetService("RunService")
+        local isStudio = false
+        do
+            local ok, value = pcall(function()
+                return RunService:IsStudio()
+            end)
+            if ok then
+                isStudio = value == true
+            end
+        end
+        local allowFallback = manifestSourceConfig.fallbackToEmbedded == true or isStudio
+        if not allowFallback then
+            error(
+                ("[CanonicalWorldContract] ManifestSource mode=%s failed: %s"):format(
+                    tostring(manifestSourceConfig.mode),
+                    externalErr
+                )
+            )
+        end
         warn(
             ("[CanonicalWorldContract] ManifestSource mode=%s failed (%s); falling back to embedded SampleData"):format(
                 tostring(manifestSourceConfig.mode),
-                tostring(externalHandle)
+                externalErr
             )
         )
     end

@@ -16,6 +16,12 @@ TILE_CACHE_TTL_SECONDS = "604800" # 7 days
 binding = "TILE_CACHE"
 id = "af94966793d94427a9c9cd9ecca6baad"
 
+# KV namespace for telemetry runs (POST /telemetry/run, GET /telemetry/latest).
+[[kv_namespaces]]
+binding = "TELEMETRY"
+id = "99725180e223400d9efb44b22cd34c48"
+preview_id = "10c79aca019d44559322118c35535bb0"
+
 # R2 bucket for compiled city manifests.
 [[r2_buckets]]
 binding = "MANIFESTS"

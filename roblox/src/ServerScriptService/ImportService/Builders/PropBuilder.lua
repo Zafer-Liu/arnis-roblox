@@ -443,11 +443,16 @@ function PropBuilder.loadPrecomputedPropMesh(meshData, position, yawDegrees, sca
         return nil
     end
 
-    -- Position, rotate, and scale the part
+    -- Position, rotate, and scale the part. Accept both JSON-decoded
+    -- manifest origins (lowercase {x,y,z}) and Roblox Vector3 origins
+    -- (uppercase {X,Y,Z}) so the external_url lazy fetcher works.
+    local ox = originStuds.X or originStuds.x or 0
+    local oy = originStuds.Y or originStuds.y or 0
+    local oz = originStuds.Z or originStuds.z or 0
     local worldPos = Vector3.new(
-        position.x + originStuds.X,
-        position.y + originStuds.Y,
-        position.z + originStuds.Z
+        (position.x or 0) + ox,
+        (position.y or 0) + oy,
+        (position.z or 0) + oz
     )
     local yaw = math.rad(yawDegrees or 0)
     part.CFrame = CFrame.new(worldPos) * CFrame.Angles(0, yaw, 0)

@@ -20,11 +20,13 @@ local AustinSpawn = require(script.Parent.ImportService.AustinSpawn)
 local BootstrapStateMachine = require(script.Parent.ImportService.BootstrapStateMachine)
 local CanonicalWorldContract = require(script.Parent.ImportService.CanonicalWorldContract)
 local HarnessRouteConfig = require(script.Parent.ImportService.HarnessRouteConfig)
+local LoadingScreen = require(script.Parent.ImportService.LoadingScreen)
 local RunAustin = require(script.Parent.ImportService.RunAustin)
 local SceneAudit = require(script.Parent.ImportService.SceneAudit)
 local SceneMarkerEmitter = require(script.Parent.ImportService.SceneMarkerEmitter)
 local StreamingService = require(script.Parent.ImportService.StreamingService)
 local SubplanRollout = require(script.Parent.ImportService.SubplanRollout)
+local TelemetryReporter = require(script.Parent.ImportService.TelemetryReporter)
 local WorldStateApplier = require(script.Parent.ImportService.WorldStateApplier)
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local WorldConfig = require(ReplicatedStorage.Shared.WorldConfig)
@@ -55,17 +57,50 @@ if duplicateAttempt then
     return
 end
 
+local PHASE_STATUS_TEXT = table.freeze({
+    loading_manifest = "Fetching manifest from Cloudflare planetary worker...",
+    importing_startup = "Importing startup chunks...",
+    world_ready = "World ready — building runtime state...",
+    streaming_ready = "Streaming online — staging chunks...",
+    minimap_ready = "Minimap ready — finalizing spawn...",
+    gameplay_ready = "Gameplay ready",
+})
+
+local PHASE_PROGRESS = table.freeze({
+    loading_manifest = 0.10,
+    importing_startup = 0.40,
+    world_ready = 0.65,
+    streaming_ready = 0.85,
+    minimap_ready = 0.95,
+    gameplay_ready = 1.00,
+})
+
 local function setBootstrapState(state)
     if type(state) ~= "string" or state == "" then
         return
     end
-    if Workspace:GetAttribute(BOOTSTRAP_STATE_ATTR) == state then
-        return
+    if Workspace:GetAttribute(BOOTSTRAP_STATE_ATTR) ~= state then
+        BootstrapStateMachine.transition(bootstrapMachine, state)
     end
-    BootstrapStateMachine.transition(bootstrapMachine, state)
+    TelemetryReporter.RecordPhase(state)
+    local statusText = PHASE_STATUS_TEXT[state] or state
+    local fraction = PHASE_PROGRESS[state]
+    pcall(function()
+        LoadingScreen.UpdateProgress(fraction, statusText)
+    end)
 end
 
-Workspace:GetAttribute(BOOTSTRAP_ATTEMPT_ID_ATTR)
+-- Stamp a unique attempt id so background coroutines (the prefetch hint
+-- in RunAustin, for one) can observe whether their parent bootstrap run
+-- is still the active one. The value is just a monotonic server clock
+-- timestamp concatenated with a short random suffix — good enough to
+-- distinguish sequential attempts without pulling in HttpService:GenerateGUID.
+local bootstrapAttemptId = string.format(
+    "%d-%04x",
+    math.floor(os.clock() * 1000),
+    math.random(0, 0xFFFF)
+)
+Workspace:SetAttribute(BOOTSTRAP_ATTEMPT_ID_ATTR, bootstrapAttemptId)
 
 Players.CharacterAutoLoads = false
 
@@ -294,6 +329,16 @@ Players.PlayerAdded:Connect(onPlayer)
 
 print("[BootstrapAustin] Starting Austin, TX import...")
 
+-- Show the loading screen on every player so the live (native) Roblox player
+-- always has a visible status surface — without it, the user has nothing to
+-- look at while the manifest streams from Cloudflare and falls into the void
+-- if anything fails. This must run before manifest load so we can also show
+-- bootstrap errors via LoadingScreen.ShowError when load fails.
+pcall(function()
+    LoadingScreen.Show("Austin, TX")
+    LoadingScreen.UpdateProgress(0.05, "Connecting to Cloudflare planetary worker...")
+end)
+
 -- Note: StreamingEnabled and Terrain.SmoothingEnabled must be configured
 -- in Studio settings (File > Game Settings > Streaming) — not scriptable.
 
@@ -318,16 +363,59 @@ for _, player in ipairs(Players:GetPlayers()) do
     player:SetAttribute("ArnisTelemetryFamilies", harnessRouteSelection.telemetryFamilies)
 end
 
-local result = RunAustin.run({
-    config = runtimeWorldConfig,
-    phaseReporter = setBootstrapState,
-    routeCatalogName = harnessRouteSelection.routeCatalogName,
-    routeLane = harnessRouteSelection.routeLane,
-    routeStepIndex = harnessRouteSelection.routeStepIndex,
-})
+-- Run the full bootstrap inside a pcall so ANY uncaught exception (not
+-- just the manifest-unavailable case RunAustin.run handles internally)
+-- still triggers the structured failure path: error overlay, telemetry
+-- POST, and clean holdingPad teardown. Without this wrap, an exception
+-- inside ImportService.ImportManifest or a downstream builder crashes
+-- the bootstrap script entirely and no failure telemetry is ever
+-- emitted, which is the exact symptom that hid a RoadBuilder crash from
+-- the remote harness auto-loop.
+local result, runError
+local runOk, runReturn1, runReturn2 = pcall(function()
+    return RunAustin.run({
+        config = runtimeWorldConfig,
+        phaseReporter = setBootstrapState,
+        routeCatalogName = harnessRouteSelection.routeCatalogName,
+        routeLane = harnessRouteSelection.routeLane,
+        routeStepIndex = harnessRouteSelection.routeStepIndex,
+    })
+end)
+if runOk then
+    result = runReturn1
+    runError = runReturn2
+else
+    result = nil
+    runError = tostring(runReturn1)
+end
 if result == nil then
     BootstrapStateMachine.fail(bootstrapMachine)
-    warn("[BootstrapAustin] Austin manifest unavailable; skipping bootstrap.")
+    local manifestSourceConfig = WorldConfig.ManifestSource or {}
+    local sourceDescription
+    if manifestSourceConfig.mode == "external_url" then
+        sourceDescription = ("external_url=%s"):format(tostring(manifestSourceConfig.externalUrl))
+    elseif manifestSourceConfig.mode == "roblox_asset" then
+        sourceDescription = ("roblox_asset=%s"):format(tostring(manifestSourceConfig.robloxAssetId))
+    else
+        sourceDescription = ("mode=%s"):format(tostring(manifestSourceConfig.mode or "embedded"))
+    end
+    local errMessage = "Austin manifest unavailable — bootstrap halted."
+    local errDetail = ("source: %s\nerror: %s"):format(
+        sourceDescription,
+        tostring(runError or "(no error returned)")
+    )
+    warn(("[BootstrapAustin] %s\n%s"):format(errMessage, errDetail))
+    pcall(function()
+        LoadingScreen.ShowError(errMessage, errDetail)
+    end)
+    TelemetryReporter.Report({
+        status = "failed",
+        errorMessage = errMessage,
+        errorDetail = errDetail,
+        chunksImported = 0,
+        totalInstances = 0,
+        totalFeatures = 0,
+    })
     if holdingPad then
         holdingPad:Destroy()
     end
@@ -449,6 +537,21 @@ holdingPad:Destroy()
 
 print("[BootstrapAustin] Spawn and shared world state configured.")
 setBootstrapState("gameplay_ready")
+
+local telemetryStats = result.stats or {}
+local telemetryFeatureTotal = (telemetryStats.roadsImported or 0)
+    + (telemetryStats.railsImported or 0)
+    + (telemetryStats.buildingsImported or 0)
+    + (telemetryStats.waterImported or 0)
+    + (telemetryStats.propsImported or 0)
+    + (telemetryStats.landuseImported or 0)
+    + (telemetryStats.barriersImported or 0)
+TelemetryReporter.Report({
+    status = "success",
+    chunksImported = telemetryStats.chunksImported or 0,
+    totalInstances = telemetryStats.totalInstances or 0,
+    totalFeatures = telemetryFeatureTotal,
+})
 
 task.defer(function()
     if not worldRoot or worldRoot.Parent ~= Workspace then

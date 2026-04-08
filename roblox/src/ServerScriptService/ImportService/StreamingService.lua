@@ -1769,6 +1769,19 @@ local hasPendingBuildingSubplans
 local shouldBypassHighDetailSubplanRollout
 
 local function appendStreamingWorkItems(workItems, chunkEntry, chunkOptions, config, targetLod, buildingLodLevel)
+    -- chunkRef must be declared BEFORE the inner closure below so the
+    -- closure captures it as an upvalue. In Lua/Luau, local declarations
+    -- are only visible from the next statement, so a closure defined
+    -- earlier in the same block sees `chunkRef` as a global (nil) and
+    -- crashes at invocation with "attempt to index nil with 'id'". This
+    -- was a latent bug in the eager-embedded path that only manifested
+    -- once the lazy external_url fetcher exercised the code path.
+    local chunkRef = chunkEntry and chunkEntry.ref or nil
+    if chunkRef == nil then
+        warn("[StreamingService] appendStreamingWorkItems: chunkEntry.ref is nil; skipping")
+        return
+    end
+
     local function appendWholeChunkWorkItem(wholeChunkOptions)
         workItems[#workItems + 1] = {
             chunkEntry = chunkEntry,
@@ -1781,8 +1794,6 @@ local function appendStreamingWorkItems(workItems, chunkEntry, chunkOptions, con
             highDetailStructurePriority = wholeChunkOptions.highDetailStructurePriority == true,
         }
     end
-
-    local chunkRef = chunkEntry.ref
     if shouldBypassHighDetailSubplanRollout(chunkEntry, chunkOptions, targetLod) then
         appendWholeChunkWorkItem({
             worldRootName = chunkOptions.worldRootName,

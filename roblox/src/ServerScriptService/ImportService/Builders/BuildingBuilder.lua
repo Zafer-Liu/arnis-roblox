@@ -150,31 +150,63 @@ function MeshAccumulator:addPrecomputedMesh(meshData, originStuds)
     if not verts or not tris or #verts < 3 or #tris < 3 then
         return
     end
-    local triCount = #tris / 3
-    local vertsLen = #verts
-    local trisLen = #tris
+    -- Truncate to whole triples so a malformed mesh (e.g. a shellMesh with
+    -- a stray float or a stray triangle index) can't crash the import with
+    -- "attempt to perform arithmetic (add) on number and nil". The
+    -- oversized-batch path below already uses `or 0` guards for vertex
+    -- reads; the fast path needs matching defense.
+    local vertsLen = math.floor(#verts / 3) * 3
+    local trisLen = math.floor(#tris / 3) * 3
+    if vertsLen == 0 or trisLen == 0 then
+        return
+    end
+    local triCount = trisLen / 3
     local normsLen = if norms then #norms else 0
     local defaultNormal = Vector3.new(0, 1, 0)
     -- If the entire precomputed mesh fits alongside existing buffered data, fast path.
     if self.triangleCount + triCount <= self.MAX_TRIANGLES then
         local base = self.vertexCount
-        local ox, oy, oz = originStuds.X, originStuds.Y, originStuds.Z
+        -- Accept both JSON-decoded manifest origins (lowercase {x,y,z}) and
+-- Roblox Vector3 origins (uppercase {X,Y,Z}). The external_url lazy
+-- fetcher passes chunk.originStuds through from the manifest JSON
+-- without going through the Vector3 conversion step that the legacy
+-- embedded SampleData path used to do.
+local ox = originStuds.X or originStuds.x or 0
+local oy = originStuds.Y or originStuds.y or 0
+local oz = originStuds.Z or originStuds.z or 0
         local vertices = self.vertices
         local normalsArr = self.normals
         local triangles = self.triangles
         local vi = base
+        local vertexCountOut = vertsLen / 3
         for i = 1, vertsLen, 3 do
             vi += 1
-            vertices[vi] = Vector3.new(verts[i] + ox, verts[i + 1] + oy, verts[i + 2] + oz)
-            normalsArr[vi] = if norms and normsLen >= i + 2
+            vertices[vi] = Vector3.new(
+                (verts[i] or 0) + ox,
+                (verts[i + 1] or 0) + oy,
+                (verts[i + 2] or 0) + oz
+            )
+            normalsArr[vi] = if norms and normsLen >= i + 2 and norms[i] and norms[i + 1] and norms[i + 2]
                 then Vector3.new(norms[i], norms[i + 1], norms[i + 2])
                 else defaultNormal
         end
         self.vertexCount = vi
         local ti = self.triangleCount
         for i = 1, trisLen, 3 do
-            ti += 1
-            triangles[ti] = { base + tris[i] + 1, base + tris[i + 1] + 1, base + tris[i + 2] + 1 }
+            local a = tris[i]
+            local b = tris[i + 1]
+            local c = tris[i + 2]
+            -- Drop any triangle with nil/out-of-range indices; materializing
+            -- it would produce garbage vertices and potentially propagate
+            -- a nil-index crash into flush() downstream.
+            if a ~= nil and b ~= nil and c ~= nil
+                and a >= 0 and a < vertexCountOut
+                and b >= 0 and b < vertexCountOut
+                and c >= 0 and c < vertexCountOut
+            then
+                ti += 1
+                triangles[ti] = { base + a + 1, base + b + 1, base + c + 1 }
+            end
         end
         self.triangleCount = ti
         return
@@ -183,7 +215,14 @@ function MeshAccumulator:addPrecomputedMesh(meshData, originStuds)
     -- Each triangle references 3 vertices by 0-based index; we load a batch of
     -- triangles, gather only the vertices they reference, and flush each batch.
     self:flush()
-    local ox, oy, oz = originStuds.X, originStuds.Y, originStuds.Z
+    -- Accept both JSON-decoded manifest origins (lowercase {x,y,z}) and
+-- Roblox Vector3 origins (uppercase {X,Y,Z}). The external_url lazy
+-- fetcher passes chunk.originStuds through from the manifest JSON
+-- without going through the Vector3 conversion step that the legacy
+-- embedded SampleData path used to do.
+local ox = originStuds.X or originStuds.x or 0
+local oy = originStuds.Y or originStuds.y or 0
+local oz = originStuds.Z or originStuds.z or 0
     local maxTrisPerBatch = self.MAX_TRIANGLES
     for batchStart = 1, trisLen, maxTrisPerBatch * 3 do
         local batchEnd = math.min(batchStart + maxTrisPerBatch * 3 - 1, trisLen)
@@ -193,14 +232,17 @@ function MeshAccumulator:addPrecomputedMesh(meshData, originStuds)
         local normalsArr = self.normals
         for i = batchStart, batchEnd do
             local rustIdx = tris[i]
-            if vertexRemap[rustIdx] == nil then
+            -- rustIdx can be nil if the incoming triangle list has sparse
+            -- or truncated entries. Using a nil table key throws, so skip
+            -- instead. The triangle-emit loop below mirrors the same guard.
+            if rustIdx ~= nil and vertexRemap[rustIdx] == nil then
                 local fi = rustIdx * 3 + 1 -- flat array index (1-based)
                 local pos = Vector3.new(
                     (verts[fi] or 0) + ox,
                     (verts[fi + 1] or 0) + oy,
                     (verts[fi + 2] or 0) + oz
                 )
-                local normal = if norms and normsLen >= fi + 2
+                local normal = if norms and normsLen >= fi + 2 and norms[fi] and norms[fi + 1] and norms[fi + 2]
                     then Vector3.new(norms[fi], norms[fi + 1], norms[fi + 2])
                     else defaultNormal
                 local vi = self.vertexCount + 1
@@ -210,16 +252,18 @@ function MeshAccumulator:addPrecomputedMesh(meshData, originStuds)
                 vertexRemap[rustIdx] = vi
             end
         end
-        -- Add triangles using remapped indices
+        -- Add triangles using remapped indices. Drop any triangle whose
+        -- indices failed to remap (nil rustIdx or remap miss).
         local triangles = self.triangles
         local ti = self.triangleCount
         for i = batchStart, batchEnd, 3 do
-            ti += 1
-            triangles[ti] = {
-                vertexRemap[tris[i]],
-                vertexRemap[tris[i + 1]],
-                vertexRemap[tris[i + 2]],
-            }
+            local a = tris[i] ~= nil and vertexRemap[tris[i]] or nil
+            local b = tris[i + 1] ~= nil and vertexRemap[tris[i + 1]] or nil
+            local c = tris[i + 2] ~= nil and vertexRemap[tris[i + 2]] or nil
+            if a and b and c then
+                ti += 1
+                triangles[ti] = { a, b, c }
+            end
         end
         self.triangleCount = ti
         -- Flush this batch if there's more data to process

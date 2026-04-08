@@ -45,6 +45,12 @@
     "ServerStorage": {
       "$path": "src/ServerStorage"
     },
+    "HttpService": {
+      "$className": "HttpService",
+      "$properties": {
+        "HttpEnabled": true
+      }
+    },
     "Lighting": {
       "$className": "Lighting",
       "$path": "src/Lighting",

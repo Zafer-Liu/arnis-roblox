@@ -2929,6 +2929,417 @@ fn cmd_audit_signal(args: &[String]) -> Result<(), String> {
     Ok(())
 }
 
+// =============================================================================
+// `arbx_cli profile` — manifest hot-spot analyzer
+// =============================================================================
+//
+// Loads a manifest (single-file or split-index format) and reports per-chunk
+// byte size, feature counts by type, terrain density, and an estimated import
+// cost. Identifies the heaviest chunks so the runtime team can target the
+// optimization candidates instead of guessing.
+//
+// Usage:
+//   arbx_cli profile <manifest.json>            # single-file manifest
+//   arbx_cli profile <index.json> --split       # split index, chunks live in chunks/{id}.json
+//   arbx_cli profile <manifest.json> --top 10   # show top-N heaviest chunks
+//   arbx_cli profile <manifest.json> --json     # machine-readable output
+
+#[derive(Default, Debug, Clone, serde::Serialize)]
+struct ChunkProfile {
+    id: String,
+    bytes: u64,
+    bytes_gzip_estimate: u64,
+    feature_count: u64,
+    roads: u64,
+    rails: u64,
+    buildings: u64,
+    water: u64,
+    props: u64,
+    landuse: u64,
+    barriers: u64,
+    terrain_cells: u64,
+    terrain_filled_cells: u64,
+    terrain_fill_ratio: f64,
+    polygon_vertices: u64,
+    estimated_import_cost: f64,
+}
+
+#[derive(Default, Debug, serde::Serialize)]
+struct ProfileReport {
+    manifest_path: String,
+    chunk_count: usize,
+    total_bytes: u64,
+    total_features: u64,
+    total_polygon_vertices: u64,
+    total_terrain_cells: u64,
+    total_terrain_filled_cells: u64,
+    avg_chunk_bytes: u64,
+    p50_chunk_bytes: u64,
+    p95_chunk_bytes: u64,
+    max_chunk_bytes: u64,
+    chunks: Vec<ChunkProfile>,
+}
+
+fn polygon_vertex_count(value: &serde_json::Value) -> u64 {
+    // The arbx pipeline stores vertices as objects: `{ "x": .., "y": .., "z": .. }`
+    // for road points and `{ "x": .., "z": .. }` for building footprint points.
+    // We also tolerate the legacy `[x,y]` / `[x,y,z]` array shape for forward
+    // compatibility. Mesh objects (with `vertices`, `triangles`, `normals`)
+    // count their `vertices` array length directly to avoid descending into
+    // the entire triangulation.
+    fn is_vertex_object(map: &serde_json::Map<String, serde_json::Value>) -> bool {
+        let has_x = map.get("x").map(|v| v.is_number()).unwrap_or(false);
+        let has_z = map.get("z").map(|v| v.is_number()).unwrap_or(false);
+        has_x && has_z
+    }
+    fn walk(v: &serde_json::Value, count: &mut u64) {
+        match v {
+            serde_json::Value::Array(arr) => {
+                // Numeric 2/3-element arrays are vertices in the legacy shape.
+                if (arr.len() == 2 || arr.len() == 3) && arr.iter().all(|e| e.is_number()) {
+                    *count += 1;
+                } else {
+                    for child in arr {
+                        walk(child, count);
+                    }
+                }
+            }
+            serde_json::Value::Object(map) => {
+                if is_vertex_object(map) {
+                    *count += 1;
+                } else if let Some(serde_json::Value::Array(verts)) = map.get("vertices") {
+                    // shellMesh / roadMesh / terrainMesh vertices array.
+                    *count += verts.len() as u64;
+                } else {
+                    for (_, child) in map {
+                        walk(child, count);
+                    }
+                }
+            }
+            _ => {}
+        }
+    }
+    let mut count = 0u64;
+    walk(value, &mut count);
+    count
+}
+
+fn profile_chunk(chunk_id: &str, chunk: &serde_json::Value, raw_bytes: u64) -> ChunkProfile {
+    let array_len = |key: &str| -> u64 {
+        chunk
+            .get(key)
+            .and_then(|v| v.as_array())
+            .map(|a| a.len() as u64)
+            .unwrap_or(0)
+    };
+
+    let roads = array_len("roads");
+    let rails = array_len("rails");
+    let buildings = array_len("buildings");
+    let water = array_len("water");
+    let props = array_len("props");
+    let landuse = array_len("landuse");
+    let barriers = array_len("barriers");
+    let feature_count = roads + rails + buildings + water + props + landuse + barriers;
+
+    let terrain = chunk.get("terrain");
+    let (terrain_cells, terrain_filled_cells) = terrain
+        .and_then(|t| t.get("heights"))
+        .and_then(|h| h.as_array())
+        .map(|h| {
+            let total = h.len() as u64;
+            let filled = h
+                .iter()
+                .filter(|v| v.as_f64().map(|f| f.abs() > 0.0001).unwrap_or(false))
+                .count() as u64;
+            (total, filled)
+        })
+        .unwrap_or((0, 0));
+    let terrain_fill_ratio = if terrain_cells > 0 {
+        terrain_filled_cells as f64 / terrain_cells as f64
+    } else {
+        0.0
+    };
+
+    // Count polygon vertices across all geometric features (the closest
+    // proxy we have to "how much CPU work the importer will spend on this
+    // chunk"). Buildings + landuse polygons dominate.
+    let mut polygon_vertices = 0u64;
+    for key in ["roads", "rails", "buildings", "water", "landuse", "barriers"] {
+        if let Some(arr) = chunk.get(key).and_then(|v| v.as_array()) {
+            for feature in arr {
+                polygon_vertices += polygon_vertex_count(feature);
+            }
+        }
+    }
+
+    // Heuristic import cost: weighted sum of feature counts. Calibrated from
+    // empirical observation that buildings dominate import time, followed by
+    // terrain voxel writes, then road segments, then everything else.
+    let estimated_import_cost = (buildings as f64) * 4.0
+        + (terrain_filled_cells as f64) * 0.1
+        + (roads as f64) * 1.5
+        + (rails as f64) * 1.5
+        + (water as f64) * 1.0
+        + (landuse as f64) * 1.2
+        + (barriers as f64) * 0.8
+        + (props as f64) * 0.3
+        + (polygon_vertices as f64) * 0.05;
+
+    // Cheap gzip ratio estimate from JSON character distribution. JSON
+    // typically compresses to ~25-35% of source size; this gives ops a
+    // back-of-envelope number without needing to actually compress.
+    let bytes_gzip_estimate = (raw_bytes as f64 * 0.30) as u64;
+
+    ChunkProfile {
+        id: chunk_id.to_string(),
+        bytes: raw_bytes,
+        bytes_gzip_estimate,
+        feature_count,
+        roads,
+        rails,
+        buildings,
+        water,
+        props,
+        landuse,
+        barriers,
+        terrain_cells,
+        terrain_filled_cells,
+        terrain_fill_ratio,
+        polygon_vertices,
+        estimated_import_cost,
+    }
+}
+
+fn build_profile_report(
+    manifest_path: &str,
+    profiles: Vec<ChunkProfile>,
+) -> ProfileReport {
+    let chunk_count = profiles.len();
+    let total_bytes: u64 = profiles.iter().map(|c| c.bytes).sum();
+    let total_features: u64 = profiles.iter().map(|c| c.feature_count).sum();
+    let total_polygon_vertices: u64 = profiles.iter().map(|c| c.polygon_vertices).sum();
+    let total_terrain_cells: u64 = profiles.iter().map(|c| c.terrain_cells).sum();
+    let total_terrain_filled_cells: u64 = profiles.iter().map(|c| c.terrain_filled_cells).sum();
+
+    let avg_chunk_bytes = if chunk_count > 0 {
+        total_bytes / chunk_count as u64
+    } else {
+        0
+    };
+
+    let mut sorted_bytes: Vec<u64> = profiles.iter().map(|c| c.bytes).collect();
+    sorted_bytes.sort_unstable();
+    // Standard percentile index: round((n-1) * p). This correctly lands on
+    // the last element for p=1.0 and the first for p=0.0 on any n >= 1.
+    let percentile_index = |p: f64| -> usize {
+        if chunk_count == 0 {
+            return 0;
+        }
+        ((chunk_count as f64 - 1.0) * p).round() as usize
+    };
+    let p50_chunk_bytes = sorted_bytes
+        .get(percentile_index(0.50))
+        .copied()
+        .unwrap_or(0);
+    let p95_chunk_bytes = sorted_bytes
+        .get(percentile_index(0.95))
+        .copied()
+        .unwrap_or(0);
+    let max_chunk_bytes = *sorted_bytes.last().unwrap_or(&0);
+
+    ProfileReport {
+        manifest_path: manifest_path.to_string(),
+        chunk_count,
+        total_bytes,
+        total_features,
+        total_polygon_vertices,
+        total_terrain_cells,
+        total_terrain_filled_cells,
+        avg_chunk_bytes,
+        p50_chunk_bytes,
+        p95_chunk_bytes,
+        max_chunk_bytes,
+        chunks: profiles,
+    }
+}
+
+fn fmt_bytes(n: u64) -> String {
+    const KB: f64 = 1024.0;
+    const MB: f64 = 1024.0 * 1024.0;
+    let nf = n as f64;
+    if nf >= MB {
+        format!("{:.1} MB", nf / MB)
+    } else if nf >= KB {
+        format!("{:.1} KB", nf / KB)
+    } else {
+        format!("{} B", n)
+    }
+}
+
+fn print_profile_report_text(report: &ProfileReport, top_n: usize) {
+    println!("=================================================================");
+    println!("Manifest profile: {}", report.manifest_path);
+    println!("=================================================================");
+    println!("Chunks:                  {}", report.chunk_count);
+    println!("Total bytes:             {}", fmt_bytes(report.total_bytes));
+    println!(
+        "Avg chunk bytes:         {}  (p50 {}, p95 {}, max {})",
+        fmt_bytes(report.avg_chunk_bytes),
+        fmt_bytes(report.p50_chunk_bytes),
+        fmt_bytes(report.p95_chunk_bytes),
+        fmt_bytes(report.max_chunk_bytes),
+    );
+    println!("Total features:          {}", report.total_features);
+    println!("Total polygon vertices:  {}", report.total_polygon_vertices);
+    println!(
+        "Terrain cells:           {} ({} filled, {:.1}% density)",
+        report.total_terrain_cells,
+        report.total_terrain_filled_cells,
+        if report.total_terrain_cells > 0 {
+            100.0 * report.total_terrain_filled_cells as f64 / report.total_terrain_cells as f64
+        } else {
+            0.0
+        }
+    );
+    println!();
+
+    let mut by_cost: Vec<&ChunkProfile> = report.chunks.iter().collect();
+    by_cost.sort_by(|a, b| {
+        b.estimated_import_cost
+            .partial_cmp(&a.estimated_import_cost)
+            .unwrap_or(std::cmp::Ordering::Equal)
+    });
+
+    let n = top_n.min(by_cost.len());
+    println!("Top {} heaviest chunks (by estimated import cost):", n);
+    println!(
+        "{:<10}  {:>10}  {:>10}  {:>9}  {:>9}  {:>9}  {:>9}  {:>10}",
+        "id", "bytes", "gzip~", "features", "buildings", "polygons", "terrain%", "import_cost"
+    );
+    println!("{}", "-".repeat(85));
+    for chunk in by_cost.iter().take(n) {
+        println!(
+            "{:<10}  {:>10}  {:>10}  {:>9}  {:>9}  {:>9}  {:>8.1}%  {:>10.0}",
+            chunk.id,
+            fmt_bytes(chunk.bytes),
+            fmt_bytes(chunk.bytes_gzip_estimate),
+            chunk.feature_count,
+            chunk.buildings,
+            chunk.polygon_vertices,
+            chunk.terrain_fill_ratio * 100.0,
+            chunk.estimated_import_cost,
+        );
+    }
+    println!();
+    println!("Hint: pass --json for machine-readable output (full per-chunk records).");
+}
+
+fn cmd_profile(args: &[String]) -> Result<(), String> {
+    let mut manifest_path: Option<String> = None;
+    let mut split_mode = false;
+    let mut json_output = false;
+    let mut top_n: usize = 10;
+
+    let mut i = 0;
+    while i < args.len() {
+        match args[i].as_str() {
+            "--split" => split_mode = true,
+            "--json" => json_output = true,
+            "--top" => {
+                i += 1;
+                if i >= args.len() {
+                    return Err("--top requires a numeric argument".to_string());
+                }
+                top_n = args[i]
+                    .parse::<usize>()
+                    .map_err(|e| format!("--top expects a positive integer: {e}"))?;
+            }
+            arg if !arg.starts_with("--") && manifest_path.is_none() => {
+                manifest_path = Some(arg.to_string());
+            }
+            arg => return Err(format!("unknown arg: {arg}")),
+        }
+        i += 1;
+    }
+
+    let manifest_path = manifest_path
+        .ok_or("profile requires a manifest file path (or split index path with --split)")?;
+    let manifest_pathbuf = PathBuf::from(&manifest_path);
+
+    let raw = fs::read(&manifest_pathbuf)
+        .map_err(|e| format!("failed to read {}: {}", manifest_path, e))?;
+    let manifest: serde_json::Value = serde_json::from_slice(&raw)
+        .map_err(|e| format!("invalid JSON in {}: {}", manifest_path, e))?;
+
+    let mut profiles: Vec<ChunkProfile> = Vec::new();
+
+    if split_mode {
+        // Split-index format: chunkRefs metadata in index, chunks in sibling
+        // chunks/{id}.json files. We discover them via either an explicit
+        // chunkBaseUrl (URL → expect a chunks/ subdirectory) or a chunks/
+        // directory next to the index file.
+        let chunks_dir = manifest_pathbuf
+            .parent()
+            .map(|p| p.join("chunks"))
+            .ok_or("split mode requires the index file to have a parent directory")?;
+        if !chunks_dir.is_dir() {
+            return Err(format!(
+                "split mode: expected chunks directory at {}",
+                chunks_dir.display()
+            ));
+        }
+        let chunk_refs = manifest
+            .get("chunkRefs")
+            .and_then(|v| v.as_array())
+            .ok_or("split index missing chunkRefs array")?;
+        for chunk_ref in chunk_refs {
+            let id = chunk_ref
+                .get("id")
+                .and_then(|v| v.as_str())
+                .ok_or("chunkRef missing id")?;
+            let chunk_path = chunks_dir.join(format!("{}.json", id));
+            let chunk_raw = fs::read(&chunk_path)
+                .map_err(|e| format!("failed to read {}: {}", chunk_path.display(), e))?;
+            let chunk_value: serde_json::Value = serde_json::from_slice(&chunk_raw)
+                .map_err(|e| format!("invalid JSON in {}: {}", chunk_path.display(), e))?;
+            profiles.push(profile_chunk(id, &chunk_value, chunk_raw.len() as u64));
+        }
+    } else {
+        // Single-file manifest with inline chunks array.
+        let chunks = manifest
+            .get("chunks")
+            .and_then(|v| v.as_array())
+            .ok_or("manifest missing chunks array (use --split for split-index manifests)")?;
+        for chunk in chunks {
+            let id = chunk
+                .get("id")
+                .and_then(|v| v.as_str())
+                .unwrap_or("<unknown>");
+            // Approximate per-chunk byte size by re-serializing the chunk
+            // value. This is intentionally a re-serialize because the inline
+            // array doesn't preserve original formatting.
+            let chunk_bytes = serde_json::to_vec(chunk)
+                .map(|v| v.len() as u64)
+                .unwrap_or(0);
+            profiles.push(profile_chunk(id, chunk, chunk_bytes));
+        }
+    }
+
+    let report = build_profile_report(&manifest_path, profiles);
+
+    if json_output {
+        println!(
+            "{}",
+            serde_json::to_string_pretty(&report)
+                .map_err(|e| format!("JSON serialize error: {e}"))?
+        );
+    } else {
+        print_profile_report_text(&report, top_n);
+    }
+    Ok(())
+}
+
 fn cmd_planetary_store(args: &[String]) -> Result<(), String> {
     let Some(subcommand) = args.first().map(String::as_str) else {
         return Err(
@@ -6965,6 +7376,7 @@ fn main() {
         "scene-audit" => cmd_scene_audit(&args[1..]),
         "emit-runtime-lua" => cmd_emit_runtime_lua(&args[1..]),
         "audit-signal" => cmd_audit_signal(&args[1..]),
+        "profile" => cmd_profile(&args[1..]),
         "planetary-store" => cmd_planetary_store(&args[1..]),
         "explain" => {
             cmd_explain();

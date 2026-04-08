@@ -1243,39 +1243,87 @@ function RoadMeshAccumulator:addPrecomputedMesh(meshData, originStuds)
     if not verts or not tris or #verts < 3 or #tris < 3 then
         return
     end
-    local triCount = #tris / 3
+    -- Truncate to whole triples so a malformed chunk (e.g. a precomputed
+    -- mesh with a stray float or a stray index) can't crash the import
+    -- with "attempt to perform arithmetic (add) on number and nil". The
+    -- oversized-batch path below already guards reads with `or 0`; the
+    -- fast path needs matching defense.
+    local vertFloatCount = math.floor(#verts / 3) * 3
+    local triIndexCount = math.floor(#tris / 3) * 3
+    if vertFloatCount == 0 or triIndexCount == 0 then
+        return
+    end
+    local triCount = triIndexCount / 3
     if #self.triangles + triCount <= self.MAX_TRIANGLES then
         local base = #self.vertices
-        local ox, oy, oz = originStuds.X, originStuds.Y, originStuds.Z
-        for i = 1, #verts, 3 do
+        -- Accept both JSON-decoded manifest origins (lowercase {x,y,z}) and
+-- Roblox Vector3 origins (uppercase {X,Y,Z}). Pre-lazy-fetcher this
+-- path only saw Vector3 because the embedded SampleData trampolined
+-- through a conversion step, but the new external_url chunks pass
+-- chunk.originStuds through directly from the manifest table.
+local ox = originStuds.X or originStuds.x or 0
+local oy = originStuds.Y or originStuds.y or 0
+local oz = originStuds.Z or originStuds.z or 0
+        local vertexCountOut = vertFloatCount / 3
+        for i = 1, vertFloatCount, 3 do
             local vi = base + (i - 1) / 3 + 1
-            self.vertices[vi] = Vector3.new(verts[i] + ox, verts[i + 1] + oy, verts[i + 2] + oz)
-            self.normals[vi] = if norms and #norms >= i + 2
+            self.vertices[vi] = Vector3.new(
+                (verts[i] or 0) + ox,
+                (verts[i + 1] or 0) + oy,
+                (verts[i + 2] or 0) + oz
+            )
+            self.normals[vi] = if norms and #norms >= i + 2 and norms[i] and norms[i + 1] and norms[i + 2]
                 then Vector3.new(norms[i], norms[i + 1], norms[i + 2])
                 else Vector3.new(0, 1, 0)
         end
-        for i = 1, #tris, 3 do
-            self.triangles[#self.triangles + 1] = { base + tris[i] + 1, base + tris[i + 1] + 1, base + tris[i + 2] + 1 }
+        for i = 1, triIndexCount, 3 do
+            local a = tris[i]
+            local b = tris[i + 1]
+            local c = tris[i + 2]
+            -- Skip any triangle whose indices are nil or out of the range
+            -- of vertices we actually materialized — those would produce
+            -- a degenerate mesh and potentially another nil-index crash
+            -- downstream at flush time.
+            if a ~= nil and b ~= nil and c ~= nil
+                and a >= 0 and a < vertexCountOut
+                and b >= 0 and b < vertexCountOut
+                and c >= 0 and c < vertexCountOut
+            then
+                self.triangles[#self.triangles + 1] = {
+                    base + a + 1,
+                    base + b + 1,
+                    base + c + 1,
+                }
+            end
         end
         return
     end
     -- Oversized: flush existing, then split into batches
     self:flush()
-    local ox, oy, oz = originStuds.X, originStuds.Y, originStuds.Z
+    -- Accept both JSON-decoded manifest origins (lowercase {x,y,z}) and
+-- Roblox Vector3 origins (uppercase {X,Y,Z}). Pre-lazy-fetcher this
+-- path only saw Vector3 because the embedded SampleData trampolined
+-- through a conversion step, but the new external_url chunks pass
+-- chunk.originStuds through directly from the manifest table.
+local ox = originStuds.X or originStuds.x or 0
+local oy = originStuds.Y or originStuds.y or 0
+local oz = originStuds.Z or originStuds.z or 0
     local maxTrisPerBatch = self.MAX_TRIANGLES
     for batchStart = 1, #tris, maxTrisPerBatch * 3 do
         local batchEnd = math.min(batchStart + maxTrisPerBatch * 3 - 1, #tris)
         local vertexRemap = {}
         for i = batchStart, batchEnd do
             local rustIdx = tris[i]
-            if vertexRemap[rustIdx] == nil then
+            -- rustIdx can be nil if the incoming triangle list is sparse.
+            -- Using nil as a table key throws, so skip instead.
+            if rustIdx ~= nil and vertexRemap[rustIdx] == nil then
                 local fi = rustIdx * 3 + 1
                 local pos = Vector3.new(
                     (verts[fi] or 0) + ox,
                     (verts[fi + 1] or 0) + oy,
                     (verts[fi + 2] or 0) + oz
                 )
-                local normal = if norms and #norms >= fi + 2
+                local normal = if norms and #norms >= fi + 2 and norms[fi] and norms[fi + 1] and norms[fi + 2]
                     then Vector3.new(norms[fi], norms[fi + 1], norms[fi + 2])
                     else Vector3.new(0, 1, 0)
                 local vi = #self.vertices + 1
@@ -1285,11 +1333,12 @@ function RoadMeshAccumulator:addPrecomputedMesh(meshData, originStuds)
             end
         end
         for i = batchStart, batchEnd, 3 do
-            self.triangles[#self.triangles + 1] = {
-                vertexRemap[tris[i]],
-                vertexRemap[tris[i + 1]],
-                vertexRemap[tris[i + 2]],
-            }
+            local a = tris[i] ~= nil and vertexRemap[tris[i]] or nil
+            local b = tris[i + 1] ~= nil and vertexRemap[tris[i + 1]] or nil
+            local c = tris[i + 2] ~= nil and vertexRemap[tris[i + 2]] or nil
+            if a and b and c then
+                self.triangles[#self.triangles + 1] = { a, b, c }
+            end
         end
         if batchEnd < #tris then
             self:flush()

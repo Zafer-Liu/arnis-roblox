@@ -53,7 +53,26 @@ The pipeline is complete and demo-ready. All builders are production-quality:
 4. Use `arbx_cli compile --help` for CLI options.
 5. Run `cargo test --workspace` in `rust/` to verify the pipeline.
 6. Builders are in `roblox/src/ServerScriptService/ImportService/Builders/`.
-7. Gameplay is in `roblox/src/StarterPlayer/StarterPlayerScripts/`.
+7. Gameplay is in `roblox/src/StarterPlayer/StarterPlayerScripts/` — specifically `VehicleController.client.lua` is the MONOLITH for all traversal systems (car, jetpack, parachute, wingsuit, grapple). Do NOT create sibling controllers; they will collide on key bindings. Edit in place or split+delete in the same commit.
+
+## Automated iteration loop
+
+- One command runs the full build → publish → remote-harness → telemetry → audit cycle: `bash scripts/auto_loop.sh`.
+- This is the primary way to iterate without asking the user to rejoin the live game. Flip it after any runtime change and read the final `auto-loop finished: ... audit=PASS total=Xs` line.
+- Producer: `TelemetryReporter.lua` POSTs bootstrap stats (phases, chunk fetch latency, import counts, errors) to Cloudflare on success/failure.
+- Transport: `https://planetary.adpena.workers.dev/telemetry/run` (POST) + `GET /telemetry/latest?limit=N`.
+- Consumer: `scripts/fetch_telemetry.py` (pretty-print / JSON / watch) and `scripts/live_stream_audit.py` (assertions + exit codes 0/1/2/3).
+- Remote harness runs on tertiary (8GB M1 via Tailscale). `run_studio_harness_remote.sh` already handles rsync, sentinel-encoded ssh args, and SSD-redirected cargo target via `CARGO_TARGET_DIR=/Volumes/APDataStore/arnis/remote-studio/cargo-target`.
+
+## Runtime footguns — MUST NOT regress
+
+1. **Roblox `HttpService:RequestAsync` restricted headers**: never set `Accept-Encoding`, `User-Agent`, `Host`, `Origin`, `Referer`, `Content-Length`, `Transfer-Encoding`, `Connection`, `Via`. Engine throws `Header "X" is not allowed!` and aborts. Only `Accept`, `Content-Type`, custom `X-*`.
+2. **`chunk.originStuds`** is a JSON table with **lowercase** `{x, y, z}` — not a Vector3. All builders must use `local ox = originStuds.X or originStuds.x or 0` (dual-case fallback). Search for this pattern before adding a new builder.
+3. **Lua/Luau closure scope**: locals are only visible AFTER declaration. A closure defined earlier in the same block that references a later-declared local resolves it as nil (upvalue/global lookup). Declare locals BEFORE closures that need them.
+4. **`ssh host bash -s -- "$@"`** drops empty-string positional args. Use the `__EMPTY__` sentinel encode/decode helpers already in `run_studio_harness_remote.sh`.
+5. **`set -euo pipefail` + `grep` inside `$(...)`** silently kills the script when grep finds nothing. Every grep command substitution must `|| true` inside.
+6. **Never `source ~/.zshrc` from bash** — zsh-only syntax crashes bash and the error trips `set -e` before `|| true` runs. Use `zsh -c 'source ~/.zshrc; printf "%s" "$VAR"'` to extract env vars.
+7. **`ChunkSchema.validateManifest`** now accepts manifests with only `chunkRefs` (no inline `chunks`) so lazy streaming sources aren't forced through the embedded fallback. Do not add an `assert(#manifest.chunks > 0)` back.
 
 ## Non-Negotiable Execution Policy
 

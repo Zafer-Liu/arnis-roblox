@@ -1,6 +1,12 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+# Default the telemetry family selector the same way run_studio_harness.sh does
+# so that callers who only invoke the remote wrapper don't have to pre-export
+# it. Without this default, `set -u` trips the first time the variable is
+# referenced downstream (line ~531).
+export ARNIS_TELEMETRY_FAMILIES="${ARNIS_TELEMETRY_FAMILIES:-client_perf}"
+
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 LOCAL_ARNIS_DIR="$ROOT_DIR"
 COMMON_GIT_DIR="$(git -C "$ROOT_DIR" rev-parse --git-common-dir)"
@@ -170,6 +176,8 @@ LOCAL_MANIFEST_SUMMARY_PATH="$LOCAL_ARNIS_DIR/rust/out/austin-manifest.scene-ind
 PROOF_SYNC_TAIL_TIMEOUT_SECONDS="${ARNIS_REMOTE_STUDIO_TAIL_TIMEOUT_SECONDS:-20}"
 REMOTE_SESSION_OUTPUT_LOG="$(mktemp -t arnis-remote-harness-output)"
 SYNC_STAGE=1
+SWIFT_SCREENSHOT=0
+SWIFT_SCREENSHOT_WAIT_SECONDS=8
 
 REMOTE_ARNIS_DIR="$REMOTE_ROOT/arnis-roblox"
 REMOTE_VSYNC_DIR="$REMOTE_ROOT/vertigo-sync"
@@ -323,6 +331,140 @@ remote_completion_signal_detected() {
   rg -q 'main harness flow complete; exiting' "$REMOTE_SESSION_OUTPUT_LOG"
 }
 
+run_swift_screenshot_capture() {
+  # Defensive wrapper: never allow swift-screenshot failure to abort the
+  # overall harness run. Every step is guarded so a missing swiftc, a missing
+  # GUI session, or a Screen Recording permission denial just logs a line.
+  local log_prefix="[remote-harness] swift screenshot"
+  local local_swift_src="$LOCAL_ARNIS_DIR/scripts/capture_studio_sck.swift"
+
+  if [[ ! -f "$local_swift_src" ]]; then
+    echo "$log_prefix: skipped (missing local source $local_swift_src)"
+    return 0
+  fi
+
+  # Sync the source file to the remote so we can compile it there. The
+  # persistent remote stage may already have it via sync_repo_snapshot, but
+  # ensure the file exists on the remote even under --no-sync before we try
+  # to compile.
+  local remote_swift_src="$REMOTE_ARNIS_DIR/scripts/capture_studio_sck.swift"
+  if ! ensure_remote_parent_dir "$remote_swift_src" 2>/dev/null; then
+    echo "$log_prefix: ensure_remote_parent_dir failed"
+    return 0
+  fi
+  local rsync_remote_swift_src
+  rsync_remote_swift_src="$(render_rsync_remote_path "$remote_swift_src")"
+  if ! rsync -a "$local_swift_src" "$REMOTE_HOST:$rsync_remote_swift_src" >/dev/null 2>&1; then
+    echo "$log_prefix: rsync of capture_studio_sck.swift failed"
+    return 0
+  fi
+
+  local capture_result=""
+  local capture_tmp
+  capture_tmp="$(mktemp -t arnis-remote-swift-capture)"
+  ssh "$REMOTE_HOST" 'bash -s' -- "$remote_swift_src" "$SWIFT_SCREENSHOT_WAIT_SECONDS" >"$capture_tmp" 2>&1 <<'SH' || true
+set -u
+expand_remote_path() {
+  case "$1" in
+    __REMOTE_HOME__/*)
+      printf '%s\n' "$HOME/${1#__REMOTE_HOME__/}"
+      ;;
+    *)
+      printf '%s\n' "$1"
+      ;;
+  esac
+}
+
+remote_swift_src="$(expand_remote_path "$1")"
+wait_seconds="$2"
+bin_path="/tmp/capture_sck"
+png_path="/tmp/studio_sck.png"
+cmd_path="/tmp/arnis-studio-capture.command"
+
+if [[ ! -f "$remote_swift_src" ]]; then
+  printf 'error:missing-remote-source:%s\n' "$remote_swift_src"
+  exit 0
+fi
+
+if ! command -v swiftc >/dev/null 2>&1; then
+  printf 'error:swiftc-not-found\n'
+  exit 0
+fi
+
+# Recompile if binary is missing or older than source.
+needs_compile=0
+if [[ ! -x "$bin_path" ]]; then
+  needs_compile=1
+elif [[ "$remote_swift_src" -nt "$bin_path" ]]; then
+  needs_compile=1
+fi
+
+if [[ "$needs_compile" -eq 1 ]]; then
+  if ! swiftc "$remote_swift_src" -parse-as-library -o "$bin_path" \
+       -framework Cocoa -framework ScreenCaptureKit >/tmp/capture_sck_build.log 2>&1; then
+    printf 'error:swiftc-failed (see /tmp/capture_sck_build.log)\n'
+    exit 0
+  fi
+fi
+
+# Refresh the PNG so we can detect that the new capture actually wrote it.
+rm -f "$png_path" 2>/dev/null || true
+
+# Wrapper .command file that activates Studio and runs the binary. Terminal.app
+# has Screen Recording permission when launched through the GUI session, so we
+# relay the capture through an `open`ed .command file.
+cat > "$cmd_path" <<'CMD'
+#!/bin/bash
+osascript -e 'tell application "RobloxStudio" to activate' >/dev/null 2>&1 || \
+  osascript -e 'tell application "Roblox Studio" to activate' >/dev/null 2>&1 || true
+sleep 1
+/tmp/capture_sck >/tmp/capture_sck_run.log 2>&1
+CMD
+chmod +x "$cmd_path"
+
+if ! open "$cmd_path" >/dev/null 2>&1; then
+  printf 'error:open-command-failed\n'
+  exit 0
+fi
+
+# Poll for the PNG to appear, up to wait_seconds.
+waited=0
+while (( waited < wait_seconds )); do
+  if [[ -f "$png_path" ]]; then
+    size="$(stat -f%z "$png_path" 2>/dev/null || echo 0)"
+    if [[ "$size" -gt 0 ]]; then
+      printf 'ok:%s:%s\n' "$png_path" "$size"
+      exit 0
+    fi
+  fi
+  sleep 1
+  waited=$((waited + 1))
+done
+
+printf 'error:timeout-waiting-for-png\n'
+exit 0
+SH
+  capture_result="$(tr -d '\r' < "$capture_tmp" | tail -n 1 || true)"
+  rm -f "$capture_tmp"
+
+  echo "$log_prefix: remote=$capture_result"
+
+  if [[ "$capture_result" != ok:* ]]; then
+    return 0
+  fi
+
+  local remote_png="/tmp/studio_sck.png"
+  local ts
+  ts="$(date +%Y%m%d-%H%M%S)"
+  local local_png="/tmp/arnis-studio-harness-swift-${ts}.png"
+  if scp "$REMOTE_HOST:$remote_png" "$local_png" >/dev/null 2>&1; then
+    echo "$log_prefix: saved $local_png"
+  else
+    echo "$log_prefix: scp of $remote_png failed"
+  fi
+  return 0
+}
+
 trap 'cleanup_remote_harness' EXIT INT TERM
 
 usage() {
@@ -338,11 +480,25 @@ Remote runner options:
   --remote-host HOST   Remote SSH host. Overrides profile/local config.
   --remote-root PATH   Persistent remote stage root. Overrides profile/local config.
   --no-sync            Reuse the existing remote stage without rsyncing local snapshots.
+  --swift-screenshot   After the remote harness session finishes, compile (if
+                       needed) and run scripts/capture_studio_sck.swift on the
+                       remote host via a GUI-session relay, then scp the
+                       resulting /tmp/studio_sck.png back to
+                       /tmp/arnis-studio-harness-swift-<timestamp>.png on this
+                       machine. Failures are logged but never abort the run.
   --help               Show this help.
 
 Local config:
   Create scripts/remote_studio_profiles.local.sh from the example template:
     $EXAMPLE_REMOTE_CONFIG
+
+Cargo target relocation:
+  Set ARNIS_REMOTE_STUDIO_VSYNC_TARGET_SSD_BASE (or its profile-scoped form,
+  e.g. ARNIS_REMOTE_STUDIO_VSYNC_TARGET_SSD_BASE_TERTIARY) to relocate the
+  remote vertigo-sync cargo target dir under "<ssd-base>/vertigo-sync".
+  ARNIS_REMOTE_STUDIO_VSYNC_TARGET_DIR (and its scoped form) still wins if set
+  explicitly. If the SSD volume is not mounted at run time, the remote falls
+  back to the internal-disk default automatically.
 
 All remaining arguments are forwarded to scripts/run_studio_harness.sh on the remote host.
 Example:
@@ -370,6 +526,10 @@ while [[ $# -gt 0 ]]; do
       ;;
     --no-sync)
       SYNC_STAGE=0
+      shift
+      ;;
+    --swift-screenshot)
+      SWIFT_SCREENSHOT=1
       shift
       ;;
     --help)
@@ -436,6 +596,16 @@ REMOTE_ROOT="${REMOTE_ROOT:-$(resolve_profile_value ARNIS_REMOTE_STUDIO_ROOT "$R
 REMOTE_ARNIS_BASE="${REMOTE_ARNIS_BASE:-$(resolve_profile_value ARNIS_REMOTE_STUDIO_BASE_ARNIS "$REMOTE_PROFILE" "$DEFAULT_REMOTE_ARNIS_BASE")}"
 REMOTE_VSYNC_BASE="${REMOTE_VSYNC_BASE:-$(resolve_profile_value ARNIS_REMOTE_STUDIO_BASE_VSYNC "$REMOTE_PROFILE" "$DEFAULT_REMOTE_VSYNC_BASE")}"
 REMOTE_VSYNC_TARGET_DIR="${REMOTE_VSYNC_TARGET_DIR:-$(resolve_profile_value ARNIS_REMOTE_STUDIO_VSYNC_TARGET_DIR "$REMOTE_PROFILE" "$REMOTE_VSYNC_BASE/target")}"
+# Optional SSD relocation: if ARNIS_REMOTE_STUDIO_VSYNC_TARGET_SSD_BASE (or its
+# profile-scoped variant) is set, derive the cargo target dir from
+# "<ssd-base>/vertigo-sync" so cold builds don't fill the remote internal disk.
+# The remote-side build heredoc verifies the SSD is mounted before using it and
+# falls back to the internal default if not.
+REMOTE_VSYNC_TARGET_SSD_BASE="$(resolve_profile_value ARNIS_REMOTE_STUDIO_VSYNC_TARGET_SSD_BASE "$REMOTE_PROFILE" "")"
+REMOTE_VSYNC_TARGET_DIR_FALLBACK="$REMOTE_VSYNC_BASE/target"
+if [[ -n "$REMOTE_VSYNC_TARGET_SSD_BASE" ]]; then
+  REMOTE_VSYNC_TARGET_DIR="$REMOTE_VSYNC_TARGET_SSD_BASE/vertigo-sync"
+fi
 REMOTE_ARNIS_DIR="$REMOTE_ROOT/arnis-roblox"
 REMOTE_VSYNC_DIR="$REMOTE_ROOT/vertigo-sync"
 REMOTE_ROUTE_BUNDLE_DIR=""
@@ -528,8 +698,44 @@ fi
 reset_remote_proof_artifacts
 
 REMOTE_HARNESS_ACTIVE=1
-ssh "$REMOTE_HOST" 'bash -s' -- "$SYNC_STAGE" "$REMOTE_ARNIS_DIR" "$REMOTE_VSYNC_DIR" "$REMOTE_VSYNC_TARGET_DIR" "$REMOTE_ROUTE_BUNDLE_DIR" "$ARNIS_TELEMETRY_FAMILIES" "$REMOTE_HARNESS_PGID_FILE" "$REMOTE_HARNESS_STDOUT_LOG" "$REMOTE_HARNESS_EXIT_FILE" "$REMOTE_HARNESS_LOCK_DIR" "${HARNESS_ARGS[@]}" <<'SH'
+# NOTE: `ssh host bash -s -- "" "foo"` collapses empty-string positional
+# args on the remote side (OpenSSH builds the remote command as a
+# word-split string, not a quoted argv array), so any empty arg in this
+# list would shift every downstream positional by -1 and corrupt the
+# argument order. We substitute `__EMPTY__` as a sentinel for any arg
+# that may legitimately be empty (REMOTE_ROUTE_BUNDLE_DIR) and decode it
+# back to "" on the remote side. This matches how ARNIS_TELEMETRY_FAMILIES
+# and other optional args have to be passed over ssh.
+POSITIONAL_EMPTY="__EMPTY__"
+sanitize_positional() {
+  if [[ -z "$1" ]]; then
+    printf '%s' "$POSITIONAL_EMPTY"
+  else
+    printf '%s' "$1"
+  fi
+}
+ssh "$REMOTE_HOST" 'bash -s' -- \
+  "$(sanitize_positional "$SYNC_STAGE")" \
+  "$(sanitize_positional "$REMOTE_ARNIS_DIR")" \
+  "$(sanitize_positional "$REMOTE_VSYNC_DIR")" \
+  "$(sanitize_positional "$REMOTE_VSYNC_TARGET_DIR")" \
+  "$(sanitize_positional "$REMOTE_VSYNC_TARGET_DIR_FALLBACK")" \
+  "$(sanitize_positional "$REMOTE_ROUTE_BUNDLE_DIR")" \
+  "$(sanitize_positional "$ARNIS_TELEMETRY_FAMILIES")" \
+  "$(sanitize_positional "$REMOTE_HARNESS_PGID_FILE")" \
+  "$(sanitize_positional "$REMOTE_HARNESS_STDOUT_LOG")" \
+  "$(sanitize_positional "$REMOTE_HARNESS_EXIT_FILE")" \
+  "$(sanitize_positional "$REMOTE_HARNESS_LOCK_DIR")" \
+  "${HARNESS_ARGS[@]}" <<'SH'
 set -euo pipefail
+POSITIONAL_EMPTY="__EMPTY__"
+decode_positional() {
+  if [[ "$1" == "$POSITIONAL_EMPTY" ]]; then
+    printf ''
+  else
+    printf '%s' "$1"
+  fi
+}
 expand_remote_path() {
   case "$1" in
     __REMOTE_HOME__/*)
@@ -541,25 +747,27 @@ expand_remote_path() {
   esac
 }
 
-sync_stage="$1"
+sync_stage="$(decode_positional "$1")"
 shift
-remote_arnis_dir="$(expand_remote_path "$1")"
+remote_arnis_dir="$(expand_remote_path "$(decode_positional "$1")")"
 shift
-remote_vsync_dir="$(expand_remote_path "$1")"
+remote_vsync_dir="$(expand_remote_path "$(decode_positional "$1")")"
 shift
-remote_vsync_target_dir="$(expand_remote_path "$1")"
+remote_vsync_target_dir="$(expand_remote_path "$(decode_positional "$1")")"
 shift
-remote_route_bundle_dir="$(expand_remote_path "$1")"
+remote_vsync_target_dir_fallback="$(expand_remote_path "$(decode_positional "$1")")"
 shift
-remote_telemetry_families="$1"
+remote_route_bundle_dir="$(expand_remote_path "$(decode_positional "$1")")"
 shift
-remote_harness_pgid_file="$(expand_remote_path "$1")"
+remote_telemetry_families="$(decode_positional "$1")"
 shift
-remote_harness_stdout_log="$(expand_remote_path "$1")"
+remote_harness_pgid_file="$(expand_remote_path "$(decode_positional "$1")")"
 shift
-remote_harness_exit_file="$(expand_remote_path "$1")"
+remote_harness_stdout_log="$(expand_remote_path "$(decode_positional "$1")")"
 shift
-remote_harness_lock_dir="$(expand_remote_path "$1")"
+remote_harness_exit_file="$(expand_remote_path "$(decode_positional "$1")")"
+shift
+remote_harness_lock_dir="$(expand_remote_path "$(decode_positional "$1")")"
 shift
 
 ensure_remote_stage_ready() {
@@ -603,6 +811,27 @@ needs_vsync_build() {
 }
 
 ensure_remote_stage_ready "$remote_arnis_dir" "$remote_vsync_dir"
+
+# If the cargo target dir was relocated to an SSD (e.g. /Volumes/<name>/...),
+# verify the volume is mounted before trusting it. Otherwise fall back to the
+# internal-disk default so a missing SSD never wedges the build.
+if [[ -n "$remote_vsync_target_dir_fallback" \
+      && "$remote_vsync_target_dir" != "$remote_vsync_target_dir_fallback" ]]; then
+  ssd_ok=1
+  case "$remote_vsync_target_dir" in
+    /Volumes/*)
+      ssd_volume_root="/Volumes/$(printf '%s' "${remote_vsync_target_dir#/Volumes/}" | cut -d/ -f1)"
+      if [[ ! -d "$ssd_volume_root" ]] || ! mount | grep -q " on $ssd_volume_root "; then
+        ssd_ok=0
+      fi
+      ;;
+  esac
+  if [[ $ssd_ok -eq 0 ]]; then
+    echo "[remote-harness] SSD path not available, falling back to internal disk" >&2
+    remote_vsync_target_dir="$remote_vsync_target_dir_fallback"
+  fi
+fi
+mkdir -p "$remote_vsync_target_dir"
 
 if needs_vsync_build "$remote_vsync_dir" "$remote_vsync_target_dir"; then
 CARGO_TARGET_DIR="$remote_vsync_target_dir" \
@@ -684,6 +913,10 @@ fi
 
 REMOTE_HARNESS_ACTIVE=0
 sync_remote_artifacts
+
+if [[ $SWIFT_SCREENSHOT -eq 1 ]]; then
+  run_swift_screenshot_capture || true
+fi
 
 if [[ $remote_exit_code -ne 0 ]]; then
   exit "$remote_exit_code"

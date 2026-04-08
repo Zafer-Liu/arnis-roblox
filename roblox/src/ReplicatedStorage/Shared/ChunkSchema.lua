@@ -212,8 +212,25 @@ function ChunkSchema.validateManifest(manifest)
         )
     end
 
-    assertType(manifest.chunks, "table", "manifest.chunks must be an array-like table")
-    assert(#manifest.chunks > 0, "manifest.chunks must contain at least one chunk")
+    -- A valid manifest must have EITHER an inline `chunks` array (legacy
+    -- embedded path) OR a `chunkRefs` array with some out-of-band chunk
+    -- source (split-index / lazy streaming path, where chunks are fetched
+    -- on demand). Previously we required `chunks` to be present and
+    -- non-empty, which broke the external_url lazy fetcher introduced in
+    -- the Cesium-style streaming refactor — the loader would successfully
+    -- fetch the index, fail here on validation, and silently fall back to
+    -- embedded SampleData, which is not present in scripts-only builds.
+    local hasInlineChunks = type(manifest.chunks) == "table" and #manifest.chunks > 0
+    local hasChunkRefs = type(manifest.chunkRefs) == "table" and #manifest.chunkRefs > 0
+    assert(
+        hasInlineChunks or hasChunkRefs,
+        "manifest must have either a non-empty `chunks` array or a non-empty `chunkRefs` array"
+    )
+    if manifest.chunks ~= nil then
+        assertType(manifest.chunks, "table", "manifest.chunks must be an array-like table")
+    else
+        manifest.chunks = {}
+    end
 
     ChunkSchema.validateChunkRefs(manifest.chunkRefs)
 

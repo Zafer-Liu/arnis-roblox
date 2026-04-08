@@ -472,28 +472,53 @@ function WaterBuilder.BuildPrecomputedMesh(parent, water, originStuds)
         return false
     end
 
-    local ox, oy, oz = originStuds.X, originStuds.Y, originStuds.Z
-    local vertexIds = table.create(#verts / 3)
+    -- Accept both JSON-decoded manifest origins (lowercase {x,y,z}) and
+    -- Roblox Vector3 origins (uppercase {X,Y,Z}). Under the lazy external
+    -- fetcher chunks are passed through directly from the manifest JSON.
+    local ox = originStuds.X or originStuds.x or 0
+    local oy = originStuds.Y or originStuds.y or 0
+    local oz = originStuds.Z or originStuds.z or 0
+    -- Truncate to whole triples so malformed meshes can't crash with
+    -- "attempt to perform arithmetic on number and nil".
+    local vertsLen = math.floor(#verts / 3) * 3
+    local trisLen = math.floor(#tris / 3) * 3
+    local vertexCountOut = vertsLen / 3
+    local vertexIds = table.create(vertexCountOut)
     -- Load vertices (every 3 floats = one Vector3) with origin offset
-    for i = 1, #verts, 3 do
+    for i = 1, vertsLen, 3 do
         local vi = (i - 1) / 3 + 1
-        local pos = Vector3.new(verts[i] + ox, verts[i + 1] + oy, verts[i + 2] + oz)
+        local pos = Vector3.new(
+            (verts[i] or 0) + ox,
+            (verts[i + 1] or 0) + oy,
+            (verts[i + 2] or 0) + oz
+        )
         vertexIds[vi] = mesh:AddVertex(pos)
         -- Set normals if available
-        if norms and #norms >= i + 2 then
+        if norms and #norms >= i + 2 and norms[i] and norms[i + 1] and norms[i + 2] then
             pcall(function()
                 mesh:SetVertexNormal(vertexIds[vi], Vector3.new(norms[i], norms[i + 1], norms[i + 2]))
             end)
         end
     end
 
-    -- Load triangles (convert 0-based Rust indices to 1-based)
-    for i = 1, #tris, 3 do
-        local v1 = vertexIds[tris[i] + 1]
-        local v2 = vertexIds[tris[i + 1] + 1]
-        local v3 = vertexIds[tris[i + 2] + 1]
-        if v1 and v2 and v3 then
-            mesh:AddTriangle(v1, v2, v3)
+    -- Load triangles (convert 0-based Rust indices to 1-based). Skip any
+    -- triangle whose indices are nil or out of range of the vertices we
+    -- actually materialized.
+    for i = 1, trisLen, 3 do
+        local a = tris[i]
+        local b = tris[i + 1]
+        local c = tris[i + 2]
+        if a ~= nil and b ~= nil and c ~= nil
+            and a >= 0 and a < vertexCountOut
+            and b >= 0 and b < vertexCountOut
+            and c >= 0 and c < vertexCountOut
+        then
+            local v1 = vertexIds[a + 1]
+            local v2 = vertexIds[b + 1]
+            local v3 = vertexIds[c + 1]
+            if v1 and v2 and v3 then
+                mesh:AddTriangle(v1, v2, v3)
+            end
         end
     end
 

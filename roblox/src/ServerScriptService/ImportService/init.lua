@@ -1540,6 +1540,7 @@ function ImportService.ImportManifest(manifest, options)
     end
 
     for chunkIndex, chunk in ipairs(chunksToImport) do
+        local chunkStartClock = os.clock()
         local perChunkOptions = table.clone(chunkOptions)
         local registrationChunk = registrationChunksById and registrationChunksById[chunk.id] or nil
         local terrainNeighborContext = terrainNeighborContextByChunkId[chunk.id]
@@ -1549,6 +1550,28 @@ function ImportService.ImportManifest(manifest, options)
             perChunkOptions.terrainNeighbors = terrainNeighborContext.neighbors
             perChunkOptions.terrainNeighborSignature = terrainNeighborContext.signature
         end
+
+        -- Surface per-chunk feature counts so a slow chunk has a face: the
+        -- bootstrap log line gives us a fingerprint to recognize next time
+        -- without needing the Studio profiler.
+        local featureCount = (#(chunk.roads or {}))
+            + (#(chunk.rails or {}))
+            + (#(chunk.buildings or {}))
+            + (#(chunk.water or {}))
+            + (#(chunk.props or {}))
+            + (#(chunk.landuse or {}))
+            + (#(chunk.barriers or {}))
+
+        LoadingScreen.UpdateProgress(
+            (chunkIndex - 1) / #chunksToImport,
+            string.format(
+                "Building chunk %d/%d (%d features)...",
+                chunkIndex,
+                #chunksToImport,
+                featureCount
+            )
+        )
+
         local chunkFolder, artifactCount = ImportService.ImportChunk(chunk, perChunkOptions)
 
         stats.chunksImported += 1
@@ -1563,9 +1586,22 @@ function ImportService.ImportManifest(manifest, options)
 
         MinimapService.RegisterChunk(chunkFolder, chunk)
 
+        local chunkElapsed = os.clock() - chunkStartClock
+        print(
+            string.format(
+                "[ImportManifest] chunk %s (%d/%d) imported in %.2fs (%d features, %d instances)",
+                tostring(chunk.id or chunkIndex),
+                chunkIndex,
+                #chunksToImport,
+                chunkElapsed,
+                featureCount,
+                artifactCount or 0
+            )
+        )
+
         LoadingScreen.UpdateProgress(
             chunkIndex / #chunksToImport,
-            string.format("Building chunk %d/%d...", chunkIndex, #chunksToImport)
+            string.format("Built chunk %d/%d (%d features)", chunkIndex, #chunksToImport, featureCount)
         )
 
         if nonBlocking then

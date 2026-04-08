@@ -8,9 +8,15 @@ local DefaultWorldConfig = require(ReplicatedStorage.Shared.WorldConfig)
 local StreamingRuntimeConfig = require(ReplicatedStorage.Shared.StreamingRuntimeConfig)
 
 local RunAustin = {}
-RunAustin.LOAD_RADIUS = 1500
+-- LOAD_RADIUS is the synchronous spawn ring — chunks within this radius are
+-- materialized BEFORE the player spawns. Everything outside streams in
+-- afterwards via StreamingService.Update on the heartbeat. Tight ring =
+-- fast spawn. With chunkSizeStuds=256, a radius of 320 yields 1-7 chunks
+-- depending on which corner the spawn point lands in. The previous value
+-- of 1500 produced 30+ chunks, blocking the player on ~20s of import.
+RunAustin.LOAD_RADIUS = 320
 RunAustin.FRAME_BUDGET_SECONDS = 1 / 240
-RunAustin.STARTUP_CHUNK_COUNT = 2
+RunAustin.STARTUP_CHUNK_COUNT = 1
 RunAustin.MANIFEST_WAIT_TIMEOUT_SECONDS = 30
 RunAustin.CANONICAL_MANIFEST_INDEX_NAME = CanonicalWorldContract.resolveCanonicalManifestFamily()
 RunAustin.ROUTE_CATALOG_ATTR = "VertigoRouteCatalogName"
@@ -157,7 +163,7 @@ function RunAustin.run(options)
     if not success then
         setPerfAttribute("Status", "load_failed")
         warn(("[RunAustin] Failed to load %s:"):format(RunAustin.getManifestName()), manifestOrErr)
-        return nil
+        return nil, tostring(manifestOrErr)
     end
 
     local manifestSource = manifestOrErr
@@ -216,6 +222,65 @@ function RunAustin.run(options)
         startupChunkCount = RunAustin.STARTUP_CHUNK_COUNT,
         registrationChunksById = startupChunkRefsById,
     })
+
+    -- Background prefetch hint: as soon as the synchronous spawn ring is in
+    -- the world, fire-and-forget a fetch of the next ring (2× spawn radius).
+    -- This warms the cache so when StreamingService.Update reaches a chunk
+    -- the player is moving toward, it's already decoded and ready to
+    -- materialize without an HTTP round trip. The chunk source dedupes
+    -- already-cached chunks, so this is safe to call repeatedly.
+    --
+    -- The cancellation token is a Workspace attribute that the bootstrap
+    -- stamps before each run. If a new bootstrap attempt supersedes this
+    -- one (teardown + restart), the attempt id advances and the background
+    -- prefetch loop exits before firing against a stale manifest handle.
+    -- This closes the reference-leak window flagged by the reviewer.
+    if type(manifestSource.PrefetchChunks) == "function"
+        and type(manifestSource.GetChunkIdsWithinRadius) == "function"
+    then
+        local prefetchRadius = RunAustin.LOAD_RADIUS * 2
+        local outerIds = manifestSource:GetChunkIdsWithinRadius(loadCenter, prefetchRadius)
+        local alreadyHave = {}
+        for _, chunk in ipairs(initialChunks) do
+            if chunk and chunk.id then
+                alreadyHave[chunk.id] = true
+            end
+        end
+        local toPrefetch = {}
+        for _, id in ipairs(outerIds or {}) do
+            if not alreadyHave[id] then
+                table.insert(toPrefetch, id)
+            end
+        end
+        if #toPrefetch > 0 then
+            local attemptId = Workspace:GetAttribute("ArnisAustinBootstrapAttemptId")
+            print(
+                ("[RunAustin] Background prefetch hint: %d outer-ring chunks queued (attempt=%s)"):format(
+                    #toPrefetch,
+                    tostring(attemptId)
+                )
+            )
+            task.spawn(function()
+                -- Re-check the attempt id right before firing. If the
+                -- bootstrap was torn down and restarted between scheduling
+                -- and this coroutine waking up, abort silently. The
+                -- attempt-id guard is sufficient on its own — we do NOT
+                -- additionally gate on manifestSourceKind because that
+                -- would silently skip prefetch for roblox_asset-sourced
+                -- manifests which also have a meaningful PrefetchChunks
+                -- implementation.
+                if Workspace:GetAttribute("ArnisAustinBootstrapAttemptId") ~= attemptId then
+                    return
+                end
+                local ok, err = pcall(function()
+                    manifestSource:PrefetchChunks(toPrefetch)
+                end)
+                if not ok then
+                    warn(("[RunAustin] Background prefetch failed: %s"):format(tostring(err)))
+                end
+            end)
+        end
+    end
     local worldRoot = Workspace:FindFirstChild("GeneratedWorld_Austin")
     setPerfAttribute("WorldRootName", "GeneratedWorld_Austin")
     if worldRoot then
@@ -240,11 +305,23 @@ function RunAustin.run(options)
         )
     )
 
+    -- Read manifestSourceKind directly from the resolved manifest handle
+    -- (annotated by CanonicalWorldContract.loadCanonicalManifestSource)
+    -- rather than from the Workspace attribute that setPerfAttribute stamps
+    -- at RunAustin.loadManifestSource entry. The attribute is derived purely
+    -- from whether a route catalog name was provided and can only ever be
+    -- "route_catalog" or "canonical_manifest" — it never reflects
+    -- "external_url" or "roblox_asset" even when those are the real source
+    -- kind. The downstream SceneMarkerEmitter + audit pipeline keys off this
+    -- field, so the attribute-based read was shipping wrong telemetry.
+    local resolvedSourceKind = (type(manifestSource) == "table" and manifestSource.manifestSourceKind)
+        or Workspace:GetAttribute("VertigoAustinManifestSourceKind")
+
     return {
         manifest = initialManifest,
         manifestSource = manifestSource,
         resolvedManifestName = resolvedManifestName,
-        manifestSourceKind = Workspace:GetAttribute("VertigoAustinManifestSourceKind"),
+        manifestSourceKind = resolvedSourceKind,
         stats = stats,
         phaseSummary = phaseSummary,
         focusPoint = loadCenter,
