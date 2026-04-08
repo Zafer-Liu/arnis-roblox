@@ -39,10 +39,8 @@ local STARTUP_STREAMING_TIMEOUT_SECONDS = 10
 local STARTUP_STREAMING_POLL_INTERVAL_SECONDS = 0.1
 local STARTUP_STREAMING_REQUIRED_READY_POLLS = 3
 
-if not RunService:IsStudio() then
-    warn("[BootstrapAustin] Refusing to auto-import Austin outside Studio.")
-    return
-end
+-- NOTE: Previously gated to Studio-only. Removed to enable live Roblox
+-- deployment. The bootstrap now runs on both Studio and production servers.
 
 local bootstrapMachine, duplicateAttempt = BootstrapStateMachine.begin(Workspace, script:GetFullName())
 if duplicateAttempt then
