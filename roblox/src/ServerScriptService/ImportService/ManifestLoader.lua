@@ -1138,4 +1138,284 @@ function ManifestLoader.LoadFromFile(_path)
     return nil
 end
 
+-- ─────────────────────────────────────────────────────────────────────────────
+-- External manifest loading (HttpService / AssetService).
+--
+-- These resolvers exist so that release builds can keep `roblox/src/ServerStorage/SampleData/`
+-- excluded from the .rbxlx and instead pull manifest JSON from external storage at
+-- runtime. The current `require()` Lua-shard path is preserved as the default and as
+-- the fallback when external sources fail.
+--
+-- The returned object exposes the same surface used by ChunkLoader / StreamingService
+-- (chunkRefs, GetChunk, GetChunkFingerprint, LoadChunks, GetChunkIdsWithinRadius,
+-- LoadChunksWithinRadius, MaterializeManifest) so callers do not need to special-case it.
+-- ─────────────────────────────────────────────────────────────────────────────
+
+local externalManifestCache = {}
+
+local function djb2Fingerprint(str)
+    local hash = 5381
+    for i = 1, #str do
+        hash = ((hash * 33) + string.byte(str, i)) % 4294967296
+    end
+    return string.format("djb2:%08x", hash)
+end
+
+local function buildInMemoryHandle(manifest, sourceTag)
+    if type(manifest) ~= "table" then
+        error("In-memory manifest must be a table")
+    end
+    manifest = ChunkSchema.validateManifest(manifest)
+
+    local chunks = manifest.chunks or {}
+    local chunkRefs = manifest.chunkRefs
+    if not hasChunkRefs(chunkRefs) then
+        chunkRefs = table.create(#chunks)
+        for index, chunk in ipairs(chunks) do
+            chunkRefs[index] = {
+                id = chunk.id,
+                originStuds = chunk.originStuds and table.clone(chunk.originStuds) or { x = 0, y = 0, z = 0 },
+                shards = {},
+            }
+        end
+    else
+        chunkRefs = cloneChunkRefs(chunkRefs)
+    end
+    ChunkSchema.validateChunkRefs(chunkRefs)
+
+    local chunksById = {}
+    local chunkOrder = table.create(#chunks)
+    for _, chunk in ipairs(chunks) do
+        chunksById[chunk.id] = chunk
+        table.insert(chunkOrder, chunk.id)
+    end
+
+    local fingerprintBase = sourceTag or "in_memory"
+    local fingerprintsByChunkId = {}
+
+    local handle = {
+        schemaVersion = manifest.schemaVersion,
+        meta = manifest.meta,
+        chunkRefs = chunkRefs,
+        manifestSourceKind = "external",
+    }
+
+    function handle:ResolveChunkRef(chunkId)
+        for _, chunkRef in ipairs(self.chunkRefs) do
+            if chunkRef.id == chunkId then
+                return chunkRef
+            end
+        end
+        return nil
+    end
+
+    function handle:GetChunk(chunkId)
+        local chunk = chunksById[chunkId]
+        if chunk == nil then
+            error(("Unknown external chunk id: %s"):format(tostring(chunkId)))
+        end
+        return chunk
+    end
+
+    function handle:GetChunkFingerprint(chunkId)
+        local cached = fingerprintsByChunkId[chunkId]
+        if cached ~= nil then
+            return cached
+        end
+        cached = ("%s:%s"):format(fingerprintBase, tostring(chunkId))
+        fingerprintsByChunkId[chunkId] = cached
+        return cached
+    end
+
+    function handle:LoadChunks(chunkIds)
+        local requestedChunkIds = chunkIds or {}
+        local out = table.create(#requestedChunkIds)
+        for index, chunkId in ipairs(requestedChunkIds) do
+            out[index] = self:GetChunk(chunkId)
+        end
+        return out
+    end
+
+    function handle:GetChunkIdsWithinRadius(loadCenter, loadRadius)
+        if not loadRadius then
+            local ids = table.create(#self.chunkRefs)
+            for index, chunkRef in ipairs(self.chunkRefs) do
+                ids[index] = chunkRef.id
+            end
+            return ids
+        end
+
+        local centerX = loadCenter and loadCenter.X or 0
+        local centerZ = loadCenter and loadCenter.Z or 0
+        local chunkSize = self.meta and self.meta.chunkSizeStuds or 256
+        local loadRadiusSq = loadRadius * loadRadius
+        local ids = table.create(#self.chunkRefs)
+        for _, chunkRef in ipairs(self.chunkRefs) do
+            local origin = chunkRef.originStuds or { x = 0, z = 0 }
+            local chunkCenterX = origin.x + chunkSize * 0.5
+            local chunkCenterZ = origin.z + chunkSize * 0.5
+            local dx = chunkCenterX - centerX
+            local dz = chunkCenterZ - centerZ
+            if dx * dx + dz * dz <= loadRadiusSq then
+                table.insert(ids, chunkRef.id)
+            end
+        end
+        return ids
+    end
+
+    function handle:LoadChunksWithinRadius(loadCenter, loadRadius)
+        return self:LoadChunks(self:GetChunkIdsWithinRadius(loadCenter, loadRadius))
+    end
+
+    function handle:MaterializeManifest()
+        local materialized = newManifest({
+            schemaVersion = self.schemaVersion,
+            meta = self.meta,
+        }, self.chunkRefs)
+        materialized.chunks = table.create(#chunkOrder)
+        for _, chunkId in ipairs(chunkOrder) do
+            table.insert(materialized.chunks, chunksById[chunkId])
+        end
+        return ChunkSchema.validateManifest(materialized)
+    end
+
+    return handle
+end
+
+function ManifestLoader.LoadFromInMemoryManifest(manifest, sourceTag)
+    return buildInMemoryHandle(manifest, sourceTag)
+end
+
+local function decodeManifestJson(rawJson, sourceTag)
+    if type(rawJson) ~= "string" or rawJson == "" then
+        error(("External manifest payload from %s was empty"):format(tostring(sourceTag)))
+    end
+    local HttpService = game:GetService("HttpService")
+    local ok, decoded = pcall(function()
+        return HttpService:JSONDecode(rawJson)
+    end)
+    if not ok then
+        error(("Failed to JSONDecode manifest from %s: %s"):format(tostring(sourceTag), tostring(decoded)))
+    end
+    if type(decoded) ~= "table" then
+        error(("External manifest from %s did not decode to a table"):format(tostring(sourceTag)))
+    end
+    return decoded
+end
+
+function ManifestLoader.loadFromExternalSource(sourceUrl, options)
+    if type(sourceUrl) ~= "string" or sourceUrl == "" then
+        error("loadFromExternalSource requires a non-empty source URL")
+    end
+
+    local cacheKey = "url::" .. sourceUrl
+    local bypassCache = type(options) == "table" and options.bypassCache == true
+    if not bypassCache then
+        local cached = externalManifestCache[cacheKey]
+        if cached ~= nil then
+            return cached
+        end
+    end
+
+    print(("[ManifestLoader] Fetching external manifest from %s"):format(sourceUrl))
+    local HttpService = game:GetService("HttpService")
+    local ok, response = pcall(function()
+        return HttpService:GetAsync(sourceUrl, true)
+    end)
+    if not ok then
+        error(("HttpService:GetAsync(%s) failed: %s"):format(sourceUrl, tostring(response)))
+    end
+
+    local manifest = decodeManifestJson(response, sourceUrl)
+    local handle = buildInMemoryHandle(manifest, djb2Fingerprint(response))
+    handle.manifestSourceKind = "external_url"
+    handle.manifestSourceName = sourceUrl
+    externalManifestCache[cacheKey] = handle
+    return handle
+end
+
+function ManifestLoader.loadFromRobloxAsset(assetId, options)
+    local numericAssetId = tonumber(assetId)
+    if not numericAssetId or numericAssetId <= 0 then
+        error("loadFromRobloxAsset requires a positive asset id")
+    end
+
+    local cacheKey = "asset::" .. tostring(numericAssetId)
+    local bypassCache = type(options) == "table" and options.bypassCache == true
+    if not bypassCache then
+        local cached = externalManifestCache[cacheKey]
+        if cached ~= nil then
+            return cached
+        end
+    end
+
+    print(("[ManifestLoader] Fetching external manifest from rbxassetid://%d"):format(numericAssetId))
+    -- AssetService:GetAssetFetchStatusAsync / InsertService can return ModuleScripts,
+    -- but for free-form JSON payloads the supported runtime path is to host the JSON
+    -- behind a Roblox URL alias and read it via HttpService. This wrapper exists so
+    -- callers can express intent ("roblox_asset") without leaking the underlying
+    -- transport into config; on platforms where AssetService:CreatePlaceAsync or
+    -- MarketplaceService:GetProductInfo is the right path, swap implementations here.
+    local HttpService = game:GetService("HttpService")
+    local assetUrl = ("https://assetdelivery.roblox.com/v1/asset?id=%d"):format(numericAssetId)
+    local ok, response = pcall(function()
+        return HttpService:GetAsync(assetUrl, true)
+    end)
+    if not ok then
+        error(("AssetService fetch for asset %d failed: %s"):format(numericAssetId, tostring(response)))
+    end
+
+    local manifest = decodeManifestJson(response, assetUrl)
+    local handle = buildInMemoryHandle(manifest, djb2Fingerprint(response))
+    handle.manifestSourceKind = "roblox_asset"
+    handle.manifestSourceName = ("rbxassetid://%d"):format(numericAssetId)
+    externalManifestCache[cacheKey] = handle
+    return handle
+end
+
+function ManifestLoader.clearExternalManifestCache()
+    externalManifestCache = {}
+end
+
+-- Resolve a manifest source from a config table:
+--   { mode = "embedded" | "external_url" | "roblox_asset",
+--     externalUrl = "...", robloxAssetId = N }
+-- with a fallback to the embedded SampleData path on any failure.
+function ManifestLoader.LoadFromManifestSourceConfig(config, embeddedFallback, options)
+    config = config or {}
+    local mode = config.mode or "embedded"
+    local function tryEmbedded()
+        if type(embeddedFallback) ~= "function" then
+            error("ManifestSource fallback was not provided for mode " .. tostring(mode))
+        end
+        return embeddedFallback()
+    end
+
+    if mode == "embedded" then
+        return tryEmbedded()
+    end
+
+    local ok, handleOrErr
+    if mode == "external_url" then
+        ok, handleOrErr = pcall(ManifestLoader.loadFromExternalSource, config.externalUrl, options)
+    elseif mode == "roblox_asset" then
+        ok, handleOrErr = pcall(ManifestLoader.loadFromRobloxAsset, config.robloxAssetId, options)
+    else
+        Logger.warn(("Unknown ManifestSource.mode %q; falling back to embedded"):format(tostring(mode)))
+        return tryEmbedded()
+    end
+
+    if ok then
+        return handleOrErr
+    end
+
+    Logger.warn(
+        ("ManifestSource mode=%s failed (%s); falling back to embedded SampleData"):format(
+            tostring(mode),
+            tostring(handleOrErr)
+        )
+    )
+    return tryEmbedded()
+end
+
 return ManifestLoader

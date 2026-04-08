@@ -17,6 +17,24 @@ local WorldConfig = {
     ChunkSizeStuds = 256,
 
     -- ═══════════════════════════════════════════════════════════════
+    -- MANIFEST SOURCE
+    -- ═══════════════════════════════════════════════════════════════
+    -- Controls where ManifestLoader pulls world data from. The default
+    -- "embedded" path uses the Lua shards under
+    -- `roblox/src/ServerStorage/SampleData/`. For shipping to the Roblox
+    -- platform — where place files are capped at ~100MB-2GB — use
+    -- "external_url" or "roblox_asset" so the place file stays small
+    -- (~10MB of scripts) and the manifest streams from external storage.
+    --
+    -- Failures in any non-embedded mode automatically fall back to the
+    -- embedded SampleData path so harness/dev workflows keep working.
+    ManifestSource = {
+        mode = "embedded", -- "embedded" | "external_url" | "roblox_asset"
+        externalUrl = "", -- e.g. "https://cdn.example.com/austin.json"
+        robloxAssetId = 0, -- e.g. 0123456789
+    },
+
+    -- ═══════════════════════════════════════════════════════════════
     -- RENDER MODES
     -- ═══════════════════════════════════════════════════════════════
     TerrainMode = "voxel", -- "none" | "debugParts" | "voxel"
@@ -160,6 +178,28 @@ local WorldConfig = {
         AllowedLayers = {},
         AllowedChunkIds = {},
     },
+    -- ─── MULTIPLAYER STREAMING ───
+    -- Server-authoritative multi-player chunk streaming. When enabled, the
+    -- server tracks every connected player's focus position (camera + velocity)
+    -- and computes the desired chunk set as the union across all players' near
+    -- rings, with per-chunk LOD set to the maximum demanded by any player.
+    -- Default is OFF to preserve the existing single-player client-driven path.
+    -- Opt in for multi-player worlds by overriding in a StreamingProfile or at
+    -- runtime.
+    MultiplayerStreaming = {
+        enabled = false,
+        maxPlayers = 8,
+        perPlayerStreamingRadius = 1024,
+        -- How many seconds ahead of each player to predict for prefetch (server
+        -- extrapolates position from the most recently reported velocity).
+        velocityPredictionSeconds = 2,
+        -- Cadence at which clients should report camera position to the server.
+        clientReportIntervalSeconds = 0.1,
+        -- If a player has not reported a position in this many seconds, fall
+        -- back to the player's HumanoidRootPart position (if any) and finally
+        -- skip them entirely. Prevents stale focal points from pinning chunks.
+        staleFocusTimeoutSeconds = 5,
+    },
     StreamingProfiles = {
         local_dev = {
             StreamingEnabled = true,
@@ -249,9 +289,9 @@ local WorldConfig = {
     EnableDayNightCycle = true,
     DayNightSpeed = 60, -- 60 = 1 game-day per 24 minutes, 0 = frozen
     DateTime = "2024-06-15T14:00", -- Fixed midday for consistent visual proof; change to "auto" for real-time
-    AtmosphereDensity = 0.35, -- additive density applied on top of phase presets (world-scale depth cue)
-    AtmosphereOffset = 0.2, -- vertical offset for atmosphere gradient start
-    AtmosphereHaze = 0.15, -- additive haze layered on top of phase presets for distance fade
+    AtmosphereDensity = 0.45, -- additive density applied on top of phase presets (world-scale depth cue)
+    AtmosphereOffset = 0.25, -- vertical offset for atmosphere gradient start
+    AtmosphereHaze = 0.22, -- additive haze layered on top of phase presets for distance fade
 
     -- ═══════════════════════════════════════════════════════════════
     -- MINIMAP

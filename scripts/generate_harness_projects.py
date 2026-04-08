@@ -42,6 +42,19 @@ def _build_build_project(default_project_data: dict, *, include_runtime_sample_d
         ignore_paths.discard(path)
 
     build_data["globIgnorePaths"] = sorted(ignore_paths)
+
+    # vsync's globIgnorePaths handling does NOT exclude files reached via a
+    # parent $path mount — so for scripts-only builds we must drop the
+    # ServerStorage $path mount entirely. Otherwise the 644MB SampleData
+    # tree gets baked into the place file even with globIgnorePaths set.
+    # This produces a ~7-15MB scripts-only place suitable for Roblox upload.
+    if not include_runtime_sample_data:
+        tree = build_data.get("tree")
+        if isinstance(tree, dict):
+            server_storage = tree.get("ServerStorage")
+            if isinstance(server_storage, dict):
+                tree["ServerStorage"] = {"$className": "ServerStorage"}
+
     return build_data
 
 

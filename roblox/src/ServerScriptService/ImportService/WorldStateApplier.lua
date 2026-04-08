@@ -13,6 +13,8 @@ local function resolveConfigValue(config, key)
     return WorldStateConfig[key]
 end
 
+local WorldConfig = require(ReplicatedStorage.Shared.WorldConfig)
+
 local function ensureAtmosphere()
     local atmosphere = gameLighting:FindFirstChildOfClass("Atmosphere")
     if not atmosphere then
@@ -20,12 +22,30 @@ local function ensureAtmosphere()
         atmosphere.Parent = gameLighting
     end
 
-    atmosphere.Density = 0.3
+    -- Stronger depth cue for distant skylines (Cesium/Google Earth feel).
+    -- DayNightCycle re-tunes these per phase, but we set sensible defaults
+    -- that already match a cinematic midday look.
+    atmosphere.Density = 0.42
     atmosphere.Offset = 0.25
-    atmosphere.Glare = 0
-    atmosphere.Haze = 1
+    atmosphere.Glare = 0.15
+    atmosphere.Haze = 1.4
     atmosphere.Color = Color3.fromRGB(199, 210, 225)
-    atmosphere.Decay = Color3.fromRGB(106, 112, 125)
+    atmosphere.Decay = Color3.fromRGB(92, 104, 124)
+end
+
+local function ensureSky()
+    -- Default Roblox sky is fine, but explicitly creating one lets us pin
+    -- celestial-body sizes and ensure SunAngularSize isn't 0 (which makes
+    -- the sun a hard pinprick instead of a soft disc).
+    local sky = gameLighting:FindFirstChildOfClass("Sky")
+    if not sky then
+        sky = Instance.new("Sky")
+        sky.Name = "ArnisSky"
+        sky.Parent = gameLighting
+    end
+    sky.SunAngularSize = 11 -- soft disc, ~3x default for atmospheric bloom
+    sky.MoonAngularSize = 11
+    sky.StarCount = 3000
 end
 
 local function ensureBloom()
@@ -35,9 +55,9 @@ local function ensureBloom()
         bloom.Parent = gameLighting
     end
 
-    bloom.Intensity = 0.5
-    bloom.Size = 24
-    bloom.Threshold = 2
+    bloom.Intensity = 0.6
+    bloom.Size = 28
+    bloom.Threshold = 1.6
 end
 
 local function ensureColorCorrection()
@@ -47,10 +67,11 @@ local function ensureColorCorrection()
         colorCorrection.Parent = gameLighting
     end
 
-    colorCorrection.Brightness = 0.02
-    colorCorrection.Contrast = 0.05
-    colorCorrection.Saturation = 0.1
-    colorCorrection.TintColor = Color3.fromRGB(255, 248, 240)
+    -- Subtle filmic grade: slight desaturation, mild lift, warm white point.
+    colorCorrection.Brightness = 0.015
+    colorCorrection.Contrast = 0.09
+    colorCorrection.Saturation = -0.04
+    colorCorrection.TintColor = Color3.fromRGB(255, 250, 244)
 end
 
 local function ensureSunRays()
@@ -60,22 +81,43 @@ local function ensureSunRays()
         sunRays.Parent = gameLighting
     end
 
-    sunRays.Intensity = 0.15
-    sunRays.Spread = 0.8
+    sunRays.Intensity = 0.18
+    sunRays.Spread = 0.85
+end
+
+local function ensureDepthOfField()
+    -- Mild far-field DOF blends distant skyline into atmosphere haze, the
+    -- key Cesium/Google Earth depth cue. Kept subtle to avoid Bokeh artifacts.
+    local dof = gameLighting:FindFirstChildOfClass("DepthOfFieldEffect")
+    if not dof then
+        dof = Instance.new("DepthOfFieldEffect")
+        dof.Parent = gameLighting
+    end
+    dof.FarIntensity = 0.18
+    dof.NearIntensity = 0
+    dof.FocusDistance = 80
+    dof.InFocusRadius = 220
 end
 
 local function applyAtmosphere()
     ensureAtmosphere()
+    ensureSky()
 
-    gameLighting.Brightness = 2
+    gameLighting.Brightness = 2.4
     gameLighting.EnvironmentDiffuseScale = 1
     gameLighting.EnvironmentSpecularScale = 1
     gameLighting.GlobalShadows = true
-    gameLighting.ShadowSoftness = 0.2
+    -- Sharper, more directional sun shadows for a Cesium/Google Earth look.
+    gameLighting.ShadowSoftness = 0.12
+    -- Pin Technology lighting for accurate PBR + sun reflections on glass.
+    pcall(function()
+        gameLighting.Technology = Enum.Technology.Future
+    end)
 
     ensureBloom()
     ensureColorCorrection()
     ensureSunRays()
+    ensureDepthOfField()
 end
 
 function WorldStateApplier.Apply(manifest, config, options)

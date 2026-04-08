@@ -3222,8 +3222,10 @@ function BuildingBuilder.FallbackBuild(parent, building, originStuds, chunk, win
     end
 
     local n = #worldPts
-    local glassTransparency = if mat == Enum.Material.Glass then 0.3 else nil
-    local glassReflectance = if mat == Enum.Material.Glass then 0.15 else nil
+    -- Sky-reflecting glass: higher Reflectance for that Cesium/Google Earth
+    -- bluish curtain-wall sheen on near-ring towers.
+    local glassTransparency = if mat == Enum.Material.Glass then 0.28 else nil
+    local glassReflectance = if mat == Enum.Material.Glass then 0.32 else nil
     buildWallLoopParts(
         shellFolder,
         bldgName,

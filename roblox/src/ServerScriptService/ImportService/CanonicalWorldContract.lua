@@ -1,7 +1,9 @@
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local ServerStorage = game:GetService("ServerStorage")
 
 local AustinSpawn = require(script.Parent.AustinSpawn)
 local ManifestLoader = require(script.Parent.ManifestLoader)
+local WorldConfig = require(ReplicatedStorage.Shared.WorldConfig)
 
 local CanonicalWorldContract = {}
 
@@ -139,6 +141,37 @@ function CanonicalWorldContract.loadCanonicalManifestSource(policyMode, timeoutS
             routeStepIndex = routeStepIndex,
         })
         return manifestSource, options.routeCatalogName, canonicalFamily
+    end
+
+    -- ManifestSource config: when not in "embedded" mode, attempt the external
+    -- transport first and fall back to the embedded SampleData candidates below.
+    local manifestSourceConfig = WorldConfig.ManifestSource
+    if type(manifestSourceConfig) == "table" and manifestSourceConfig.mode and manifestSourceConfig.mode ~= "embedded" then
+        local externalOk, externalHandle = pcall(function()
+            if manifestSourceConfig.mode == "external_url" then
+                return ManifestLoader.loadFromExternalSource(manifestSourceConfig.externalUrl, options)
+            elseif manifestSourceConfig.mode == "roblox_asset" then
+                return ManifestLoader.loadFromRobloxAsset(manifestSourceConfig.robloxAssetId, options)
+            end
+            return nil
+        end)
+        if externalOk and externalHandle ~= nil then
+            annotateManifestSource(externalHandle, {
+                manifestSourceKind = externalHandle.manifestSourceKind or manifestSourceConfig.mode,
+                manifestSourceName = externalHandle.manifestSourceName
+                    or (manifestSourceConfig.mode == "external_url" and manifestSourceConfig.externalUrl)
+                    or (manifestSourceConfig.mode == "roblox_asset" and tostring(manifestSourceConfig.robloxAssetId))
+                    or manifestSourceConfig.mode,
+                manifestFamily = canonicalFamily,
+            })
+            return externalHandle, externalHandle.manifestSourceName or manifestSourceConfig.mode, canonicalFamily
+        end
+        warn(
+            ("[CanonicalWorldContract] ManifestSource mode=%s failed (%s); falling back to embedded SampleData"):format(
+                tostring(manifestSourceConfig.mode),
+                tostring(externalHandle)
+            )
+        )
     end
 
     local candidates = CanonicalWorldContract.resolveCanonicalMaterializationCandidates(policyMode)
