@@ -29,8 +29,8 @@ local WorldConfig = {
     -- Failures in any non-embedded mode automatically fall back to the
     -- embedded SampleData path so harness/dev workflows keep working.
     ManifestSource = {
-        mode = "embedded", -- "embedded" | "external_url" | "roblox_asset"
-        externalUrl = "", -- e.g. "https://planetary.adpena.workers.dev/manifests/austin.json"
+        mode = "external_url", -- "embedded" | "external_url" | "roblox_asset"
+        externalUrl = "https://planetary.adpena.workers.dev/manifests/austin.json",
         robloxAssetId = 0, -- e.g. 0123456789
     },
 
