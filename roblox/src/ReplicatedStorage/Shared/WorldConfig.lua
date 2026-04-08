@@ -315,9 +315,9 @@ local WorldConfig = {
     EnableDayNightCycle = true,
     DayNightSpeed = 60, -- 60 = 1 game-day per 24 minutes, 0 = frozen
     DateTime = "2024-06-15T14:00", -- Fixed midday for consistent visual proof; change to "auto" for real-time
-    AtmosphereDensity = 0.52, -- additive density applied on top of phase presets (world-scale depth cue); tuned up for Cesium-like distance depth
-    AtmosphereOffset = 0.26, -- vertical offset for atmosphere gradient start
-    AtmosphereHaze = 0.28, -- additive haze layered on top of phase presets for distance fade; deeper for planetary scale
+    AtmosphereDensity = 0.3, -- reduced from 0.52; too hazy in live game
+    AtmosphereOffset = 0.2, -- vertical offset for atmosphere gradient start
+    AtmosphereHaze = 0.12, -- reduced from 0.28; was overwhelming in live game
 
     -- ═══════════════════════════════════════════════════════════════
     -- MINIMAP
