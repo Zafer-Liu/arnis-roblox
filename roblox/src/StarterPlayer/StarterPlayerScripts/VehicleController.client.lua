@@ -30,12 +30,22 @@
         C       Cinematic orbit camera
 ]]
 
-local SharedState = require(script.Parent.Traversal.SharedState)
-local CarController = require(script.Parent.Traversal.CarController)
-local JetpackController = require(script.Parent.Traversal.JetpackController)
-local ParachuteController = require(script.Parent.Traversal.ParachuteController)
-local WingsuitController = require(script.Parent.Traversal.WingsuitController)
-local GrappleController = require(script.Parent.Traversal.GrappleController)
+-- Client scripts replicate asynchronously; `script.Parent.Traversal` can
+-- return nil for a few milliseconds after the dispatcher runs but before
+-- the Traversal folder arrives. WaitForChild with a bounded timeout
+-- blocks until the folder + submodules exist. Without this, running on
+-- a real Roblox client (not Studio) throws:
+--   `Traversal is not a valid member of PlayerScripts`
+local traversalFolder = script.Parent:WaitForChild("Traversal", 10)
+if traversalFolder == nil then
+    error("[VehicleController] Traversal module folder failed to replicate within 10s")
+end
+local SharedState = require(traversalFolder:WaitForChild("SharedState", 5))
+local CarController = require(traversalFolder:WaitForChild("CarController", 5))
+local JetpackController = require(traversalFolder:WaitForChild("JetpackController", 5))
+local ParachuteController = require(traversalFolder:WaitForChild("ParachuteController", 5))
+local WingsuitController = require(traversalFolder:WaitForChild("WingsuitController", 5))
+local GrappleController = require(traversalFolder:WaitForChild("GrappleController", 5))
 
 local S = SharedState
 
