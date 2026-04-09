@@ -164,14 +164,32 @@ impl MeshAccum {
 const MIN_EDGE: f64 = 0.5;
 const DEFAULT_WALL_THICKNESS: f64 = 0.6;
 
+/// Roblox EditableMesh vertex budget — meshes exceeding this are invalid.
+const EDITABLE_MESH_VERTEX_BUDGET: usize = 60_000;
+
 /// Merge two `PrecomputedMesh` instances into one, offsetting triangle indices
 /// of the second mesh by the vertex count of the first.
+///
+/// If the merged vertex count would exceed `EDITABLE_MESH_VERTEX_BUDGET`
+/// (60 000), the merge is rejected and only mesh `a` (walls) is returned.
+/// This prevents invalid meshes from reaching Roblox's EditableMesh limit.
 pub fn merge_meshes(a: PrecomputedMesh, b: PrecomputedMesh) -> PrecomputedMesh {
     if b.vertices.is_empty() {
         return a;
     }
     if a.vertices.is_empty() {
         return b;
+    }
+    let merged_vertex_count = (a.vertices.len() + b.vertices.len()) / 3;
+    if merged_vertex_count > EDITABLE_MESH_VERTEX_BUDGET {
+        eprintln!(
+            "[mesh_builder] WARNING: merged vertex count {} exceeds EditableMesh budget {}; \
+             falling back to walls-only mesh ({} verts)",
+            merged_vertex_count,
+            EDITABLE_MESH_VERTEX_BUDGET,
+            a.vertices.len() / 3,
+        );
+        return a;
     }
     let offset = (a.vertices.len() / 3) as u32;
     let mut vertices = a.vertices;
@@ -319,18 +337,20 @@ pub fn build_building_mesh(
         max_dist,
     );
 
+    let effective_base_y = resolved.base_y;
     let effective_wall_height = resolved.wall_height;
     let effective_roof_height = resolved.roof_height;
     let level_count = resolved.level_count;
     let floor_height = resolved.floor_height;
 
     // ---- Walls ----
+    // Use resolved.base_y (accounts for min_height) instead of the raw base_y.
     let wall_mesh = if level_count >= 2 {
         // Multi-story buildings get windowed wall surfaces.
         use crate::wall_surface::generate_wall_mesh;
         generate_wall_mesh(
             footprint,
-            base_y,
+            effective_base_y,
             effective_wall_height,
             level_count,
             floor_height,
@@ -338,7 +358,7 @@ pub fn build_building_mesh(
         )
     } else {
         // Single-story buildings keep the simpler oriented-box walls for performance.
-        build_walls(footprint, base_y, effective_wall_height, wall_t)
+        build_walls(footprint, effective_base_y, effective_wall_height, wall_t)
     };
 
     // ---- Roof ----
@@ -362,7 +382,7 @@ pub fn build_building_mesh(
     };
 
     let roof_obj = roof::create_roof(roof_shape, polygon, &tags);
-    let wall_top_y = base_y + effective_wall_height;
+    let wall_top_y = effective_base_y + effective_wall_height;
     let roof_mesh = triangulate_roof(roof_obj.as_ref(), wall_top_y);
 
     // ---- Merge ----
@@ -657,6 +677,32 @@ mod tests {
         // merge(nonempty, empty) == nonempty
         let m2 = merge_meshes(nonempty.clone(), empty);
         assert_eq!(m2.vertices, nonempty.vertices);
+    }
+
+    #[test]
+    fn merge_meshes_vertex_budget_guard() {
+        // Create two meshes that together exceed EDITABLE_MESH_VERTEX_BUDGET.
+        let big = |n: usize| -> PrecomputedMesh {
+            PrecomputedMesh {
+                vertices: vec![0.0f32; n * 3],
+                triangles: (0..n as u32).collect(),
+                normals: vec![0.0f32; n * 3],
+            }
+        };
+        let a = big(40_000);
+        let b = big(30_000);
+        // 40k + 30k = 70k > 60k budget → should fall back to `a` only.
+        let merged = merge_meshes(a.clone(), b);
+        assert_eq!(
+            merged.vertex_count(),
+            40_000,
+            "vertex budget guard should return walls-only mesh"
+        );
+        // Under budget: should merge normally.
+        let a2 = big(30_000);
+        let b2 = big(20_000);
+        let merged2 = merge_meshes(a2, b2);
+        assert_eq!(merged2.vertex_count(), 50_000);
     }
 
     /// Build a shell mesh, embed it in a BuildingShell inside a Chunk,

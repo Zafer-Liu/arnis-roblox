@@ -45,87 +45,12 @@ pub fn chunk_origin(
     Vec3::new(x, y_studs, z)
 }
 
+/// Convert a CSS color string to a manifest Color using the canonical
+/// `material_map::parse_css_color` implementation (single source of truth).
 fn parse_css_color(s: &str) -> Option<crate::manifest::Color> {
     use crate::manifest::Color;
-    if s.starts_with('#') && s.len() == 7 {
-        let r = u8::from_str_radix(&s[1..3], 16).ok()?;
-        let g = u8::from_str_radix(&s[3..5], 16).ok()?;
-        let b = u8::from_str_radix(&s[5..7], 16).ok()?;
-        return Some(Color { r, g, b });
-    }
-    match s {
-        "white" => Some(Color {
-            r: 255,
-            g: 255,
-            b: 255,
-        }),
-        "black" => Some(Color {
-            r: 30,
-            g: 30,
-            b: 30,
-        }),
-        "gray" | "grey" => Some(Color {
-            r: 128,
-            g: 128,
-            b: 128,
-        }),
-        "red" => Some(Color {
-            r: 180,
-            g: 50,
-            b: 50,
-        }),
-        "brown" => Some(Color {
-            r: 139,
-            g: 90,
-            b: 43,
-        }),
-        "beige" => Some(Color {
-            r: 245,
-            g: 245,
-            b: 220,
-        }),
-        "yellow" => Some(Color {
-            r: 255,
-            g: 220,
-            b: 50,
-        }),
-        "blue" => Some(Color {
-            r: 50,
-            g: 100,
-            b: 200,
-        }),
-        "green" => Some(Color {
-            r: 50,
-            g: 140,
-            b: 50,
-        }),
-        "orange" => Some(Color {
-            r: 230,
-            g: 120,
-            b: 30,
-        }),
-        "pink" => Some(Color {
-            r: 255,
-            g: 180,
-            b: 180,
-        }),
-        "tan" => Some(Color {
-            r: 210,
-            g: 180,
-            b: 140,
-        }),
-        "silver" => Some(Color {
-            r: 192,
-            g: 192,
-            b: 192,
-        }),
-        "gold" => Some(Color {
-            r: 212,
-            g: 175,
-            b: 55,
-        }),
-        _ => None,
-    }
+    let (r, g, b) = crate::material_map::parse_css_color(s)?;
+    Some(Color { r, g, b })
 }
 
 fn landuse_material(kind: &str) -> String {
@@ -664,7 +589,134 @@ impl Chunker {
                     });
                 }
             },
-            Feature::Building(f) | Feature::BuildingPart(f) => {
+            Feature::BuildingPart(f) => {
+                // Wire BuildingPart through resolve_building_parts() to get
+                // correct default values (roof shape, inherited tags, etc.).
+                // TODO: full parent-grouping — collect BuildingPart features,
+                // match them to their parent Building by spatial proximity,
+                // and call resolve_building_parts(parent, &[parts...]) for
+                // per-part meshes. For now, each BuildingPart is treated as
+                // a self-contained building with self-inheriting defaults.
+                use crate::building_part::resolve_building_parts;
+                let parts = resolve_building_parts(&f, &[]);
+                // resolve_building_parts with no children returns a single
+                // BuildingPart with correct defaults applied.
+                let part = &parts[0];
+
+                let scale = 1.0 / self.meters_per_stud;
+                let mut sum_x = 0.0;
+                let mut sum_z = 0.0;
+                for pt in &f.footprint.points {
+                    sum_x += pt.x;
+                    sum_z += pt.y;
+                }
+                let count = f.footprint.points.len() as f64;
+                let centroid = Vec3::new(sum_x / count, f.base_y, sum_z / count);
+                let chunk_id = world_to_chunk(centroid, self.chunk_size_studs);
+                let chunk = self.ensure_chunk(chunk_id, elevation, style);
+                let origin = chunk.origin_studs;
+
+                let relative_footprint: Vec<GroundPoint> = f
+                    .footprint
+                    .points
+                    .iter()
+                    .map(|pt| GroundPoint::new(pt.x - origin.x, pt.y - origin.z))
+                    .collect();
+                let relative_holes: Vec<Vec<GroundPoint>> = f
+                    .holes
+                    .iter()
+                    .map(|hole| {
+                        hole.points
+                            .iter()
+                            .map(|pt| GroundPoint::new(pt.x - origin.x, pt.y - origin.z))
+                            .collect()
+                    })
+                    .collect();
+
+                let style_key = part.usage.as_deref().unwrap_or("default");
+                let material = style.get_building_material(style_key);
+                let color = if let Some(css) = part.colour.as_deref().and_then(|c| parse_css_color(c)) {
+                    Some(css)
+                } else {
+                    style.get_building_color(style_key)
+                };
+                let material_override = part.material_tag.as_deref().map(|m| match m {
+                    "brick" => "Brick",
+                    "masonry" => "Brick",
+                    "concrete" => "Concrete",
+                    "glass" => "Glass",
+                    "metal" | "steel" => "Metal",
+                    "wood" => "WoodPlanks",
+                    "stone" | "granite" | "limestone" => "Limestone",
+                    "sandstone" => "Sandstone",
+                    "marble" => "Marble",
+                    _ => "Concrete",
+                });
+                let material = material_override.map(|s| s.to_string()).unwrap_or(material);
+
+                let roof_color = part.roof_colour.as_deref().and_then(|c| parse_css_color(c));
+
+                let rel_base_y = part.base_y - origin.y;
+                let rel_height = part.height * scale;
+
+                let shell_mesh = if relative_footprint.len() >= 3 && rel_height > 0.0 {
+                    let footprint_2d: Vec<(f64, f64)> = relative_footprint
+                        .iter()
+                        .map(|p| (p.x, p.z))
+                        .collect();
+                    Some(build_building_mesh(
+                        &footprint_2d,
+                        rel_base_y,
+                        rel_height,
+                        0.6,
+                        &part.roof_shape,
+                        part.roof_height.map(|h| h * scale),
+                        part.roof_direction,
+                        part.roof_angle,
+                        None,
+                        part.levels,
+                        None, // roof_levels not on resolved BuildingPart
+                        part.min_height.map(|h| h * scale),
+                        part.material_tag.as_deref(),
+                        part.usage.as_deref(),
+                        &part.id,
+                    ))
+                } else {
+                    None
+                };
+
+                let roof_included = shell_mesh.is_some();
+                chunk.buildings.push(BuildingShell {
+                    id: f.id,
+                    footprint: relative_footprint,
+                    holes: relative_holes,
+                    indices: f.indices,
+                    material,
+                    wall_color: color,
+                    roof_color,
+                    roof_shape: Some(part.roof_shape.clone()),
+                    roof_material: part.roof_material.clone(),
+                    usage: part.usage.clone(),
+                    min_height: part.min_height.map(|height| height * scale),
+                    base_y: rel_base_y,
+                    height: rel_height,
+                    height_m: f.height_m,
+                    levels: part.levels,
+                    roof_levels: f.roof_levels,
+                    facade_style: f.facade_style.clone(),
+                    structure_type: f.structure_type.clone(),
+                    roof: part.roof_shape.clone(),
+                    rooms: Vec::new(),
+                    roof_height: part.roof_height.map(|height| height * scale),
+                    roof_direction: part.roof_direction,
+                    roof_angle: part.roof_angle,
+                    name: part.name.clone(),
+                    shell_mesh,
+                    roof_included,
+                    atlas_uv: None,
+                });
+            }
+            Feature::Building(f) => {
                 let scale = 1.0 / self.meters_per_stud;
                 let mut sum_x = 0.0;
                 let mut sum_z = 0.0;

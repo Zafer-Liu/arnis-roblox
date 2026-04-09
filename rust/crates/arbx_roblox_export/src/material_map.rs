@@ -3,9 +3,6 @@
 //! Designed for Roblox 2026's MaterialVariant system where each material string
 //! maps to a Roblox Enum.Material and an optional MaterialVariant name.
 
-use std::collections::hash_map::DefaultHasher;
-use std::hash::{Hash, Hasher};
-
 /// A resolved Roblox material with optional color override and variant name.
 #[derive(Debug, Clone, PartialEq)]
 pub struct ResolvedMaterial {
@@ -18,13 +15,20 @@ pub struct ResolvedMaterial {
 }
 
 // ---------------------------------------------------------------------------
-// Deterministic hashing
+// Deterministic hashing (FNV-1a — stable across Rust versions)
 // ---------------------------------------------------------------------------
 
+fn fnv1a_hash(bytes: &[u8]) -> u64 {
+    let mut hash: u64 = 0xcbf29ce484222325;
+    for &b in bytes {
+        hash ^= b as u64;
+        hash = hash.wrapping_mul(0x100000001b3);
+    }
+    hash
+}
+
 fn hash_building_id(building_id: &str) -> u64 {
-    let mut hasher = DefaultHasher::new();
-    building_id.hash(&mut hasher);
-    hasher.finish()
+    fnv1a_hash(building_id.as_bytes())
 }
 
 fn pick_index(len: usize, seed: u64) -> usize {

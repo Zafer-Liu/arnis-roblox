@@ -377,24 +377,97 @@ fn emit_wall_face_with_openings(
     frame_depth: f64,
     inward: V3,
 ) {
-    // Strategy: emit the solid wall as a single quad, then for each opening:
-    //   1. A recessed pane face (set back by frame_depth along inward).
-    //   2. Four frame quads (top/bottom/left/right jambs) connecting outer
-    //      rectangle to recessed pane.
+    // Strategy: subdivide the outer wall face into border strips around each
+    // opening so the outer surface never overlaps a window/door pane.  This
+    // eliminates z-fighting that the previous full-quad approach caused.
     //
-    // This approach produces overlapping triangles at the window regions on
-    // the outer wall, which is visually acceptable (the recessed frame geometry
-    // occludes the overlapping outer surface in depth buffer). For a production
-    // CSG-clean approach we would subtract the opening rectangles from the
-    // outer quad, but that adds significant triangulation complexity. The
-    // osm2world source takes the same pragmatic shortcut.
+    // We sort openings left-to-right, then emit solid strips:
+    //   - Horizontal bands above, below, and between openings.
+    //   - Vertical strips left of the first, between each pair, and right of
+    //     the last opening within each horizontal band.
+    //
+    // For each opening we still emit the recessed pane + four frame jambs.
 
-    // Full outer wall quad.
-    let bl = origin;
-    let br = v3_add(origin, v3_scale(tangent, edge_len));
-    let tl = v3_add(origin, [0.0, wall_height, 0.0]);
-    let tr = v3_add(br, [0.0, wall_height, 0.0]);
-    accum.add_quad(bl, br, tr, tl, outward);
+    // Collect opening left/right/top/bottom edges in local (h, v) coords.
+    struct Rect {
+        left: f64,
+        right: f64,
+        bottom: f64,
+        top: f64,
+    }
+    let mut rects: Vec<Rect> = openings
+        .iter()
+        .map(|op| {
+            let half_w = op.width / 2.0;
+            Rect {
+                left: op.h_center - half_w,
+                right: op.h_center + half_w,
+                bottom: op.bottom_y,
+                top: op.bottom_y + op.height,
+            }
+        })
+        .collect();
+    rects.sort_by(|a, b| a.left.partial_cmp(&b.left).unwrap());
+
+    // Helper: emit an outer-surface quad given local (h0..h1, v0..v1).
+    let emit_strip = |acc: &mut MeshAccum, h0: f64, h1: f64, v0: f64, v1: f64| {
+        if h1 - h0 < 1e-6 || v1 - v0 < 1e-6 {
+            return;
+        }
+        let p_bl = v3_add(v3_add(origin, v3_scale(tangent, h0)), [0.0, v0, 0.0]);
+        let p_br = v3_add(v3_add(origin, v3_scale(tangent, h1)), [0.0, v0, 0.0]);
+        let p_tl = v3_add(v3_add(origin, v3_scale(tangent, h0)), [0.0, v1, 0.0]);
+        let p_tr = v3_add(v3_add(origin, v3_scale(tangent, h1)), [0.0, v1, 0.0]);
+        acc.add_quad(p_bl, p_br, p_tr, p_tl, outward);
+    };
+
+    if rects.is_empty() {
+        // No openings — emit the full wall quad.
+        let bl = origin;
+        let br = v3_add(origin, v3_scale(tangent, edge_len));
+        let tl = v3_add(origin, [0.0, wall_height, 0.0]);
+        let tr = v3_add(br, [0.0, wall_height, 0.0]);
+        accum.add_quad(bl, br, tr, tl, outward);
+    } else {
+        // Collect unique horizontal bands (v-coords) across all openings.
+        let mut v_cuts: Vec<f64> = vec![0.0, wall_height];
+        for r in &rects {
+            v_cuts.push(r.bottom);
+            v_cuts.push(r.top);
+        }
+        v_cuts.sort_by(|a, b| a.partial_cmp(b).unwrap());
+        v_cuts.dedup_by(|a, b| (*a - *b).abs() < 1e-6);
+
+        // For each horizontal band, emit solid strips around the openings
+        // that intersect this band.
+        for vi in 0..v_cuts.len() - 1 {
+            let v0 = v_cuts[vi];
+            let v1 = v_cuts[vi + 1];
+
+            // Openings that overlap this vertical band.
+            let band_openings: Vec<&Rect> = rects
+                .iter()
+                .filter(|r| r.bottom < v1 - 1e-6 && r.top > v0 + 1e-6)
+                .collect();
+
+            if band_openings.is_empty() {
+                // Full-width solid strip for this band.
+                emit_strip(&mut *accum, 0.0, edge_len, v0, v1);
+            } else {
+                // Strips between openings.
+                let mut cursor = 0.0;
+                for op in &band_openings {
+                    if op.left > cursor + 1e-6 {
+                        emit_strip(&mut *accum, cursor, op.left, v0, v1);
+                    }
+                    cursor = op.right;
+                }
+                if cursor < edge_len - 1e-6 {
+                    emit_strip(&mut *accum, cursor, edge_len, v0, v1);
+                }
+            }
+        }
+    }
 
     // Per-opening: recessed pane + frame geometry.
     let up = [0.0, 1.0, 0.0];
