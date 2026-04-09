@@ -4268,9 +4268,13 @@ function BuildingBuilder.MeshBuildAll(parent, buildings, originStuds, chunk, con
                 local hasPrecomputedShellMesh =
                     building.shellMesh and building.shellMesh.vertices and #building.shellMesh.vertices >= 9
                 local shellMeshIncludesRoof = building.roofIncluded == true
-                if preferPlayVisibleShellWalls then
-                    -- Keep explicit wall parts for bounded low/medium shell cases
-                    -- so play visibility does not depend on merged mesh behavior.
+                -- When the Rust pipeline provides a full shell mesh with roof,
+                -- ALWAYS use it — even for small buildings that would normally
+                -- get Part-based walls. The precomputed mesh has windowed walls
+                -- and parametric roofs that look far better than the Part-based
+                -- cue system, and produces 1 MeshPart instead of dozens of Parts.
+                if preferPlayVisibleShellWalls and not (shellMeshIncludesRoof and hasPrecomputedShellMesh) then
+                    -- Keep explicit wall parts only when no precomputed mesh exists.
                     buildWallLoopParts(shellFolder, bldgName, worldPts, baseY, height, mat, color, "outer")
                     for holeIndex, holeLoop in ipairs(footprintData.holeWorldLoops) do
                         local liftedHoleLoop = table.create(#holeLoop)
