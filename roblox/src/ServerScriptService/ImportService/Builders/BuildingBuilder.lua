@@ -74,6 +74,8 @@ function MeshAccumulator.new(parent, materialName, material, color, options)
     self.vertices = table.create(18000 * 2) -- pre-allocate for max batch
     self.normals = table.create(18000 * 2)
     self.triangles = table.create(18000)
+    self.uvs = table.create(18000 * 2) -- per-vertex [u,v] from atlas-mapped walls
+    self.uvCount = 0
     -- Cached logical lengths for the buffers above. Hot addQuad/addTriangle
     -- paths previously hit `#self.triangles` / `#self.vertices` up to four
     -- times per call; caching integers in locals shaves the length-operator
@@ -163,6 +165,10 @@ function MeshAccumulator:addPrecomputedMesh(meshData, originStuds)
     local triCount = trisLen / 3
     local normsLen = if norms then #norms else 0
     local defaultNormal = Vector3.new(0, 1, 0)
+    -- Atlas UVs: flat [u,v, u,v, ...] array from Rust wall_surface, only
+    -- present when the building has an atlas_uv and multi-story windowed walls.
+    local meshUvs = meshData.uvs
+    local meshUvsLen = if meshUvs then #meshUvs else 0
     -- If the entire precomputed mesh fits alongside existing buffered data, fast path.
     if self.triangleCount + triCount <= self.MAX_TRIANGLES then
         local base = self.vertexCount
@@ -177,8 +183,10 @@ local oz = originStuds.Z or originStuds.z or 0
         local vertices = self.vertices
         local normalsArr = self.normals
         local triangles = self.triangles
+        local uvsArr = self.uvs
         local vi = base
         local vertexCountOut = vertsLen / 3
+        local uvIdx = 0
         for i = 1, vertsLen, 3 do
             vi += 1
             vertices[vi] = Vector3.new(
@@ -189,8 +197,17 @@ local oz = originStuds.Z or originStuds.z or 0
             normalsArr[vi] = if norms and normsLen >= i + 2 and norms[i] and norms[i + 1] and norms[i + 2]
                 then Vector3.new(norms[i], norms[i + 1], norms[i + 2])
                 else defaultNormal
+            -- Load atlas UV for this vertex if available.
+            uvIdx += 1
+            if meshUvsLen >= uvIdx * 2 then
+                local ui = (uvIdx - 1) * 2 + 1
+                uvsArr[vi] = Vector2.new(meshUvs[ui] or 0, meshUvs[ui + 1] or 0)
+            end
         end
         self.vertexCount = vi
+        if meshUvsLen > 0 then
+            self.uvCount = vi
+        end
         local ti = self.triangleCount
         for i = 1, trisLen, 3 do
             local a = tris[i]
@@ -313,6 +330,21 @@ function MeshAccumulator:flush()
         end
     end
 
+    -- Apply atlas UVs when available.  The uvs array is populated by
+    -- addPrecomputedMesh when the Rust shell mesh carries atlas-mapped texture
+    -- coordinates. Each vertex with a UV gets SetUV so the chunk atlas
+    -- SurfaceAppearance maps correctly onto the wall geometry.
+    local uvs = self.uvs
+    if self.uvCount > 0 then
+        for i = 1, vertexCount do
+            if uvs[i] then
+                pcall(function()
+                    mesh:SetUV(vertexIds[i], uvs[i])
+                end)
+            end
+        end
+    end
+
     -- Add all triangles
     local triangles = self.triangles
     for i = 1, triangleCount do
@@ -364,8 +396,10 @@ function MeshAccumulator:flush()
     table.clear(self.vertices)
     table.clear(self.normals)
     table.clear(self.triangles)
+    table.clear(self.uvs)
     self.vertexCount = 0
     self.triangleCount = 0
+    self.uvCount = 0
 end
 
 -- Fallback: emit simple box Parts when EditableMesh/CreateMeshPartAsync is
@@ -431,8 +465,10 @@ function MeshAccumulator:flushAsParts()
     table.clear(self.vertices)
     table.clear(self.normals)
     table.clear(self.triangles)
+    table.clear(self.uvs)
     self.vertexCount = 0
     self.triangleCount = 0
+    self.uvCount = 0
 end
 
 local function addOrientedBox(acc, center, rightAxis, upAxis, forwardAxis, size)

@@ -1267,7 +1267,26 @@ fn write_precomputed_mesh(out: &mut String, mesh: &PrecomputedMesh, indent: usiz
             out.push_str(s.trim_end_matches('0').trim_end_matches('.'));
         }
     }
-    out.push_str("]\n");
+    out.push(']');
+
+    if !mesh.uvs.is_empty() {
+        out.push_str(",\n");
+        write_key(out, indent + 2, "uvs");
+        out.push('[');
+        for (i, u) in mesh.uvs.iter().enumerate() {
+            if i > 0 {
+                out.push(',');
+            }
+            if u.fract() == 0.0 {
+                write!(out, "{:.0}", u).unwrap();
+            } else {
+                let s = format!("{:.4}", u);
+                out.push_str(s.trim_end_matches('0').trim_end_matches('.'));
+            }
+        }
+        out.push(']');
+    }
+    out.push('\n');
 
     write_indent(out, indent);
     out.push('}');

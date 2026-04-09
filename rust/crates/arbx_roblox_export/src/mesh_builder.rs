@@ -304,6 +304,8 @@ fn footprint_max_dist_to_ridge(footprint: &[(f64, f64)]) -> f64 {
 /// * `material_tag` — OSM `building:material` tag (stored for future SurfaceAppearance).
 /// * `usage` — OSM `building` usage tag (stored for future SurfaceAppearance).
 /// * `building_id` — Stable building identifier (stored for future material seeding).
+/// * `atlas_uv` — When provided, wall surfaces are UV-mapped into this atlas
+///   sub-rect so the Roblox runtime can apply the chunk facade texture directly.
 pub fn build_building_mesh(
     footprint: &[(f64, f64)],
     base_y: f64,
@@ -321,6 +323,7 @@ pub fn build_building_mesh(
     _material_tag: Option<&str>,
     _usage: Option<&str>,
     _building_id: &str,
+    atlas_uv: Option<&crate::building_atlas::AtlasUv>,
 ) -> PrecomputedMesh {
     let wall_t = if wall_thickness <= 0.0 {
         DEFAULT_WALL_THICKNESS
@@ -367,14 +370,15 @@ pub fn build_building_mesh(
     // longer bootstrap times for extreme detail.
     let wall_mesh = if level_count >= 2 {
         // Multi-story buildings get windowed wall surfaces.
-        use crate::wall_surface::generate_wall_mesh;
-        generate_wall_mesh(
+        use crate::wall_surface::generate_wall_mesh_with_atlas;
+        generate_wall_mesh_with_atlas(
             footprint,
             effective_base_y,
             effective_wall_height,
             level_count,
             floor_height,
             wall_t,
+            atlas_uv,
         )
     } else {
         // Single-story buildings keep the simpler oriented-box walls for performance.
@@ -584,7 +588,7 @@ mod tests {
         // levels=1 forces level_count=1 → oriented-box walls (same as shell).
         let building = build_building_mesh(
             &fp, 0.0, 5.0, 0.6, "flat", None, None, None, None,
-            Some(1), None, None, None, None, "test",
+            Some(1), None, None, None, None, "test", None,
         );
         // Flat roof adds a cap on top; building mesh has at least as many verts.
         assert!(
@@ -607,11 +611,11 @@ mod tests {
         // Use levels=1 to isolate roof geometry comparison (both use oriented-box walls).
         let flat = build_building_mesh(
             &fp, 0.0, 12.0, 0.6, "flat", None, None, None, None,
-            Some(1), None, None, None, None, "test",
+            Some(1), None, None, None, None, "test", None,
         );
         let gabled = build_building_mesh(
             &fp, 0.0, 12.0, 0.6, "gabled", Some(4.0), None, None, None,
-            Some(1), None, None, None, None, "test",
+            Some(1), None, None, None, None, "test", None,
         );
         assert!(
             gabled.vertex_count() > flat.vertex_count(),
@@ -627,11 +631,11 @@ mod tests {
         // Use levels=1 to isolate roof geometry comparison (both use oriented-box walls).
         let flat = build_building_mesh(
             &fp, 0.0, 12.0, 0.6, "flat", None, None, None, None,
-            Some(1), None, None, None, None, "test",
+            Some(1), None, None, None, None, "test", None,
         );
         let hipped = build_building_mesh(
             &fp, 0.0, 12.0, 0.6, "hipped", Some(4.0), None, None, None,
-            Some(1), None, None, None, None, "test",
+            Some(1), None, None, None, None, "test", None,
         );
         assert!(
             hipped.vertex_count() > flat.vertex_count(),
@@ -645,7 +649,7 @@ mod tests {
     fn building_mesh_normals_unit_length() {
         let fp = rect_footprint();
         let mesh = build_building_mesh(
-            &fp, 0.0, 12.0, 0.6, "gabled", Some(4.0), None, None, None, None, None, None, None, None, "test",
+            &fp, 0.0, 12.0, 0.6, "gabled", Some(4.0), None, None, None, None, None, None, None, None, "test", None,
         );
         for i in 0..mesh.vertex_count() {
             let nx = mesh.normals[i * 3] as f64;
@@ -665,7 +669,7 @@ mod tests {
     fn building_mesh_triangles_valid() {
         let fp = rect_footprint();
         let mesh = build_building_mesh(
-            &fp, 0.0, 12.0, 0.6, "hipped", Some(3.0), None, None, None, None, None, None, None, None, "test",
+            &fp, 0.0, 12.0, 0.6, "hipped", Some(3.0), None, None, None, None, None, None, None, None, "test", None,
         );
         let vc = mesh.vertex_count() as u32;
         for (ti, &idx) in mesh.triangles.iter().enumerate() {
@@ -870,12 +874,12 @@ mod tests {
         // 1-story: oriented-box walls (simple)
         let one_story = build_building_mesh(
             &fp, 0.0, 5.0, 0.6, "flat", None, None, None, None,
-            Some(1), None, None, None, None, "bldg-1",
+            Some(1), None, None, None, None, "bldg-1", None,
         );
         // 3-story: windowed wall surfaces (more geometry)
         let three_story = build_building_mesh(
             &fp, 0.0, 12.0, 0.6, "flat", None, None, None, None,
-            Some(3), None, None, None, None, "bldg-3",
+            Some(3), None, None, None, None, "bldg-3", None,
         );
         assert!(
             three_story.vertex_count() > one_story.vertex_count(),
@@ -894,7 +898,7 @@ mod tests {
         // 1-story building mesh with flat roof — wall portion should use oriented-box.
         let building = build_building_mesh(
             &fp, 0.0, 5.0, 0.6, "flat", None, None, None, None,
-            Some(1), None, None, None, None, "bldg-1story",
+            Some(1), None, None, None, None, "bldg-1story", None,
         );
         // Wall vertex count should match shell exactly.
         // Building has shell vertices + roof vertices, so total >= shell.
@@ -929,7 +933,7 @@ mod tests {
         let total_h = r.wall_height + r.roof_height;
         let mesh = build_building_mesh(
             &fp, 0.0, total_h, 0.6, "flat", None, None, None, None,
-            Some(3), None, None, None, None, "bldg-resolve-test",
+            Some(3), None, None, None, None, "bldg-resolve-test", None,
         );
         // Windowed walls for level_count=3 should produce more geometry than
         // 4 oriented-box walls (4×24=96 verts).

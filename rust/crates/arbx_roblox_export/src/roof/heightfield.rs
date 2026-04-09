@@ -182,6 +182,7 @@ pub fn triangulate_roof(shape: &dyn RoofShape, base_y: f64) -> PrecomputedMesh {
         vertices,
         triangles,
         normals,
+        uvs: Vec::new(),
     }
 }
 

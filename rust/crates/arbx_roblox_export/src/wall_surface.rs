@@ -5,6 +5,7 @@
 //! `PrecomputedMesh` with thick walls, punched window openings per floor band,
 //! and a door on the ground floor of the longest wall.
 
+use crate::building_atlas::AtlasUv;
 use crate::mesh_builder::PrecomputedMesh;
 
 // ---------------------------------------------------------------------------
@@ -73,6 +74,7 @@ struct MeshAccum {
     vertices: Vec<f32>,
     normals: Vec<f32>,
     triangles: Vec<u32>,
+    uvs: Vec<f32>,
 }
 
 impl MeshAccum {
@@ -81,6 +83,7 @@ impl MeshAccum {
             vertices: Vec::new(),
             normals: Vec::new(),
             triangles: Vec::new(),
+            uvs: Vec::new(),
         }
     }
 
@@ -95,6 +98,13 @@ impl MeshAccum {
         idx
     }
 
+    fn push_vert_uv(&mut self, pos: V3, normal: V3, u: f32, v: f32) -> u32 {
+        let idx = self.push_vert(pos, normal);
+        self.uvs.push(u);
+        self.uvs.push(v);
+        idx
+    }
+
     /// Emit a quad (two CCW triangles). Caller supplies the shared face normal.
     fn add_quad(&mut self, p0: V3, p1: V3, p2: V3, p3: V3, normal: V3) {
         let v0 = self.push_vert(p0, normal);
@@ -104,11 +114,26 @@ impl MeshAccum {
         self.triangles.extend_from_slice(&[v0, v1, v2, v0, v2, v3]);
     }
 
+    /// Emit a quad with per-vertex UV coordinates.
+    fn add_quad_uv(
+        &mut self,
+        p0: V3, p1: V3, p2: V3, p3: V3,
+        normal: V3,
+        uv0: [f32; 2], uv1: [f32; 2], uv2: [f32; 2], uv3: [f32; 2],
+    ) {
+        let v0 = self.push_vert_uv(p0, normal, uv0[0], uv0[1]);
+        let v1 = self.push_vert_uv(p1, normal, uv1[0], uv1[1]);
+        let v2 = self.push_vert_uv(p2, normal, uv2[0], uv2[1]);
+        let v3 = self.push_vert_uv(p3, normal, uv3[0], uv3[1]);
+        self.triangles.extend_from_slice(&[v0, v1, v2, v0, v2, v3]);
+    }
+
     fn to_mesh(self) -> PrecomputedMesh {
         PrecomputedMesh {
             vertices: self.vertices,
             triangles: self.triangles,
             normals: self.normals,
+            uvs: self.uvs,
         }
     }
 }
@@ -133,10 +158,42 @@ struct Opening {
 // Public API
 // ---------------------------------------------------------------------------
 
+// ---------------------------------------------------------------------------
+// Atlas UV mapping helper
+// ---------------------------------------------------------------------------
+
+/// Per-edge UV mapping context: maps a wall edge's local (h, v) coordinates
+/// into the building's atlas sub-rect. `u_start`/`u_end` are the fraction of
+/// the total perimeter that this edge spans (both in 0..1 range).
+struct EdgeUv<'a> {
+    u_start: f64,
+    u_end: f64,
+    atlas: &'a AtlasUv,
+}
+
+impl EdgeUv<'_> {
+    /// Convert local wall coordinates (h along edge in metres, v = height from
+    /// base in metres) into atlas UV coordinates.
+    fn map(&self, h_frac: f64, v_frac: f64) -> [f32; 2] {
+        // Interpolate within the edge's perimeter fraction.
+        let u_norm = self.u_start + (self.u_end - self.u_start) * h_frac;
+        // Remap [0,1] normalised coords into the atlas sub-rect.
+        let u = self.atlas.uv_x + u_norm as f32 * self.atlas.uv_width;
+        let v = self.atlas.uv_y + v_frac as f32 * self.atlas.uv_height;
+        [u, v]
+    }
+}
+
 /// Generate wall geometry for a building with window/door openings.
 ///
 /// `footprint` is a closed polygon in XZ (Y-up), wound counter-clockwise when
 /// viewed from above. The last point must NOT duplicate the first.
+///
+/// When `atlas_uv` is provided, the outer wall surfaces are UV-mapped into the
+/// building's atlas rect. The U axis wraps around the perimeter (0..1 over the
+/// full perimeter), and V goes from bottom (0) to top (1) of the wall. Both
+/// are then remapped into the atlas sub-rect so the Roblox runtime can apply
+/// the chunk atlas texture directly.
 ///
 /// Returns a `PrecomputedMesh` with thick walls (extruded inward by
 /// `wall_thickness`), window openings per floor band, and one door on the
@@ -149,13 +206,41 @@ pub fn generate_wall_mesh(
     floor_height: f64,
     wall_thickness: f64,
 ) -> PrecomputedMesh {
+    generate_wall_mesh_with_atlas(footprint, base_y, wall_height, level_count, floor_height, wall_thickness, None)
+}
+
+/// Like `generate_wall_mesh` but accepts an optional atlas UV rect for
+/// texture-mapped facades.
+pub fn generate_wall_mesh_with_atlas(
+    footprint: &[(f64, f64)],
+    base_y: f64,
+    wall_height: f64,
+    level_count: u32,
+    floor_height: f64,
+    wall_thickness: f64,
+    atlas_uv: Option<&AtlasUv>,
+) -> PrecomputedMesh {
     if footprint.len() < 3 || wall_height <= 0.0 || level_count == 0 {
         return PrecomputedMesh {
             vertices: Vec::new(),
             triangles: Vec::new(),
             normals: Vec::new(),
+            uvs: Vec::new(),
         };
     }
+
+    // Compute total perimeter for UV mapping.
+    let perimeter: f64 = {
+        let n = footprint.len();
+        (0..n)
+            .map(|i| {
+                let j = (i + 1) % n;
+                let dx = footprint[j].0 - footprint[i].0;
+                let dz = footprint[j].1 - footprint[i].1;
+                (dx * dx + dz * dz).sqrt()
+            })
+            .sum()
+    };
 
     let mut accum = MeshAccum::new();
 
@@ -167,6 +252,8 @@ pub fn generate_wall_mesh(
 
     let n = footprint.len();
     let frame_depth = (wall_thickness / 4.0).max(0.02);
+
+    let mut cumulative_perim = 0.0f64;
 
     for i in 0..n {
         let j = (i + 1) % n;
@@ -201,6 +288,14 @@ pub fn generate_wall_mesh(
         let is_door_wall = i == longest_idx;
         let openings = compute_openings(edge_len, level_count, floor_height, is_door_wall);
 
+        // UV mapping parameters for this edge (fraction of perimeter).
+        let edge_uv = atlas_uv.map(|uv| EdgeUv {
+            u_start: cumulative_perim / perimeter,
+            u_end: (cumulative_perim + edge_len) / perimeter,
+            atlas: uv,
+        });
+        cumulative_perim += edge_len;
+
         // --- Outer face with openings ---
         emit_wall_face_with_openings(
             &mut accum,
@@ -212,6 +307,7 @@ pub fn generate_wall_mesh(
             &openings,
             frame_depth,
             inward,
+            edge_uv.as_ref(),
         );
 
         // --- Inner face (flat, no openings — interior walls are plain) ---
@@ -366,6 +462,10 @@ fn add_windows_in_span(
 /// The wall face spans from `origin` along `tangent` for `edge_len`, upward
 /// for `wall_height`. Openings are expressed in local (h, v) coordinates:
 /// h along tangent, v = Y from origin.
+///
+/// When `edge_uv` is provided, outer wall strips and recessed panes emit
+/// per-vertex UV coordinates mapped into the atlas sub-rect. Inner faces
+/// (frame jambs, caps) use `add_quad` without UVs — they are not textured.
 fn emit_wall_face_with_openings(
     accum: &mut MeshAccum,
     origin: V3,   // bottom-left of wall face (outer surface)
@@ -376,6 +476,7 @@ fn emit_wall_face_with_openings(
     openings: &[Opening],
     frame_depth: f64,
     inward: V3,
+    edge_uv: Option<&EdgeUv>,
 ) {
     // Strategy: subdivide the outer wall face into border strips around each
     // opening so the outer surface never overlaps a window/door pane.  This
@@ -410,6 +511,7 @@ fn emit_wall_face_with_openings(
     rects.sort_by(|a, b| a.left.partial_cmp(&b.left).unwrap());
 
     // Helper: emit an outer-surface quad given local (h0..h1, v0..v1).
+    // When atlas UVs are available, emits UV-mapped quads; otherwise plain.
     let emit_strip = |acc: &mut MeshAccum, h0: f64, h1: f64, v0: f64, v1: f64| {
         if h1 - h0 < 1e-6 || v1 - v0 < 1e-6 {
             return;
@@ -418,16 +520,24 @@ fn emit_wall_face_with_openings(
         let p_br = v3_add(v3_add(origin, v3_scale(tangent, h1)), [0.0, v0, 0.0]);
         let p_tl = v3_add(v3_add(origin, v3_scale(tangent, h0)), [0.0, v1, 0.0]);
         let p_tr = v3_add(v3_add(origin, v3_scale(tangent, h1)), [0.0, v1, 0.0]);
-        acc.add_quad(p_bl, p_br, p_tr, p_tl, outward);
+        if let Some(euv) = edge_uv {
+            let h0f = h0 / edge_len;
+            let h1f = h1 / edge_len;
+            let v0f = v0 / wall_height;
+            let v1f = v1 / wall_height;
+            acc.add_quad_uv(
+                p_bl, p_br, p_tr, p_tl, outward,
+                euv.map(h0f, v0f), euv.map(h1f, v0f),
+                euv.map(h1f, v1f), euv.map(h0f, v1f),
+            );
+        } else {
+            acc.add_quad(p_bl, p_br, p_tr, p_tl, outward);
+        }
     };
 
     if rects.is_empty() {
         // No openings — emit the full wall quad.
-        let bl = origin;
-        let br = v3_add(origin, v3_scale(tangent, edge_len));
-        let tl = v3_add(origin, [0.0, wall_height, 0.0]);
-        let tr = v3_add(br, [0.0, wall_height, 0.0]);
-        accum.add_quad(bl, br, tr, tl, outward);
+        emit_strip(&mut *accum, 0.0, edge_len, 0.0, wall_height);
     } else {
         // Collect unique horizontal bands (v-coords) across all openings.
         let mut v_cuts: Vec<f64> = vec![0.0, wall_height];
@@ -493,10 +603,24 @@ fn emit_wall_face_with_openings(
         let i_tl = v3_add(o_tl, offset);
         let i_tr = v3_add(o_tr, offset);
 
-        // Pane face (faces outward).
-        accum.add_quad(i_bl, i_br, i_tr, i_tl, outward);
+        // Pane face (faces outward) — UV-mapped to the same atlas region as
+        // the outer wall so the texture stays consistent through the reveal.
+        if let Some(euv) = edge_uv {
+            let lf = left_h / edge_len;
+            let rf = right_h / edge_len;
+            let bf = bot_v / wall_height;
+            let tf = top_v / wall_height;
+            accum.add_quad_uv(
+                i_bl, i_br, i_tr, i_tl, outward,
+                euv.map(lf, bf), euv.map(rf, bf),
+                euv.map(rf, tf), euv.map(lf, tf),
+            );
+        } else {
+            accum.add_quad(i_bl, i_br, i_tr, i_tl, outward);
+        }
 
         // Frame jambs — four quads connecting outer edge to recessed pane.
+        // These are non-textured (inner geometry).
         // Bottom sill (faces down into opening).
         accum.add_quad(o_bl, o_br, i_br, i_bl, down);
         // Top lintel (faces up into opening).
@@ -593,5 +717,49 @@ mod tests {
         let mesh = generate_wall_mesh(&tiny, 0.0, 3.5, 1, 3.5, 0.1);
         // Should still produce wall geometry (just no openings).
         assert!(mesh.vertex_count() > 0);
+    }
+
+    #[test]
+    fn test_atlas_uv_produces_uvs() {
+        let uv = AtlasUv {
+            uv_x: 0.0,
+            uv_y: 0.0,
+            uv_width: 0.25,
+            uv_height: 0.25,
+        };
+        let mesh = generate_wall_mesh_with_atlas(
+            &square_footprint(),
+            0.0,
+            10.5,
+            3,
+            3.5,
+            0.3,
+            Some(&uv),
+        );
+        assert!(mesh.vertex_count() > 0);
+        // UVs should be present for UV-mapped vertices (outer walls + panes).
+        assert!(!mesh.uvs.is_empty(), "atlas UV should produce non-empty uvs");
+        // UVs come in pairs.
+        assert_eq!(mesh.uvs.len() % 2, 0);
+        // All UV values should be within the atlas rect bounds (with small epsilon).
+        for (i, &val) in mesh.uvs.iter().enumerate() {
+            assert!(
+                val >= -0.001 && val <= 1.001,
+                "UV[{i}] = {val} out of [0,1] range"
+            );
+        }
+    }
+
+    #[test]
+    fn test_no_atlas_produces_empty_uvs() {
+        let mesh = generate_wall_mesh(
+            &square_footprint(),
+            0.0,
+            10.5,
+            3,
+            3.5,
+            0.3,
+        );
+        assert!(mesh.uvs.is_empty(), "no atlas should produce empty uvs");
     }
 }
