@@ -75,7 +75,10 @@ flickerRemote.OnServerEvent:Connect(function(_player, sample)
     end
     TelemetryReporter.RecordFlickerSample(sample)
 end)
-local STARTUP_STREAMING_TIMEOUT_SECONDS = 10
+-- Post-osm2world: 1017 chunks at 3.3MB avg need more than 10s to settle
+-- the near ring. 60s gives the streaming system time to fetch + import
+-- the ~48 near-ring chunks at ~2s each.
+local STARTUP_STREAMING_TIMEOUT_SECONDS = 60
 local STARTUP_STREAMING_POLL_INTERVAL_SECONDS = 0.1
 local STARTUP_STREAMING_REQUIRED_READY_POLLS = 3
 

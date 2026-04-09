@@ -74,7 +74,9 @@ local WAYPOINTS_RELATIVE = table.freeze({
 })
 
 local WAYPOINT_PAUSE_SECONDS = 2.5
-local GAMEPLAY_READY_TIMEOUT_SECONDS = 90
+-- Post-osm2world: startup streaming timeout is 60s, so gameplay_ready
+-- fires ~70-80s after bootstrap start. Give the walk 180s to cover that.
+local GAMEPLAY_READY_TIMEOUT_SECONDS = 180
 local CHARACTER_TIMEOUT_SECONDS = 30
 
 local function waitForGameplayReady(timeoutSeconds)
