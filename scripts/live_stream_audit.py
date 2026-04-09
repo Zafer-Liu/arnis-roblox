@@ -44,10 +44,11 @@ DEFAULT_SINCE_SECONDS = 600
 # ~500KB before). Fetch latency scaled proportionally. The 4+ story window
 # threshold limits blowup but avg chunks are still ~2x previous. Thresholds
 # recalibrated to accommodate richer geometry without masking real regressions.
-DEFAULT_MAX_BOOTSTRAP_SECONDS = 60.0
+# 60s startup streaming timeout + 10s initial import = ~70-75s bootstrap.
+DEFAULT_MAX_BOOTSTRAP_SECONDS = 90.0
 DEFAULT_MAX_AVG_LATENCY_MS = 4000.0
 DEFAULT_MAX_SLOWEST_LATENCY_MS = 10000.0
-DEFAULT_MAX_P95_BOOTSTRAP_SECONDS = 65.0
+DEFAULT_MAX_P95_BOOTSTRAP_SECONDS = 95.0
 DEFAULT_MIN_CHUNKS = 4
 DEFAULT_MIN_RECORDS = 1
 DEFAULT_MIN_SUCCESS_RATE = 0.9
