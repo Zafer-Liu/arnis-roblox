@@ -4673,6 +4673,19 @@ authoritative_client_play_proof_present() {
     && rg -q "ARNIS_CLIENT_LOCAL_EXPERIENCE " "$summary_source"
 }
 
+wait_for_authoritative_client_play_proof() {
+  local timeout="${1:-20}"
+  local waited=0
+  while [[ $waited -lt $timeout ]]; do
+    if authoritative_client_play_proof_present "$ACTIVE_LOG"; then
+      return 0
+    fi
+    sleep 1
+    waited=$((waited + 1))
+  done
+  return 1
+}
+
 validate_play_bootstrap_trace() {
   local summary_source="${1:-$ACTIVE_LOG}"
   local client_bootstrap_json=""
@@ -5580,7 +5593,7 @@ elif [[ $DO_PLAY -eq 1 ]]; then
     else
       log "play-mode Austin markers not observed before timeout; continuing"
     fi
-    if authoritative_client_play_proof_present "$ACTIVE_LOG"; then
+    if wait_for_authoritative_client_play_proof 20; then
       authoritative_client_play_proof_already_present=1
       log "skipping play-mode MCP probe because authoritative client proof is already present"
     elif run_play_probe_via_mcp; then
@@ -5614,7 +5627,7 @@ elif [[ $DO_PLAY -eq 1 ]]; then
   if [[ $play_probe_completed_via_mcp -eq 1 || $authoritative_client_play_proof_already_present -eq 1 ]]; then
     log "skipping redundant play MCP probe after successful authoritative play proof"
   else
-    run_probe_best_effort "play" 8
+    run_probe_best_effort "play" 8 || log "best-effort play probe did not complete; continuing"
   fi
   capture_studio_screenshot "play"
   validate_play_bootstrap_trace "$ACTIVE_LOG"

@@ -30,28 +30,30 @@ local ENABLED_ATTR = "ArnisMinimapEnabled"
 local CHUNK_JSON_ATTR = "ArnisMinimapChunkJson"
 local TWEEN_INFO = TweenInfo.new(0.35, Enum.EasingStyle.Quint, Enum.EasingDirection.Out)
 
+-- OSM Carto standard color palette for minimap rendering.
+-- Colors sourced from openstreetmap-carto stylesheet to match vanilla OSM.
 local COLORS = table.freeze({
-    background = { 30, 35, 45, 255 },
-    road = { 255, 255, 255, 255 },
-    road_minor = { 220, 220, 220, 255 },
-    rail = { 120, 90, 70, 255 },
-    building = { 210, 200, 185, 255 },
-    building_residential = { 220, 190, 170, 255 },
-    building_commercial = { 200, 205, 215, 255 },
-    building_industrial = { 170, 165, 155, 255 },
-    building_civic = { 225, 210, 180, 255 },
-    water = { 170, 210, 240, 255 },
-    park = { 180, 220, 170, 255 },
-    grass = { 200, 225, 175, 255 },
-    forest = { 140, 190, 140, 255 },
-    farmland = { 225, 215, 170, 255 },
-    parking = { 230, 225, 215, 255 },
-    cemetery = { 175, 190, 175, 255 },
-    residential_zone = { 240, 230, 215, 255 },
-    commercial_zone = { 225, 220, 235, 255 },
-    industrial_zone = { 210, 205, 195, 255 },
-    sand = { 240, 225, 180, 255 },
-    barrier = { 120, 115, 110, 255 },
+    background = { 242, 239, 233, 255 },     -- OSM Carto land background #f2efe9
+    road = { 255, 255, 255, 255 },             -- major roads: white
+    road_minor = { 255, 255, 255, 200 },       -- minor roads: white, slightly transparent
+    rail = { 112, 112, 112, 255 },             -- OSM Carto rail #707070
+    building = { 217, 208, 201, 255 },         -- OSM Carto building #d9d0c9
+    building_residential = { 217, 208, 201, 255 }, -- same as building (Carto doesn't differentiate)
+    building_commercial = { 217, 208, 201, 255 },
+    building_industrial = { 217, 208, 201, 255 },
+    building_civic = { 217, 208, 201, 255 },
+    water = { 170, 211, 223, 255 },            -- OSM Carto water #aad3df
+    park = { 200, 250, 204, 255 },             -- OSM Carto leisure=park #c8facc (brighter variant)
+    grass = { 205, 235, 176, 255 },            -- OSM Carto landuse=grass #cdebb0
+    forest = { 173, 209, 158, 255 },           -- OSM Carto natural=wood #add19e
+    farmland = { 238, 240, 213, 255 },         -- OSM Carto landuse=farmland #eef0d5
+    parking = { 238, 238, 238, 255 },          -- OSM Carto amenity=parking #eeeeee
+    cemetery = { 170, 203, 175, 255 },         -- OSM Carto landuse=cemetery #aacbaf
+    residential_zone = { 224, 223, 223, 255 }, -- OSM Carto landuse=residential #e0dfdf
+    commercial_zone = { 240, 224, 200, 255 },  -- OSM Carto landuse=commercial #f0e0c8 (approx)
+    industrial_zone = { 235, 219, 232, 255 },  -- OSM Carto landuse=industrial #ebdbe8
+    sand = { 245, 233, 191, 255 },             -- OSM Carto natural=sand #f5e9bf
+    barrier = { 180, 180, 180, 255 },          -- fences/walls: light gray
     player = { 65, 130, 240, 255 },
     player_dir = { 65, 130, 240, 200 },
     border = { 50, 55, 65, 255 },

@@ -412,10 +412,10 @@ end)
 holdingPad = Instance.new("Part")
 holdingPad.Name = "AustinLoadingPad"
 holdingPad.Anchored = true
-holdingPad.CanCollide = false
+holdingPad.CanCollide = true -- character stands on pad during load
 holdingPad.Transparency = 1
-holdingPad.Size = Vector3.new(64, 1, 64)
-holdingPad.CFrame = CFrame.new(0, 300, 0)
+holdingPad.Size = Vector3.new(256, 4, 256) -- wide enough to catch any drift
+holdingPad.CFrame = CFrame.new(0, 500, 0) -- high above the world
 holdingPad.Parent = Workspace
 
 local runtimeConfigSource = WorldConfig

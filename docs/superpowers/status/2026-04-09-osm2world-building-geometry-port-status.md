@@ -176,3 +176,26 @@ The compact historical archive index is:
   - `python3 -m unittest scripts.tests.test_austin_runtime_contract scripts.tests.test_ambient_soundscape_runtime_contract scripts.tests.test_minimap_runtime_contract scripts.tests.test_play_audio_assets scripts.tests.test_gui_session_capture scripts.tests.test_run_studio_harness scripts.tests.test_run_studio_harness_remote -v`
   - `bash -n scripts/run_studio_harness.sh scripts/run_studio_harness_remote.sh`
   - `git diff --check`
+
+### 2026-04-09: Play-Focused Proof Fast-Path Recovery
+
+- Root-caused the next proof-lane stall in the play-focused harness path:
+  - the shell could miss the immediate client-proof fast path and then fall through into probe paths that were intended only as fallback
+  - the later `run_probe_best_effort "play" 8` call was still running under `set -e`, so a non-zero best-effort probe could kill the main harness shell while the background Studio-log pipe kept streaming, leaving no summary or cleanup signal
+- Hardened `scripts/run_studio_harness.sh` by:
+  - adding a short `wait_for_authoritative_client_play_proof` poll before deciding to invoke any play probe in the play-focused branch
+  - making the fallback best-effort play probe genuinely best-effort with an explicit continue-on-failure log path
+  - preserving the new client-proof fast path so play-focused runs can skip both MCP and best-effort probes once the required client markers are present
+- Fresh `proof-v9` on `tertiary` now confirms the branch behaves correctly end to end:
+  - `skipping play-mode MCP probe because authoritative client proof is already present`
+  - `skipping redundant play MCP probe after successful authoritative play proof`
+  - authoritative client world verdict: `worldRootExists=True nearbyBuildingModels=6 nearbyRoofParts=41 overheadRoofParts=8`
+  - authoritative client perf verdict: `avgFrameTimeMs=21.28 p99FrameTimeMs=107.85 maxFrameTimeMs=139.49 fps=47`
+  - authoritative play screenshot sidecar: `capture_method="rect"`
+  - harness reaches `main harness flow complete; exiting` and `cleanup starting exit_code=0`
+  - post-run remote process check shows no remaining stage-local harness shells
+- Verification:
+  - `python3 -m unittest scripts.tests.test_austin_runtime_contract scripts.tests.test_ambient_soundscape_runtime_contract scripts.tests.test_minimap_runtime_contract scripts.tests.test_play_audio_assets scripts.tests.test_gui_session_capture scripts.tests.test_run_studio_harness scripts.tests.test_run_studio_harness_remote -v`
+  - `bash -n scripts/run_studio_harness.sh scripts/run_studio_harness_remote.sh`
+  - `git diff --check`
+  - `ARNIS_REMOTE_STUDIO_ARTIFACT_DIR=/tmp/arnis-remote-studio-proof-v9 bash scripts/run_studio_harness_remote.sh --swift-screenshot -- --small-place --takeover --skip-edit-tests --play-wait 130 --pattern-wait 240 --screenshot /tmp/arnis-studio-harness.png`

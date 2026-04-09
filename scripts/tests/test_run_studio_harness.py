@@ -1299,6 +1299,7 @@ class RunStudioHarnessTests(unittest.TestCase):
         )
         self.assertIn('log "skipping redundant play MCP probe after successful authoritative play proof"', play_block)
         self.assertIn('run_probe_best_effort "play" 8', play_block)
+        self.assertIn('run_probe_best_effort "play" 8 || log "best-effort play probe did not complete; continuing"', play_block)
 
     def test_play_focused_harness_runs_authoritative_mcp_play_probe_after_play_entry(self) -> None:
         play_block = self.text.split("elif [[ $DO_PLAY -eq 1 ]]; then", 1)[1]
@@ -1552,6 +1553,11 @@ class RunStudioHarnessTests(unittest.TestCase):
         )
         self.assertIsNotNone(authoritative_block, "authoritative_client_play_proof_present function not found")
         self.assertIn('rg -q "ARNIS_CLIENT_WORLD_COMPACT " "$summary_source"', authoritative_block.group("body"))
+
+    def test_play_focused_branch_waits_briefly_for_client_proof_before_mcp_probe(self) -> None:
+        self.assertIn("wait_for_authoritative_client_play_proof()", self.text)
+        self.assertIn('local timeout="${1:-20}"', self.text)
+        self.assertIn('if wait_for_authoritative_client_play_proof 20; then', self.text)
 
     def test_harness_salvages_truncated_gameplay_ready_world_markers(self) -> None:
         block = re.search(
