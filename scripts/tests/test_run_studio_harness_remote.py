@@ -137,6 +137,7 @@ class RunStudioHarnessRemoteTests(unittest.TestCase):
         self.assertIn('if [[ $proof_signal_seen -eq 0 ]] && remote_proof_signal_detected; then', self.text)
         self.assertIn('sync_remote_artifacts || true', self.text)
         self.assertIn('if [[ "$remote_state" == exit:* || "$remote_state" == "missing" ]]; then', self.text)
+        self.assertIn('if [[ "$remote_state" == "running_orphaned" && ( $proof_signal_seen -eq 1 || $completion_signal_seen_at -ne 0 ) ]]; then', self.text)
 
     def test_proof_first_wrapper_bounds_cleanup_tail_after_main_flow_completion(self) -> None:
         self.assertIn('PROOF_SYNC_TAIL_TIMEOUT_SECONDS="${ARNIS_REMOTE_STUDIO_TAIL_TIMEOUT_SECONDS:-20}"', self.text)

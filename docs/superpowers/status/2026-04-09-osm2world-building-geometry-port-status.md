@@ -234,3 +234,28 @@ The compact historical archive index is:
   - any runtime path still causing the remaining 80-120ms `p99/max` spikes during denser post-walk windows
 - Verification:
   - `ARNIS_REMOTE_STUDIO_ARTIFACT_DIR=/tmp/arnis-remote-studio-proof-v10 bash scripts/run_studio_harness_remote.sh --swift-screenshot -- --small-place --takeover --skip-edit-tests --play-wait 130 --pattern-wait 240 --screenshot /tmp/arnis-studio-harness.png`
+
+### 2026-04-09: WorldProbe Chunk-Bounds Cull + proof-v11
+
+- Landed the next bounded client perf cut by moving structure-scan culling up to the chunk level:
+  - `MinimapService.lua` now publishes per-chunk building bounds attrs (`ArnisMinimapChunkBuildingBoundsMinX/MaxX/MinZ/MaxZ`) when a chunk is registered and clears them when the chunk is removed
+  - `WorldProbe.client.lua` now uses those attrs to skip distant chunk folders before any merged-mesh or building-descendant walk inside `summarizeWorld(...)`
+  - the payload shape and structure truth logic stay unchanged; this only reduces how much of the imported world is scanned per telemetry sample
+- Added explicit contract coverage for the new cull path:
+  - `test_minimap_runtime_contract.py` asserts the server publishes and clears chunk building bounds attrs
+  - `test_austin_runtime_contract.py` asserts `WorldProbe` culls distant chunks via those attrs before descendant scans
+- Local verification stayed green:
+  - `python3 -m unittest scripts.tests.test_austin_runtime_contract scripts.tests.test_ambient_soundscape_runtime_contract scripts.tests.test_minimap_runtime_contract scripts.tests.test_play_audio_assets scripts.tests.test_gui_session_capture scripts.tests.test_run_studio_harness scripts.tests.test_run_studio_harness_remote -v`
+  - `git diff --check`
+- Fresh remote `proof-v11` on `tertiary` produced a valid synced Studio log even though the local wrapper shell later hung and had to be reaped:
+  - synced log still reaches `gameplay_ready`
+  - synced client world markers still show non-zero nearby structure truth (`worldRootExists=True`, `nearbyBuildingModels=6`, `nearbyRoofParts=41`)
+  - late perf window improves again versus `proof-v10`:
+    - `avgFrameTimeMs`: `19.66` -> `19.62`
+    - `p99FrameTimeMs`: `89.85` -> `71.74`
+    - `maxFrameTimeMs`: `122.82` -> `108.2`
+    - `fps`: `50.9` -> `51.0`
+- Residual issue after this slice:
+  - the runtime signal improved, but `run_studio_harness_remote.sh` still left a stale local control shell on this run and exited non-zero after only a partial sync (`arnis-remote-harness.stdout.log` plus the Studio log). The scene/runtime proof itself is valid; the remaining problem is wrapper lifecycle cleanup, not client-world parity.
+- Verification:
+  - `ARNIS_REMOTE_STUDIO_ARTIFACT_DIR=/tmp/arnis-remote-studio-proof-v11 bash scripts/run_studio_harness_remote.sh --swift-screenshot -- --small-place --takeover --skip-edit-tests --play-wait 130 --pattern-wait 240 --screenshot /tmp/arnis-studio-harness.png`

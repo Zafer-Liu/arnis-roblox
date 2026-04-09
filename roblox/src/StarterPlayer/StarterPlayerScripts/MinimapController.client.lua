@@ -657,7 +657,8 @@ local function ensureGui()
     frame.Name = "MinimapFrame"
     frame.Size = UDim2.new(0, MAP_DISPLAY_SIZE + 10, 0, MAP_DISPLAY_SIZE + 10)
     frame.Position = UDim2.new(0, 10, 1, -MAP_DISPLAY_SIZE - 20)
-    frame.BackgroundColor3 = Color3.fromRGB(20, 22, 30)
+    -- Match the OSM Carto light background for a clean, professional look.
+    frame.BackgroundColor3 = Color3.fromRGB(220, 218, 213)
     frame.BorderSizePixel = 0
     frame.Parent = screenGui
 

@@ -855,6 +855,18 @@ class AustinRuntimeContractTests(unittest.TestCase):
         self.assertIn("if not chunkIntersectsNearbyBuildingRadius(chunkFolder, rootPosition) then", self.world_probe_text)
         self.assertIn("continue", self.world_probe_text)
 
+    def test_client_world_probe_culls_distant_models_before_pivot_and_descendant_scans(self) -> None:
+        self.assertIn('local BUILDING_BOUNDS_MIN_X_ATTR = "ArnisImportBoundsMinX"', self.world_probe_text)
+        self.assertIn('local BUILDING_BOUNDS_MAX_X_ATTR = "ArnisImportBoundsMaxX"', self.world_probe_text)
+        self.assertIn('local BUILDING_BOUNDS_MIN_Z_ATTR = "ArnisImportBoundsMinZ"', self.world_probe_text)
+        self.assertIn('local BUILDING_BOUNDS_MAX_Z_ATTR = "ArnisImportBoundsMaxZ"', self.world_probe_text)
+        self.assertIn("local function modelIntersectsNearbyNamedBuildingRadius(model, rootPosition)", self.world_probe_text)
+        self.assertIn("local minX = tonumber(model:GetAttribute(BUILDING_BOUNDS_MIN_X_ATTR))", self.world_probe_text)
+        self.assertIn("local closestX = math.clamp(rootPosition.X, minX, maxX)", self.world_probe_text)
+        self.assertIn("if distanceSq <= NEARBY_NAMED_BUILDING_RADIUS_SQ then", self.world_probe_text)
+        self.assertIn("if not modelIntersectsNearbyNamedBuildingRadius(model, rootPosition) then", self.world_probe_text)
+        self.assertIn("local pivotPosition = model:GetPivot().Position", self.world_probe_text)
+
     def test_client_world_probe_resamples_moving_players_more_aggressively(self) -> None:
         self.assertIn("local IDLE_SAMPLE_INTERVAL = 1.5", self.world_probe_text)
         self.assertIn("local MOVING_SAMPLE_INTERVAL = 0.5", self.world_probe_text)
@@ -900,6 +912,14 @@ class AustinRuntimeContractTests(unittest.TestCase):
     def test_building_builder_publishes_building_name_attribute_for_runtime_probes(self) -> None:
         self.assertIn('if type(building.name) == "string" and building.name ~= "" then', self.building_builder_text)
         self.assertIn('model:SetAttribute("ArnisImportBuildingName", building.name)', self.building_builder_text)
+
+    def test_building_builder_publishes_horizontal_bounds_for_runtime_probe_culling(self) -> None:
+        self.assertIn("local function setBuildingAuditAttributes(model, building, baseY, height, footprintData)", self.building_builder_text)
+        self.assertIn('model:SetAttribute("ArnisImportBoundsMinX", footprintData.minX)', self.building_builder_text)
+        self.assertIn('model:SetAttribute("ArnisImportBoundsMaxX", footprintData.maxX)', self.building_builder_text)
+        self.assertIn('model:SetAttribute("ArnisImportBoundsMinZ", footprintData.minZ)', self.building_builder_text)
+        self.assertIn('model:SetAttribute("ArnisImportBoundsMaxZ", footprintData.maxZ)', self.building_builder_text)
+        self.assertIn("setBuildingAuditAttributes(model, building, baseY, height, footprintData)", self.building_builder_text)
 
     def test_building_builder_guards_lod_assignment_outside_plugin_capability(self) -> None:
         self.assertIn("local function trySetModelLevelOfDetail(model, levelOfDetail)", self.building_builder_text)

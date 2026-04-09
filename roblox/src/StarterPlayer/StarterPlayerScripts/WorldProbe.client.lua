@@ -15,6 +15,10 @@ local CHUNK_BUILDING_BOUNDS_MIN_X_ATTR = "ArnisMinimapChunkBuildingBoundsMinX"
 local CHUNK_BUILDING_BOUNDS_MAX_X_ATTR = "ArnisMinimapChunkBuildingBoundsMaxX"
 local CHUNK_BUILDING_BOUNDS_MIN_Z_ATTR = "ArnisMinimapChunkBuildingBoundsMinZ"
 local CHUNK_BUILDING_BOUNDS_MAX_Z_ATTR = "ArnisMinimapChunkBuildingBoundsMaxZ"
+local BUILDING_BOUNDS_MIN_X_ATTR = "ArnisImportBoundsMinX"
+local BUILDING_BOUNDS_MAX_X_ATTR = "ArnisImportBoundsMaxX"
+local BUILDING_BOUNDS_MIN_Z_ATTR = "ArnisImportBoundsMinZ"
+local BUILDING_BOUNDS_MAX_Z_ATTR = "ArnisImportBoundsMaxZ"
 local IDLE_SAMPLE_INTERVAL = 1.5
 local MOVING_SAMPLE_INTERVAL = 0.5
 local NEARBY_BUILDING_RADIUS = 260
@@ -279,6 +283,30 @@ local function chunkIntersectsNearbyBuildingRadius(chunkFolder, rootPosition)
     return false
 end
 
+local function modelIntersectsNearbyNamedBuildingRadius(model, rootPosition)
+    if model == nil or rootPosition == nil then
+        return true
+    end
+
+    local minX = tonumber(model:GetAttribute(BUILDING_BOUNDS_MIN_X_ATTR))
+    local maxX = tonumber(model:GetAttribute(BUILDING_BOUNDS_MAX_X_ATTR))
+    local minZ = tonumber(model:GetAttribute(BUILDING_BOUNDS_MIN_Z_ATTR))
+    local maxZ = tonumber(model:GetAttribute(BUILDING_BOUNDS_MAX_Z_ATTR))
+    if minX == nil or maxX == nil or minZ == nil or maxZ == nil then
+        return true
+    end
+
+    local closestX = math.clamp(rootPosition.X, minX, maxX)
+    local closestZ = math.clamp(rootPosition.Z, minZ, maxZ)
+    local deltaX = rootPosition.X - closestX
+    local deltaZ = rootPosition.Z - closestZ
+    local distanceSq = deltaX * deltaX + deltaZ * deltaZ
+    if distanceSq <= NEARBY_NAMED_BUILDING_RADIUS_SQ then
+        return true
+    end
+    return false
+end
+
 local function isRoofClosureDeckPart(part)
     if part == nil then
         return false
@@ -499,6 +527,9 @@ local function summarizeWorld(rootPart, worldRoot, worldRootName, telemetryFlags
 
         for _, model in ipairs(buildingsFolder:GetChildren()) do
             if not model:IsA("Model") or model:GetAttribute("ArnisImportBuildingHeight") == nil then
+                continue
+            end
+            if not modelIntersectsNearbyNamedBuildingRadius(model, rootPosition) then
                 continue
             end
 

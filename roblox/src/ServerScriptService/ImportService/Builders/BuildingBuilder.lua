@@ -3416,7 +3416,7 @@ local function buildAwning(parent, building, baseY, worldPts)
     awning.Parent = parent
 end
 
-local function setBuildingAuditAttributes(model, building, baseY, height)
+local function setBuildingAuditAttributes(model, building, baseY, height, footprintData)
     local wallMaterial = getMaterial(building)
     local roofMaterial = getRoofMaterial(building, wallMaterial)
     local sourceId = if type(building.id) == "string" and building.id ~= "" then building.id else model.Name
@@ -3458,6 +3458,12 @@ local function setBuildingAuditAttributes(model, building, baseY, height)
     model:SetAttribute("ArnisImportRoofIncluded", building.roofIncluded == true)
     model:SetAttribute("ArnisImportWallMaterial", wallMaterial.Name)
     model:SetAttribute("ArnisImportRoofMaterial", roofMaterial.Name)
+    if type(footprintData) == "table" then
+        model:SetAttribute("ArnisImportBoundsMinX", footprintData.minX)
+        model:SetAttribute("ArnisImportBoundsMaxX", footprintData.maxX)
+        model:SetAttribute("ArnisImportBoundsMinZ", footprintData.minZ)
+        model:SetAttribute("ArnisImportBoundsMaxZ", footprintData.maxZ)
+    end
     if type(building.name) == "string" and building.name ~= "" then
         model:SetAttribute("ArnisImportBuildingName", building.name)
     end
@@ -3487,7 +3493,7 @@ function BuildingBuilder.FallbackBuild(parent, building, originStuds, chunk, win
     model.Name = bldgName
     trySetModelLevelOfDetail(model, Enum.ModelLevelOfDetail.Automatic)
     model.Parent = parent
-    setBuildingAuditAttributes(model, building, baseY, height)
+    setBuildingAuditAttributes(model, building, baseY, height, footprintData)
     local shellFolder = Instance.new("Folder")
     shellFolder.Name = "Shell"
     shellFolder.Parent = model
@@ -4334,8 +4340,16 @@ function BuildingBuilder.MeshBuildAll(parent, buildings, originStuds, chunk, con
                 )
                 recordBuildingDetailPhase(buildStats, "roofBuildMs", (os.clock() - roofBuildStartedAt) * 1000)
             else
+                -- Accept both legacy JSON arrays AND B64-encoded mesh data.
+                -- After the B64-only pipeline strip, vertices is nil but
+                -- verticesB64 is present. Without this check, every B64
+                -- building silently falls through to the runtime path and
+                -- ALL osm2world precomputed geometry is discarded.
                 local hasPrecomputedShellMesh =
-                    building.shellMesh and building.shellMesh.vertices and #building.shellMesh.vertices >= 9
+                    building.shellMesh and (
+                        (building.shellMesh.vertices and #building.shellMesh.vertices >= 9)
+                        or (type(building.shellMesh.verticesB64) == "string" and #building.shellMesh.verticesB64 > 0)
+                    )
                 local shellMeshIncludesRoof = building.roofIncluded == true
                 -- When the Rust pipeline provides a full shell mesh with roof,
                 -- ALWAYS use it — even for small buildings that would normally

@@ -912,6 +912,7 @@ play_screenshot_fired=0
 PLAY_SCREENSHOT_DELAY_SECONDS=8
 completion_signal_seen_at=0
 wrapper_wait_bounded=0
+wrapper_saw_orphaned_after_proof=0
 
 while true; do
   sync_remote_session_output || true
@@ -949,6 +950,10 @@ while true; do
   fi
 
   remote_state="$(remote_harness_status)"
+  if [[ "$remote_state" == "running_orphaned" && ( $proof_signal_seen -eq 1 || $completion_signal_seen_at -ne 0 ) ]]; then
+    wrapper_saw_orphaned_after_proof=1
+    break
+  fi
   if [[ "$remote_state" == exit:* || "$remote_state" == "missing" ]]; then
     break
   fi
@@ -966,6 +971,11 @@ elif [[ "$remote_state" == "missing" ]]; then
 fi
 
 if [[ $wrapper_wait_bounded -eq 1 ]]; then
+  stop_remote_harness_if_active
+  remote_exit_code=0
+fi
+
+if [[ $wrapper_saw_orphaned_after_proof -eq 1 ]]; then
   stop_remote_harness_if_active
   remote_exit_code=0
 fi
