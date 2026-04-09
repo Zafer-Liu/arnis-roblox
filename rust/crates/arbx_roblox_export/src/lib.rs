@@ -20,7 +20,7 @@ pub mod water_mesh;
 use arbx_geo::{
     BoundingBox, ChunkId, ElevationProvider, LatLon, Mercator, PerlinElevationProvider, Vec3,
 };
-use arbx_pipeline::Feature;
+use arbx_pipeline::{BuildingFeature, Feature};
 
 use crate::chunker::{build_empty_chunk, ensure_terrain_materials, Chunker};
 use crate::materials::StyleMapper;
@@ -242,13 +242,60 @@ pub fn export_to_chunks(
         config.style.clone()
     };
 
+    // --- Two-pass building grouping: separate buildings/parts from other features ---
+    let mut buildings: Vec<BuildingFeature> = Vec::new();
+    let mut building_parts: Vec<BuildingFeature> = Vec::new();
+    let mut other_features: Vec<Feature> = Vec::new();
+
     for feature in features {
         if !config.include_props {
-            if let Feature::Prop(_) = feature {
+            if let Feature::Prop(_) = &feature {
                 continue;
             }
         }
+        match feature {
+            Feature::Building(f) => buildings.push(f),
+            Feature::BuildingPart(f) => building_parts.push(f),
+            other => other_features.push(other),
+        }
+    }
+
+    // Ingest non-building features normally.
+    for feature in other_features {
         chunker.ingest(feature, &active_style, elevation);
+    }
+
+    // Group BuildingPart features with their parent Building by spatial
+    // containment: a part belongs to a building when the part's footprint
+    // centroid falls inside the building's footprint polygon.
+    let mut grouped_parts: Vec<Vec<BuildingFeature>> = vec![Vec::new(); buildings.len()];
+    let mut unmatched_parts: Vec<BuildingFeature> = Vec::new();
+
+    for part in building_parts {
+        let centroid = part.footprint.centroid();
+        let mut matched = false;
+        for (i, building) in buildings.iter().enumerate() {
+            if building.footprint.contains_point(centroid) {
+                grouped_parts[i].push(part.clone());
+                matched = true;
+                break;
+            }
+        }
+        if !matched {
+            // Orphan part — treat as standalone building.
+            unmatched_parts.push(part);
+        }
+    }
+
+    // Ingest grouped buildings through resolve_building_parts.
+    for (i, building) in buildings.into_iter().enumerate() {
+        let parts = std::mem::take(&mut grouped_parts[i]);
+        chunker.ingest_building_group(building, &parts, &active_style, elevation);
+    }
+
+    // Orphan parts: ingest each as a standalone building.
+    for part in unmatched_parts {
+        chunker.ingest_building_group(part, &[], &active_style, elevation);
     }
 
     let mut manifest = chunker.finish(ManifestMeta {

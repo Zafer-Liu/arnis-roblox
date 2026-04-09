@@ -697,6 +697,44 @@ impl Footprint {
         true
     }
 
+    /// Compute the centroid (arithmetic mean of vertices).
+    pub fn centroid(&self) -> Vec2 {
+        if self.points.is_empty() {
+            return Vec2::new(0.0, 0.0);
+        }
+        let n = self.points.len() as f64;
+        let mut sx = 0.0;
+        let mut sy = 0.0;
+        for p in &self.points {
+            sx += p.x;
+            sy += p.y;
+        }
+        Vec2::new(sx / n, sy / n)
+    }
+
+    /// Ray-casting point-in-polygon test.  Returns true when `pt` is
+    /// inside the closed polygon defined by `self.points`.
+    pub fn contains_point(&self, pt: Vec2) -> bool {
+        let n = self.points.len();
+        if n < 3 {
+            return false;
+        }
+        let mut inside = false;
+        let mut j = n - 1;
+        for i in 0..n {
+            let pi = &self.points[i];
+            let pj = &self.points[j];
+            if (pi.y > pt.y) != (pj.y > pt.y) {
+                let ix = (pj.x - pi.x) * (pt.y - pi.y) / (pj.y - pi.y + f64::EPSILON) + pi.x;
+                if pt.x < ix {
+                    inside = !inside;
+                }
+            }
+            j = i;
+        }
+        inside
+    }
+
     fn point_in_triangle(&self, p: Vec2, a: Vec2, b: Vec2, c: Vec2) -> bool {
         let v0 = c - a;
         let v1 = b - a;

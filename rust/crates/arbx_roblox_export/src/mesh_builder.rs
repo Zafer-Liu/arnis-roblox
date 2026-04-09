@@ -14,6 +14,9 @@ pub struct PrecomputedMesh {
     pub triangles: Vec<u32>,
     /// Flat [nx,ny,nz, nx,ny,nz, ...] per-vertex normals.
     pub normals: Vec<f32>,
+    /// Flat [u,v, u,v, ...] per-vertex texture coordinates mapped into the
+    /// building's atlas UV rect. Empty when no atlas UV is available.
+    pub uvs: Vec<f32>,
 }
 
 impl PrecomputedMesh {
@@ -153,6 +156,7 @@ impl MeshAccum {
             vertices: self.vertices,
             triangles: self.triangles,
             normals: self.normals,
+            uvs: Vec::new(),
         }
     }
 }
@@ -191,17 +195,28 @@ pub fn merge_meshes(a: PrecomputedMesh, b: PrecomputedMesh) -> PrecomputedMesh {
         );
         return a;
     }
-    let offset = (a.vertices.len() / 3) as u32;
+    let a_vert_count = a.vertices.len();
+    let offset = (a_vert_count / 3) as u32;
     let mut vertices = a.vertices;
     vertices.extend_from_slice(&b.vertices);
     let mut triangles = a.triangles;
     triangles.extend(b.triangles.iter().map(|i| i + offset));
     let mut normals = a.normals;
     normals.extend_from_slice(&b.normals);
+    let mut uvs = a.uvs;
+    if !b.uvs.is_empty() {
+        // If `a` has vertices but no UVs, pad with zeros so the merged array
+        // stays aligned (2 floats per vertex).
+        if uvs.is_empty() && a_vert_count > 0 {
+            uvs.resize((a_vert_count / 3) * 2, 0.0);
+        }
+        uvs.extend_from_slice(&b.uvs);
+    }
     PrecomputedMesh {
         vertices,
         triangles,
         normals,
+        uvs,
     }
 }
 
@@ -319,6 +334,7 @@ pub fn build_building_mesh(
             vertices: Vec::new(),
             triangles: Vec::new(),
             normals: Vec::new(),
+            uvs: Vec::new(),
         };
     }
 
@@ -669,11 +685,13 @@ mod tests {
             vertices: vec![],
             triangles: vec![],
             normals: vec![],
+            uvs: vec![],
         };
         let nonempty = PrecomputedMesh {
             vertices: vec![1.0, 2.0, 3.0],
             triangles: vec![0],
             normals: vec![0.0, 1.0, 0.0],
+            uvs: vec![],
         };
         // merge(empty, nonempty) == nonempty
         let m = merge_meshes(empty.clone(), nonempty.clone());
@@ -691,6 +709,7 @@ mod tests {
                 vertices: vec![0.0f32; n * 3],
                 triangles: (0..n as u32).collect(),
                 normals: vec![0.0f32; n * 3],
+                uvs: vec![],
             }
         };
         let a = big(40_000);

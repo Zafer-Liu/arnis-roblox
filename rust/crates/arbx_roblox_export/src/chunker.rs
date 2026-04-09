@@ -589,249 +589,20 @@ impl Chunker {
                     });
                 }
             },
-            Feature::BuildingPart(f) => {
-                // Wire BuildingPart through resolve_building_parts() to get
-                // correct default values (roof shape, inherited tags, etc.).
-                // TODO: full parent-grouping — collect BuildingPart features,
-                // match them to their parent Building by spatial proximity,
-                // and call resolve_building_parts(parent, &[parts...]) for
-                // per-part meshes. For now, each BuildingPart is treated as
-                // a self-contained building with self-inheriting defaults.
-                use crate::building_part::resolve_building_parts;
-                let parts = resolve_building_parts(&f, &[]);
-                // resolve_building_parts with no children returns a single
-                // BuildingPart with correct defaults applied.
-                let part = &parts[0];
-
-                let scale = 1.0 / self.meters_per_stud;
-                let mut sum_x = 0.0;
-                let mut sum_z = 0.0;
-                for pt in &f.footprint.points {
-                    sum_x += pt.x;
-                    sum_z += pt.y;
-                }
-                let count = f.footprint.points.len() as f64;
-                let centroid = Vec3::new(sum_x / count, f.base_y, sum_z / count);
-                let chunk_id = world_to_chunk(centroid, self.chunk_size_studs);
-                let chunk = self.ensure_chunk(chunk_id, elevation, style);
-                let origin = chunk.origin_studs;
-
-                let relative_footprint: Vec<GroundPoint> = f
-                    .footprint
-                    .points
-                    .iter()
-                    .map(|pt| GroundPoint::new(pt.x - origin.x, pt.y - origin.z))
-                    .collect();
-                let relative_holes: Vec<Vec<GroundPoint>> = f
-                    .holes
-                    .iter()
-                    .map(|hole| {
-                        hole.points
-                            .iter()
-                            .map(|pt| GroundPoint::new(pt.x - origin.x, pt.y - origin.z))
-                            .collect()
-                    })
-                    .collect();
-
-                let style_key = part.usage.as_deref().unwrap_or("default");
-                let material = style.get_building_material(style_key);
-                let color = if let Some(css) = part.colour.as_deref().and_then(|c| parse_css_color(c)) {
-                    Some(css)
-                } else {
-                    style.get_building_color(style_key)
-                };
-                let material_override = part.material_tag.as_deref().map(|m| match m {
-                    "brick" => "Brick",
-                    "masonry" => "Brick",
-                    "concrete" => "Concrete",
-                    "glass" => "Glass",
-                    "metal" | "steel" => "Metal",
-                    "wood" => "WoodPlanks",
-                    "stone" | "granite" | "limestone" => "Limestone",
-                    "sandstone" => "Sandstone",
-                    "marble" => "Marble",
-                    _ => "Concrete",
-                });
-                let material = material_override.map(|s| s.to_string()).unwrap_or(material);
-
-                let roof_color = part.roof_colour.as_deref().and_then(|c| parse_css_color(c));
-
-                let rel_base_y = part.base_y - origin.y;
-                let rel_height = part.height * scale;
-
-                let shell_mesh = if relative_footprint.len() >= 3 && rel_height > 0.0 {
-                    let footprint_2d: Vec<(f64, f64)> = relative_footprint
-                        .iter()
-                        .map(|p| (p.x, p.z))
-                        .collect();
-                    Some(build_building_mesh(
-                        &footprint_2d,
-                        rel_base_y,
-                        rel_height,
-                        0.6,
-                        &part.roof_shape,
-                        part.roof_height.map(|h| h * scale),
-                        part.roof_direction,
-                        part.roof_angle,
-                        None,
-                        part.levels,
-                        None, // roof_levels not on resolved BuildingPart
-                        part.min_height.map(|h| h * scale),
-                        part.material_tag.as_deref(),
-                        part.usage.as_deref(),
-                        &part.id,
-                    ))
-                } else {
-                    None
-                };
-
-                let roof_included = shell_mesh.is_some();
-                chunk.buildings.push(BuildingShell {
-                    id: f.id,
-                    footprint: relative_footprint,
-                    holes: relative_holes,
-                    indices: f.indices,
-                    material,
-                    wall_color: color,
-                    roof_color,
-                    roof_shape: Some(part.roof_shape.clone()),
-                    roof_material: part.roof_material.clone(),
-                    usage: part.usage.clone(),
-                    min_height: part.min_height.map(|height| height * scale),
-                    base_y: rel_base_y,
-                    height: rel_height,
-                    height_m: f.height_m,
-                    levels: part.levels,
-                    roof_levels: f.roof_levels,
-                    facade_style: f.facade_style.clone(),
-                    structure_type: f.structure_type.clone(),
-                    roof: part.roof_shape.clone(),
-                    rooms: Vec::new(),
-                    roof_height: part.roof_height.map(|height| height * scale),
-                    roof_direction: part.roof_direction,
-                    roof_angle: part.roof_angle,
-                    name: part.name.clone(),
-                    shell_mesh,
-                    roof_included,
-                    atlas_uv: None,
-                });
-            }
+            // When called via export_to_chunks, Building and BuildingPart
+            // features are pre-grouped and routed through
+            // ingest_building_group() instead.  But direct callers of
+            // ingest() (e.g. tests, subplan helpers) may still send
+            // individual Building features, so handle them as standalone
+            // buildings with no parts.
             Feature::Building(f) => {
-                let scale = 1.0 / self.meters_per_stud;
-                let mut sum_x = 0.0;
-                let mut sum_z = 0.0;
-                for pt in &f.footprint.points {
-                    sum_x += pt.x;
-                    sum_z += pt.y;
-                }
-                let count = f.footprint.points.len() as f64;
-                let centroid = Vec3::new(sum_x / count, f.base_y, sum_z / count);
-                let chunk_id = world_to_chunk(centroid, self.chunk_size_studs);
-                let chunk = self.ensure_chunk(chunk_id, elevation, style);
-                let origin = chunk.origin_studs;
-
-                let relative_footprint: Vec<GroundPoint> = f
-                    .footprint
-                    .points
-                    .iter()
-                    .map(|pt| GroundPoint::new(pt.x - origin.x, pt.y - origin.z))
-                    .collect();
-                let relative_holes: Vec<Vec<GroundPoint>> = f
-                    .holes
-                    .iter()
-                    .map(|hole| {
-                        hole.points
-                            .iter()
-                            .map(|pt| GroundPoint::new(pt.x - origin.x, pt.y - origin.z))
-                            .collect()
-                    })
-                    .collect();
-
-                let style_key = f.usage.as_deref().unwrap_or("default");
-                let material = style.get_building_material(style_key);
-                let color = if let Some(css) = f.colour.as_deref().and_then(parse_css_color) {
-                    Some(css)
-                } else {
-                    style.get_building_color(style_key)
-                };
-                let material_override = f.material_tag.as_deref().map(|m| match m {
-                    "brick" => "Brick",
-                    "masonry" => "Brick",
-                    "concrete" => "Concrete",
-                    "glass" => "Glass",
-                    "metal" | "steel" => "Metal",
-                    "wood" => "WoodPlanks",
-                    "stone" | "granite" | "limestone" => "Limestone",
-                    "sandstone" => "Sandstone",
-                    "marble" => "Marble",
-                    _ => "Concrete",
-                });
-                let material = material_override.map(|s| s.to_string()).unwrap_or(material);
-
-                // Resolve roof color: prefer explicit OSM roof:colour, fall back to style
-                let roof_color = f.roof_colour.as_deref().and_then(parse_css_color);
-
-                let rel_base_y = f.base_y - origin.y;
-                let rel_height = f.height * scale;
-
-                // Pre-compute building mesh (walls + roof) when footprint has enough vertices.
-                let shell_mesh = if relative_footprint.len() >= 3 && rel_height > 0.0 {
-                    let footprint_2d: Vec<(f64, f64)> = relative_footprint
-                        .iter()
-                        .map(|p| (p.x, p.z))
-                        .collect();
-                    Some(build_building_mesh(
-                        &footprint_2d,
-                        rel_base_y,
-                        rel_height,
-                        0.6,
-                        &f.roof,
-                        f.roof_height.map(|h| h * scale),
-                        f.roof_direction,
-                        f.roof_angle,
-                        None, // roof_orientation not on BuildingFeature
-                        f.levels,
-                        f.roof_levels,
-                        f.min_height.map(|h| h * scale),
-                        f.material_tag.as_deref(),
-                        f.usage.as_deref(),
-                        &f.id,
-                    ))
-                } else {
-                    None
-                };
-
-                let roof_included = shell_mesh.is_some();
-                chunk.buildings.push(BuildingShell {
-                    id: f.id,
-                    footprint: relative_footprint,
-                    holes: relative_holes,
-                    indices: f.indices,
-                    material,
-                    wall_color: color,
-                    roof_color,
-                    roof_shape: Some(f.roof.clone()),
-                    roof_material: f.roof_material.clone(),
-                    usage: f.usage.clone(),
-                    min_height: f.min_height.map(|height| height * scale),
-                    base_y: rel_base_y,
-                    height: rel_height,
-                    height_m: f.height_m,
-                    levels: f.levels,
-                    roof_levels: f.roof_levels,
-                    facade_style: f.facade_style.clone(),
-                    structure_type: f.structure_type.clone(),
-                    roof: f.roof,
-                    rooms: Vec::new(),
-                    roof_height: f.roof_height.map(|height| height * scale),
-                    roof_direction: f.roof_direction,
-                    roof_angle: f.roof_angle,
-                    name: f.name.clone(),
-                    shell_mesh,
-                    roof_included,
-                    atlas_uv: None,
-                });
+                self.ingest_building_group(f, &[], style, elevation);
             }
+            Feature::BuildingPart(f) => {
+                // Orphan part — treat as standalone building.
+                self.ingest_building_group(f, &[], style, elevation);
+            }
+
             Feature::Prop(f) => {
                 let chunk_id = world_to_chunk(f.position, self.chunk_size_studs);
                 let chunk = self.ensure_chunk(chunk_id, elevation, style);
@@ -924,6 +695,149 @@ impl Chunker {
                     });
                 }
             }
+        }
+    }
+
+    /// Ingest a parent building and its grouped building:part children.
+    ///
+    /// When `parts` is non-empty, `resolve_building_parts` merges tags and
+    /// emits one `BuildingShell` per resolved part (the parent outline is
+    /// suppressed).  When `parts` is empty the parent renders as a single
+    /// standalone building.
+    pub fn ingest_building_group(
+        &mut self,
+        parent: arbx_pipeline::BuildingFeature,
+        parts: &[arbx_pipeline::BuildingFeature],
+        style: &StyleMapper,
+        elevation: &dyn ElevationProvider,
+    ) {
+        use crate::building_part::resolve_building_parts;
+
+        let resolved = resolve_building_parts(&parent, parts);
+        let scale = 1.0 / self.meters_per_stud;
+
+        for (idx, part) in resolved.iter().enumerate() {
+            // Use the resolved part's footprint for centroid/chunk assignment,
+            // falling back to parent footprint for the no-parts case.
+            let source_feature = if parts.is_empty() {
+                &parent
+            } else if idx < parts.len() {
+                &parts[idx]
+            } else {
+                &parent
+            };
+
+            let mut sum_x = 0.0;
+            let mut sum_z = 0.0;
+            for pt in &source_feature.footprint.points {
+                sum_x += pt.x;
+                sum_z += pt.y;
+            }
+            let count = source_feature.footprint.points.len() as f64;
+            let centroid = Vec3::new(sum_x / count, source_feature.base_y, sum_z / count);
+            let chunk_id = world_to_chunk(centroid, self.chunk_size_studs);
+            let chunk = self.ensure_chunk(chunk_id, elevation, style);
+            let origin = chunk.origin_studs;
+
+            let relative_footprint: Vec<GroundPoint> = source_feature
+                .footprint
+                .points
+                .iter()
+                .map(|pt| GroundPoint::new(pt.x - origin.x, pt.y - origin.z))
+                .collect();
+            let relative_holes: Vec<Vec<GroundPoint>> = source_feature
+                .holes
+                .iter()
+                .map(|hole| {
+                    hole.points
+                        .iter()
+                        .map(|pt| GroundPoint::new(pt.x - origin.x, pt.y - origin.z))
+                        .collect()
+                })
+                .collect();
+
+            let style_key = part.usage.as_deref().unwrap_or("default");
+            let material = style.get_building_material(style_key);
+            let color = if let Some(css) = part.colour.as_deref().and_then(|c| parse_css_color(c)) {
+                Some(css)
+            } else {
+                style.get_building_color(style_key)
+            };
+            let material_override = part.material_tag.as_deref().map(|m| match m {
+                "brick" => "Brick",
+                "masonry" => "Brick",
+                "concrete" => "Concrete",
+                "glass" => "Glass",
+                "metal" | "steel" => "Metal",
+                "wood" => "WoodPlanks",
+                "stone" | "granite" | "limestone" => "Limestone",
+                "sandstone" => "Sandstone",
+                "marble" => "Marble",
+                _ => "Concrete",
+            });
+            let material = material_override.map(|s| s.to_string()).unwrap_or(material);
+
+            let roof_color = part.roof_colour.as_deref().and_then(|c| parse_css_color(c));
+
+            let rel_base_y = part.base_y - origin.y;
+            let rel_height = part.height * scale;
+
+            let shell_mesh = if relative_footprint.len() >= 3 && rel_height > 0.0 {
+                let footprint_2d: Vec<(f64, f64)> = relative_footprint
+                    .iter()
+                    .map(|p| (p.x, p.z))
+                    .collect();
+                Some(build_building_mesh(
+                    &footprint_2d,
+                    rel_base_y,
+                    rel_height,
+                    0.6,
+                    &part.roof_shape,
+                    part.roof_height.map(|h| h * scale),
+                    part.roof_direction,
+                    part.roof_angle,
+                    None,
+                    part.levels,
+                    None,
+                    part.min_height.map(|h| h * scale),
+                    part.material_tag.as_deref(),
+                    part.usage.as_deref(),
+                    &part.id,
+                ))
+            } else {
+                None
+            };
+
+            let roof_included = shell_mesh.is_some();
+            chunk.buildings.push(BuildingShell {
+                id: part.id.clone(),
+                footprint: relative_footprint,
+                holes: relative_holes,
+                indices: source_feature.indices.clone(),
+                material,
+                wall_color: color,
+                roof_color,
+                roof_shape: Some(part.roof_shape.clone()),
+                roof_material: part.roof_material.clone(),
+                usage: part.usage.clone(),
+                min_height: part.min_height.map(|h| h * scale),
+                base_y: rel_base_y,
+                height: rel_height,
+                height_m: source_feature.height_m,
+                levels: part.levels,
+                roof_levels: source_feature.roof_levels,
+                facade_style: source_feature.facade_style.clone(),
+                structure_type: source_feature.structure_type.clone(),
+                roof: part.roof_shape.clone(),
+                rooms: Vec::new(),
+                roof_height: part.roof_height.map(|h| h * scale),
+                roof_direction: part.roof_direction,
+                roof_angle: part.roof_angle,
+                name: part.name.clone(),
+                shell_mesh,
+                roof_included,
+                atlas_uv: None,
+            });
         }
     }
 
@@ -1090,7 +1004,48 @@ impl Chunker {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use arbx_geo::LatLon;
+    use arbx_geo::{FlatElevationProvider, Footprint, LatLon, Vec2};
+    use arbx_pipeline::BuildingFeature;
+
+    fn flat_elev() -> FlatElevationProvider {
+        FlatElevationProvider { height: 0.0 }
+    }
+
+    fn square_footprint(x: f64, y: f64, size: f64) -> Footprint {
+        Footprint::new(vec![
+            Vec2::new(x, y),
+            Vec2::new(x + size, y),
+            Vec2::new(x + size, y + size),
+            Vec2::new(x, y + size),
+        ])
+    }
+
+    fn make_building(id: &str, footprint: Footprint, height: f64) -> BuildingFeature {
+        BuildingFeature {
+            id: id.to_string(),
+            footprint,
+            holes: vec![],
+            indices: None,
+            base_y: 0.0,
+            height,
+            height_m: Some(height),
+            levels: Some(3),
+            roof_levels: None,
+            min_height: Some(0.0),
+            roof: "flat".to_string(),
+            usage: Some("commercial".to_string()),
+            colour: None,
+            material_tag: None,
+            roof_colour: None,
+            roof_material: None,
+            roof_height: None,
+            roof_direction: None,
+            roof_angle: None,
+            name: Some("Test Building".to_string()),
+            facade_style: None,
+            structure_type: None,
+        }
+    }
 
     #[test]
     fn world_to_chunk_maps_positions() {
@@ -1118,5 +1073,74 @@ mod tests {
         assert_eq!(ids[0], ChunkId::new(0, 0));
         assert_eq!(ids[1], ChunkId::new(1, 0));
         assert_eq!(ids[2], ChunkId::new(2, 0));
+    }
+
+    #[test]
+    fn building_with_two_parts_yields_two_shells_parent_suppressed() {
+        let elev = flat_elev();
+        let style = StyleMapper::default();
+        let mut chunker = Chunker::new(256, 1.0, 4, LatLon::new(0.0, 0.0));
+
+        // Parent: 20x20 square at origin, 30m tall
+        let parent = make_building("parent_1", square_footprint(5.0, 5.0, 20.0), 30.0);
+
+        // Part 1 (base): same footprint as parent, 0-10m
+        let mut base = make_building("part_base", square_footprint(5.0, 5.0, 20.0), 10.0);
+        base.min_height = Some(0.0);
+        base.levels = Some(3);
+        base.usage = Some("retail".to_string());
+
+        // Part 2 (tower): smaller footprint inside parent, 10-30m
+        let mut tower = make_building("part_tower", square_footprint(8.0, 8.0, 10.0), 20.0);
+        tower.base_y = 10.0;
+        tower.min_height = Some(10.0);
+        tower.levels = Some(7);
+        tower.usage = Some("office".to_string());
+
+        // Ingest the group
+        chunker.ingest_building_group(parent, &[base, tower], &style, &elev);
+
+        // Collect all buildings across all chunks
+        let all_buildings: Vec<&BuildingShell> = chunker
+            .chunks
+            .values()
+            .flat_map(|c| &c.buildings)
+            .collect();
+
+        // Should have 2 shells (one per part), parent suppressed
+        assert_eq!(all_buildings.len(), 2);
+
+        let ids: Vec<&str> = all_buildings.iter().map(|b| b.id.as_str()).collect();
+        assert!(ids.contains(&"part_base"), "base part missing");
+        assert!(ids.contains(&"part_tower"), "tower part missing");
+        // Parent id should NOT appear
+        assert!(!ids.contains(&"parent_1"), "parent should be suppressed when parts exist");
+
+        // Verify tower has correct base_y offset (10m)
+        let tower_shell = all_buildings.iter().find(|b| b.id == "part_tower").unwrap();
+        assert!(tower_shell.base_y >= 9.9 && tower_shell.base_y <= 10.1,
+            "tower base_y should be ~10, got {}", tower_shell.base_y);
+    }
+
+    #[test]
+    fn building_with_no_parts_yields_single_shell() {
+        let elev = flat_elev();
+        let style = StyleMapper::default();
+        let mut chunker = Chunker::new(256, 1.0, 4, LatLon::new(0.0, 0.0));
+
+        let building = make_building("solo_1", square_footprint(5.0, 5.0, 20.0), 25.0);
+
+        // Ingest with no parts
+        chunker.ingest_building_group(building, &[], &style, &elev);
+
+        let all_buildings: Vec<&BuildingShell> = chunker
+            .chunks
+            .values()
+            .flat_map(|c| &c.buildings)
+            .collect();
+
+        assert_eq!(all_buildings.len(), 1, "should have exactly 1 shell for standalone building");
+        assert_eq!(all_buildings[0].id, "solo_1");
+        assert_eq!(all_buildings[0].name.as_deref(), Some("Test Building"));
     }
 }
