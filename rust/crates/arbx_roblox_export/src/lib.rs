@@ -3,6 +3,7 @@ pub mod chunker;
 pub mod lua_runtime_shards;
 pub mod manifest;
 pub mod manifest_store;
+pub mod material_map;
 pub mod materials;
 pub mod mesh_builder;
 pub mod prop_mesh;
