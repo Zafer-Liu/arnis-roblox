@@ -21,6 +21,7 @@ pub mod cone;
 pub mod onion;
 pub mod chimney;
 pub mod spindle;
+pub mod ridge;
 pub mod heightfield;
 
 /// A 2D point in the XZ plane (building footprint space).
