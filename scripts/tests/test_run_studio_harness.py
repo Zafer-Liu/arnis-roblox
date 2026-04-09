@@ -1307,7 +1307,7 @@ class RunStudioHarnessTests(unittest.TestCase):
         focused_branch_start = play_block.index("elif should_skip_edit_mode_actions_for_play; then")
         focused_branch_end = play_block.index("elif run_play_probe_via_mcp; then", focused_branch_start)
         focused_branch = play_block[focused_branch_start:focused_branch_end]
-        self.assertIn('if authoritative_client_play_proof_present "$ACTIVE_LOG"; then', focused_branch)
+        self.assertIn('if wait_for_authoritative_client_play_proof 20; then', focused_branch)
         self.assertIn('log "skipping play-mode MCP probe because authoritative client proof is already present"', focused_branch)
         self.assertIn('elif run_play_probe_via_mcp; then', play_block)
         self.assertIn("play_probe_completed_via_mcp=1", play_block)
@@ -1315,7 +1315,7 @@ class RunStudioHarnessTests(unittest.TestCase):
         self.assertIn('log "play-mode MCP probe was non-authoritative; continuing with client/log proof"', play_block)
         self.assertLess(
             focused_branch.index('wait_for_log_pattern "\\\\[BootstrapAustin\\\\] Starting Austin, TX import|\\\\[RunAustin\\\\]|\\\\[BootstrapAustin\\\\] Done\\\\." "$PATTERN_WAIT_SECONDS"'),
-            focused_branch.index('if authoritative_client_play_proof_present "$ACTIVE_LOG"; then'),
+            focused_branch.index('if wait_for_authoritative_client_play_proof 20; then'),
         )
 
     def test_authoritative_client_play_proof_helper_requires_full_client_marker_set(self) -> None:

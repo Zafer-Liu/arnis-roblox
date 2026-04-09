@@ -199,3 +199,18 @@ The compact historical archive index is:
   - `bash -n scripts/run_studio_harness.sh scripts/run_studio_harness_remote.sh`
   - `git diff --check`
   - `ARNIS_REMOTE_STUDIO_ARTIFACT_DIR=/tmp/arnis-remote-studio-proof-v9 bash scripts/run_studio_harness_remote.sh --swift-screenshot -- --small-place --takeover --skip-edit-tests --play-wait 130 --pattern-wait 240 --screenshot /tmp/arnis-studio-harness.png`
+
+### 2026-04-09: WorldProbe Instance Count Watchers + Remaining Frame-Pacing Signal
+
+- Replaced the periodic `worldRoot:GetDescendants()` instance recount in `WorldProbe.client.lua` with a one-time seed plus incremental `DescendantAdded` / `DescendantRemoving` watchers on the active world root. The emitted perf payload keys and 5-second cadence remain unchanged, but the client no longer does a full hierarchy walk every 30 seconds just to refresh `instanceCountParts` / `instanceCountMeshParts`.
+- Current highest-signal remaining perf evidence still comes from the latest green proof run (`proof-v9`):
+  - steady-state windows sit around `avgFrameTimeMs ~= 18.7-19.2`
+  - worst windows appear after the scripted walk reaches denser chunk residency, with `instanceCountParts` rising from ~12.7k to ~13.3k
+  - final authoritative perf verdict remains above target: `avgFrameTimeMs=21.28 p99FrameTimeMs=107.85 maxFrameTimeMs=139.49 fps=47`
+- The log evidence indicates the proof lane itself is no longer the bottleneck:
+  - authoritative world proof and `rect` screenshot complete successfully
+  - the remaining spikes correlate with post-walk movement/residency growth and dense-world play windows, not wrapper stalls
+- Verification:
+  - `python3 -m unittest scripts.tests.test_austin_runtime_contract scripts.tests.test_ambient_soundscape_runtime_contract scripts.tests.test_minimap_runtime_contract scripts.tests.test_play_audio_assets scripts.tests.test_gui_session_capture scripts.tests.test_run_studio_harness scripts.tests.test_run_studio_harness_remote -v`
+  - `bash -n scripts/run_studio_harness.sh scripts/run_studio_harness_remote.sh`
+  - `git diff --check`

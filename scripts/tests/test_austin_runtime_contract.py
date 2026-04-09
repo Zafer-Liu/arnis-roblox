@@ -1029,11 +1029,17 @@ class AustinRuntimeContractTests(unittest.TestCase):
         self.assertIn("fps =", self.world_probe_text)
         self.assertIn("instanceCountParts =", self.world_probe_text)
         self.assertIn("instanceCountMeshParts =", self.world_probe_text)
-        # Instance counting must discover the world root through getWorldRoot(),
-        # not an inline Workspace:FindFirstChild lookup, so it stays consistent
-        # with all other telemetry paths and picks up fallback discovery changes.
+        # Instance counts should be maintained incrementally from world-root
+        # descendant watchers, not recomputed with a periodic full sweep.
         self.assertIn("local worldRoot = getWorldRoot()", self.world_probe_text,
                        "Perf instance counting must use getWorldRoot() for world root discovery")
+        self.assertIn("local function ensurePerfInstanceWatchers(worldRoot)", self.world_probe_text)
+        self.assertIn("worldRoot.DescendantAdded:Connect(handlePerfDescendantAdded)", self.world_probe_text)
+        self.assertIn("worldRoot.DescendantRemoving:Connect(handlePerfDescendantRemoving)", self.world_probe_text)
+        self.assertNotIn(
+            "if perfCachedPartCountStale or (now30 - (perfLastInstanceCountAt or 0)) > 30 then",
+            self.world_probe_text,
+        )
 
     def test_rooftop_equipment_variety(self) -> None:
         """Rooftop equipment must include antenna and vent box in addition to AC units."""

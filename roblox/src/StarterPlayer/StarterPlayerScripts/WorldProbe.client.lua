@@ -68,10 +68,10 @@ local perfRingCount = 0
 local perfRingTimestampStart = 0
 local perfCachedPartCount = 0
 local perfCachedMeshPartCount = 0
-local perfCachedPartCountStale = true
-local perfLastInstanceCountAt = 0
 local perfLastEmitAt = 0
 local PERF_EMIT_INTERVAL = 5
+local perfWatchedWorldRoot = nil
+local perfWatchedConnections = {}
 
 -- ---------------------------------------------------------------------------
 -- Flicker detector state
@@ -660,6 +660,56 @@ local function recordFrameTime(dt)
     end
 end
 
+local function disconnectPerfWatchers()
+    for _, conn in ipairs(perfWatchedConnections) do
+        if conn and conn.Connected then
+            conn:Disconnect()
+        end
+    end
+    perfWatchedConnections = {}
+    perfWatchedWorldRoot = nil
+end
+
+local function applyPerfInstanceDelta(instance, delta)
+    if instance == nil then
+        return
+    end
+    if instance:IsA("MeshPart") then
+        perfCachedMeshPartCount = perfCachedMeshPartCount + delta
+        perfCachedPartCount = perfCachedPartCount + delta
+    elseif instance:IsA("BasePart") then
+        perfCachedPartCount = perfCachedPartCount + delta
+    end
+end
+
+local function handlePerfDescendantAdded(descendant)
+    applyPerfInstanceDelta(descendant, 1)
+end
+
+local function handlePerfDescendantRemoving(descendant)
+    applyPerfInstanceDelta(descendant, -1)
+end
+
+local function ensurePerfInstanceWatchers(worldRoot)
+    if worldRoot == perfWatchedWorldRoot then
+        return
+    end
+
+    disconnectPerfWatchers()
+    perfCachedPartCount = 0
+    perfCachedMeshPartCount = 0
+    if worldRoot == nil then
+        return
+    end
+
+    perfWatchedWorldRoot = worldRoot
+    for _, desc in ipairs(worldRoot:GetDescendants()) do
+        applyPerfInstanceDelta(desc, 1)
+    end
+    table.insert(perfWatchedConnections, worldRoot.DescendantAdded:Connect(handlePerfDescendantAdded))
+    table.insert(perfWatchedConnections, worldRoot.DescendantRemoving:Connect(handlePerfDescendantRemoving))
+end
+
 local function publishPerfTelemetry()
     if not WorldProbeTelemetryFlags.isEnabled(telemetryFlags, "client_perf") then
         return
@@ -701,25 +751,8 @@ local function publishPerfTelemetry()
     end
     local p99Dt = perfSortBuf[p99Index]
 
-    -- Instance counts cached; only recount every 30s (not every emit)
-    local now30 = os.clock()
-    if perfCachedPartCountStale or (now30 - (perfLastInstanceCountAt or 0)) > 30 then
-        local worldRoot = getWorldRoot()
-        perfCachedPartCount = 0
-        perfCachedMeshPartCount = 0
-        if worldRoot then
-            for _, desc in ipairs(worldRoot:GetDescendants()) do
-                if desc:IsA("MeshPart") then
-                    perfCachedMeshPartCount = perfCachedMeshPartCount + 1
-                    perfCachedPartCount = perfCachedPartCount + 1
-                elseif desc:IsA("BasePart") then
-                    perfCachedPartCount = perfCachedPartCount + 1
-                end
-            end
-        end
-        perfCachedPartCountStale = false
-        perfLastInstanceCountAt = now30
-    end
+    local worldRoot = getWorldRoot()
+    ensurePerfInstanceWatchers(worldRoot)
     local totalParts = perfCachedPartCount
     local totalMeshParts = perfCachedMeshPartCount
 
@@ -1316,6 +1349,7 @@ Workspace:GetAttributeChangedSignal(WORLD_ROOT_ATTR):Connect(function()
     lastSamplePosition = nil
     lastSampleWorldRootName = nil
     lastSampleWasMoving = false
+    ensurePerfInstanceWatchers(getWorldRoot())
     publishWorldTelemetry()
 end)
 
