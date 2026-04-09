@@ -131,7 +131,7 @@ pub fn insert_ridge_into_polygon(outer: &[Point2D], ridge: &Segment2D) -> Vec<Po
             }
         }
         // Sort by parameter so they appear in edge order.
-        insertions.sort_by(|a, b| a.0.partial_cmp(&b.0).unwrap());
+        insertions.sort_by(|a, b| a.0.total_cmp(&b.0));
         for (_, pt) in insertions {
             // Don't duplicate if it's essentially the same as an existing vertex.
             if let Some(last) = result.last() {
@@ -259,7 +259,7 @@ fn ray_polygon_farthest_intersections(
     }
 
     // Sort by ray parameter t.
-    hits.sort_by(|a, b| a.0.partial_cmp(&b.0).unwrap());
+    hits.sort_by(|a, b| a.0.total_cmp(&b.0));
 
     let first = hits.first().unwrap();
     let last = hits.last().unwrap();

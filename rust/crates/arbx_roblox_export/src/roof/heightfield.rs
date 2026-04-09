@@ -9,6 +9,8 @@
 //!
 //! Reference: osm2world HeightfieldRoof.getRoofTriangles(baseEle)
 
+use std::collections::HashMap;
+
 use spade::{ConstrainedDelaunayTriangulation, Point2, Triangulation};
 
 use super::{distance_point_to_segment, Point2D, RoofShape, Segment2D};
@@ -63,9 +65,9 @@ pub fn triangulate_roof(shape: &dyn RoofShape, base_y: f64) -> PrecomputedMesh {
     }
 
     // Insert inner points (apex, ring points, etc.).
+    // Skip points that fail insertion (degenerate/duplicate geometry from real-world OSM data).
     for p in &inner_points {
-        cdt.insert(Point2::new(p.x, p.z))
-            .expect("CDT insert failed");
+        let _ = cdt.insert(Point2::new(p.x, p.z));
     }
 
     // Phase 2: Extract triangles, filter to those inside the polygon, lift to 3D.
@@ -73,17 +75,17 @@ pub fn triangulate_roof(shape: &dyn RoofShape, base_y: f64) -> PrecomputedMesh {
     // Build a flat vertex array from spade's vertices. Each spade vertex gets an
     // index; we then iterate triangles and emit indices.
 
-    let vertex_positions: Vec<Point2D> = cdt
-        .vertices()
-        .map(|v| {
-            let p = v.position();
-            Point2D::new(p.x, p.y)
-        })
-        .collect();
+    // Build an explicit mapping from spade FixedVertexHandle to a dense index,
+    // so we don't rely on any particular iteration order from cdt.vertices().
+    let mut handle_to_index: HashMap<spade::handles::FixedVertexHandle, usize> = HashMap::new();
+    let mut vertex_positions: Vec<Point2D> = Vec::new();
 
-    // Build a lookup from spade's VertexHandle index to our flat array index.
-    // spade vertex handles are dense from 0..n, matching iteration order.
-    // We rely on `vertices()` iterating in handle-index order (spade guarantees this).
+    for v in cdt.vertices() {
+        let idx = vertex_positions.len();
+        handle_to_index.insert(v.fix(), idx);
+        let p = v.position();
+        vertex_positions.push(Point2D::new(p.x, p.y));
+    }
 
     // Compute 3D Y for each vertex via height_at or interpolation fallback.
     let all_segments = collect_all_segments(shape);
@@ -109,9 +111,9 @@ pub fn triangulate_roof(shape: &dyn RoofShape, base_y: f64) -> PrecomputedMesh {
     for face in cdt.inner_faces() {
         let [v0, v1, v2] = face.vertices();
 
-        let i0 = v0.index();
-        let i1 = v1.index();
-        let i2 = v2.index();
+        let i0 = handle_to_index[&v0.fix()];
+        let i1 = handle_to_index[&v1.fix()];
+        let i2 = handle_to_index[&v2.fix()];
 
         let p0 = vertex_positions[i0];
         let p1 = vertex_positions[i1];
