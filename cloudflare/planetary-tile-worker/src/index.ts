@@ -56,6 +56,11 @@ interface Env {
   CHUNK_CACHE?: KVNamespace;
   DEFAULT_TILE_PROVIDER: string;
   TILE_CACHE_TTL_SECONDS: string;
+  // ADMIN_TOKEN gates the PUT /admin/manifest/... upload endpoint used
+  // by scripts/upload_austin_chunks.sh (and any future manifest bake
+  // publish path). Set via `wrangler secret put ADMIN_TOKEN`. When
+  // unset the upload route is disabled entirely (fail-closed).
+  ADMIN_TOKEN?: string;
 }
 
 const TELEMETRY_INDEX_KEY = "telemetry:index";
@@ -514,6 +519,69 @@ export default {
       }
       const r2Key = rest.join("/");
       return handleManifest(env, r2Key, request);
+    }
+
+    // Admin manifest upload endpoint. Path shape:
+    //   PUT /admin/manifest/{city}/index.json
+    //   PUT /admin/manifest/{city}/chunks/{id}.json
+    // Body: raw JSON. Auth: X-Admin-Token header must match env.ADMIN_TOKEN.
+    // Writes directly via the R2 binding (not the public management API)
+    // so it bypasses the 429 rate limits that `wrangler r2 object put`
+    // hits on bulk uploads. Also purges CHUNK_CACHE for the uploaded key
+    // so the next GET through the normal serving path sees the new bytes.
+    if (parts[0] === "admin" && parts[1] === "manifest" && request.method === "PUT") {
+      if (!env.MANIFESTS) {
+        return corsResponse(
+          JSON.stringify({ error: "R2 binding not configured" }),
+          { status: 503, headers: { "content-type": "application/json" } },
+        );
+      }
+      if (!env.ADMIN_TOKEN) {
+        return corsResponse(
+          JSON.stringify({ error: "admin upload disabled (ADMIN_TOKEN unset)" }),
+          { status: 503, headers: { "content-type": "application/json" } },
+        );
+      }
+      const token = request.headers.get("x-admin-token") || "";
+      if (token !== env.ADMIN_TOKEN) {
+        return corsResponse(
+          JSON.stringify({ error: "unauthorized" }),
+          { status: 401, headers: { "content-type": "application/json" } },
+        );
+      }
+      const rest = parts.slice(2);
+      if (rest.length < 2) {
+        return corsResponse(
+          JSON.stringify({ error: "usage: PUT /admin/manifest/{city}/{path}" }),
+          { status: 400, headers: { "content-type": "application/json" } },
+        );
+      }
+      // R2 key matches handleManifest's read path: the `manifests/`
+      // URL prefix is stripped when constructing the R2 key, so chunks
+      // live at "austin/chunks/0_0.json" not "manifests/austin/chunks/0_0.json".
+      // CHUNK_CACHE uses the same key, so the purge below targets the
+      // same entry the read path will look up on the next GET.
+      const r2Key = rest.join("/");
+      const contentType = request.headers.get("content-type") || "application/json";
+      const body = await request.arrayBuffer();
+      await env.MANIFESTS.put(r2Key, body, {
+        httpMetadata: { contentType },
+      });
+      // Invalidate the corresponding CHUNK_CACHE entry. The cache key
+      // mirrors the R2 key exactly (see handleManifest), so a direct
+      // KV delete is enough — next GET will miss, fall through to R2,
+      // and repopulate from the bytes we just wrote.
+      if (env.CHUNK_CACHE) {
+        try {
+          await env.CHUNK_CACHE.delete(r2Key);
+        } catch {
+          // Non-fatal: stale cache entries will eventually expire via TTL.
+        }
+      }
+      return corsResponse(
+        JSON.stringify({ ok: true, key: r2Key, bytes: body.byteLength }),
+        { status: 200, headers: { "content-type": "application/json" } },
+      );
     }
 
     return corsResponse(
