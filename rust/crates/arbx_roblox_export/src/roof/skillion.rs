@@ -4,7 +4,7 @@
 //! `roof:direction` tag (compass degrees) or defaults to the shortest polygon
 //! edge's outward normal. Height interpolates linearly along the slope axis.
 
-use super::{Point2D, Polygon2D, RoofShape, RoofTags, Segment2D};
+use super::{max_polygon_dimension, Point2D, Polygon2D, RoofShape, RoofTags, Segment2D};
 
 pub struct SkillionRoof {
     polygon: Polygon2D,
@@ -109,21 +109,6 @@ fn shortest_edge_normal(vertices: &[Point2D]) -> Point2D {
         }
     }
     best_dir
-}
-
-fn max_polygon_dimension(vertices: &[Point2D]) -> f64 {
-    if vertices.is_empty() {
-        return 0.0;
-    }
-    let (mut min_x, mut max_x) = (f64::MAX, f64::MIN);
-    let (mut min_z, mut max_z) = (f64::MAX, f64::MIN);
-    for v in vertices {
-        min_x = min_x.min(v.x);
-        max_x = max_x.max(v.x);
-        min_z = min_z.min(v.z);
-        max_z = max_z.max(v.z);
-    }
-    (max_x - min_x).max(max_z - min_z)
 }
 
 #[cfg(test)]

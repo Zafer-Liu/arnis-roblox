@@ -5,7 +5,7 @@
 //! polygon naturally produces a smooth cone approximation. The distinction
 //! exists for tag fidelity — `roof:shape=cone` on round buildings.
 
-use super::{Point2D, Polygon2D, RoofShape, RoofTags, Segment2D};
+use super::{compute_centroid, max_polygon_dimension, Point2D, Polygon2D, RoofShape, RoofTags, Segment2D};
 
 pub struct ConeRoof {
     polygon: Polygon2D,
@@ -63,31 +63,6 @@ impl RoofShape for ConeRoof {
     fn roof_height(&self) -> f64 {
         self.height
     }
-}
-
-fn compute_centroid(vertices: &[Point2D]) -> Point2D {
-    let n = vertices.len() as f64;
-    if n < 1.0 {
-        return Point2D::new(0.0, 0.0);
-    }
-    let sum_x: f64 = vertices.iter().map(|v| v.x).sum();
-    let sum_z: f64 = vertices.iter().map(|v| v.z).sum();
-    Point2D::new(sum_x / n, sum_z / n)
-}
-
-fn max_polygon_dimension(vertices: &[Point2D]) -> f64 {
-    if vertices.is_empty() {
-        return 0.0;
-    }
-    let (mut min_x, mut max_x) = (f64::MAX, f64::MIN);
-    let (mut min_z, mut max_z) = (f64::MAX, f64::MIN);
-    for v in vertices {
-        min_x = min_x.min(v.x);
-        max_x = max_x.max(v.x);
-        min_z = min_z.min(v.z);
-        max_z = max_z.max(v.z);
-    }
-    (max_x - min_x).max(max_z - min_z)
 }
 
 #[cfg(test)]

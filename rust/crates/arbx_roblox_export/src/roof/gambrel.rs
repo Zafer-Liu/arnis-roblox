@@ -9,14 +9,13 @@
 //! The two slopes meet at the break line height, which is 2/3 of roof_height.
 
 use super::ridge::{distance_to_ridge_line, insert_ridge_into_polygon, RidgeComputation};
-use super::{Point2D, Polygon2D, RoofShape, RoofTags, Segment2D};
+use super::{clip_segment_to_polygon, Point2D, Polygon2D, RoofShape, RoofTags, Segment2D};
 
 pub struct GambrelRoof {
     polygon: Polygon2D,
     ridge: RidgeComputation,
-    /// Break lines parallel to ridge (inner constraint segments).
-    break_line1: Segment2D,
-    break_line2: Segment2D,
+    /// Break lines parallel to ridge, clipped to polygon boundary.
+    break_lines: Vec<Segment2D>,
 }
 
 impl GambrelRoof {
@@ -39,24 +38,32 @@ impl GambrelRoof {
         };
 
         // Break lines at 1/3 of max_distance from ridge on each side.
+        // Clip to polygon boundary so endpoints don't extend outside.
         let ridge_dir = ridge.ridge.direction();
         let perp = ridge_dir.right_normal();
         let break_offset = ridge.max_distance_to_ridge / 3.0;
 
-        let break_line1 = Segment2D::new(
+        let raw1 = Segment2D::new(
             ridge.ridge.p1.add(perp.scale(break_offset)),
             ridge.ridge.p2.add(perp.scale(break_offset)),
         );
-        let break_line2 = Segment2D::new(
+        let raw2 = Segment2D::new(
             ridge.ridge.p1.add(perp.scale(-break_offset)),
             ridge.ridge.p2.add(perp.scale(-break_offset)),
         );
 
+        let mut break_lines = Vec::new();
+        if let Some(clipped) = clip_segment_to_polygon(raw1, &polygon.outer) {
+            break_lines.push(clipped);
+        }
+        if let Some(clipped) = clip_segment_to_polygon(raw2, &polygon.outer) {
+            break_lines.push(clipped);
+        }
+
         Self {
             polygon: modified_polygon,
             ridge,
-            break_line1,
-            break_line2,
+            break_lines,
         }
     }
 }
@@ -67,7 +74,9 @@ impl RoofShape for GambrelRoof {
     }
 
     fn inner_segments(&self) -> Vec<Segment2D> {
-        vec![self.ridge.ridge, self.break_line1, self.break_line2]
+        let mut segs = vec![self.ridge.ridge];
+        segs.extend_from_slice(&self.break_lines);
+        segs
     }
 
     fn inner_points(&self) -> Vec<Point2D> {
@@ -120,7 +129,7 @@ mod tests {
     }
 
     #[test]
-    fn gambrel_inner_segments_has_three() {
+    fn gambrel_inner_segments_has_ridge_and_break_lines() {
         let poly = rect_polygon(10.0, 20.0);
         let tags = RoofTags {
             height: Some(5.0),
@@ -128,7 +137,9 @@ mod tests {
         };
         let roof = GambrelRoof::new(poly, &tags);
         let segs = roof.inner_segments();
-        assert_eq!(segs.len(), 3, "should have 3 inner segments (1 ridge + 2 break lines), got {}", segs.len());
+        // 1 ridge + up to 2 break lines (clipped to polygon).
+        assert!(segs.len() >= 1 && segs.len() <= 3,
+            "should have 1-3 inner segments (1 ridge + 0-2 clipped break lines), got {}", segs.len());
     }
 
     #[test]

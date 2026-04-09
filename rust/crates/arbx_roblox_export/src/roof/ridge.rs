@@ -11,7 +11,7 @@
 //! 4. Compute cap segments (the polygon edges at each end of the ridge).
 //! 5. Derive `max_distance_to_ridge` and `roof_height`.
 
-use super::{Point2D, Polygon2D, Segment2D};
+use super::{compute_centroid, Point2D, Polygon2D, Segment2D};
 
 /// Result of the shared ridge computation.
 #[derive(Debug, Clone)]
@@ -150,14 +150,6 @@ pub fn insert_ridge_into_polygon(outer: &[Point2D], ridge: &Segment2D) -> Vec<Po
 // ---------------------------------------------------------------------------
 // Internal geometry helpers
 // ---------------------------------------------------------------------------
-
-/// Centroid of a simple polygon ring (average of vertices).
-fn compute_centroid(ring: &[Point2D]) -> Point2D {
-    let n = ring.len() as f64;
-    let sx: f64 = ring.iter().map(|p| p.x).sum();
-    let sz: f64 = ring.iter().map(|p| p.z).sum();
-    Point2D::new(sx / n, sz / n)
-}
 
 /// Determine ridge direction as a unit vector in XZ space.
 ///

@@ -156,6 +156,117 @@ pub fn create_roof(
     }
 }
 
+/// Simple centroid (average of vertices). Works for convex and mildly concave
+/// footprints — matches osm2world's approach.
+pub(crate) fn compute_centroid(vertices: &[Point2D]) -> Point2D {
+    let n = vertices.len() as f64;
+    if n < 1.0 {
+        return Point2D::new(0.0, 0.0);
+    }
+    let sum_x: f64 = vertices.iter().map(|v| v.x).sum();
+    let sum_z: f64 = vertices.iter().map(|v| v.z).sum();
+    Point2D::new(sum_x / n, sum_z / n)
+}
+
+/// Maximum dimension of a polygon's axis-aligned bounding box.
+pub(crate) fn max_polygon_dimension(vertices: &[Point2D]) -> f64 {
+    if vertices.is_empty() {
+        return 0.0;
+    }
+    let (mut min_x, mut max_x) = (f64::MAX, f64::MIN);
+    let (mut min_z, mut max_z) = (f64::MAX, f64::MIN);
+    for v in vertices {
+        min_x = min_x.min(v.x);
+        max_x = max_x.max(v.x);
+        min_z = min_z.min(v.z);
+        max_z = max_z.max(v.z);
+    }
+    (max_x - min_x).max(max_z - min_z)
+}
+
+/// Simple ray-casting point-in-polygon test.
+pub(crate) fn point_roughly_inside_polygon(pt: &Point2D, ring: &[Point2D]) -> bool {
+    let n = ring.len();
+    let mut inside = false;
+    let mut j = n - 1;
+    for i in 0..n {
+        let vi = ring[i];
+        let vj = ring[j];
+        if ((vi.z > pt.z) != (vj.z > pt.z))
+            && (pt.x < (vj.x - vi.x) * (pt.z - vi.z) / (vj.z - vi.z) + vi.x)
+        {
+            inside = !inside;
+        }
+        j = i;
+    }
+    inside
+}
+
+/// Clip a line segment to the interior of a polygon. Returns the clipped
+/// segment, or `None` if the segment lies entirely outside. For each polygon
+/// edge, compute intersections with the segment's infinite line and retain
+/// only the portion inside the polygon.
+pub(crate) fn clip_segment_to_polygon(seg: Segment2D, ring: &[Point2D]) -> Option<Segment2D> {
+    let n = ring.len();
+    if n < 3 {
+        return None;
+    }
+
+    let seg_dx = seg.p2.x - seg.p1.x;
+    let seg_dz = seg.p2.z - seg.p1.z;
+    let seg_len_sq = seg_dx * seg_dx + seg_dz * seg_dz;
+    if seg_len_sq < 1e-24 {
+        return None;
+    }
+
+    // Collect all intersection parameters (t-values along the segment's
+    // infinite line) with polygon edges.
+    let mut ts: Vec<f64> = Vec::new();
+    for i in 0..n {
+        let j = (i + 1) % n;
+        let a = ring[i];
+        let b = ring[j];
+        let edge_dx = b.x - a.x;
+        let edge_dz = b.z - a.z;
+        let denom = seg_dx * edge_dz - seg_dz * edge_dx;
+        if denom.abs() < 1e-12 {
+            continue; // Parallel
+        }
+        let ox = a.x - seg.p1.x;
+        let oz = a.z - seg.p1.z;
+        let t = (ox * edge_dz - oz * edge_dx) / denom;
+        let u = (ox * seg_dz - oz * seg_dx) / denom;
+        if u >= -1e-9 && u <= 1.0 + 1e-9 {
+            ts.push(t);
+        }
+    }
+
+    if ts.len() < 2 {
+        return None; // Doesn't cross polygon (or just touches)
+    }
+
+    ts.sort_by(|a, b| a.partial_cmp(b).unwrap());
+
+    // The innermost pair of intersections defines the clipped segment.
+    let t_min = ts[0];
+    let t_max = ts[ts.len() - 1];
+
+    // If the entire clipped range is outside the original segment's extent
+    // and far from the polygon, skip it.
+    if t_min > t_max {
+        return None;
+    }
+
+    let p1 = Point2D::new(seg.p1.x + t_min * seg_dx, seg.p1.z + t_min * seg_dz);
+    let p2 = Point2D::new(seg.p1.x + t_max * seg_dx, seg.p1.z + t_max * seg_dz);
+
+    if p1.distance_to(p2) < 1e-9 {
+        return None;
+    }
+
+    Some(Segment2D::new(p1, p2))
+}
+
 /// Distance from point to line segment (used by multiple roof shapes).
 pub fn distance_point_to_segment(p: Point2D, seg: Segment2D) -> f64 {
     let dx = seg.p2.x - seg.p1.x;

@@ -5,11 +5,14 @@
 //! semicircular profile that peaks at the ridge and drops to 0 at the edges.
 
 use super::ridge::{distance_to_ridge_line, insert_ridge_into_polygon, RidgeComputation};
-use super::{Point2D, Polygon2D, RoofShape, RoofTags, Segment2D};
+use super::{point_roughly_inside_polygon, Point2D, Polygon2D, RoofShape, RoofTags, Segment2D};
 
 pub struct RoundRoof {
     polygon: Polygon2D,
     ridge: RidgeComputation,
+    /// Cross-ridge sample points that give the CDT enough vertices to
+    /// approximate the cosine curve instead of producing a tent shape.
+    cross_ridge_points: Vec<Point2D>,
 }
 
 impl RoundRoof {
@@ -30,9 +33,42 @@ impl RoundRoof {
             holes: polygon.holes.clone(),
         };
 
+        // Generate cross-ridge sample points at fractional distances from the
+        // ridge. For each offset line parallel to the ridge, add intersection
+        // points that lie inside the polygon.
+        let perp = ridge.ridge.direction().right_normal();
+        let max_dist = ridge.max_distance_to_ridge;
+        let fractions = [0.25, 0.5, 0.75];
+        let ridge_mid = Point2D::new(
+            (ridge.ridge.p1.x + ridge.ridge.p2.x) / 2.0,
+            (ridge.ridge.p1.z + ridge.ridge.p2.z) / 2.0,
+        );
+        let ridge_dir = ridge.ridge.direction();
+        // Sample along the ridge direction at multiple positions
+        let ridge_len = ridge.ridge.length();
+        let num_along = 8usize;
+
+        let mut cross_ridge_points = Vec::new();
+        for &frac in &fractions {
+            let offset_dist = frac * max_dist;
+            for side in &[1.0_f64, -1.0] {
+                let offset = perp.scale(offset_dist * side);
+                // Place points along the offset line at evenly spaced positions
+                for i in 0..=num_along {
+                    let t = (i as f64) / (num_along as f64);
+                    let along = ridge_dir.scale(ridge_len * (t - 0.5));
+                    let pt = ridge_mid.add(along).add(offset);
+                    if point_roughly_inside_polygon(&pt, &polygon.outer) {
+                        cross_ridge_points.push(pt);
+                    }
+                }
+            }
+        }
+
         Self {
             polygon: modified_polygon,
             ridge,
+            cross_ridge_points,
         }
     }
 }
@@ -47,7 +83,7 @@ impl RoofShape for RoundRoof {
     }
 
     fn inner_points(&self) -> Vec<Point2D> {
-        vec![]
+        self.cross_ridge_points.clone()
     }
 
     fn height_at(&self, pos: Point2D) -> Option<f64> {

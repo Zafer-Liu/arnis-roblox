@@ -5,7 +5,7 @@
 //! The key difference from dome: the profile function can be swapped for
 //! elongated, tapered, or multi-curve shapes in the future.
 
-use super::{Point2D, Polygon2D, RoofShape, RoofTags, Segment2D};
+use super::{compute_centroid, point_roughly_inside_polygon, Point2D, Polygon2D, RoofShape, RoofTags, Segment2D};
 
 pub struct SpindleRoof {
     polygon: Polygon2D,
@@ -83,33 +83,6 @@ impl RoofShape for SpindleRoof {
     fn roof_height(&self) -> f64 {
         self.height
     }
-}
-
-fn compute_centroid(vertices: &[Point2D]) -> Point2D {
-    let n = vertices.len() as f64;
-    if n < 1.0 {
-        return Point2D::new(0.0, 0.0);
-    }
-    let sum_x: f64 = vertices.iter().map(|v| v.x).sum();
-    let sum_z: f64 = vertices.iter().map(|v| v.z).sum();
-    Point2D::new(sum_x / n, sum_z / n)
-}
-
-fn point_roughly_inside_polygon(pt: &Point2D, ring: &[Point2D]) -> bool {
-    let n = ring.len();
-    let mut inside = false;
-    let mut j = n - 1;
-    for i in 0..n {
-        let vi = ring[i];
-        let vj = ring[j];
-        if ((vi.z > pt.z) != (vj.z > pt.z))
-            && (pt.x < (vj.x - vi.x) * (pt.z - vi.z) / (vj.z - vi.z) + vi.x)
-        {
-            inside = !inside;
-        }
-        j = i;
-    }
-    inside
 }
 
 #[cfg(test)]

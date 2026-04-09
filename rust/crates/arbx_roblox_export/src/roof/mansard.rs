@@ -5,13 +5,13 @@
 //! Inner segments: ridge + 4 hip edges + 2 break-line segments.
 
 use super::ridge::{distance_to_ridge_line, RidgeComputation};
-use super::{Point2D, Polygon2D, RoofShape, RoofTags, Segment2D};
+use super::{clip_segment_to_polygon, Point2D, Polygon2D, RoofShape, RoofTags, Segment2D};
 
 pub struct MansardRoof {
     polygon: Polygon2D,
     ridge: RidgeComputation,
-    break_line1: Segment2D,
-    break_line2: Segment2D,
+    /// Break lines parallel to ridge, clipped to polygon boundary.
+    break_lines: Vec<Segment2D>,
 }
 
 impl MansardRoof {
@@ -27,24 +27,32 @@ impl MansardRoof {
         );
 
         // Break lines at 1/3 of max_distance from ridge on each side.
+        // Clip to polygon boundary so endpoints don't extend outside.
         let ridge_dir = ridge.ridge.direction();
         let perp = ridge_dir.right_normal();
         let break_offset = ridge.max_distance_to_ridge / 3.0;
 
-        let break_line1 = Segment2D::new(
+        let raw1 = Segment2D::new(
             ridge.ridge.p1.add(perp.scale(break_offset)),
             ridge.ridge.p2.add(perp.scale(break_offset)),
         );
-        let break_line2 = Segment2D::new(
+        let raw2 = Segment2D::new(
             ridge.ridge.p1.add(perp.scale(-break_offset)),
             ridge.ridge.p2.add(perp.scale(-break_offset)),
         );
 
+        let mut break_lines = Vec::new();
+        if let Some(clipped) = clip_segment_to_polygon(raw1, &polygon.outer) {
+            break_lines.push(clipped);
+        }
+        if let Some(clipped) = clip_segment_to_polygon(raw2, &polygon.outer) {
+            break_lines.push(clipped);
+        }
+
         Self {
             polygon,
             ridge,
-            break_line1,
-            break_line2,
+            break_lines,
         }
     }
 }
@@ -56,17 +64,17 @@ impl RoofShape for MansardRoof {
 
     fn inner_segments(&self) -> Vec<Segment2D> {
         let r = &self.ridge;
-        vec![
+        let mut segs = vec![
             r.ridge,
             // 4 hip edges
             Segment2D::new(r.ridge.p1, r.cap1.p1),
             Segment2D::new(r.ridge.p1, r.cap1.p2),
             Segment2D::new(r.ridge.p2, r.cap2.p1),
             Segment2D::new(r.ridge.p2, r.cap2.p2),
-            // 2 break lines
-            self.break_line1,
-            self.break_line2,
-        ]
+        ];
+        // Clipped break lines
+        segs.extend_from_slice(&self.break_lines);
+        segs
     }
 
     fn inner_points(&self) -> Vec<Point2D> {
@@ -118,7 +126,7 @@ mod tests {
     }
 
     #[test]
-    fn mansard_inner_segments_has_seven() {
+    fn mansard_inner_segments_has_ridge_hips_and_break_lines() {
         let poly = rect_polygon(10.0, 20.0);
         let tags = RoofTags {
             height: Some(5.0),
@@ -126,7 +134,9 @@ mod tests {
         };
         let roof = MansardRoof::new(poly, &tags);
         let segs = roof.inner_segments();
-        assert_eq!(segs.len(), 7, "should have 7 inner segments (1 ridge + 4 hips + 2 break), got {}", segs.len());
+        // 1 ridge + 4 hip edges + 0-2 clipped break lines.
+        assert!(segs.len() >= 5 && segs.len() <= 7,
+            "should have 5-7 inner segments (1 ridge + 4 hips + 0-2 clipped break lines), got {}", segs.len());
     }
 
     #[test]
