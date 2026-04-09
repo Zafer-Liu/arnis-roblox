@@ -664,7 +664,7 @@ impl Chunker {
                     });
                 }
             },
-            Feature::Building(f) => {
+            Feature::Building(f) | Feature::BuildingPart(f) => {
                 let scale = 1.0 / self.meters_per_stud;
                 let mut sum_x = 0.0;
                 let mut sum_z = 0.0;
@@ -739,6 +739,11 @@ impl Chunker {
                         f.roof_angle,
                         None, // roof_orientation not on BuildingFeature
                         f.levels,
+                        f.roof_levels,
+                        f.min_height.map(|h| h * scale),
+                        f.material_tag.as_deref(),
+                        f.usage.as_deref(),
+                        &f.id,
                     ))
                 } else {
                     None

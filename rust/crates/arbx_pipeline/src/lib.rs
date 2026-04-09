@@ -300,6 +300,7 @@ pub enum Feature {
     Road(RoadFeature),
     Rail(RailFeature),
     Building(BuildingFeature),
+    BuildingPart(BuildingFeature),
     Water(WaterFeature),
     Prop(PropFeature),
     Landuse(LanduseFeature),
@@ -410,7 +411,7 @@ impl PipelineStage for TriangulateStage {
     fn run(&self, ctx: &mut PipelineContext) -> PipelineResult<()> {
         for feature in &mut ctx.features {
             match feature {
-                Feature::Building(b) => {
+                Feature::Building(b) | Feature::BuildingPart(b) => {
                     if b.holes.is_empty() {
                         b.indices = Some(b.footprint.triangulate());
                     } else {
@@ -482,7 +483,7 @@ impl<'a> PipelineStage for ElevationEnrichmentStage<'a> {
                         }
                     }
                 }
-                Feature::Building(f) => {
+                Feature::Building(f) | Feature::BuildingPart(f) => {
                     if f.base_y.abs() < 0.01 {
                         // Sample at footprint centroid
                         let n = f.footprint.points.len() as f64;
@@ -775,7 +776,7 @@ fn truth_feature_kind(feature: &Feature) -> &'static str {
     match feature {
         Feature::Road(_) => "road",
         Feature::Rail(_) => "rail",
-        Feature::Building(_) => "building",
+        Feature::Building(_) | Feature::BuildingPart(_) => "building",
         Feature::Water(_) => "water",
         Feature::Prop(_) => "prop",
         Feature::Barrier(_) => "barrier",
@@ -856,7 +857,7 @@ fn push_semantic_lineage(
 
 fn collect_retained_semantics(feature: &Feature, rows: &mut Vec<TruthPackSemantic>) {
     match feature {
-        Feature::Building(building) => {
+        Feature::Building(building) | Feature::BuildingPart(building) => {
             push_semantic(rows, &building.id, "name", building.name.clone());
             push_semantic(
                 rows,
@@ -1442,7 +1443,7 @@ impl OverpassAdapter {
                     let feature_id = match feature {
                         Feature::Road(feature) => feature.id.clone(),
                         Feature::Rail(feature) => feature.id.clone(),
-                        Feature::Building(feature) => feature.id.clone(),
+                        Feature::Building(feature) | Feature::BuildingPart(feature) => feature.id.clone(),
                         Feature::Water(WaterFeature::Ribbon(feature)) => feature.id.clone(),
                         Feature::Water(WaterFeature::Polygon(feature)) => feature.id.clone(),
                         Feature::Prop(feature) => feature.id.clone(),
@@ -1790,7 +1791,7 @@ impl OverpassAdapter {
             let feature_id = match feature {
                 Feature::Road(feature) => feature.id.clone(),
                 Feature::Rail(feature) => feature.id.clone(),
-                Feature::Building(feature) => feature.id.clone(),
+                Feature::Building(feature) | Feature::BuildingPart(feature) => feature.id.clone(),
                 Feature::Water(WaterFeature::Ribbon(feature)) => feature.id.clone(),
                 Feature::Water(WaterFeature::Polygon(feature)) => feature.id.clone(),
                 Feature::Prop(feature) => feature.id.clone(),
@@ -2650,7 +2651,8 @@ fn emit_area_way(
         } else {
             (default_base_y, explicit_height - default_base_y)
         };
-        features.push(Feature::Building(BuildingFeature {
+        let is_part = tags.contains_key("building:part") && !tags.contains_key("building");
+        let bf = BuildingFeature {
             id: id.to_string(),
             footprint: Footprint::new(fp.to_vec()),
             holes,
@@ -2687,7 +2689,12 @@ fn emit_area_way(
                 .or_else(|| tags.get("building:cladding:type"))
                 .map(|s| s.to_lowercase()),
             structure_type: tags.get("building:structure").map(|s| s.to_lowercase()),
-        }));
+        };
+        if is_part {
+            features.push(Feature::BuildingPart(bf));
+        } else {
+            features.push(Feature::Building(bf));
+        }
     } else if tags.get("natural") == Some(&"water".to_string()) {
         features.push(Feature::Water(WaterFeature::Polygon(WaterPolygonFeature {
             id: id.to_string(),
@@ -3445,7 +3452,7 @@ mod tests {
         let building = features
             .into_iter()
             .find_map(|feature| match feature {
-                Feature::Building(building) => Some(building),
+                Feature::Building(building) | Feature::BuildingPart(building) => Some(building),
                 _ => None,
             })
             .expect("expected building");
@@ -3510,7 +3517,7 @@ mod tests {
         let building = features
             .into_iter()
             .find_map(|feature| match feature {
-                Feature::Building(building) => Some(building),
+                Feature::Building(building) | Feature::BuildingPart(building) => Some(building),
                 _ => None,
             })
             .expect("expected building");
