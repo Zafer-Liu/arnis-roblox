@@ -1334,7 +1334,8 @@ function TerrainBuilder.BuildPrecomputedMesh(parent, chunk)
     part.Color = Color3.fromRGB(85, 120, 70) -- natural terrain base color
     part.Anchored = true
     part.CanCollide = true
-    part.CastShadow = false
+    part.CastShadow = true
+    part.DoubleSided = true
     part:SetAttribute("ArnisPrecomputedMesh", true)
     part:SetAttribute("ArnisTerrainMeshMode", true)
     part.Parent = parent

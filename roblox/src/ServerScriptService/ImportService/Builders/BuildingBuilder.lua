@@ -227,7 +227,7 @@ function MeshAccumulator:addPrecomputedMesh(meshData, originStuds)
     local defaultNormal = Vector3.new(0, 1, 0)
     -- Atlas UVs: flat [u,v, u,v, ...] array from Rust wall_surface, only
     -- present when the building has an atlas_uv and multi-story windowed walls.
-    local meshUvs = meshData.uvs
+    local meshUvs = decodeF32Array(meshData.uvsB64) or meshData.uvs
     local meshUvsLen = if meshUvs then #meshUvs else 0
     -- Accept both JSON-decoded manifest origins (lowercase {x,y,z}) and
     -- Roblox Vector3 origins (uppercase {X,Y,Z}). Declared once before

@@ -1260,74 +1260,23 @@ fn write_precomputed_mesh(out: &mut String, mesh: &PrecomputedMesh, indent: usiz
     out.push_str(&f32_slice_to_base64(&mesh.normals));
     out.push_str("\",\n");
 
-    // Also emit counts so Lua knows array sizes without decoding.
+    // Vertex/triangle counts so Lua can pre-allocate without decoding.
     write_key(out, indent + 2, "vertexCount");
     write!(out, "{}", mesh.vertices.len() / 3).unwrap();
     out.push_str(",\n");
     write_key(out, indent + 2, "triangleCount");
     write!(out, "{}", mesh.triangles.len() / 3).unwrap();
 
-    // Legacy JSON arrays as fallback (can be removed once all consumers use B64).
-    out.push_str(",\n");
-    write_key(out, indent + 2, "vertices");
-    out.push('[');
-    for (i, v) in mesh.vertices.iter().enumerate() {
-        if i > 0 {
-            out.push(',');
-        }
-        if v.fract() == 0.0 {
-            write!(out, "{:.0}", v).unwrap();
-        } else {
-            let s = format!("{:.4}", v);
-            out.push_str(s.trim_end_matches('0').trim_end_matches('.'));
-        }
-    }
-    out.push_str("],\n");
-
-    write_key(out, indent + 2, "triangles");
-    out.push('[');
-    for (i, t) in mesh.triangles.iter().enumerate() {
-        if i > 0 {
-            out.push(',');
-        }
-        write!(out, "{}", t).unwrap();
-    }
-    out.push_str("],\n");
-
-    write_key(out, indent + 2, "normals");
-    out.push('[');
-    for (i, n) in mesh.normals.iter().enumerate() {
-        if i > 0 {
-            out.push(',');
-        }
-        if n.fract() == 0.0 {
-            write!(out, "{:.0}", n).unwrap();
-        } else {
-            let s = format!("{:.4}", n);
-            out.push_str(s.trim_end_matches('0').trim_end_matches('.'));
-        }
-    }
-    out.push(']');
-
+    // UVs as B64 when present.
     if !mesh.uvs.is_empty() {
         out.push_str(",\n");
-        write_key(out, indent + 2, "uvs");
-        out.push('[');
-        for (i, u) in mesh.uvs.iter().enumerate() {
-            if i > 0 {
-                out.push(',');
-            }
-            if u.fract() == 0.0 {
-                write!(out, "{:.0}", u).unwrap();
-            } else {
-                let s = format!("{:.4}", u);
-                out.push_str(s.trim_end_matches('0').trim_end_matches('.'));
-            }
-        }
-        out.push(']');
+        write_key(out, indent + 2, "uvsB64");
+        out.push('"');
+        out.push_str(&f32_slice_to_base64(&mesh.uvs));
+        out.push('"');
     }
-    out.push('\n');
 
+    out.push('\n');
     write_indent(out, indent);
     out.push('}');
 }

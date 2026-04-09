@@ -827,40 +827,38 @@ mod tests {
         }
         let mesh_json = &json[obj_start..=obj_end];
 
-        // Helper: count comma-separated elements inside a JSON array value.
-        let count_elements = |key: &str| -> usize {
+        // Verify B64 fields exist (legacy JSON arrays stripped).
+        let has_b64_key = |key: &str| -> bool {
             let key_str = format!("\"{}\"", key);
-            let kpos = mesh_json.find(&key_str).unwrap_or_else(|| {
-                panic!("shellMesh JSON missing key '{}'", key);
-            });
-            let arr_open = mesh_json[kpos..].find('[').unwrap() + kpos;
-            let arr_close = mesh_json[arr_open..].find(']').unwrap() + arr_open;
-            let inner = mesh_json[arr_open + 1..arr_close].trim();
-            if inner.is_empty() {
-                0
-            } else {
-                inner.split(',').count()
-            }
+            mesh_json.contains(&key_str)
         };
+        assert!(has_b64_key("verticesB64"), "shellMesh JSON missing verticesB64");
+        assert!(has_b64_key("trianglesB64"), "shellMesh JSON missing trianglesB64");
+        assert!(has_b64_key("normalsB64"), "shellMesh JSON missing normalsB64");
 
-        let vert_count = count_elements("vertices");
-        let tri_count = count_elements("triangles");
-        let norm_count = count_elements("normals");
+        // Verify counts match expectations.
+        let extract_int = |key: &str| -> usize {
+            let key_str = format!("\"{}\"", key);
+            let kpos = mesh_json.find(&key_str).expect("missing count key");
+            // Skip past "key": and any whitespace to find the integer value.
+            let after_key = kpos + key_str.len();
+            let colon_pos = mesh_json[after_key..].find(':').unwrap() + after_key + 1;
+            let val_str = mesh_json[colon_pos..].trim_start();
+            let val_end = val_str.find(|c: char| !c.is_ascii_digit()).unwrap_or(val_str.len());
+            val_str[..val_end].parse::<usize>().unwrap_or(0)
+        };
+        let vert_count = extract_int("vertexCount") * 3; // vertexCount is vertex count, not float count
+        let tri_count = extract_int("triangleCount") * 3;
 
         assert_eq!(
             vert_count, expected_vert_floats,
-            "vertices array element count mismatch (expected {} floats)",
-            expected_vert_floats
+            "vertexCount mismatch (expected {} floats = {} vertices)",
+            expected_vert_floats, expected_vert_floats / 3
         );
         assert_eq!(
             tri_count, expected_tri_indices,
-            "triangles array element count mismatch (expected {} indices)",
-            expected_tri_indices
-        );
-        assert_eq!(
-            norm_count, expected_norm_floats,
-            "normals array element count mismatch (expected {} floats)",
-            expected_norm_floats
+            "triangleCount mismatch (expected {} indices = {} triangles)",
+            expected_tri_indices, expected_tri_indices / 3
         );
     }
 

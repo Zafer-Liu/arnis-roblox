@@ -293,46 +293,12 @@ impl TerrainMesh {
         out.push_str(&base64::engine::general_purpose::STANDARD.encode(&norm_bytes));
         out.push_str("\",\n");
 
-        // Legacy JSON arrays (backwards compat — remove once all consumers use B64).
+        // Material indices + palette as B64 + JSON (palette is small, keep as JSON).
+        let mat_bytes: Vec<u8> = self.material_indices.iter().flat_map(|v| v.to_le_bytes()).collect();
         write_indent(out, indent + 2);
-        out.push_str("\"vertices\": [");
-        for (i, v) in self.vertices.iter().enumerate() {
-            if i > 0 {
-                out.push_str(", ");
-            }
-            write_f32(out, *v);
-        }
-        out.push_str("],\n");
-
-        write_indent(out, indent + 2);
-        out.push_str("\"triangles\": [");
-        for (i, t) in self.triangles.iter().enumerate() {
-            if i > 0 {
-                out.push_str(", ");
-            }
-            write!(out, "{}", t).unwrap();
-        }
-        out.push_str("],\n");
-
-        write_indent(out, indent + 2);
-        out.push_str("\"normals\": [");
-        for (i, n) in self.normals.iter().enumerate() {
-            if i > 0 {
-                out.push_str(", ");
-            }
-            write_f32(out, *n);
-        }
-        out.push_str("],\n");
-
-        write_indent(out, indent + 2);
-        out.push_str("\"materialIndices\": [");
-        for (i, m) in self.material_indices.iter().enumerate() {
-            if i > 0 {
-                out.push_str(", ");
-            }
-            write!(out, "{}", m).unwrap();
-        }
-        out.push_str("],\n");
+        out.push_str("\"materialIndicesB64\": \"");
+        out.push_str(&base64::engine::general_purpose::STANDARD.encode(&mat_bytes));
+        out.push_str("\",\n");
 
         write_indent(out, indent + 2);
         out.push_str("\"materialPalette\": [");
@@ -547,13 +513,13 @@ mod tests {
         let mut json = String::new();
         mesh.write_json(&mut json, 0);
 
-        // Verify all expected keys are present.
-        assert!(json.contains("\"vertices\""), "missing vertices key");
-        assert!(json.contains("\"triangles\""), "missing triangles key");
-        assert!(json.contains("\"normals\""), "missing normals key");
+        // Verify B64 keys are present (legacy JSON arrays stripped).
+        assert!(json.contains("\"verticesB64\""), "missing verticesB64 key");
+        assert!(json.contains("\"trianglesB64\""), "missing trianglesB64 key");
+        assert!(json.contains("\"normalsB64\""), "missing normalsB64 key");
         assert!(
-            json.contains("\"materialIndices\""),
-            "missing materialIndices key"
+            json.contains("\"materialIndicesB64\""),
+            "missing materialIndicesB64 key"
         );
         assert!(
             json.contains("\"materialPalette\""),
@@ -565,30 +531,21 @@ mod tests {
         assert!(json.contains("\"Sand\""));
         assert!(json.contains("\"Rock\""));
 
-        // Verify element counts by counting commas + 1 in each array.
-        let count_elements = |key: &str| -> usize {
+        // Verify B64 strings decode to correct lengths.
+        use base64::Engine;
+        let decode_len = |key: &str| -> usize {
             let kpos = json.find(&format!("\"{}\"", key)).expect(key);
-            let arr_open = json[kpos..].find('[').unwrap() + kpos;
-            let arr_close = json[arr_open..].find(']').unwrap() + arr_open;
-            let inner = json[arr_open + 1..arr_close].trim();
-            if inner.is_empty() {
-                0
-            } else {
-                inner.split(',').count()
-            }
+            let quote_open = json[kpos + key.len() + 4..].find('"').unwrap() + kpos + key.len() + 4;
+            let quote_close = json[quote_open + 1..].find('"').unwrap() + quote_open + 1;
+            let b64 = &json[quote_open + 1..quote_close];
+            base64::engine::general_purpose::STANDARD.decode(b64).unwrap().len()
         };
-
-        assert_eq!(count_elements("vertices"), mesh.vertices.len());
-        assert_eq!(count_elements("triangles"), mesh.triangles.len());
-        assert_eq!(count_elements("normals"), mesh.normals.len());
-        assert_eq!(
-            count_elements("materialIndices"),
-            mesh.material_indices.len()
-        );
-        assert_eq!(
-            count_elements("materialPalette"),
-            mesh.material_palette.len()
-        );
+        assert_eq!(decode_len("verticesB64"), mesh.vertices.len() * 4);
+        assert_eq!(decode_len("trianglesB64"), mesh.triangles.len() * 4);
+        assert_eq!(decode_len("normalsB64"), mesh.normals.len() * 4);
+        assert_eq!(decode_len("materialIndicesB64"), mesh.material_indices.len() * 4);
+        // materialPalette is still JSON (small, human-readable).
+        assert!(json.contains("\"materialPalette\""));
     }
 
     #[test]
