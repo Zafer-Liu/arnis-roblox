@@ -259,3 +259,28 @@ The compact historical archive index is:
   - the runtime signal improved, but `run_studio_harness_remote.sh` still left a stale local control shell on this run and exited non-zero after only a partial sync (`arnis-remote-harness.stdout.log` plus the Studio log). The scene/runtime proof itself is valid; the remaining problem is wrapper lifecycle cleanup, not client-world parity.
 - Verification:
   - `ARNIS_REMOTE_STUDIO_ARTIFACT_DIR=/tmp/arnis-remote-studio-proof-v11 bash scripts/run_studio_harness_remote.sh --swift-screenshot -- --small-place --takeover --skip-edit-tests --play-wait 130 --pattern-wait 240 --screenshot /tmp/arnis-studio-harness.png`
+
+### 2026-04-09: Model-Bounds Cull + Wrapper Orphan Exit Guard
+
+- Landed the next bounded structure-scan reduction below the chunk level:
+  - `BuildingBuilder.lua` now publishes per-model horizontal footprint bounds attrs (`ArnisImportBoundsMinX/MaxX/MinZ/MaxZ`) from `footprintData`
+  - `WorldProbe.client.lua` now consumes those attrs via `modelIntersectsNearbyNamedBuildingRadius(...)` and skips distant building models before calling `GetPivot()` or descending into model parts
+  - this keeps the payload contract and nearby-truth logic unchanged while trimming the remaining broad per-model scan cost inside already-eligible chunks
+- Added matching contract coverage:
+  - `test_austin_runtime_contract.py` now asserts the building bounds attrs are published and that `WorldProbe` uses them for model-level culling before pivot/descendant scans
+- Also hardened the remote proof wrapper against the `proof-v11` control-shell hang:
+  - `run_studio_harness_remote.sh` now treats `running_orphaned` as a terminal wrapper state once proof or completion has already been observed
+  - that branch now drives `stop_remote_harness_if_active` so the wrapper does not just stop waiting and leak remote state
+  - `test_run_studio_harness_remote.py` now asserts the proof-first wrapper loop handles the guarded `running_orphaned` exit path explicitly
+- Local verification after both runtime and wrapper slices stayed green:
+  - `python3 -m unittest scripts.tests.test_austin_runtime_contract scripts.tests.test_ambient_soundscape_runtime_contract scripts.tests.test_minimap_runtime_contract scripts.tests.test_play_audio_assets scripts.tests.test_gui_session_capture scripts.tests.test_run_studio_harness scripts.tests.test_run_studio_harness_remote -v`
+  - `git diff --check`
+- Fresh remote `proof-v12` changed the failure mode but did not yet yield a new trusted proof:
+  - the wrapper no longer stalls at the old early quit boundary; it progresses through `opening place`, Play entry retries, and reaches `enter_play_mode success=workflow-ensure-playing`
+  - this run then stalls later with `play-mode Austin markers not observed before timeout; continuing`
+  - only the synced wrapper stdout returned locally (`/tmp/arnis-remote-studio-proof-v12/arnis-remote-harness.stdout.log`); no authoritative Studio log, screenshot sidecar, or client proof artifacts synced before the wrapper had to be reaped
+- Current highest-value blocker after this slice:
+  - the old orphaned wrapper hang is no longer the primary issue
+  - the next remote proof blocker is the play-marker / post-enter-play path on `tertiary`, not the client structure-scan contract
+- Verification:
+  - `ARNIS_REMOTE_STUDIO_ARTIFACT_DIR=/tmp/arnis-remote-studio-proof-v12 bash scripts/run_studio_harness_remote.sh --swift-screenshot -- --small-place --takeover --skip-edit-tests --play-wait 130 --pattern-wait 240 --screenshot /tmp/arnis-studio-harness.png`

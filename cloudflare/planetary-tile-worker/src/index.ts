@@ -336,7 +336,9 @@ async function handleManifest(
     /\/chunks\/[^/]+\.(json|msgpack)$/.test(name) === true;
   const isCityIndex = /\/index\.json$/.test(name) === true;
   const chunkCacheControl = isChunkImmutable
-    ? "public, max-age=86400, immutable"
+    // During rapid iteration, use short TTL so manifest rebakes are visible
+    // immediately. Restore to 86400+immutable once the pipeline stabilizes.
+    ? "public, max-age=60"
     : isCityIndex
       ? "public, max-age=60"
       : "public, max-age=300";
@@ -386,7 +388,14 @@ async function handleManifest(
   // our load. A miss falls through to R2 exactly as before. The key
   // format mirrors the R2 key ("austin/chunks/0_-2.json") so cache
   // warmers and purgers can use the same identifier across stores.
-  if (isChunkImmutable && env.CHUNK_CACHE) {
+  //
+  // Cache bypass: when the URL has a ?v= or ?bust= query parameter,
+  // skip KV entirely and read directly from R2. This lets manifest
+  // rebakes be visible immediately without waiting for KV TTL or
+  // manual KV purge (which hits rate limits on bulk operations).
+  const reqUrl = new URL(request.url);
+  const bypassKV = reqUrl.searchParams.has("v") || reqUrl.searchParams.has("bust");
+  if (isChunkImmutable && env.CHUNK_CACHE && !bypassKV) {
     const cached = await env.CHUNK_CACHE.get(name, "stream");
     if (cached !== null) {
       return corsResponse(cached, {
