@@ -266,7 +266,8 @@ function RunAustin.run(options)
                 table.insert(toPrefetch, id)
             end
         end
-        if #toPrefetch > 0 then
+        local chunkFetchFailuresAtStartup = tonumber(Workspace:GetAttribute("ArnisChunkFetchFailures")) or 0
+        if #toPrefetch > 0 and stats.chunksImported > 0 and chunkFetchFailuresAtStartup == 0 then
             local attemptId = Workspace:GetAttribute("ArnisAustinBootstrapAttemptId")
             print(
                 ("[RunAustin] Background prefetch hint: %d outer-ring chunks queued (attempt=%s)"):format(
@@ -293,6 +294,13 @@ function RunAustin.run(options)
                     warn(("[RunAustin] Background prefetch failed: %s"):format(tostring(err)))
                 end
             end)
+        elseif #toPrefetch > 0 then
+            warn(
+                ("[RunAustin] Skipping background prefetch hint because startup imported %d chunks with %d fetch failures"):format(
+                    stats.chunksImported or 0,
+                    chunkFetchFailuresAtStartup
+                )
+            )
         end
     end
     local worldRoot = Workspace:FindFirstChild("GeneratedWorld_Austin")

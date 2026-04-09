@@ -172,6 +172,12 @@ class AustinRuntimeContractTests(unittest.TestCase):
         self.assertIn('setPerfAttribute("WorldRootExists", 1)', self.run_austin_text)
         self.assertIn('setPerfAttribute("WorldRootExists", 0)', self.run_austin_text)
 
+    def test_run_austin_skips_outer_ring_prefetch_when_startup_chunk_fetches_are_failing(self) -> None:
+        self.assertIn('local chunkFetchFailuresAtStartup = tonumber(Workspace:GetAttribute("ArnisChunkFetchFailures")) or 0', self.run_austin_text)
+        self.assertIn("if #toPrefetch > 0 and stats.chunksImported > 0 and chunkFetchFailuresAtStartup == 0 then", self.run_austin_text)
+        self.assertIn('"[RunAustin] Background prefetch hint: %d outer-ring chunks queued (attempt=%s)"', self.run_austin_text)
+        self.assertIn('"[RunAustin] Skipping background prefetch hint because startup imported %d chunks with %d fetch failures"', self.run_austin_text)
+
     def test_shell_mesh_bounded_wall_fallback_stays_shape_limited(self) -> None:
         self.assertIn("local function shouldPreferPlayVisibleShellWalls", self.building_builder_text)
         self.assertIn("PLAY_VISIBLE_SHELL_ROOF_SHAPES", self.building_builder_text)

@@ -1514,6 +1514,16 @@ function ManifestLoader.loadFromExternalSource(sourceUrl, options)
             end
         end
 
+        local function buildChunkFetchUrl(chunkBaseUrl, chunkId)
+            local queryStart = string.find(chunkBaseUrl, "?", 1, true)
+            if queryStart then
+                local basePath = string.sub(chunkBaseUrl, 1, queryStart - 1)
+                local querySuffix = string.sub(chunkBaseUrl, queryStart)
+                return basePath .. chunkId .. ".json" .. querySuffix
+            end
+            return chunkBaseUrl .. chunkId .. ".json"
+        end
+
         -- Use RequestAsync with explicit Accept-Encoding so Cloudflare's edge
         -- auto-gzip kicks in. Each chunk drops from 1146 KB → 235 KB on the
         -- wire (4.87× reduction). HttpService:GetAsync does not send
@@ -1525,7 +1535,7 @@ function ManifestLoader.loadFromExternalSource(sourceUrl, options)
         -- without inflating), we retry with GetAsync once. This guards
         -- against the platform not auto-decompressing on the response side.
         local function fetchChunkViaRequest(chunkId)
-            local chunkUrl = chunkBaseUrl .. chunkId .. ".json"
+            local chunkUrl = buildChunkFetchUrl(chunkBaseUrl, chunkId)
             local ok, response = pcall(function()
                 return HttpService:RequestAsync({
                     Url = chunkUrl,
@@ -1567,7 +1577,7 @@ function ManifestLoader.loadFromExternalSource(sourceUrl, options)
         end
 
         local function fetchChunkViaGet(chunkId)
-            local chunkUrl = chunkBaseUrl .. chunkId .. ".json"
+            local chunkUrl = buildChunkFetchUrl(chunkBaseUrl, chunkId)
             local ok, response = pcall(function()
                 return HttpService:GetAsync(chunkUrl, true)
             end)
@@ -1583,10 +1593,35 @@ function ManifestLoader.loadFromExternalSource(sourceUrl, options)
             return chunkData, nil
         end
 
+        local function isChunkFetchRateLimited(errText)
+            if type(errText) ~= "string" or errText == "" then
+                return false
+            end
+            return string.find(errText, "Number of requests exceeded limit", 1, true) ~= nil
+                or string.find(errText, "HTTP 429", 1, true) ~= nil
+        end
+
         local function fetchChunkOverHttp(chunkId)
-            local chunkData, err = fetchChunkViaRequest(chunkId)
-            if chunkData ~= nil then
-                return chunkData
+            local REQUEST_RETRY_DELAYS_SECONDS = { 0.5, 1, 2 }
+            local chunkData = nil
+            local err = nil
+            for attempt = 1, #REQUEST_RETRY_DELAYS_SECONDS + 1 do
+                chunkData, err = fetchChunkViaRequest(chunkId)
+                if chunkData ~= nil then
+                    return chunkData
+                end
+                if not isChunkFetchRateLimited(err) then
+                    break
+                end
+                if attempt <= #REQUEST_RETRY_DELAYS_SECONDS then
+                    task.wait(REQUEST_RETRY_DELAYS_SECONDS[attempt])
+                end
+            end
+            if isChunkFetchRateLimited(err) then
+                warn(("[ManifestLoader] RequestAsync rate limited for chunk %s; skipping immediate GetAsync fallback"):format(
+                    tostring(chunkId)
+                ))
+                return nil
             end
             -- Fall back to GetAsync if RequestAsync failed for any reason —
             -- including "decoded body wasn't JSON" which would be the symptom
