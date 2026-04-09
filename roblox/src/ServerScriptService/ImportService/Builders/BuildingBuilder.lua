@@ -895,6 +895,22 @@ local MATERIAL_COLOR_RANGES = {
         { 120, 115, 110 },
         { 140, 135, 130 },
     },
+    [Enum.Material.Glass] = {
+        { 180, 200, 215 }, -- blue-tint office glass
+        { 170, 190, 210 }, -- cool blue
+        { 190, 205, 220 }, -- light sky
+        { 160, 180, 200 }, -- steel blue
+    },
+    [Enum.Material.Slate] = {
+        { 100, 100, 105 },
+        { 110, 108, 112 },
+        { 95, 95, 100 },
+    },
+    [Enum.Material.Asphalt] = {
+        { 80, 80, 82 },
+        { 70, 70, 72 },
+        { 90, 88, 85 },
+    },
 }
 
 -- Return a deterministic color from MATERIAL_COLOR_RANGES for a given material,

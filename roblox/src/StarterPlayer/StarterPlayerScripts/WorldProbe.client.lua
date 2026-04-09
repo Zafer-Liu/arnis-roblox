@@ -14,10 +14,14 @@ local WORLD_ROOT_ATTR = "ArnisWorldRootName"
 local IDLE_SAMPLE_INTERVAL = 1.5
 local MOVING_SAMPLE_INTERVAL = 0.5
 local NEARBY_BUILDING_RADIUS = 260
+local NEARBY_BUILDING_RADIUS_SQ = NEARBY_BUILDING_RADIUS * NEARBY_BUILDING_RADIUS
 local NEARBY_NAMED_BUILDING_RADIUS = 640
+local NEARBY_NAMED_BUILDING_RADIUS_SQ = NEARBY_NAMED_BUILDING_RADIUS * NEARBY_NAMED_BUILDING_RADIUS
 local OVERHEAD_ROOF_RADIUS = 220
+local OVERHEAD_ROOF_RADIUS_SQ = OVERHEAD_ROOF_RADIUS * OVERHEAD_ROOF_RADIUS
 local OVERHEAD_MIN_DELTA_Y = 12
 local NEARBY_WALL_RADIUS = 180
+local NEARBY_WALL_RADIUS_SQ = NEARBY_WALL_RADIUS * NEARBY_WALL_RADIUS
 local IDLE_RESAMPLE_DISTANCE = 24
 local MOVING_RESAMPLE_DISTANCE = 8
 local MOVING_SPEED_THRESHOLD = 4
@@ -455,8 +459,8 @@ local function summarizeWorld(rootPart, worldRoot, worldRootName, telemetryFlags
                 end
 
                 local partOffset = descendant.Position - rootPosition
-                local horizontalDistance = Vector2.new(partOffset.X, partOffset.Z).Magnitude
-                if horizontalDistance <= NEARBY_BUILDING_RADIUS then
+                local horizontalDistanceSq = partOffset.X * partOffset.X + partOffset.Z * partOffset.Z
+                if horizontalDistanceSq <= NEARBY_BUILDING_RADIUS_SQ then
                     nearbyMergedBuildingMeshParts += 1
                 end
             end
@@ -478,10 +482,11 @@ local function summarizeWorld(rootPart, worldRoot, worldRootName, telemetryFlags
 
             local pivotPosition = model:GetPivot().Position
             local offset = pivotPosition - rootPosition
-            local horizontalDistance = Vector2.new(offset.X, offset.Z).Magnitude
-            if horizontalDistance > NEARBY_NAMED_BUILDING_RADIUS then
+            local horizontalDistanceSq = offset.X * offset.X + offset.Z * offset.Z
+            if horizontalDistanceSq > NEARBY_NAMED_BUILDING_RADIUS_SQ then
                 continue
             end
+            local horizontalDistance = math.sqrt(horizontalDistanceSq)
 
             local buildingName = model:GetAttribute("ArnisImportBuildingName")
             if
@@ -523,7 +528,8 @@ local function summarizeWorld(rootPart, worldRoot, worldRootName, telemetryFlags
 
                 local partOffset = descendant.Position - rootPosition
                 local nameLower = string.lower(descendant.Name)
-                local horizontalPartDistance = Vector2.new(partOffset.X, partOffset.Z).Magnitude
+                local horizontalDistanceSq = partOffset.X * partOffset.X + partOffset.Z * partOffset.Z
+                local horizontalPartDistance = math.sqrt(horizontalDistanceSq)
                 local isRoofClosureDeck = descendant:GetAttribute("ArnisRoofClosureDeck") == true
                     or isRoofClosureDeckPart(descendant)
                 local isRoofPart = string.find(nameLower, "roof", 1, true) ~= nil and not isRoofClosureDeck
@@ -532,7 +538,7 @@ local function summarizeWorld(rootPart, worldRoot, worldRootName, telemetryFlags
 
                 if descendant:IsA("MeshPart") and shellFolder and descendant:IsDescendantOf(shellFolder) then
                     if
-                        horizontalPartDistance <= NEARBY_BUILDING_RADIUS
+                        horizontalDistanceSq <= NEARBY_BUILDING_RADIUS_SQ
                         and not isRoofPart
                         and not isRoofCue
                         and not isRoofClosureDeck
@@ -564,7 +570,7 @@ local function summarizeWorld(rootPart, worldRoot, worldRootName, telemetryFlags
                     end
                     continue
                 end
-                if isReadableFacadeCue and horizontalPartDistance <= NEARBY_WALL_RADIUS then
+                if isReadableFacadeCue and horizontalDistanceSq <= NEARBY_WALL_RADIUS_SQ then
                     nearbyReadableFacadeCueParts += 1
                 end
                 if not isRoofPart and not isRoofCue then
@@ -574,7 +580,7 @@ local function summarizeWorld(rootPart, worldRoot, worldRootName, telemetryFlags
                 nearbyRoofParts += 1
 
                 local verticalDelta = partOffset.Y
-                if horizontalPartDistance <= OVERHEAD_ROOF_RADIUS and verticalDelta >= OVERHEAD_MIN_DELTA_Y then
+                if horizontalDistanceSq <= OVERHEAD_ROOF_RADIUS_SQ and verticalDelta >= OVERHEAD_MIN_DELTA_Y then
                     overheadRoofParts += 1
                     appendLimited(overheadRoofSourceIds, sourceId, MAX_OVERHEAD_IDS)
                     if overheadRoofMinClearanceStuds == nil or verticalDelta < overheadRoofMinClearanceStuds then
