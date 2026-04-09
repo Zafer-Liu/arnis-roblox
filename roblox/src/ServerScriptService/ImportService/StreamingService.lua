@@ -87,7 +87,10 @@ local loadedChunkRings = {}
 -- enough to absorb the typical re-desire bounce without inflating
 -- steady-state memory use for a chunk that's truly left behind.
 local chunkFirstNotDesiredAt = {}
-local STREAMING_EVICTION_COOLDOWN_SECONDS = 3.0
+-- Post-osm2world: chunks now take 2-3s to fetch (3.3MB avg). A 3s cooldown
+-- means a chunk can be evicted right as it finishes loading. 8s ensures a
+-- chunk survives at least one full streaming update cycle after admission.
+local STREAMING_EVICTION_COOLDOWN_SECONDS = 8.0
 -- Registry of chunkId -> building LOD level at which chunk geometry was imported
 local importedBuildingLodById = {}
 -- Registry of chunkId -> true while an import work item is queued/in-flight.

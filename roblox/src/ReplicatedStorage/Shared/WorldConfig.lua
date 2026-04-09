@@ -236,24 +236,29 @@ local WorldConfig = {
             StreamingMaxLookaheadStuds = 1024, -- 4 chunks ahead at speed
             StreamingRings = {
                 near = {
-                    MaxRadiusStuds = 768, -- wider near ring for ground-level detail
-                    EstimatedBudgetBytes = 512 * 1024 * 1024,
-                    MaxChunkCount = 24,
+                    MaxRadiusStuds = 768,
+                    -- Post-osm2world: chunks average 3.3MB with windowed walls + roofs.
+                    -- At 768-stud radius with 256-stud chunks, the near ring covers
+                    -- ~6×6 = 36 chunks. MaxChunkCount must be >= 36 or chunks cycle
+                    -- in/out causing visible flicker. Budget raised proportionally.
+                    EstimatedBudgetBytes = 2 * 1024 * 1024 * 1024,
+                    MaxChunkCount = 48,
                 },
                 mid = {
-                    MaxRadiusStuds = 1536, -- wider mid for aerial context
-                    EstimatedBudgetBytes = 512 * 1024 * 1024,
-                    MaxChunkCount = 32,
+                    MaxRadiusStuds = 1536,
+                    EstimatedBudgetBytes = 2 * 1024 * 1024 * 1024,
+                    MaxChunkCount = 64,
                 },
                 far = {
-                    MaxRadiusStuds = 3072, -- 3km visibility for planetary feel
-                    EstimatedBudgetBytes = 256 * 1024 * 1024,
-                    MaxChunkCount = 32,
+                    MaxRadiusStuds = 3072,
+                    EstimatedBudgetBytes = 1024 * 1024 * 1024,
+                    MaxChunkCount = 64,
                 },
             },
             MemoryGuardrails = {
                 Enabled = true,
-                EstimatedBudgetBytes = 2 * 1024 * 1024 * 1024,
+                -- Post-osm2world: richer geometry needs more headroom.
+                EstimatedBudgetBytes = 6 * 1024 * 1024 * 1024,
                 ResumeBudgetRatio = 0.85,
                 HostProbe = {
                     Enabled = true,
