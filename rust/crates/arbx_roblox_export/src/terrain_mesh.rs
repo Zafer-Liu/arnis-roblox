@@ -183,13 +183,29 @@ pub fn build_terrain_mesh(
     let mut normals: Vec<f32> = Vec::with_capacity(num_verts * 3);
     let mut vert_material_indices: Vec<u32> = Vec::with_capacity(num_verts);
 
-    // Emit all corner vertices.
-    for vy in 0..vh {
-        for vx in 0..vw {
+    // Emit corner vertices with a 1-cell overlap border on all sides.
+    // This eliminates visible seam gaps between adjacent chunk meshes
+    // by ensuring they physically overlap at chunk boundaries. Border
+    // vertices replicate the nearest interior edge height.
+    let border = 1i32; // 1 cell overlap
+    let ext_vw = vw + 2 * border as usize;
+    let ext_vh = vh + 2 * border as usize;
+    let num_ext_verts = ext_vw * ext_vh;
+    vertices.reserve(num_ext_verts * 3);
+    normals.reserve(num_ext_verts * 3);
+    vert_material_indices.reserve(num_ext_verts);
+
+    for evy in 0..ext_vh {
+        for evx in 0..ext_vw {
+            // Map extended grid coords to interior grid coords (clamp to edge).
+            let vx = (evx as i32 - border).clamp(0, vw as i32 - 1) as usize;
+            let vy = (evy as i32 - border).clamp(0, vh as i32 - 1) as usize;
             let vi = vy * vw + vx;
-            let x = vx as f64 * cs;
+            // Position uses the EXTENDED grid coords so border vertices
+            // extend beyond the chunk boundary.
+            let x = (evx as i32 - border) as f64 * cs;
             let y = corner_heights[vi];
-            let z = vy as f64 * cs;
+            let z = (evy as i32 - border) as f64 * cs;
             vertices.push(x as f32);
             vertices.push(y as f32);
             vertices.push(z as f32);
@@ -231,17 +247,18 @@ pub fn build_terrain_mesh(
         }
     }
 
-    // Emit triangles: 2 per cell.
-    let num_tris = width * depth * 2;
+    // Emit triangles: 2 per cell across the EXTENDED grid (includes overlap border).
+    let ext_cell_w = ext_vw - 1;
+    let ext_cell_h = ext_vh - 1;
+    let num_tris = ext_cell_w * ext_cell_h * 2;
     let mut triangles: Vec<u32> = Vec::with_capacity(num_tris * 3);
-    for row in 0..depth {
-        for col in 0..width {
-            let tl = (row * vw + col) as u32;       // top-left corner
-            let tr = tl + 1;                         // top-right
-            let bl = ((row + 1) * vw + col) as u32;  // bottom-left
-            let br = bl + 1;                         // bottom-right
+    for row in 0..ext_cell_h {
+        for col in 0..ext_cell_w {
+            let tl = (row * ext_vw + col) as u32;
+            let tr = tl + 1;
+            let bl = ((row + 1) * ext_vw + col) as u32;
+            let br = bl + 1;
 
-            // Two triangles per quad, consistent winding (CCW from above).
             triangles.push(tl);
             triangles.push(bl);
             triangles.push(tr);
@@ -356,11 +373,12 @@ mod tests {
 
     #[test]
     fn flat_terrain_vertex_count() {
-        // 4x4 grid => (4+1)*(4+1) = 25 vertices
+        // 4x4 grid => extended grid is (4+1+2)*(4+1+2) = 7*7 = 49 vertices
+        // (1-cell overlap border on each side)
         let heights = vec![5.0; 16];
         let mesh = build_terrain_mesh(&heights, 4, 4, 4.0, None).unwrap();
-        assert_eq!(mesh.vertex_count(), 25);
-        assert_eq!(mesh.triangle_count(), 4 * 4 * 2); // 32 triangles
+        assert_eq!(mesh.vertex_count(), 49); // 7*7
+        assert_eq!(mesh.triangle_count(), 6 * 6 * 2); // 72 triangles (extended cells)
     }
 
     #[test]
@@ -552,9 +570,9 @@ mod tests {
     fn one_by_one_grid() {
         let heights = vec![7.0]; // 1x1
         let mesh = build_terrain_mesh(&heights, 1, 1, 4.0, None).unwrap();
-        // (1+1)*(1+1) = 4 vertices, 2 triangles
-        assert_eq!(mesh.vertex_count(), 4);
-        assert_eq!(mesh.triangle_count(), 2);
+        // Extended: (1+1+2)*(1+1+2) = 4*4 = 16 vertices, 3*3*2 = 18 triangles
+        assert_eq!(mesh.vertex_count(), 16);
+        assert_eq!(mesh.triangle_count(), 18);
     }
 
     #[test]
@@ -600,13 +618,14 @@ mod tests {
             .step_by(3)
             .copied()
             .fold(f32::NEG_INFINITY, f32::max);
+        // With 1-cell border: max X = (width+1) * cell_size = 3*4 = 12 for cs=4, 3*8 = 24 for cs=8
         assert!(
-            (max_x_1 - 8.0).abs() < 1e-4,
-            "expected max X=8 for cell_size=4, got {}",
+            (max_x_1 - 12.0).abs() < 1e-4,
+            "expected max X=12 for cell_size=4 with border, got {}",
             max_x_1
         );
         assert!(
-            (max_x_2 - 16.0).abs() < 1e-4,
+            (max_x_2 - 24.0).abs() < 1e-4,
             "expected max X=16 for cell_size=8, got {}",
             max_x_2
         );
