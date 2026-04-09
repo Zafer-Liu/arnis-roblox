@@ -10,7 +10,7 @@ use crate::manifest::{
     PropInstance, RailSegment, RoadSegment, TerrainGrid, WaterFeature as ManifestWaterFeature,
 };
 use crate::materials::StyleMapper;
-use crate::mesh_builder::build_shell_mesh;
+use crate::mesh_builder::build_building_mesh;
 use crate::prop_mesh::{
     build_bench_mesh, build_bollard_mesh, build_bus_stop_mesh, build_fire_hydrant_mesh,
     build_post_box_mesh, build_street_lamp_mesh, build_telephone_mesh,
@@ -722,13 +722,24 @@ impl Chunker {
                 let rel_base_y = f.base_y - origin.y;
                 let rel_height = f.height * scale;
 
-                // Pre-compute shell mesh when footprint has enough vertices.
+                // Pre-compute building mesh (walls + roof) when footprint has enough vertices.
                 let shell_mesh = if relative_footprint.len() >= 3 && rel_height > 0.0 {
                     let footprint_2d: Vec<(f64, f64)> = relative_footprint
                         .iter()
                         .map(|p| (p.x, p.z))
                         .collect();
-                    Some(build_shell_mesh(&footprint_2d, rel_base_y, rel_height, 0.6))
+                    Some(build_building_mesh(
+                        &footprint_2d,
+                        rel_base_y,
+                        rel_height,
+                        0.6,
+                        &f.roof,
+                        f.roof_height.map(|h| h * scale),
+                        f.roof_direction,
+                        f.roof_angle,
+                        None, // roof_orientation not on BuildingFeature
+                        f.levels,
+                    ))
                 } else {
                     None
                 };

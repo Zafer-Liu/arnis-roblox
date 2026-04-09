@@ -164,11 +164,143 @@ impl MeshAccum {
 const MIN_EDGE: f64 = 0.5;
 const DEFAULT_WALL_THICKNESS: f64 = 0.6;
 
-/// Build the exterior shell mesh for a building: oriented-box walls for each
-/// footprint edge plus a flat roof slab.
+/// Merge two `PrecomputedMesh` instances into one, offsetting triangle indices
+/// of the second mesh by the vertex count of the first.
+pub fn merge_meshes(a: PrecomputedMesh, b: PrecomputedMesh) -> PrecomputedMesh {
+    if b.vertices.is_empty() {
+        return a;
+    }
+    if a.vertices.is_empty() {
+        return b;
+    }
+    let offset = (a.vertices.len() / 3) as u32;
+    let mut vertices = a.vertices;
+    vertices.extend_from_slice(&b.vertices);
+    let mut triangles = a.triangles;
+    triangles.extend(b.triangles.iter().map(|i| i + offset));
+    let mut normals = a.normals;
+    normals.extend_from_slice(&b.normals);
+    PrecomputedMesh {
+        vertices,
+        triangles,
+        normals,
+    }
+}
+
+/// Build wall geometry only (oriented boxes for each footprint edge).
+fn build_walls(footprint: &[(f64, f64)], base_y: f64, height: f64, wall_t: f64) -> PrecomputedMesh {
+    let mut acc = MeshAccum::new();
+    let n = footprint.len();
+    if n < 3 || height <= 0.0 {
+        return acc.into_mesh();
+    }
+
+    let up: V3 = [0.0, 1.0, 0.0];
+    for i in 0..n {
+        let j = (i + 1) % n;
+        let (ax, az) = footprint[i];
+        let (bx, bz) = footprint[j];
+        let dx = bx - ax;
+        let dz = bz - az;
+        let edge_len = (dx * dx + dz * dz).sqrt();
+        if edge_len < MIN_EDGE {
+            continue;
+        }
+
+        let forward: V3 = [dx / edge_len, 0.0, dz / edge_len];
+        let right: V3 = [dz / edge_len, 0.0, -dx / edge_len];
+
+        let mid_x = (ax + bx) * 0.5;
+        let mid_z = (az + bz) * 0.5;
+        let center_y = base_y + height * 0.5;
+        let center: V3 = [mid_x, center_y, mid_z];
+
+        let half_size: V3 = [wall_t * 0.5, height * 0.5, (edge_len + wall_t) * 0.5];
+
+        acc.add_oriented_box(center, right, up, forward, half_size);
+    }
+
+    acc.into_mesh()
+}
+
+/// Build the complete building mesh: walls + roof geometry merged into a single
+/// `PrecomputedMesh`.
 ///
-/// Mirrors the runtime geometry path in `BuildingBuilder.lua`
-/// (`addOrientedBox` per wall segment + roof grid).
+/// The roof shape is created from the `roof_shape` tag and triangulated via the
+/// `roof::heightfield` engine. The roof sits on top of the walls at
+/// `base_y + height`.
+///
+/// # Arguments
+/// * `footprint` — 2D polygon points as (x, z) pairs in stud space.
+/// * `base_y` — Y coordinate of the building base (ground level).
+/// * `height` — Total building height in studs (wall height, not including roof).
+/// * `wall_thickness` — Wall thickness in studs (use 0.0 for default 0.6).
+/// * `roof_shape` — OSM `roof:shape` tag value (e.g. "flat", "gabled", "hipped").
+/// * `roof_height` — Explicit roof height in studs, if known.
+/// * `roof_direction` — Roof ridge direction in degrees, if known.
+/// * `roof_angle` — Roof pitch angle in degrees, if known.
+/// * `roof_orientation` — "along" or "across", if known.
+/// * `levels` — Number of building levels (used for default roof height estimation).
+pub fn build_building_mesh(
+    footprint: &[(f64, f64)],
+    base_y: f64,
+    height: f64,
+    wall_thickness: f64,
+    roof_shape: &str,
+    roof_height: Option<f64>,
+    roof_direction: Option<f64>,
+    roof_angle: Option<f64>,
+    roof_orientation: Option<&str>,
+    levels: Option<u32>,
+) -> PrecomputedMesh {
+    let wall_t = if wall_thickness <= 0.0 {
+        DEFAULT_WALL_THICKNESS
+    } else {
+        wall_thickness
+    };
+
+    let n = footprint.len();
+    if n < 3 || height <= 0.0 {
+        return PrecomputedMesh {
+            vertices: Vec::new(),
+            triangles: Vec::new(),
+            normals: Vec::new(),
+        };
+    }
+
+    // ---- Walls ----
+    let wall_mesh = build_walls(footprint, base_y, height, wall_t);
+
+    // ---- Roof ----
+    use crate::roof::{self, Point2D, Polygon2D, RoofTags};
+    use crate::roof::heightfield::triangulate_roof;
+
+    let polygon = Polygon2D {
+        outer: footprint.iter().map(|&(x, z)| Point2D::new(x, z)).collect(),
+        holes: vec![],
+    };
+
+    let tags = RoofTags {
+        shape: roof_shape.to_string(),
+        height: roof_height,
+        angle: roof_angle,
+        direction: roof_direction,
+        orientation: roof_orientation.map(|s| s.to_string()),
+        levels,
+        material: None,
+        colour: None,
+    };
+
+    let roof_obj = roof::create_roof(roof_shape, polygon, &tags);
+    let wall_top_y = base_y + height;
+    let roof_mesh = triangulate_roof(roof_obj.as_ref(), wall_top_y);
+
+    // ---- Merge ----
+    merge_meshes(wall_mesh, roof_mesh)
+}
+
+/// Build the exterior shell mesh for a building: oriented-box walls for each
+/// footprint edge. Backwards-compatible wrapper that produces walls-only geometry.
 ///
 /// # Arguments
 /// * `footprint` — 2D polygon points as (x, z) pairs in stud space.
@@ -187,49 +319,7 @@ pub fn build_shell_mesh(
         wall_thickness
     };
 
-    let mut acc = MeshAccum::new();
-    let n = footprint.len();
-    if n < 3 || height <= 0.0 {
-        return acc.into_mesh();
-    }
-
-    // ---- Walls ----
-    // For each consecutive edge of the footprint polygon, create an oriented
-    // box that represents a wall segment (same as the Lua runtime path).
-    let up: V3 = [0.0, 1.0, 0.0];
-    for i in 0..n {
-        let j = (i + 1) % n;
-        let (ax, az) = footprint[i];
-        let (bx, bz) = footprint[j];
-        let dx = bx - ax;
-        let dz = bz - az;
-        let edge_len = (dx * dx + dz * dz).sqrt();
-        if edge_len < MIN_EDGE {
-            continue;
-        }
-
-        // Forward = along the edge, Right = perpendicular (outward normal), Up = Y
-        let forward: V3 = [dx / edge_len, 0.0, dz / edge_len];
-        let right: V3 = [dz / edge_len, 0.0, -dx / edge_len];
-
-        let mid_x = (ax + bx) * 0.5;
-        let mid_z = (az + bz) * 0.5;
-        let center_y = base_y + height * 0.5;
-        let center: V3 = [mid_x, center_y, mid_z];
-
-        // Z-extent includes wall_t overlap on each end to match Lua's
-        // addOrientedBox(... Vector3.new(WALL_THICKNESS, height, edgeLen + WALL_THICKNESS))
-        let half_size: V3 = [wall_t * 0.5, height * 0.5, (edge_len + wall_t) * 0.5];
-
-        acc.add_oriented_box(center, right, up, forward, half_size);
-    }
-
-    // NOTE: Roof geometry is NOT included in the pre-computed shell mesh.
-    // Lua `buildRoof()` owns all roof shapes (flat, gabled, hipped, gambrel)
-    // with material selection, readability cues, and detail geometry.
-    // Including a flat roof slab here would cause double-roof rendering.
-
-    acc.into_mesh()
+    build_walls(footprint, base_y, height, wall_t)
 }
 
 // ---------------------------------------------------------------------------
@@ -371,6 +461,119 @@ mod tests {
         // 5 wall edges × 24 verts = 120 verts (no roof)
         assert_eq!(mesh.vertex_count(), 120); // 5 × 24
         assert_eq!(mesh.triangle_count(), 60); // 5 × 12
+    }
+
+    // -----------------------------------------------------------------------
+    // build_building_mesh tests
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn building_mesh_flat_same_walls_as_shell() {
+        let fp = rect_footprint();
+        let shell = build_shell_mesh(&fp, 0.0, 12.0, 0.6);
+        let building = build_building_mesh(&fp, 0.0, 12.0, 0.6, "flat", None, None, None, None, None);
+        // Flat roof adds a cap (CDT triangles) on top of the wall geometry.
+        // The building mesh must have at least as many vertices as the shell.
+        assert!(
+            building.vertex_count() >= shell.vertex_count(),
+            "building mesh ({} verts) should have >= shell mesh ({} verts)",
+            building.vertex_count(),
+            shell.vertex_count()
+        );
+        // The first N vertices (wall geometry) should be identical.
+        assert_eq!(
+            &building.vertices[..shell.vertices.len()],
+            &shell.vertices[..],
+            "wall vertices should be identical between shell and building mesh"
+        );
+    }
+
+    #[test]
+    fn building_mesh_gabled_more_verts_than_flat() {
+        let fp = rect_footprint();
+        let flat = build_building_mesh(&fp, 0.0, 12.0, 0.6, "flat", None, None, None, None, None);
+        let gabled = build_building_mesh(
+            &fp, 0.0, 12.0, 0.6, "gabled", Some(4.0), None, None, None, None,
+        );
+        assert!(
+            gabled.vertex_count() > flat.vertex_count(),
+            "gabled ({} verts) should have more vertices than flat ({} verts)",
+            gabled.vertex_count(),
+            flat.vertex_count()
+        );
+    }
+
+    #[test]
+    fn building_mesh_hipped_more_verts_than_flat() {
+        let fp = rect_footprint();
+        let flat = build_building_mesh(&fp, 0.0, 12.0, 0.6, "flat", None, None, None, None, None);
+        let hipped = build_building_mesh(
+            &fp, 0.0, 12.0, 0.6, "hipped", Some(4.0), None, None, None, None,
+        );
+        assert!(
+            hipped.vertex_count() > flat.vertex_count(),
+            "hipped ({} verts) should have more vertices than flat ({} verts)",
+            hipped.vertex_count(),
+            flat.vertex_count()
+        );
+    }
+
+    #[test]
+    fn building_mesh_normals_unit_length() {
+        let fp = rect_footprint();
+        let mesh = build_building_mesh(
+            &fp, 0.0, 12.0, 0.6, "gabled", Some(4.0), None, None, None, None,
+        );
+        for i in 0..mesh.vertex_count() {
+            let nx = mesh.normals[i * 3] as f64;
+            let ny = mesh.normals[i * 3 + 1] as f64;
+            let nz = mesh.normals[i * 3 + 2] as f64;
+            let len = (nx * nx + ny * ny + nz * nz).sqrt();
+            assert!(
+                (len - 1.0).abs() < 1e-4,
+                "normal at vertex {} has length {}, expected 1.0",
+                i,
+                len
+            );
+        }
+    }
+
+    #[test]
+    fn building_mesh_triangles_valid() {
+        let fp = rect_footprint();
+        let mesh = build_building_mesh(
+            &fp, 0.0, 12.0, 0.6, "hipped", Some(3.0), None, None, None, None,
+        );
+        let vc = mesh.vertex_count() as u32;
+        for (ti, &idx) in mesh.triangles.iter().enumerate() {
+            assert!(
+                idx < vc,
+                "triangle index [{}] = {} exceeds vertex count {}",
+                ti,
+                idx,
+                vc
+            );
+        }
+    }
+
+    #[test]
+    fn merge_meshes_empty() {
+        let empty = PrecomputedMesh {
+            vertices: vec![],
+            triangles: vec![],
+            normals: vec![],
+        };
+        let nonempty = PrecomputedMesh {
+            vertices: vec![1.0, 2.0, 3.0],
+            triangles: vec![0],
+            normals: vec![0.0, 1.0, 0.0],
+        };
+        // merge(empty, nonempty) == nonempty
+        let m = merge_meshes(empty.clone(), nonempty.clone());
+        assert_eq!(m.vertices, nonempty.vertices);
+        // merge(nonempty, empty) == nonempty
+        let m2 = merge_meshes(nonempty.clone(), empty);
+        assert_eq!(m2.vertices, nonempty.vertices);
     }
 
     /// Build a shell mesh, embed it in a BuildingShell inside a Chunk,
