@@ -338,17 +338,30 @@ end
 
 local harnessRouteSelection = resolveHarnessRouteSelection()
 
--- Default telemetry families for LIVE production (non-harness) runs. The
--- harness rewrites HarnessRouteConfig.telemetryFamilies to "client_perf"
--- at build time; live prod starts with an empty string which gates ALL
--- client telemetry off. That meant the real-game flickering the user
--- reported was invisible to the auto-loop because WorldProbe.client.lua
--- skipped its emit branch. Default to perf + flicker in live prod so the
--- Cloudflare telemetry endpoint actually receives a diagnosable signal.
-if type(harnessRouteSelection.telemetryFamilies) ~= "string"
-    or harnessRouteSelection.telemetryFamilies == ""
-then
-    harnessRouteSelection.telemetryFamilies = "client_perf,client_flicker"
+-- Ensure client_flicker is ALWAYS enabled, regardless of what the
+-- harness script pre-rewrites into HarnessRouteConfig.telemetryFamilies.
+-- The harness writes "client_perf" at build time; live prod starts with
+-- "". Neither includes client_flicker by default, which silenced the
+-- flicker detector in WorldProbe.client.lua and made the user's real
+-- flickering report invisible to the auto-loop.
+--
+-- We force-merge client_flicker (and guarantee client_perf) into the
+-- families list so both harness and live prod emit the signal.
+do
+    local current = harnessRouteSelection.telemetryFamilies
+    if type(current) ~= "string" then
+        current = ""
+    end
+    local hasPerf = string.find(current, "client_perf", 1, true) ~= nil
+    local hasFlicker = string.find(current, "client_flicker", 1, true) ~= nil
+    local merged = current
+    if not hasPerf then
+        merged = merged == "" and "client_perf" or (merged .. ",client_perf")
+    end
+    if not hasFlicker then
+        merged = merged == "" and "client_flicker" or (merged .. ",client_flicker")
+    end
+    harnessRouteSelection.telemetryFamilies = merged
 end
 
 local function onPlayer(player)
