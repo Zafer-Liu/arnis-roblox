@@ -69,7 +69,7 @@ const TELEMETRY_TTL_SECONDS = 60 * 60 * 24 * 30; // 30 days
 
 const CORS_HEADERS = {
   "access-control-allow-origin": "*",
-  "access-control-allow-methods": "GET, OPTIONS",
+  "access-control-allow-methods": "GET, PUT, POST, OPTIONS",
   "access-control-allow-headers": "*",
 };
 
@@ -144,7 +144,15 @@ async function handleTile(
   // via a future EditableImage:LoadFromBytes path. Until that exists, the
   // Lua side falls back to a placeholder colored Part — the worker is
   // ready for when the decode pipeline lands.
-  const base64 = btoa(String.fromCharCode(...jpegBytes));
+  // Encode JPEG bytes to base64 without stack overflow. The spread
+  // operator (...jpegBytes) crashes V8 when the array exceeds ~128K
+  // elements because every byte becomes a function argument.
+  let binaryStr = "";
+  const CHUNK = 8192;
+  for (let i = 0; i < jpegBytes.length; i += CHUNK) {
+    binaryStr += String.fromCharCode.apply(null, Array.from(jpegBytes.subarray(i, i + CHUNK)));
+  }
+  const base64 = btoa(binaryStr);
 
   const result = {
     provider,
@@ -543,7 +551,19 @@ export default {
         );
       }
       const token = request.headers.get("x-admin-token") || "";
-      if (token !== env.ADMIN_TOKEN) {
+      // Timing-safe comparison to prevent token oracle attacks.
+      const encoder = new TextEncoder();
+      const tokenBytes = encoder.encode(token);
+      const secretBytes = encoder.encode(env.ADMIN_TOKEN);
+      // Pad to equal length (crypto.subtle.timingSafeEqual requires same length).
+      const maxLen = Math.max(tokenBytes.length, secretBytes.length, 1);
+      const a = new Uint8Array(maxLen);
+      const b = new Uint8Array(maxLen);
+      a.set(tokenBytes);
+      b.set(secretBytes);
+      const tokensMatch = crypto.subtle.timingSafeEqual(a, b)
+        && tokenBytes.length === secretBytes.length;
+      if (!tokensMatch) {
         return corsResponse(
           JSON.stringify({ error: "unauthorized" }),
           { status: 401, headers: { "content-type": "application/json" } },

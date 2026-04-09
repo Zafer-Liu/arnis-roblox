@@ -1548,6 +1548,22 @@ class RunStudioHarnessTests(unittest.TestCase):
         self.assertIsNotNone(authoritative_block, "authoritative_client_play_proof_present function not found")
         self.assertIn('rg -q "ARNIS_CLIENT_WORLD_COMPACT " "$summary_source"', authoritative_block.group("body"))
 
+    def test_harness_salvages_truncated_gameplay_ready_world_markers(self) -> None:
+        block = re.search(
+            r"log_effective_play_world_state\(\) \{\n(?P<body>.*?)\n\}\n\nlog_effective_play_local_experience_state",
+            self.text,
+            re.DOTALL,
+        )
+        self.assertIsNotNone(block, "log_effective_play_world_state function not found")
+        body = block.group("body")
+        self.assertIn("import re", body)
+        self.assertIn("latest_parseable_payload = None", body)
+        self.assertIn('if payload.get("bootstrapState") == "gameplay_ready":', body)
+        self.assertIn("raw_field_patterns = {", body)
+        self.assertIn('re.search(pattern, payload_text)', body)
+        self.assertIn('recovered_payload.get("bootstrapState") == "gameplay_ready"', body)
+        self.assertIn('print(json.dumps(recovered_payload, separators=(",", ":")))', body)
+
     def test_harness_surfaces_client_local_experience_marker_for_play_observability(self) -> None:
         block = re.search(
             r"log_effective_play_local_experience_state\(\) \{\n(?P<body>.*?)\n\}\n\nauthoritative_client_play_proof_present",

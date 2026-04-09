@@ -236,6 +236,12 @@ if [[ -f "$remote_harness_pgid_file" ]]; then
   fi
   rm -f "$remote_harness_pgid_file"
 fi
+remote_harness_orphan_pids="$(pgrep -f "$remote_arnis_dir/.arnis-remote-harness-launch.sh|$remote_arnis_dir/scripts/run_studio_harness.sh" || true)"
+if [[ -n "$remote_harness_orphan_pids" ]]; then
+  kill -TERM $remote_harness_orphan_pids >/dev/null 2>&1 || true
+  sleep 1
+  kill -KILL $remote_harness_orphan_pids >/dev/null 2>&1 || true
+fi
 rm -f "$remote_harness_exit_file"
 rm -rf "$remote_harness_lock_dir"
 SH
@@ -309,7 +315,7 @@ PY
 }
 
 remote_harness_status() {
-  ssh "$REMOTE_HOST" 'bash -s' -- "$REMOTE_HARNESS_PGID_FILE" "$REMOTE_HARNESS_EXIT_FILE" <<'SH'
+  ssh "$REMOTE_HOST" 'bash -s' -- "$REMOTE_HARNESS_PGID_FILE" "$REMOTE_HARNESS_EXIT_FILE" "$REMOTE_ARNIS_DIR" <<'SH'
 set -euo pipefail
 expand_remote_path() {
   case "$1" in
@@ -324,6 +330,7 @@ expand_remote_path() {
 
 remote_harness_pgid_file="$(expand_remote_path "$1")"
 remote_harness_exit_file="$(expand_remote_path "$2")"
+remote_arnis_dir="$(expand_remote_path "$3")"
 
 if [[ -f "$remote_harness_exit_file" ]]; then
   exit_code="$(tr -d '[:space:]' < "$remote_harness_exit_file" || true)"
@@ -337,6 +344,11 @@ if [[ -f "$remote_harness_pgid_file" ]]; then
     printf 'running\n'
     exit 0
   fi
+fi
+
+if pgrep -fal "$remote_arnis_dir/.arnis-remote-harness-launch.sh|$remote_arnis_dir/scripts/run_studio_harness.sh" >/dev/null 2>&1; then
+  printf 'running_orphaned\n'
+  exit 0
 fi
 
 printf 'missing\n'
@@ -956,6 +968,10 @@ fi
 if [[ $wrapper_wait_bounded -eq 1 ]]; then
   stop_remote_harness_if_active
   remote_exit_code=0
+fi
+
+if [[ $remote_exit_code -ne 0 ]]; then
+  stop_remote_harness_if_active
 fi
 
 REMOTE_HARNESS_ACTIVE=0

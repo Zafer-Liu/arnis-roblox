@@ -4479,6 +4479,7 @@ log_effective_play_world_state() {
     local world_verdict=""
     world_json="$(python3 - "$summary_source" <<'PY'
 import json
+import re
 import sys
 from collections import deque
 from pathlib import Path
@@ -4486,6 +4487,16 @@ from pathlib import Path
 summary_path = Path(sys.argv[1])
 prefix = "ARNIS_CLIENT_WORLD_COMPACT "
 candidate_lines = deque(maxlen=24)
+latest_parseable_payload = None
+
+raw_field_patterns = {
+    "worldRootName": r'"worldRootName":"([^"]*)"',
+    "worldRootExists": r'"worldRootExists":(true|false)',
+    "nearbyBuildingModels": r'"nearbyBuildingModels":(-?\d+)',
+    "nearbyRoofParts": r'"nearbyRoofParts":(-?\d+)',
+    "overheadRoofParts": r'"overheadRoofParts":(-?\d+)',
+    "bootstrapState": r'"bootstrapState":"([^"]*)"',
+}
 
 with summary_path.open(encoding="utf-8", errors="replace") as handle:
     for raw_line in handle:
@@ -4498,10 +4509,32 @@ for payload_text in reversed(candidate_lines):
     try:
         payload = json.loads(payload_text)
     except json.JSONDecodeError:
+        recovered_payload = {}
+        for key, pattern in raw_field_patterns.items():
+            match = re.search(pattern, payload_text)
+            if not match:
+                continue
+            value = match.group(1)
+            if key == "worldRootExists":
+                recovered_payload[key] = value == "true"
+            elif key in {"nearbyBuildingModels", "nearbyRoofParts", "overheadRoofParts"}:
+                recovered_payload[key] = int(value)
+            else:
+                recovered_payload[key] = value
+        if recovered_payload.get("bootstrapState") == "gameplay_ready":
+            print(json.dumps(recovered_payload, separators=(",", ":")))
+            raise SystemExit(0)
         continue
     if isinstance(payload, dict):
-        print(json.dumps(payload, separators=(",", ":")))
-        raise SystemExit(0)
+        if latest_parseable_payload is None:
+            latest_parseable_payload = payload
+        if payload.get("bootstrapState") == "gameplay_ready":
+            print(json.dumps(payload, separators=(",", ":")))
+            raise SystemExit(0)
+
+if latest_parseable_payload is not None:
+    print(json.dumps(latest_parseable_payload, separators=(",", ":")))
+    raise SystemExit(0)
 
 raise SystemExit(1)
 PY

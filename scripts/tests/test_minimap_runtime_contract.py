@@ -58,11 +58,31 @@ class MinimapRuntimeContractTests(unittest.TestCase):
         self.assertNotIn("renderMap(camPos.X, camPos.Z, camYaw)", self.client_minimap_text)
         self.assertIn("drawPlayerHeading(camYaw)", self.client_minimap_text)
 
+    def test_client_minimap_avoids_full_reraster_on_heading_only_changes(self) -> None:
+        self.assertIn("local basePixelBuffer = nil", self.client_minimap_text)
+        self.assertIn("local function copyBufferBytes(targetBuffer, sourceBuffer)", self.client_minimap_text)
+        self.assertIn("local function snapshotBaseBuffer()", self.client_minimap_text)
+        self.assertIn("local function restoreBaseBuffer()", self.client_minimap_text)
+        self.assertIn("local needsBaseRender = movedEnough", self.client_minimap_text)
+        self.assertIn("local needsOverlayRefresh = needsBaseRender or lastRenderedHeadingBucket ~= headingBucket", self.client_minimap_text)
+        self.assertNotIn("or lastRenderedHeadingBucket ~= headingBucket\n", self.client_minimap_text.split("local needsBaseRender = movedEnough", 1)[1].split("local needsOverlayRefresh", 1)[0])
+        self.assertIn("if not needsOverlayRefresh then", self.client_minimap_text)
+        self.assertIn("snapshotBaseBuffer()", self.client_minimap_text)
+        self.assertIn("restoreBaseBuffer()", self.client_minimap_text)
+        self.assertIn("if needsBaseRender then", self.client_minimap_text)
+        self.assertIn("lastRenderedHeadingBucket = headingBucket", self.client_minimap_text)
+
     def test_client_minimap_renders_footprints_from_polygon_points_not_world_bounding_boxes(self) -> None:
         self.assertIn("local function drawFilledPolygon(pixelPoints, color)", self.client_minimap_text)
         self.assertIn("local function footprintToPixelPoints(footprint, ox, oz, camX, camZ)", self.client_minimap_text)
         self.assertIn("drawFilledPolygon(footprintToPixelPoints(", self.client_minimap_text)
         self.assertNotIn("local minX, maxX, minZ, maxZ = math.huge, -math.huge, math.huge, -math.huge", self.client_minimap_text)
+
+    def test_client_minimap_culls_chunks_before_rasterizing_snapshot_geometry(self) -> None:
+        self.assertIn("local CHUNK_CULL_PADDING_STUDS =", self.client_minimap_text)
+        self.assertIn("local function chunkIntersectsMapRadius(chunk, camX, camZ, activeRadius)", self.client_minimap_text)
+        self.assertIn("if chunkIntersectsMapRadius(snapshot, camX, camZ, activeRadius) then", self.client_minimap_text)
+        self.assertIn("drawChunk(snapshot, camX, camZ, activeRadius)", self.client_minimap_text)
 
 
 if __name__ == "__main__":

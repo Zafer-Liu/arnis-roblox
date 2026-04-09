@@ -130,6 +130,8 @@ class RunStudioHarnessRemoteTests(unittest.TestCase):
         self.assertIn("sync_remote_session_output()", self.text)
         self.assertIn('rsync -a "$REMOTE_HOST:$(render_rsync_remote_path "$REMOTE_HARNESS_STDOUT_LOG")" "$REMOTE_SESSION_OUTPUT_LOG"', self.text)
         self.assertIn("remote_harness_status()", self.text)
+        self.assertIn("running_orphaned", self.text)
+        self.assertIn('pgrep -fal "$remote_arnis_dir/.arnis-remote-harness-launch.sh|$remote_arnis_dir/scripts/run_studio_harness.sh"', self.text)
         self.assertIn("remote_proof_signal_detected()", self.text)
         self.assertIn('play bootstrap trace verdict \\(authoritative client bootstrap marker\\): valid', self.text)
         self.assertIn('if [[ $proof_signal_seen -eq 0 ]] && remote_proof_signal_detected; then', self.text)
@@ -146,6 +148,9 @@ class RunStudioHarnessRemoteTests(unittest.TestCase):
         self.assertIn('echo "[remote-harness] bounded remote cleanup tail exceeded ${PROOF_SYNC_TAIL_TIMEOUT_SECONDS}s after proof completion; stopping wrapper wait" >&2', self.text)
         self.assertNotIn('kill -TERM "$remote_ssh_pid" >/dev/null 2>&1 || true', self.text)
         self.assertIn('stop_remote_harness_if_active', self.text)
+        self.assertIn('if [[ $remote_exit_code -ne 0 ]]; then', self.text)
+        self.assertIn('stop_remote_harness_if_active', self.text)
+        self.assertIn('REMOTE_HARNESS_ACTIVE=0', self.text)
 
     def test_seeds_manifest_summary_and_fetches_scene_audit_artifacts(self) -> None:
         self.assertIn('LOCAL_MANIFEST_SUMMARY_PATH="$LOCAL_ARNIS_DIR/rust/out/austin-manifest.scene-index.json"', self.text)

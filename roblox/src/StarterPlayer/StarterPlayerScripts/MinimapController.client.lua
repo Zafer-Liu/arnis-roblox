@@ -17,6 +17,10 @@ local MAP_DISPLAY_SIZE = 180
 local MAP_FULLSCREEN_SIZE = 600
 local MAP_RADIUS = 400
 local MAP_RADIUS_FULL = 1600
+-- Coarse world-space hull used to skip whole chunk snapshots that are
+-- obviously outside the current minimap viewport. Kept intentionally
+-- generous so we only cull remote chunks, not borderline ones.
+local CHUNK_CULL_PADDING_STUDS = 2048
 local UPDATE_INTERVAL = 0.2
 local MIN_RENDER_MOVE_STUDS = 4
 local HEADING_BUCKET_DEGREES = 6
@@ -73,6 +77,7 @@ local TELEMETRY_ATTR_NAMES = table.freeze({
     "ArnisMinimapFullscreen",
     "ArnisMinimapError",
 })
+local PIXEL_BUFFER_BYTES = MAP_SIZE * MAP_SIZE * 4
 
 -- Scratch buffers reused across renders so we don't churn the allocator at
 -- the minimap's render cadence. Never hand these out across yields.
@@ -84,6 +89,7 @@ local imageLabel = nil
 local mapLabel = nil
 local editableImage = nil
 local pixelBuffer = nil
+local basePixelBuffer = nil
 local lastUpdate = 0
 local isFullscreen = false
 local currentWorldRoot = nil
@@ -179,7 +185,28 @@ local function disconnectConnections(connections)
 end
 
 local function initBuffer()
-    pixelBuffer = buffer.create(MAP_SIZE * MAP_SIZE * 4)
+    pixelBuffer = buffer.create(PIXEL_BUFFER_BYTES)
+    basePixelBuffer = buffer.create(PIXEL_BUFFER_BYTES)
+end
+
+local function copyBufferBytes(targetBuffer, sourceBuffer)
+    for index = 0, PIXEL_BUFFER_BYTES - 1 do
+        buffer.writeu8(targetBuffer, index, buffer.readu8(sourceBuffer, index))
+    end
+end
+
+local function snapshotBaseBuffer()
+    if not pixelBuffer or not basePixelBuffer then
+        return
+    end
+    copyBufferBytes(basePixelBuffer, pixelBuffer)
+end
+
+local function restoreBaseBuffer()
+    if not pixelBuffer or not basePixelBuffer then
+        return
+    end
+    copyBufferBytes(pixelBuffer, basePixelBuffer)
 end
 
 local function clearBuffer()
@@ -358,6 +385,32 @@ local function refreshChunkSnapshotList()
         list[i] = nil
     end
     return list, count
+end
+
+local function chunkIntersectsMapRadius(chunk, camX, camZ, activeRadius)
+    local origin = chunk and chunk.originStuds
+    if type(origin) ~= "table" then
+        return true
+    end
+
+    local ox = origin.X or origin.x or 0
+    local oz = origin.Z or origin.z or 0
+    local chunkSpan = CHUNK_CULL_PADDING_STUDS
+    local chunkMinX = ox
+    local chunkMaxX = ox + chunkSpan
+    local chunkMinZ = oz
+    local chunkMaxZ = oz + chunkSpan
+    local viewportMinX = camX - activeRadius
+    local viewportMaxX = camX + activeRadius
+    local viewportMinZ = camZ - activeRadius
+    local viewportMaxZ = camZ + activeRadius
+
+    return not (
+        chunkMaxX < viewportMinX
+        or chunkMinX > viewportMaxX
+        or chunkMaxZ < viewportMinZ
+        or chunkMinZ > viewportMaxZ
+    )
 end
 
 local LANDUSE_COLOR_BY_KIND = table.freeze({
@@ -575,7 +628,10 @@ local function renderMap(camX, camZ)
     local activeRadius = isFullscreen and MAP_RADIUS_FULL or MAP_RADIUS
     local snapshots, count = refreshChunkSnapshotList()
     for i = 1, count do
-        drawChunk(snapshots[i], camX, camZ, activeRadius)
+        local snapshot = snapshots[i]
+        if chunkIntersectsMapRadius(snapshot, camX, camZ, activeRadius) then
+            drawChunk(snapshot, camX, camZ, activeRadius)
+        end
     end
     drawBorder()
 end
@@ -827,10 +883,10 @@ RunService.Heartbeat:Connect(function(dt)
         local dzMoved = camPos.Z - lastRenderedCamZ
         movedEnough = dxMoved * dxMoved + dzMoved * dzMoved >= MIN_RENDER_MOVE_STUDS * MIN_RENDER_MOVE_STUDS
     end
-    local needsRender = movedEnough
+    local needsBaseRender = movedEnough
         or lastRenderedSnapshotRevision ~= chunkSnapshotRevision
         or lastRenderedFullscreen ~= isFullscreen
-        or lastRenderedHeadingBucket ~= headingBucket
+    local needsOverlayRefresh = needsBaseRender or lastRenderedHeadingBucket ~= headingBucket
 
     local function updateHeadingLabel()
         if isFullscreen or not mapLabel then
@@ -840,18 +896,23 @@ RunService.Heartbeat:Connect(function(dt)
         mapLabel.Text = string.format("MAP  %s %d°", COMPASS_DIRS[dirIdx], heading)
     end
 
-    if not needsRender then
+    if not needsOverlayRefresh then
         updateHeadingLabel()
         return
     end
 
-    renderMap(camPos.X, camPos.Z)
+    if needsBaseRender then
+        renderMap(camPos.X, camPos.Z)
+        snapshotBaseBuffer()
+        lastRenderedCamX = camPos.X
+        lastRenderedCamZ = camPos.Z
+        lastRenderedSnapshotRevision = chunkSnapshotRevision
+        lastRenderedFullscreen = isFullscreen
+    else
+        restoreBaseBuffer()
+    end
     drawPlayerHeading(camYaw)
     EditableImageCompat.WritePixels(editableImage, Vector2.zero, Vector2.new(MAP_SIZE, MAP_SIZE), pixelBuffer)
-    lastRenderedCamX = camPos.X
-    lastRenderedCamZ = camPos.Z
-    lastRenderedSnapshotRevision = chunkSnapshotRevision
-    lastRenderedFullscreen = isFullscreen
     lastRenderedHeadingBucket = headingBucket
 
     updateHeadingLabel()

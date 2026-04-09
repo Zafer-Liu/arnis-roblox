@@ -101,3 +101,78 @@ The compact historical archive index is:
   - `bash -n scripts/run_studio_harness.sh scripts/run_studio_harness_remote.sh`
   - `git diff --check`
   - `ARNIS_REMOTE_STUDIO_ARTIFACT_DIR=/tmp/arnis-remote-studio-proof-v2 bash scripts/run_studio_harness_remote.sh --swift-screenshot -- --small-place --takeover --skip-edit-tests --play-wait 130 --pattern-wait 240 --screenshot /tmp/arnis-studio-harness.png`
+
+### 2026-04-09: Authoritative World Verdict Salvage + WorldProbe Scan Trim
+
+- Root-caused the remaining authoritative play-world verdict bug to harness parsing, not runtime telemetry. `ARNIS_CLIENT_WORLD_COMPACT` late-play lines in the Studio log are sometimes truncated mid-JSON because the payload carries long nearest-building name/source-id arrays; the old harness parser skipped those malformed lines and fell back to the last short parseable payload, which was often an early `world_ready` zero-building sample.
+- Hardened `scripts/run_studio_harness.sh` in two ways:
+  - `summarize_log()` now uses `ACTIVE_LOG` for authoritative client verdict extraction and keeps `LOG_SLICE_FILE` only for the human-readable tail summary.
+  - `log_effective_play_world_state()` now prefers `gameplay_ready` client-world markers and can salvage the key proof fields (`worldRootName`, `worldRootExists`, `nearbyBuildingModels`, `nearbyRoofParts`, `overheadRoofParts`, `bootstrapState`) directly from truncated marker text when JSON decoding fails.
+- Confirmed that the new parser recovers the correct settled verdict from the real failing remote log:
+  - old behavior selected `world_ready` with `nearbyBuildingModels=0`
+  - new behavior recovers `gameplay_ready` with non-zero nearby building/roof counts from the same `*_last.log`
+- Landed one bounded runtime perf reduction in `WorldProbe.client.lua`:
+  - added squared-radius constants for nearby-building / named-building / wall / overhead-roof checks
+  - removed `Vector2.new(...).Magnitude` allocation churn from the deep structure scan while preserving emitted rounded distance fields where payloads still need them
+- Current residual issue after this slice is now remote harness lifecycle on `tertiary`, not proof parsing:
+  - one fresh `proof-v4` wrapper run returned non-zero without syncing the final authoritative harness artifacts back locally
+  - direct remote inspection showed leftover run-specific harness processes (`PGID 29281`) still alive after wrapper exit; they were terminated manually to restore a clean proof surface
+- Verification:
+  - `python3 -m unittest scripts.tests.test_austin_runtime_contract scripts.tests.test_gui_session_capture scripts.tests.test_run_studio_harness scripts.tests.test_run_studio_harness_remote -v`
+  - `bash -n scripts/run_studio_harness.sh scripts/run_studio_harness_remote.sh`
+  - `git diff --check`
+  - local replay of the salvaged-world parser against `/tmp/arnis-remote-studio-proof-v3/0.716.0.7160873_20260409T172359Z_Studio_b79f6_last.log`
+
+### 2026-04-09: Remote Wrapper Lifecycle Recovery + Minimap Heading Repaint Split
+
+- Root-caused the `proof-v4` remote wrapper failure to lifecycle/state management in `scripts/run_studio_harness_remote.sh`, not another runtime or proof-parser regression:
+  - the wrapper could treat remote status as `missing` if the PGID file disappeared before the exit file landed
+  - on non-zero wrapper exit, it disarmed `REMOTE_HARNESS_ACTIVE` too early, so trap cleanup could not reap orphaned remote harness shells
+- Hardened the remote wrapper by:
+  - extending `remote_harness_status()` to recognize `running_orphaned` via targeted stage-local process discovery when PGID/exit files are temporarily absent
+  - extending `stop_remote_harness_if_active()` to kill targeted orphaned stage-local harness shells even when the PGID file is gone
+  - forcing `stop_remote_harness_if_active()` before non-zero wrapper exit so bad status transitions cannot strand remote harness processes
+- Fresh `proof-v5` confirms the wrapper/harness/proof stack now works end to end on a clean `tertiary` surface:
+  - authoritative client bootstrap trace: `valid`
+  - authoritative client world verdict: `worldRootExists=True nearbyBuildingModels=6 nearbyRoofParts=41 overheadRoofParts=8`
+  - authoritative play screenshot sidecar: `capture_method="rect"` with `guiSessionRelay.method="terminal.command"`
+  - wrapper exits cleanly after the bounded cleanup tail
+  - post-run remote process check shows no remaining stage-local harness shells beyond the operator's current `pgrep` check
+- Landed a separate client-performance slice in `MinimapController.client.lua`:
+  - cached the north-up base raster in a second buffer
+  - split base-map rerender invalidation from heading-only overlay refresh
+  - removed full chunk reraster on heading-only camera turns while preserving the north-up map contract and rotating player-heading overlay
+- Verification:
+  - `python3 -m unittest scripts.tests.test_minimap_runtime_contract -v`
+  - `python3 -m unittest scripts.tests.test_austin_runtime_contract scripts.tests.test_gui_session_capture scripts.tests.test_run_studio_harness scripts.tests.test_run_studio_harness_remote -v`
+  - `bash -n scripts/run_studio_harness.sh scripts/run_studio_harness_remote.sh`
+  - `git diff --check`
+  - `ARNIS_REMOTE_STUDIO_ARTIFACT_DIR=/tmp/arnis-remote-studio-proof-v5 bash scripts/run_studio_harness_remote.sh --swift-screenshot -- --small-place --takeover --skip-edit-tests --play-wait 130 --pattern-wait 240 --screenshot /tmp/arnis-studio-harness.png`
+
+### 2026-04-09: Ambient Tag Cache Hardening
+
+- Reduced recurring client ambience overhead in `AmbientSoundscape.client.lua` by replacing per-tick `CollectionService:GetTagged(...)` scans with cached `Road` and water-surface part sets.
+- The cache is now:
+  - seeded once at startup from the tagged sets
+  - maintained incrementally through `GetInstanceAddedSignal(...)` / `GetInstanceRemovedSignal(...)`
+  - cleaned opportunistically when cached parts lose their parent
+- This keeps the near-road / near-water behavior unchanged while removing repeated tagged-array allocations from the `0.3s` ambience loop.
+- Verification:
+  - `python3 -m unittest scripts.tests.test_ambient_soundscape_runtime_contract -v`
+  - `python3 -m unittest scripts.tests.test_austin_runtime_contract scripts.tests.test_ambient_soundscape_runtime_contract scripts.tests.test_minimap_runtime_contract scripts.tests.test_gui_session_capture scripts.tests.test_run_studio_harness scripts.tests.test_run_studio_harness_remote -v`
+  - `bash -n scripts/run_studio_harness.sh scripts/run_studio_harness_remote.sh`
+  - `git diff --check`
+
+### 2026-04-09: Ambient Footstep Throttle + WorldProbe Micro-Trim
+
+- Landed one more bounded ambience slice:
+  - footstep surface-material raycasts in `AmbientSoundscape.client.lua` are now throttled to `0.12s`
+  - per-frame play/stop decisions and playback-speed updates remain live, so movement responsiveness is preserved while removing unnecessary every-frame ground-material probes
+- Landed one more small WorldProbe micro-optimization without changing markers or payload shape:
+  - removed an unused `math.sqrt` from the building descendant scan
+  - tightened roof-closure detection to reuse the already-lowercased part name path
+- Verification:
+  - `python3 -m unittest scripts.tests.test_play_audio_assets scripts.tests.test_ambient_soundscape_runtime_contract -v`
+  - `python3 -m unittest scripts.tests.test_austin_runtime_contract scripts.tests.test_ambient_soundscape_runtime_contract scripts.tests.test_minimap_runtime_contract scripts.tests.test_play_audio_assets scripts.tests.test_gui_session_capture scripts.tests.test_run_studio_harness scripts.tests.test_run_studio_harness_remote -v`
+  - `bash -n scripts/run_studio_harness.sh scripts/run_studio_harness_remote.sh`
+  - `git diff --check`

@@ -259,7 +259,7 @@ local function isRoofClosureDeckPart(part)
         return true
     end
 
-    return string.find(string.lower(part.Name), "roof_closure", 1, true) ~= nil
+    return string.find(part.Name, "_roof_closure", 1, true) ~= nil
 end
 
 local function isRoofCuePart(part)
@@ -466,7 +466,7 @@ local function summarizeWorld(rootPart, worldRoot, worldRootName, telemetryFlags
             end
         end
 
-        for _, model in ipairs(buildingsFolder:GetDescendants()) do
+        for _, model in ipairs(buildingsFolder:GetChildren()) do
             if not model:IsA("Model") or model:GetAttribute("ArnisImportBuildingHeight") == nil then
                 continue
             end
@@ -529,7 +529,6 @@ local function summarizeWorld(rootPart, worldRoot, worldRootName, telemetryFlags
                 local partOffset = descendant.Position - rootPosition
                 local nameLower = string.lower(descendant.Name)
                 local horizontalDistanceSq = partOffset.X * partOffset.X + partOffset.Z * partOffset.Z
-                local horizontalPartDistance = math.sqrt(horizontalDistanceSq)
                 local isRoofClosureDeck = descendant:GetAttribute("ArnisRoofClosureDeck") == true
                     or isRoofClosureDeckPart(descendant)
                 local isRoofPart = string.find(nameLower, "roof", 1, true) ~= nil and not isRoofClosureDeck

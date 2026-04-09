@@ -42,6 +42,43 @@ local AMBIENT_SOUNDS = {
 
 -- sounds[name] = { instance: Sound, baseVolume: number }
 local sounds = {}
+local cachedWaterParts = {}
+local cachedRoadParts = {}
+
+local function isWaterDetailPart(instance)
+    return instance
+        and instance:IsA("BasePart")
+        and (instance.Name == "RibbonWaterSurface" or instance.Name == "PolygonWaterSurface")
+end
+
+local function trackWaterPart(instance)
+    if isWaterDetailPart(instance) then
+        cachedWaterParts[instance] = true
+    end
+end
+
+local function untrackWaterPart(instance)
+    cachedWaterParts[instance] = nil
+end
+
+local function trackRoadPart(instance)
+    if instance and instance:IsA("BasePart") then
+        cachedRoadParts[instance] = true
+    end
+end
+
+local function untrackRoadPart(instance)
+    cachedRoadParts[instance] = nil
+end
+
+local function seedTaggedPartCaches()
+    for _, waterPart in ipairs(CollectionService:GetTagged("LOD_Detail")) do
+        trackWaterPart(waterPart)
+    end
+    for _, roadPart in ipairs(CollectionService:GetTagged("Road")) do
+        trackRoadPart(roadPart)
+    end
+end
 
 local function createSounds()
     for name, config in pairs(AMBIENT_SOUNDS) do
@@ -92,8 +129,10 @@ local function updateAmbience()
 
     -- Near water? Scan water-surface parts tagged by the importer.
     local nearWater = false
-    for _, waterPart in ipairs(CollectionService:GetTagged("LOD_Detail")) do
-        if waterPart.Name == "RibbonWaterSurface" or waterPart.Name == "PolygonWaterSurface" then
+    for waterPart in pairs(cachedWaterParts) do
+        if waterPart.Parent == nil then
+            cachedWaterParts[waterPart] = nil
+        else
             -- Use a fast squared-distance check before the sqrt.
             local delta = waterPart.Position - pos
             if delta.X * delta.X + delta.Z * delta.Z < 100 * 100 then
@@ -116,11 +155,15 @@ local function updateAmbience()
 
     -- City hum: louder near roads (tagged by the importer), softer in parks.
     local nearRoad = false
-    for _, part in ipairs(CollectionService:GetTagged("Road")) do
-        local delta = part.Position - pos
-        if delta.X * delta.X + delta.Z * delta.Z < 50 * 50 then
-            nearRoad = true
-            break
+    for part in pairs(cachedRoadParts) do
+        if part.Parent == nil then
+            cachedRoadParts[part] = nil
+        else
+            local delta = part.Position - pos
+            if delta.X * delta.X + delta.Z * delta.Z < 50 * 50 then
+                nearRoad = true
+                break
+            end
         end
     end
     smoothVol(sounds.cityHum, nearRoad and 0.28 or 0.14) -- always-present urban pulse
@@ -147,8 +190,10 @@ local FOOTSTEP_DEFAULT = FOOTSTEP_SOUNDS[Enum.Material.Concrete]
 
 local footstepSound = nil -- Sound instance parented to HumanoidRootPart
 local lastFootstepMaterial = nil
+local FOOTSTEP_UPDATE_INTERVAL = 0.12
+local footstepUpdateTimer = 0
 
-local function updateFootsteps()
+local function updateFootsteps(dt)
     local character = player.Character
     if not character then
         return
@@ -162,29 +207,36 @@ local function updateFootsteps()
     local walking = humanoid.MoveDirection.Magnitude > 0.1 and humanoid:GetState() == Enum.HumanoidStateType.Running
 
     if walking then
-        -- Raycast down from hip height to find what we're walking on.
-        local ray = workspace:Raycast(hrp.Position, Vector3.new(0, -10, 0))
-        local material = (ray and ray.Material) or Enum.Material.Concrete
+        footstepUpdateTimer = footstepUpdateTimer + dt
+        if footstepUpdateTimer < FOOTSTEP_UPDATE_INTERVAL and lastFootstepMaterial ~= nil then
+            -- Keep the current surface sample until the throttle allows another raycast.
+        else
+            footstepUpdateTimer = 0
 
-        -- Re-create or retarget the Sound whenever the surface type changes.
-        if material ~= lastFootstepMaterial then
-            lastFootstepMaterial = material
+            -- Raycast down from hip height to find what we're walking on.
+            local ray = workspace:Raycast(hrp.Position, Vector3.new(0, -10, 0))
+            local material = (ray and ray.Material) or Enum.Material.Concrete
 
-            local soundId = FOOTSTEP_SOUNDS[material] or FOOTSTEP_DEFAULT
+            -- Re-create or retarget the Sound whenever the surface type changes.
+            if material ~= lastFootstepMaterial then
+                lastFootstepMaterial = material
 
-            if not footstepSound then
-                footstepSound = Instance.new("Sound")
-                footstepSound.Name = "Footstep"
-                footstepSound.Looped = true
-                footstepSound.Volume = 0.15
-                footstepSound.Parent = hrp
+                local soundId = FOOTSTEP_SOUNDS[material] or FOOTSTEP_DEFAULT
+
+                if not footstepSound then
+                    footstepSound = Instance.new("Sound")
+                    footstepSound.Name = "Footstep"
+                    footstepSound.Looped = true
+                    footstepSound.Volume = 0.15
+                    footstepSound.Parent = hrp
+                end
+
+                -- Stop before changing SoundId to avoid a brief audio glitch.
+                if footstepSound.IsPlaying then
+                    footstepSound:Stop()
+                end
+                footstepSound.SoundId = soundId
             end
-
-            -- Stop before changing SoundId to avoid a brief audio glitch.
-            if footstepSound.IsPlaying then
-                footstepSound:Stop()
-            end
-            footstepSound.SoundId = soundId
         end
 
         if not footstepSound.IsPlaying then
@@ -194,8 +246,11 @@ local function updateFootsteps()
         -- Scale playback speed with WalkSpeed so slow-walks feel heavy and
         -- sprints feel snappy. Baseline is 16 studs/s.
         footstepSound.PlaybackSpeed = 0.8 + (humanoid.WalkSpeed / 16) * 0.4
-    elseif footstepSound and footstepSound.IsPlaying then
-        footstepSound:Stop()
+    else
+        footstepUpdateTimer = FOOTSTEP_UPDATE_INTERVAL
+        if footstepSound and footstepSound.IsPlaying then
+            footstepSound:Stop()
+        end
     end
 end
 
@@ -204,6 +259,11 @@ end
 -- ---------------------------------------------------------------------------
 
 createSounds()
+seedTaggedPartCaches()
+CollectionService:GetInstanceAddedSignal("LOD_Detail"):Connect(trackWaterPart)
+CollectionService:GetInstanceRemovedSignal("LOD_Detail"):Connect(untrackWaterPart)
+CollectionService:GetInstanceAddedSignal("Road"):Connect(trackRoadPart)
+CollectionService:GetInstanceRemovedSignal("Road"):Connect(untrackRoadPart)
 
 local timer = 0
 RunService.Heartbeat:Connect(function(dt)
@@ -214,7 +274,7 @@ RunService.Heartbeat:Connect(function(dt)
         timer = 0
         updateAmbience()
     end
-    updateFootsteps()
+    updateFootsteps(dt)
 end)
 
 -- Destroy per-character Sound when the character is removed (death / reset).

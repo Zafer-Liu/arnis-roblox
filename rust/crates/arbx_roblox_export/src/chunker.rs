@@ -553,8 +553,9 @@ impl Chunker {
 
                     let material = style.get_terrain_material(&p.kind);
                     let color = style.get_terrain_color(&p.kind);
+                    let Some(terrain_grid) = chunk.terrain.as_mut() else { return };
                     paint_terrain_polygon(
-                        chunk.terrain.as_mut().expect("terrain grid"),
+                        terrain_grid,
                         &relative_footprint,
                         &relative_holes,
                         &material,
@@ -666,8 +667,9 @@ impl Chunker {
                     .iter()
                     .map(|p| GroundPoint::new(p.x - origin.x, p.y - origin.z))
                     .collect();
+                let Some(terrain_grid) = chunk.terrain.as_mut() else { return };
                 paint_terrain_polygon(
-                    chunk.terrain.as_mut().expect("terrain grid"),
+                    terrain_grid,
                     &footprint,
                     &[],
                     &material,
@@ -886,7 +888,7 @@ impl Chunker {
                 }
             }
 
-            split_ts.sort_by(|a, b| a.partial_cmp(b).unwrap());
+            split_ts.sort_by(|a, b| a.total_cmp(b));
             split_ts.dedup_by(|a, b| (*a - *b).abs() < 0.001);
 
             // 2. Create sub-segments and assign to chunks
