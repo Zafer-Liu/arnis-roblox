@@ -380,7 +380,8 @@ function MeshAccumulator:flush()
     part.Anchored = true
     part.CanCollide = if self.canCollide == nil then true else self.canCollide
     part.CanQuery = if self.canQuery == nil then true else self.canQuery
-    part.CastShadow = if self.castShadow == nil then false else self.castShadow
+    part.CastShadow = if self.castShadow == nil then true else self.castShadow
+    part.DoubleSided = true
     if self.transparency ~= nil then
         part.Transparency = self.transparency
     end
@@ -449,7 +450,8 @@ function MeshAccumulator:flushAsParts()
     part.Anchored = true
     part.CanCollide = if self.canCollide == nil then true else self.canCollide
     part.CanQuery = if self.canQuery == nil then true else self.canQuery
-    part.CastShadow = if self.castShadow == nil then false else self.castShadow
+    part.CastShadow = if self.castShadow == nil then true else self.castShadow
+    part.DoubleSided = true
     if self.transparency ~= nil then
         part.Transparency = self.transparency
     end
@@ -3384,6 +3386,7 @@ local function setBuildingAuditAttributes(model, building, baseY, height)
     end
     model:SetAttribute("ArnisImportBuildingUsage", string.lower(tostring(building.usage or building.kind or "unknown")))
     model:SetAttribute("ArnisImportRoofShape", string.lower(tostring(building.roof or "flat")))
+    model:SetAttribute("ArnisImportRoofIncluded", building.roofIncluded == true)
     model:SetAttribute("ArnisImportWallMaterial", wallMaterial.Name)
     model:SetAttribute("ArnisImportRoofMaterial", roofMaterial.Name)
     if type(building.name) == "string" and building.name ~= "" then
@@ -4262,6 +4265,9 @@ function BuildingBuilder.MeshBuildAll(parent, buildings, originStuds, chunk, con
                 )
                 recordBuildingDetailPhase(buildStats, "roofBuildMs", (os.clock() - roofBuildStartedAt) * 1000)
             else
+                local hasPrecomputedShellMesh =
+                    building.shellMesh and building.shellMesh.vertices and #building.shellMesh.vertices >= 9
+                local shellMeshIncludesRoof = building.roofIncluded == true
                 if preferPlayVisibleShellWalls then
                     -- Keep explicit wall parts for bounded low/medium shell cases
                     -- so play visibility does not depend on merged mesh behavior.
@@ -4293,9 +4299,6 @@ function BuildingBuilder.MeshBuildAll(parent, buildings, originStuds, chunk, con
                 else
                     -- Merge opaque walls into EditableMesh accumulators
                     local acc = getAccumulator(mat, color)
-                    local hasPrecomputedShellMesh =
-                        building.shellMesh and building.shellMesh.vertices and #building.shellMesh.vertices >= 9
-                    local shellMeshIncludesRoof = building.roofIncluded == true
                     if hasPrecomputedShellMesh then
                         -- Fast path: load Rust pre-computed wall+roof mesh directly
                         acc:addPrecomputedMesh(building.shellMesh, originStuds)
@@ -4314,9 +4317,6 @@ function BuildingBuilder.MeshBuildAll(parent, buildings, originStuds, chunk, con
                     end
                 end
 
-                local hasPrecomputedShellMesh =
-                    building.shellMesh and building.shellMesh.vertices and #building.shellMesh.vertices >= 9
-                local shellMeshIncludesRoof = building.roofIncluded == true
                 if not (shellMeshIncludesRoof and hasPrecomputedShellMesh) then
                     -- Older shellMesh manifests carry walls only, so keep the explicit roof
                     -- path unless the manifest proves the precomputed mesh already contains it.

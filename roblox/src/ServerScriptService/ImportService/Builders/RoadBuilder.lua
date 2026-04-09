@@ -1405,6 +1405,8 @@ function RoadMeshAccumulator:flush()
     part:PivotTo(CFrame.new(meshOrigin))
     part.CanCollide = self.canCollide
     part.CanQuery = self.canQuery
+    part.CastShadow = true
+    part.DoubleSided = true
     part.CustomPhysicalProperties = self.physicsProps
     if self.role then
         part:SetAttribute("ArnisRoadSurfaceRole", self.role)
@@ -1455,6 +1457,8 @@ function RoadMeshAccumulator:flushAsParts(meshOrigin, minBound, maxBound)
     part.Anchored = true
     part.CanCollide = self.canCollide
     part.CanQuery = self.canQuery
+    part.CastShadow = true
+    part.DoubleSided = true
     part.CustomPhysicalProperties = self.physicsProps
     if self.role then
         part:SetAttribute("ArnisRoadSurfaceRole", self.role)
