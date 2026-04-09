@@ -1335,7 +1335,7 @@ function TerrainBuilder.BuildPrecomputedMesh(parent, chunk)
     part.Anchored = true
     part.CanCollide = true
     part.CastShadow = true
-    part.DoubleSided = true
+    pcall(function() part.DoubleSided = true end)
     part:SetAttribute("ArnisPrecomputedMesh", true)
     part:SetAttribute("ArnisTerrainMeshMode", true)
     part.Parent = parent

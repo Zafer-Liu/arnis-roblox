@@ -510,7 +510,7 @@ fn emit_wall_face_with_openings(
             }
         })
         .collect();
-    rects.sort_by(|a, b| a.left.partial_cmp(&b.left).unwrap());
+    rects.sort_by(|a, b| a.left.partial_cmp(&b.left).unwrap_or(std::cmp::Ordering::Equal));
 
     // Helper: emit an outer-surface quad given local (h0..h1, v0..v1).
     // When atlas UVs are available, emits UV-mapped quads; otherwise plain.
@@ -547,7 +547,7 @@ fn emit_wall_face_with_openings(
             v_cuts.push(r.bottom);
             v_cuts.push(r.top);
         }
-        v_cuts.sort_by(|a, b| a.partial_cmp(b).unwrap());
+        v_cuts.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
         v_cuts.dedup_by(|a, b| (*a - *b).abs() < 1e-6);
 
         // For each horizontal band, emit solid strips around the openings

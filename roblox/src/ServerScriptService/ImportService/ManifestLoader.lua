@@ -1675,28 +1675,39 @@ function ManifestLoader.loadFromExternalSource(sourceUrl, options)
                 if count == 0 then
                     return 0
                 end
+                local MAX_PARALLEL_CHUNK_REQUESTS = 4
                 local startClock = os.clock()
                 reportLoadingScreen(
                     ("Streaming %d chunks from Cloudflare worker..."):format(count)
                 )
                 local completed = 0
                 local fetched = 0
-                for _, id in ipairs(idsToFetch) do
-                    local capturedId = id
+                local nextIndex = 1
+                local workerCount = math.min(count, MAX_PARALLEL_CHUNK_REQUESTS)
+                for _ = 1, workerCount do
                     task.spawn(function()
-                        local chunkData = fetchChunkOverHttp(capturedId)
-                        if chunkData ~= nil then
-                            onChunkLoaded(capturedId, chunkData)
-                            fetched += 1
-                        end
-                        completed += 1
-                        if progressCallback then
-                            progressCallback(completed, count)
-                        end
-                        if LoadingScreen and (completed % 3 == 0 or completed == count) then
-                            reportLoadingScreen(
-                                ("Streaming chunks from Cloudflare (%d/%d)..."):format(completed, count)
-                            )
+                        while true do
+                            local currentIndex = nextIndex
+                            nextIndex += 1
+                            if currentIndex > count then
+                                break
+                            end
+
+                            local capturedId = idsToFetch[currentIndex]
+                            local chunkData = fetchChunkOverHttp(capturedId)
+                            if chunkData ~= nil then
+                                onChunkLoaded(capturedId, chunkData)
+                                fetched += 1
+                            end
+                            completed += 1
+                            if progressCallback then
+                                progressCallback(completed, count)
+                            end
+                            if LoadingScreen and (completed % 3 == 0 or completed == count) then
+                                reportLoadingScreen(
+                                    ("Streaming chunks from Cloudflare (%d/%d)..."):format(completed, count)
+                                )
+                            end
                         end
                     end)
                 end
@@ -1720,7 +1731,7 @@ function ManifestLoader.loadFromExternalSource(sourceUrl, options)
                             fetched,
                             count,
                             elapsed,
-                            count
+                            workerCount
                         )
                     )
                 end
