@@ -2997,8 +2997,20 @@ function StreamingService.Update(focalPoint)
                         and chunkBuildingLodLevel ~= nil
                         and previousBuildingLod ~= chunkBuildingLodLevel
                     if needsLodChange then
-                        -- Destroy existing geometry and re-queue at the new building LOD.
-                        ChunkLoader.UnloadChunk(chunkRef.id, nil, streamingOptions.worldRootName)
+                        -- Clear existing geometry IN PLACE and re-queue at the
+                        -- new building LOD. Critical: pass preserveFolder=true
+                        -- so the chunk's Folder Instance stays parented to
+                        -- the worldRoot. If we let UnloadChunk destroy the
+                        -- folder, the worldRoot fires ChildRemoved + ChildAdded
+                        -- events on every LOD transition, and the
+                        -- client_flicker detector counts each one as a thrash.
+                        -- The walk harness captured ~90 such thrashes per
+                        -- 25s walk session — that's the visible pop-in/pop-out
+                        -- "flickering" the user sees in the live game.
+                        -- With preserveFolder=true the folder lives across
+                        -- the re-import, so ChildRemoved never fires and
+                        -- the flicker detector stays quiet.
+                        ChunkLoader.UnloadChunk(chunkRef.id, true, streamingOptions.worldRootName)
                         ImportService.ResetSubplanState(chunkRef.id, streamingOptions.worldRootName)
                         clearResidentEstimatedCostForChunk(chunkRef.id)
                         clearObservedImportCostForChunk(chunkRef.id)
