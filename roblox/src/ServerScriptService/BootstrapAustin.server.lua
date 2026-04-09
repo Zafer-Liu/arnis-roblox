@@ -16,6 +16,7 @@ local Players = game:GetService("Players")
 local Workspace = game:GetService("Workspace")
 local RunService = game:GetService("RunService")
 
+local AtmosphereConfig = require(script.Parent.ImportService.AtmosphereConfig)
 local AustinSpawn = require(script.Parent.ImportService.AustinSpawn)
 local BootstrapStateMachine = require(script.Parent.ImportService.BootstrapStateMachine)
 local CanonicalWorldContract = require(script.Parent.ImportService.CanonicalWorldContract)
@@ -495,6 +496,7 @@ local manifest = result.manifest
 local manifestSource = result.manifestSource or manifest
 local worldRoot = Workspace:FindFirstChild("GeneratedWorld_Austin")
 setBootstrapState("world_ready")
+AtmosphereConfig.Apply()
 
 print(
     ("[BootstrapAustin] Manifest source kind=%s name=%s"):format(
