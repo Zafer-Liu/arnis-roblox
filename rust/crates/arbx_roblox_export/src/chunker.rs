@@ -803,7 +803,7 @@ impl Chunker {
                     part.material_tag.as_deref(),
                     part.usage.as_deref(),
                     &part.id,
-                    None, // atlas_uv not yet assigned; rebuilt after atlas packing
+                    None, // atlas_uv — will be set in post-atlas pass
                 ))
             } else {
                 None
@@ -972,35 +972,6 @@ impl Chunker {
                 for building in &mut chunk.buildings {
                     if let Some(uv) = uv_by_id.get(building.id.as_str()) {
                         building.atlas_uv = Some(uv.clone());
-                        // Rebuild shell mesh with atlas UVs baked into wall geometry
-                        // so the Roblox runtime can apply the chunk facade texture
-                        // directly via EditableMesh:SetUV.
-                        let footprint_2d: Vec<(f64, f64)> = building
-                            .footprint
-                            .iter()
-                            .map(|p| (p.x, p.z))
-                            .collect();
-                        if footprint_2d.len() >= 3 && building.height > 0.0 {
-                            building.shell_mesh = Some(build_building_mesh(
-                                &footprint_2d,
-                                building.base_y,
-                                building.height,
-                                0.6,
-                                building.roof_shape.as_deref().unwrap_or("flat"),
-                                building.roof_height,
-                                building.roof_direction,
-                                building.roof_angle,
-                                None,
-                                building.levels,
-                                building.roof_levels,
-                                building.min_height,
-                                None,
-                                building.usage.as_deref(),
-                                &building.id,
-                                Some(uv),
-                            ));
-                            building.roof_included = true;
-                        }
                     }
                 }
             }
