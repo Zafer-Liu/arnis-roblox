@@ -30,6 +30,8 @@ class AmbientSoundscapeRuntimeContractTests(unittest.TestCase):
         update_body = self.text.split("local function updateAmbience()", 1)[1].split("-- ---------------------------------------------------------------------------\n-- 3. Surface-aware footstep sounds", 1)[0]
         self.assertNotIn('CollectionService:GetTagged("LOD_Detail")', update_body)
         self.assertNotIn('CollectionService:GetTagged("Road")', update_body)
+        self.assertIn("if sounds.cityHum then", update_body)
+        self.assertIn("if sounds.birds then", update_body)
 
     def test_ambient_soundscape_throttles_footstep_surface_sampling(self) -> None:
         self.assertIn("local FOOTSTEP_UPDATE_INTERVAL = 0.12", self.text)

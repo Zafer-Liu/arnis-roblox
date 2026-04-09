@@ -264,10 +264,22 @@ end
 local function moveCharacterToSpawn(character)
     local root = character:FindFirstChild("HumanoidRootPart") or character:WaitForChild("HumanoidRootPart", 10)
     if root and spawnCFrame then
-        local characterSpawnCFrame = getCharacterSpawnCFrame(character)
+        -- Freeze physics during teleport to prevent "flying" animation.
+        -- Without anchoring, the character falls from the holdingPad (Y=500)
+        -- while the PivotTo is processing, creating visible jitter.
+        root.Anchored = true
         root.AssemblyLinearVelocity = Vector3.zero
         root.AssemblyAngularVelocity = Vector3.zero
+        local characterSpawnCFrame = getCharacterSpawnCFrame(character)
         character:PivotTo(characterSpawnCFrame)
+        -- Unanchor after a short delay to let the world render around the
+        -- character before physics resume. This eliminates the "teleport
+        -- jitter" the user sees on spawn.
+        task.delay(0.5, function()
+            if root and root.Parent then
+                root.Anchored = false
+            end
+        end)
     end
 end
 

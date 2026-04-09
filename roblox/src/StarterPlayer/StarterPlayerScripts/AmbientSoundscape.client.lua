@@ -144,29 +144,33 @@ local function updateAmbience()
     smoothVol(sounds.water, nearWater and 0.2 or 0)
 
     -- Near nature? Raycast straight down and inspect terrain material.
-    local nearNature = false
-    local rayResult = workspace:Raycast(pos, Vector3.new(0, -100, 0))
-    if rayResult and rayResult.Material then
-        if rayResult.Material == Enum.Material.Grass or rayResult.Material == Enum.Material.LeafyGrass then
-            nearNature = true
-        end
-    end
-    smoothVol(sounds.birds, nearNature and 0.12 or 0)
-
-    -- City hum: louder near roads (tagged by the importer), softer in parks.
-    local nearRoad = false
-    for part in pairs(cachedRoadParts) do
-        if part.Parent == nil then
-            cachedRoadParts[part] = nil
-        else
-            local delta = part.Position - pos
-            if delta.X * delta.X + delta.Z * delta.Z < 50 * 50 then
-                nearRoad = true
-                break
+    if sounds.birds then
+        local nearNature = false
+        local rayResult = workspace:Raycast(pos, Vector3.new(0, -100, 0))
+        if rayResult and rayResult.Material then
+            if rayResult.Material == Enum.Material.Grass or rayResult.Material == Enum.Material.LeafyGrass then
+                nearNature = true
             end
         end
+        smoothVol(sounds.birds, nearNature and 0.12 or 0)
     end
-    smoothVol(sounds.cityHum, nearRoad and 0.28 or 0.14) -- always-present urban pulse
+
+    -- City hum: louder near roads (tagged by the importer), softer in parks.
+    if sounds.cityHum then
+        local nearRoad = false
+        for part in pairs(cachedRoadParts) do
+            if part.Parent == nil then
+                cachedRoadParts[part] = nil
+            else
+                local delta = part.Position - pos
+                if delta.X * delta.X + delta.Z * delta.Z < 50 * 50 then
+                    nearRoad = true
+                    break
+                end
+            end
+        end
+        smoothVol(sounds.cityHum, nearRoad and 0.28 or 0.14) -- always-present urban pulse
+    end
 end
 
 -- ---------------------------------------------------------------------------

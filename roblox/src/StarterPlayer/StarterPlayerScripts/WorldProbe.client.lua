@@ -11,6 +11,10 @@ local WorldProbeTerrain = require(ReplicatedStorage.Shared.WorldProbeTerrain)
 local player = Players.LocalPlayer
 
 local WORLD_ROOT_ATTR = "ArnisWorldRootName"
+local CHUNK_BUILDING_BOUNDS_MIN_X_ATTR = "ArnisMinimapChunkBuildingBoundsMinX"
+local CHUNK_BUILDING_BOUNDS_MAX_X_ATTR = "ArnisMinimapChunkBuildingBoundsMaxX"
+local CHUNK_BUILDING_BOUNDS_MIN_Z_ATTR = "ArnisMinimapChunkBuildingBoundsMinZ"
+local CHUNK_BUILDING_BOUNDS_MAX_Z_ATTR = "ArnisMinimapChunkBuildingBoundsMaxZ"
 local IDLE_SAMPLE_INTERVAL = 1.5
 local MOVING_SAMPLE_INTERVAL = 0.5
 local NEARBY_BUILDING_RADIUS = 260
@@ -251,6 +255,30 @@ local function roundTenths(value)
     return math.round(value * 10) / 10
 end
 
+local function chunkIntersectsNearbyBuildingRadius(chunkFolder, rootPosition)
+    if chunkFolder == nil or rootPosition == nil then
+        return true
+    end
+
+    local minX = tonumber(chunkFolder:GetAttribute(CHUNK_BUILDING_BOUNDS_MIN_X_ATTR))
+    local maxX = tonumber(chunkFolder:GetAttribute(CHUNK_BUILDING_BOUNDS_MAX_X_ATTR))
+    local minZ = tonumber(chunkFolder:GetAttribute(CHUNK_BUILDING_BOUNDS_MIN_Z_ATTR))
+    local maxZ = tonumber(chunkFolder:GetAttribute(CHUNK_BUILDING_BOUNDS_MAX_Z_ATTR))
+    if minX == nil or maxX == nil or minZ == nil or maxZ == nil then
+        return true
+    end
+
+    local closestX = math.clamp(rootPosition.X, minX, maxX)
+    local closestZ = math.clamp(rootPosition.Z, minZ, maxZ)
+    local deltaX = rootPosition.X - closestX
+    local deltaZ = rootPosition.Z - closestZ
+    local distanceSq = deltaX * deltaX + deltaZ * deltaZ
+    if distanceSq <= NEARBY_NAMED_BUILDING_RADIUS_SQ then
+        return true
+    end
+    return false
+end
+
 local function isRoofClosureDeckPart(part)
     if part == nil then
         return false
@@ -448,6 +476,9 @@ local function summarizeWorld(rootPart, worldRoot, worldRootName, telemetryFlags
     for _, chunkFolder in ipairs(worldRoot:GetChildren()) do
         local buildingsFolder = chunkFolder:FindFirstChild("Buildings")
         if not buildingsFolder then
+            continue
+        end
+        if not chunkIntersectsNearbyBuildingRadius(chunkFolder, rootPosition) then
             continue
         end
 

@@ -192,6 +192,10 @@ local function initBuffer()
 end
 
 local function copyBufferBytes(targetBuffer, sourceBuffer)
+    if buffer.copy ~= nil then
+        buffer.copy(targetBuffer, 0, sourceBuffer, 0, PIXEL_BUFFER_BYTES)
+        return
+    end
     for index = 0, PIXEL_BUFFER_BYTES - 1 do
         buffer.writeu8(targetBuffer, index, buffer.readu8(sourceBuffer, index))
     end

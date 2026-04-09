@@ -61,6 +61,8 @@ class MinimapRuntimeContractTests(unittest.TestCase):
     def test_client_minimap_avoids_full_reraster_on_heading_only_changes(self) -> None:
         self.assertIn("local basePixelBuffer = nil", self.client_minimap_text)
         self.assertIn("local function copyBufferBytes(targetBuffer, sourceBuffer)", self.client_minimap_text)
+        self.assertIn("if buffer.copy ~= nil then", self.client_minimap_text)
+        self.assertIn("buffer.copy(targetBuffer, 0, sourceBuffer, 0, PIXEL_BUFFER_BYTES)", self.client_minimap_text)
         self.assertIn("local function snapshotBaseBuffer()", self.client_minimap_text)
         self.assertIn("local function restoreBaseBuffer()", self.client_minimap_text)
         self.assertIn("local needsBaseRender = movedEnough", self.client_minimap_text)
@@ -83,6 +85,19 @@ class MinimapRuntimeContractTests(unittest.TestCase):
         self.assertIn("local function chunkIntersectsMapRadius(chunk, camX, camZ, activeRadius)", self.client_minimap_text)
         self.assertIn("if chunkIntersectsMapRadius(snapshot, camX, camZ, activeRadius) then", self.client_minimap_text)
         self.assertIn("drawChunk(snapshot, camX, camZ, activeRadius)", self.client_minimap_text)
+
+    def test_server_minimap_publishes_chunk_building_bounds_for_client_culling(self) -> None:
+        self.assertIn('local CHUNK_BUILDING_BOUNDS_MIN_X_ATTR = "ArnisMinimapChunkBuildingBoundsMinX"', self.server_minimap_text)
+        self.assertIn('local CHUNK_BUILDING_BOUNDS_MAX_X_ATTR = "ArnisMinimapChunkBuildingBoundsMaxX"', self.server_minimap_text)
+        self.assertIn('local CHUNK_BUILDING_BOUNDS_MIN_Z_ATTR = "ArnisMinimapChunkBuildingBoundsMinZ"', self.server_minimap_text)
+        self.assertIn('local CHUNK_BUILDING_BOUNDS_MAX_Z_ATTR = "ArnisMinimapChunkBuildingBoundsMaxZ"', self.server_minimap_text)
+        self.assertIn("local function computeBuildingBounds(chunkData)", self.server_minimap_text)
+        self.assertIn("chunkFolder:SetAttribute(CHUNK_BUILDING_BOUNDS_MIN_X_ATTR, buildingBounds.minX)", self.server_minimap_text)
+        self.assertIn("chunkFolder:SetAttribute(CHUNK_BUILDING_BOUNDS_MAX_X_ATTR, buildingBounds.maxX)", self.server_minimap_text)
+        self.assertIn("chunkFolder:SetAttribute(CHUNK_BUILDING_BOUNDS_MIN_Z_ATTR, buildingBounds.minZ)", self.server_minimap_text)
+        self.assertIn("chunkFolder:SetAttribute(CHUNK_BUILDING_BOUNDS_MAX_Z_ATTR, buildingBounds.maxZ)", self.server_minimap_text)
+        self.assertIn("chunkFolder:SetAttribute(CHUNK_BUILDING_BOUNDS_MIN_X_ATTR, nil)", self.server_minimap_text)
+        self.assertIn("chunkFolder:SetAttribute(CHUNK_BUILDING_BOUNDS_MAX_Z_ATTR, nil)", self.server_minimap_text)
 
 
 if __name__ == "__main__":

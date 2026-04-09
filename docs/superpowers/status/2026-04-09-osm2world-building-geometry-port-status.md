@@ -214,3 +214,23 @@ The compact historical archive index is:
   - `python3 -m unittest scripts.tests.test_austin_runtime_contract scripts.tests.test_ambient_soundscape_runtime_contract scripts.tests.test_minimap_runtime_contract scripts.tests.test_play_audio_assets scripts.tests.test_gui_session_capture scripts.tests.test_run_studio_harness scripts.tests.test_run_studio_harness_remote -v`
   - `bash -n scripts/run_studio_harness.sh scripts/run_studio_harness_remote.sh`
   - `git diff --check`
+
+### 2026-04-09: proof-v10 After Watcher Cache
+
+- Fresh remote proof on the tree with the watcher-based `WorldProbe` instance-count cache is green end to end:
+  - authoritative client world verdict: `worldRootExists=True nearbyBuildingModels=6 nearbyRoofParts=41 overheadRoofParts=8`
+  - authoritative client bootstrap trace: `valid`
+  - authoritative play screenshot sidecar: `capture_method="rect"`
+  - harness completes cleanly with `main harness flow complete; exiting` and `cleanup starting exit_code=0`
+- `proof-v10` improves the authoritative perf verdict versus `proof-v9`:
+  - `avgFrameTimeMs`: `21.28` -> `19.66`
+  - `p99FrameTimeMs`: `107.85` -> `89.85`
+  - `maxFrameTimeMs`: `139.49` -> `122.82`
+  - `fps`: `47` -> `50.9`
+  - `instanceCountParts`: `13310` -> `12641`
+  - `instanceCountMeshParts`: `320` -> `275`
+- The proof lane remains green, but the performance target is still not met. The next highest-value slices remain:
+  - deeper client scan/raster reductions in `WorldProbe` / minimap
+  - any runtime path still causing the remaining 80-120ms `p99/max` spikes during denser post-walk windows
+- Verification:
+  - `ARNIS_REMOTE_STUDIO_ARTIFACT_DIR=/tmp/arnis-remote-studio-proof-v10 bash scripts/run_studio_harness_remote.sh --swift-screenshot -- --small-place --takeover --skip-edit-tests --play-wait 130 --pattern-wait 240 --screenshot /tmp/arnis-studio-harness.png`

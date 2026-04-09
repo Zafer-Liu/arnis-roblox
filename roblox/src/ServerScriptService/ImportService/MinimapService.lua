@@ -8,6 +8,76 @@ local MINIMAP_WORLD_ROOT_ATTR = "ArnisMinimapWorldRootName"
 local ENABLED_ATTR = "ArnisMinimapEnabled"
 local CHUNK_JSON_ATTR = "ArnisMinimapChunkJson"
 local CHUNK_ID_ATTR = "ArnisMinimapChunkId"
+local CHUNK_BUILDING_BOUNDS_MIN_X_ATTR = "ArnisMinimapChunkBuildingBoundsMinX"
+local CHUNK_BUILDING_BOUNDS_MAX_X_ATTR = "ArnisMinimapChunkBuildingBoundsMaxX"
+local CHUNK_BUILDING_BOUNDS_MIN_Z_ATTR = "ArnisMinimapChunkBuildingBoundsMinZ"
+local CHUNK_BUILDING_BOUNDS_MAX_Z_ATTR = "ArnisMinimapChunkBuildingBoundsMaxZ"
+
+local function updateBounds(bounds, x, z)
+    if x < bounds.minX then
+        bounds.minX = x
+    end
+    if x > bounds.maxX then
+        bounds.maxX = x
+    end
+    if z < bounds.minZ then
+        bounds.minZ = z
+    end
+    if z > bounds.maxZ then
+        bounds.maxZ = z
+    end
+end
+
+local function computeBuildingBounds(chunkData)
+    local buildings = chunkData and chunkData.buildings
+    if type(buildings) ~= "table" then
+        return nil
+    end
+
+    local origin = chunkData.originStuds or {}
+    local ox = tonumber(origin.x or origin.X) or 0
+    local oz = tonumber(origin.z or origin.Z) or 0
+    local bounds = nil
+
+    for _, building in ipairs(buildings) do
+        local footprint = building and building.footprint
+        if type(footprint) == "table" and #footprint > 0 then
+            if bounds == nil then
+                bounds = {
+                    minX = math.huge,
+                    maxX = -math.huge,
+                    minZ = math.huge,
+                    maxZ = -math.huge,
+                }
+            end
+            for _, point in ipairs(footprint) do
+                local px = tonumber(point and point.x) or 0
+                local pz = tonumber(point and point.z) or 0
+                updateBounds(bounds, ox + px, oz + pz)
+            end
+        end
+    end
+
+    if bounds == nil or bounds.minX == math.huge then
+        return nil
+    end
+    return bounds
+end
+
+local function setChunkBuildingBounds(chunkFolder, buildingBounds)
+    if buildingBounds ~= nil then
+        chunkFolder:SetAttribute(CHUNK_BUILDING_BOUNDS_MIN_X_ATTR, buildingBounds.minX)
+        chunkFolder:SetAttribute(CHUNK_BUILDING_BOUNDS_MAX_X_ATTR, buildingBounds.maxX)
+        chunkFolder:SetAttribute(CHUNK_BUILDING_BOUNDS_MIN_Z_ATTR, buildingBounds.minZ)
+        chunkFolder:SetAttribute(CHUNK_BUILDING_BOUNDS_MAX_Z_ATTR, buildingBounds.maxZ)
+        return
+    end
+
+    chunkFolder:SetAttribute(CHUNK_BUILDING_BOUNDS_MIN_X_ATTR, nil)
+    chunkFolder:SetAttribute(CHUNK_BUILDING_BOUNDS_MAX_X_ATTR, nil)
+    chunkFolder:SetAttribute(CHUNK_BUILDING_BOUNDS_MIN_Z_ATTR, nil)
+    chunkFolder:SetAttribute(CHUNK_BUILDING_BOUNDS_MAX_Z_ATTR, nil)
+end
 
 local function copyPoints(points)
     local result = table.create(#(points or {}))
@@ -130,6 +200,8 @@ function MinimapService.RegisterChunk(chunkFolder, chunkData)
 
     chunkFolder:SetAttribute(CHUNK_ID_ATTR, chunkData.id or chunkFolder.Name)
     chunkFolder:SetAttribute(CHUNK_JSON_ATTR, HttpService:JSONEncode(buildChunkSnapshot(chunkData)))
+    local buildingBounds = computeBuildingBounds(chunkData)
+    setChunkBuildingBounds(chunkFolder, buildingBounds)
 end
 
 function MinimapService.ClearChunk(chunkFolder)
@@ -139,6 +211,7 @@ function MinimapService.ClearChunk(chunkFolder)
 
     chunkFolder:SetAttribute(CHUNK_JSON_ATTR, nil)
     chunkFolder:SetAttribute(CHUNK_ID_ATTR, nil)
+    setChunkBuildingBounds(chunkFolder, nil)
 end
 
 function MinimapService.Start(options)

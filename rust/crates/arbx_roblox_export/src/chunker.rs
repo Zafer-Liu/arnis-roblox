@@ -33,16 +33,22 @@ pub fn chunk_origin(
     chunk_size_studs: i32,
     center_latlon: LatLon,
     meters_per_stud: f64,
-    elevation: &dyn ElevationProvider,
+    _elevation: &dyn ElevationProvider,
 ) -> Vec3 {
     let size = chunk_size_studs as f64;
     let x = id.x as f64 * size;
     let z = id.z as f64 * size;
-    let latlon = Mercator::unproject(Vec3::new(x, 0.0, z), center_latlon, meters_per_stud);
-    let y_meters = elevation.sample_height_at(latlon);
-    let y_studs = y_meters as f64 / meters_per_stud;
-
-    Vec3::new(x, y_studs, z)
+    // All chunks share Y=0 origin. Per-cell terrain heights from the DEM
+    // are encoded as ABSOLUTE values in the height grid (relative to Y=0),
+    // not relative to a per-chunk Y offset. This eliminates the "lasagna"
+    // terrain layering bug where adjacent chunks at different DEM-sampled
+    // Y origins wrote terrain voxels at overlapping Y ranges.
+    //
+    // Real elevation is preserved in the terrain grid heights themselves —
+    // the height grid values already contain the DEM sample at each cell.
+    // Setting origin Y=0 just means all features (buildings, roads, props)
+    // are placed relative to the global ground plane.
+    Vec3::new(x, 0.0, z)
 }
 
 /// Convert a CSS color string to a manifest Color using the canonical

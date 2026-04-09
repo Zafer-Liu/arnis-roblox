@@ -842,6 +842,19 @@ class AustinRuntimeContractTests(unittest.TestCase):
         self.assertNotIn("Vector2.new(partOffset.X, partOffset.Z).Magnitude", self.world_probe_text)
         self.assertNotIn("Vector2.new(offset.X, offset.Z).Magnitude", self.world_probe_text)
 
+    def test_client_world_probe_culls_distant_chunks_before_structure_descendant_scans(self) -> None:
+        self.assertIn('local CHUNK_BUILDING_BOUNDS_MIN_X_ATTR = "ArnisMinimapChunkBuildingBoundsMinX"', self.world_probe_text)
+        self.assertIn('local CHUNK_BUILDING_BOUNDS_MAX_X_ATTR = "ArnisMinimapChunkBuildingBoundsMaxX"', self.world_probe_text)
+        self.assertIn('local CHUNK_BUILDING_BOUNDS_MIN_Z_ATTR = "ArnisMinimapChunkBuildingBoundsMinZ"', self.world_probe_text)
+        self.assertIn('local CHUNK_BUILDING_BOUNDS_MAX_Z_ATTR = "ArnisMinimapChunkBuildingBoundsMaxZ"', self.world_probe_text)
+        self.assertIn("local function chunkIntersectsNearbyBuildingRadius(chunkFolder, rootPosition)", self.world_probe_text)
+        self.assertIn("local minX = tonumber(chunkFolder:GetAttribute(CHUNK_BUILDING_BOUNDS_MIN_X_ATTR))", self.world_probe_text)
+        self.assertIn("local closestX = math.clamp(rootPosition.X, minX, maxX)", self.world_probe_text)
+        self.assertIn("local closestZ = math.clamp(rootPosition.Z, minZ, maxZ)", self.world_probe_text)
+        self.assertIn("if distanceSq <= NEARBY_NAMED_BUILDING_RADIUS_SQ then", self.world_probe_text)
+        self.assertIn("if not chunkIntersectsNearbyBuildingRadius(chunkFolder, rootPosition) then", self.world_probe_text)
+        self.assertIn("continue", self.world_probe_text)
+
     def test_client_world_probe_resamples_moving_players_more_aggressively(self) -> None:
         self.assertIn("local IDLE_SAMPLE_INTERVAL = 1.5", self.world_probe_text)
         self.assertIn("local MOVING_SAMPLE_INTERVAL = 0.5", self.world_probe_text)
