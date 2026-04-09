@@ -320,3 +320,31 @@ The compact historical archive index is:
 - Verification:
   - `ARNIS_REMOTE_STUDIO_ARTIFACT_DIR=/tmp/arnis-remote-studio-proof-v13 bash scripts/run_studio_harness_remote.sh --swift-screenshot -- --small-place --takeover --skip-edit-tests --play-wait 130 --pattern-wait 240 --screenshot /tmp/arnis-studio-harness.png`
   - `ARNIS_REMOTE_STUDIO_ARTIFACT_DIR=/tmp/arnis-remote-studio-proof-v16 bash scripts/run_studio_harness_remote.sh --swift-screenshot -- --small-place --takeover --skip-edit-tests --play-wait 130 --pattern-wait 240 --screenshot /tmp/arnis-studio-harness.png`
+
+### 2026-04-09: Minimap Heading Overlay Split + proof-v17
+
+- Landed the next client-only perf cut without changing world/map fidelity:
+  - `MinimapController.client.lua` no longer draws the player heading into the editable image buffer
+  - the player marker now lives in a GUI overlay frame centered over the map and rotates via GUI `Rotation`
+  - heading-only updates therefore stop rewriting the full 200x200 editable image and only update the overlay transform + label text
+- Updated contract coverage in `test_minimap_runtime_contract.py`:
+  - the minimap still keeps world north-up
+  - heading-only updates now rotate the GUI marker instead of forcing `WritePixels`
+- Local verification stayed green:
+  - `python3 -m unittest scripts.tests.test_manifest_loader_runtime_contract scripts.tests.test_austin_runtime_contract scripts.tests.test_ambient_soundscape_runtime_contract scripts.tests.test_minimap_runtime_contract scripts.tests.test_play_audio_assets scripts.tests.test_gui_session_capture scripts.tests.test_run_studio_harness scripts.tests.test_run_studio_harness_remote -v`
+  - `git diff --check`
+- Fresh `proof-v17` on `tertiary` stayed green end to end:
+  - bootstrap reaches `gameplay_ready`
+  - authoritative world verdict remains healthy: `worldRootExists=True nearbyBuildingModels=9 nearbyRoofParts=59 overheadRoofParts=32`
+  - authoritative screenshot sidecar is still `capture_method="rect"`
+  - harness reaches `main harness flow complete; exiting` and `cleanup starting exit_code=0`
+- Perf movement from the recovered `v16` baseline to `v17`:
+  - `avgFrameTimeMs`: `20.04` -> `17.89`
+  - `p99FrameTimeMs`: `83.81` -> `68.32`
+  - `fps`: `49.9` -> `55.9`
+  - `maxFrameTimeMs`: `104.01` -> `106.58` on the last window, but the repeated mid-run p99 windows tightened materially and the worst post-bootstrap p99 spikes dropped out of the prior 80ms band more often
+- Remaining signal after `v17`:
+  - the biggest remaining tail spikes still line up more with post-gameplay client work and occasional harness/render-focus interference than with chunk fetch or bootstrap failures
+  - the next most likely high-value runtime target is still `WorldProbe` summary work rather than more network or minimap bootstrap plumbing
+- Verification:
+  - `ARNIS_REMOTE_STUDIO_ARTIFACT_DIR=/tmp/arnis-remote-studio-proof-v17 bash scripts/run_studio_harness_remote.sh --swift-screenshot -- --small-place --takeover --skip-edit-tests --play-wait 130 --pattern-wait 240 --screenshot /tmp/arnis-studio-harness.png`

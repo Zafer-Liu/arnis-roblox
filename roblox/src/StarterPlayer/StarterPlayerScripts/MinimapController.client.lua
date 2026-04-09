@@ -79,7 +79,6 @@ local TELEMETRY_ATTR_NAMES = table.freeze({
     "ArnisMinimapFullscreen",
     "ArnisMinimapError",
 })
-local PIXEL_BUFFER_BYTES = MAP_SIZE * MAP_SIZE * 4
 
 -- Scratch buffers reused across renders so we don't churn the allocator at
 -- the minimap's render cadence. Never hand these out across yields.
@@ -88,10 +87,10 @@ local snapshotIterBuffer = {}
 
 local screenGui = nil
 local imageLabel = nil
+local playerMarkerFrame = nil
 local mapLabel = nil
 local editableImage = nil
 local pixelBuffer = nil
-local basePixelBuffer = nil
 local lastUpdate = 0
 local isFullscreen = false
 local currentWorldRoot = nil
@@ -187,32 +186,7 @@ local function disconnectConnections(connections)
 end
 
 local function initBuffer()
-    pixelBuffer = buffer.create(PIXEL_BUFFER_BYTES)
-    basePixelBuffer = buffer.create(PIXEL_BUFFER_BYTES)
-end
-
-local function copyBufferBytes(targetBuffer, sourceBuffer)
-    if buffer.copy ~= nil then
-        buffer.copy(targetBuffer, 0, sourceBuffer, 0, PIXEL_BUFFER_BYTES)
-        return
-    end
-    for index = 0, PIXEL_BUFFER_BYTES - 1 do
-        buffer.writeu8(targetBuffer, index, buffer.readu8(sourceBuffer, index))
-    end
-end
-
-local function snapshotBaseBuffer()
-    if not pixelBuffer or not basePixelBuffer then
-        return
-    end
-    copyBufferBytes(basePixelBuffer, pixelBuffer)
-end
-
-local function restoreBaseBuffer()
-    if not pixelBuffer or not basePixelBuffer then
-        return
-    end
-    copyBufferBytes(pixelBuffer, basePixelBuffer)
+    pixelBuffer = buffer.create(MAP_SIZE * MAP_SIZE * 4)
 end
 
 local function clearBuffer()
@@ -360,24 +334,11 @@ local function drawFilledPolygon(pixelPoints, color)
     end
 end
 
-local function drawPlayerHeading(camYaw)
-    drawCircle(MAP_SIZE / 2, MAP_SIZE / 2, 4, COLORS.player)
-
-    local dirLen = 10
-    local dirX = math.sin(camYaw)
-    local dirY = -math.cos(camYaw)
-    local centerX = MAP_SIZE / 2
-    local centerY = MAP_SIZE / 2
-    local tipX = centerX + dirX * dirLen
-    local tipY = centerY + dirY * dirLen
-    drawLine(centerX, centerY, tipX, tipY, COLORS.player_dir, 2)
-
-    local leftX = tipX - dirY * 2
-    local leftY = tipY + dirX * 2
-    local rightX = tipX + dirY * 2
-    local rightY = tipY - dirX * 2
-    drawLine(tipX, tipY, leftX, leftY, COLORS.player_dir, 1)
-    drawLine(tipX, tipY, rightX, rightY, COLORS.player_dir, 1)
+local function updatePlayerMarker(camYaw)
+    if not playerMarkerFrame then
+        return
+    end
+    playerMarkerFrame.Rotation = math.deg(-camYaw)
 end
 
 local function refreshChunkSnapshotList()
@@ -691,6 +652,65 @@ local function ensureGui()
     editableImage = imageOrError
     imageLabel.ImageContent = Content.fromObject(editableImage)
 
+    local overlay = Instance.new("Frame")
+    overlay.Name = "PlayerMarker"
+    overlay.AnchorPoint = Vector2.new(0.5, 0.5)
+    overlay.Position = UDim2.fromScale(0.5, 0.5)
+    overlay.Size = UDim2.fromOffset(28, 28)
+    overlay.BackgroundTransparency = 1
+    overlay.ZIndex = 2
+    overlay.Parent = imageLabel
+    playerMarkerFrame = overlay
+
+    local dot = Instance.new("Frame")
+    dot.Name = "Dot"
+    dot.AnchorPoint = Vector2.new(0.5, 0.5)
+    dot.Position = UDim2.fromScale(0.5, 0.5)
+    dot.Size = UDim2.fromOffset(8, 8)
+    dot.BackgroundColor3 = Color3.fromRGB(COLORS.player[1], COLORS.player[2], COLORS.player[3])
+    dot.BorderSizePixel = 0
+    dot.ZIndex = 3
+    dot.Parent = overlay
+
+    local dotCorner = Instance.new("UICorner")
+    dotCorner.CornerRadius = UDim.new(1, 0)
+    dotCorner.Parent = dot
+
+    local stem = Instance.new("Frame")
+    stem.Name = "Stem"
+    stem.AnchorPoint = Vector2.new(0.5, 1)
+    stem.Position = UDim2.new(0.5, 0, 0.5, -2)
+    stem.Size = UDim2.fromOffset(3, 10)
+    stem.BackgroundColor3 = Color3.fromRGB(COLORS.player_dir[1], COLORS.player_dir[2], COLORS.player_dir[3])
+    stem.BackgroundTransparency = 0.15
+    stem.BorderSizePixel = 0
+    stem.ZIndex = 3
+    stem.Parent = overlay
+
+    local leftWing = Instance.new("Frame")
+    leftWing.Name = "LeftWing"
+    leftWing.AnchorPoint = Vector2.new(0.5, 1)
+    leftWing.Position = UDim2.new(0.5, -2, 0.5, -10)
+    leftWing.Size = UDim2.fromOffset(2, 8)
+    leftWing.Rotation = 45
+    leftWing.BackgroundColor3 = Color3.fromRGB(COLORS.player_dir[1], COLORS.player_dir[2], COLORS.player_dir[3])
+    leftWing.BackgroundTransparency = 0.15
+    leftWing.BorderSizePixel = 0
+    leftWing.ZIndex = 3
+    leftWing.Parent = overlay
+
+    local rightWing = Instance.new("Frame")
+    rightWing.Name = "RightWing"
+    rightWing.AnchorPoint = Vector2.new(0.5, 1)
+    rightWing.Position = UDim2.new(0.5, 2, 0.5, -10)
+    rightWing.Size = UDim2.fromOffset(2, 8)
+    rightWing.Rotation = -45
+    rightWing.BackgroundColor3 = Color3.fromRGB(COLORS.player_dir[1], COLORS.player_dir[2], COLORS.player_dir[3])
+    rightWing.BackgroundTransparency = 0.15
+    rightWing.BorderSizePixel = 0
+    rightWing.ZIndex = 3
+    rightWing.Parent = overlay
+
     local label = Instance.new("TextLabel")
     label.Name = "Title"
     label.Size = UDim2.new(1, 0, 0, 16)
@@ -893,7 +913,7 @@ RunService.Heartbeat:Connect(function(dt)
     local needsBaseRender = movedEnough
         or lastRenderedSnapshotRevision ~= chunkSnapshotRevision
         or lastRenderedFullscreen ~= isFullscreen
-    local needsOverlayRefresh = needsBaseRender or lastRenderedHeadingBucket ~= headingBucket
+    local needsMarkerRefresh = needsBaseRender or lastRenderedHeadingBucket ~= headingBucket
 
     local function updateHeadingLabel()
         if isFullscreen or not mapLabel then
@@ -903,23 +923,20 @@ RunService.Heartbeat:Connect(function(dt)
         mapLabel.Text = string.format("MAP  %s %d°", COMPASS_DIRS[dirIdx], heading)
     end
 
-    if not needsOverlayRefresh then
+    if not needsMarkerRefresh then
         updateHeadingLabel()
         return
     end
 
     if needsBaseRender then
         renderMap(camPos.X, camPos.Z)
-        snapshotBaseBuffer()
         lastRenderedCamX = camPos.X
         lastRenderedCamZ = camPos.Z
         lastRenderedSnapshotRevision = chunkSnapshotRevision
         lastRenderedFullscreen = isFullscreen
-    else
-        restoreBaseBuffer()
+        EditableImageCompat.WritePixels(editableImage, Vector2.zero, Vector2.new(MAP_SIZE, MAP_SIZE), pixelBuffer)
     end
-    drawPlayerHeading(camYaw)
-    EditableImageCompat.WritePixels(editableImage, Vector2.zero, Vector2.new(MAP_SIZE, MAP_SIZE), pixelBuffer)
+    updatePlayerMarker(camYaw)
     lastRenderedHeadingBucket = headingBucket
 
     updateHeadingLabel()
