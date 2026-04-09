@@ -272,8 +272,10 @@ pub fn generate_wall_mesh_with_atlas(
         // Outward normal: rotate tangent 90 deg CW in XZ.
         let mut outward = [tangent[2], 0.0, -tangent[0]];
         // Make sure it actually points away from centroid.
-        let mid_to_center = [(ax + bx) / 2.0 - cx, 0.0, (az + bz) / 2.0 - cz];
-        if dot3(outward, mid_to_center) > 0.0 {
+        // `to_mid` is the vector from centroid to edge midpoint (outward direction).
+        // If `outward` dot `to_mid` is NEGATIVE, outward points inward — flip it.
+        let to_mid = [(ax + bx) / 2.0 - cx, 0.0, (az + bz) / 2.0 - cz];
+        if dot3(outward, to_mid) < 0.0 {
             outward = v3_neg(outward);
         }
         let inward = v3_neg(outward);
