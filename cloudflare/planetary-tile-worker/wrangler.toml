@@ -22,6 +22,13 @@ binding = "TELEMETRY"
 id = "99725180e223400d9efb44b22cd34c48"
 preview_id = "10c79aca019d44559322118c35535bb0"
 
+# KV namespace for hot chunk cache (manifests/{city}/chunks/{id}.json).
+# The worker tries CHUNK_CACHE first, then falls back to R2. Populated by
+# `scripts/warm_chunk_cache.sh` after each manifest rebake.
+[[kv_namespaces]]
+binding = "CHUNK_CACHE"
+id = "b73d425997cb46438029d9d06aa212bd"
+
 # R2 bucket for compiled city manifests.
 [[r2_buckets]]
 binding = "MANIFESTS"

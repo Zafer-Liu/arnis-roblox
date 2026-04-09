@@ -169,16 +169,20 @@ class PassingRunTests(unittest.TestCase):
 class SlowAvgLatencyTests(unittest.TestCase):
     def test_slow_avg_latency_fails_with_message(self) -> None:
         module = load_module()
+        # Raised to 1500ms (above the new 1200ms default threshold) after
+        # LOAD_RADIUS bumped to 768 and cold-cache colos legitimately see
+        # ~1s/chunk on first load. Still well above a healthy warm-cache
+        # reading so the test continues to catch real regressions.
         records = [
             make_record(run_id="ok", avg_latency=120.0),
-            make_record(run_id="slow", avg_latency=900.0),
+            make_record(run_id="slow", avg_latency=1500.0),
         ]
         exit_code, stdout, _ = run_main(module, records)
         self.assertEqual(exit_code, 1)
         self.assertIn("FAIL", stdout)
         self.assertIn("chunk_avg_latency", stdout)
         self.assertIn("slow", stdout)
-        self.assertIn("900", stdout)
+        self.assertIn("1500", stdout)
 
 
 class FailureRecordTests(unittest.TestCase):

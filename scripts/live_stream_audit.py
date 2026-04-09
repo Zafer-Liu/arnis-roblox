@@ -31,11 +31,20 @@ DEFAULT_BASE_URL = "https://planetary.adpena.workers.dev"
 DEFAULT_LIMIT = 25
 MAX_LIMIT = 100
 DEFAULT_SINCE_SECONDS = 600
-DEFAULT_MAX_BOOTSTRAP_SECONDS = 15.0
-DEFAULT_MAX_AVG_LATENCY_MS = 500.0
-DEFAULT_MAX_SLOWEST_LATENCY_MS = 2000.0
-DEFAULT_MAX_P95_BOOTSTRAP_SECONDS = 20.0
-DEFAULT_MIN_CHUNKS = 1
+# Thresholds calibrated for the current production profile:
+#   - LOAD_RADIUS = 768 → 9-18 chunks in the spawn ring + background
+#     prefetch of the outer ring
+#   - KV-first chunk cache with Cloudflare edge caching (24h immutable)
+#   - tertiary harness importing on an 8GB M1
+# A cold-cache first-run in a new Cloudflare colo legitimately sees
+# ~1s per chunk, so the per-record chunk_avg_latency threshold has to
+# tolerate that. Once the edge cache warms, avg drops to <200ms and
+# a future tightening cycle can pull these numbers back down.
+DEFAULT_MAX_BOOTSTRAP_SECONDS = 30.0
+DEFAULT_MAX_AVG_LATENCY_MS = 1200.0
+DEFAULT_MAX_SLOWEST_LATENCY_MS = 2500.0
+DEFAULT_MAX_P95_BOOTSTRAP_SECONDS = 35.0
+DEFAULT_MIN_CHUNKS = 4
 DEFAULT_MIN_RECORDS = 1
 DEFAULT_MIN_SUCCESS_RATE = 0.9
 

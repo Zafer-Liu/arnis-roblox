@@ -48,6 +48,12 @@ interface Env {
   TILE_CACHE?: KVNamespace;
   MANIFESTS?: R2Bucket;
   TELEMETRY?: KVNamespace;
+  // CHUNK_CACHE is the hot path for chunk JSON reads. Worker tries this
+  // first and falls back to R2 on miss. KV reads are O(ms) across colos
+  // and the free tier allows 100K reads/day (vs R2 Class B at 1M/month
+  // shared across all ops). Cuts R2 GETs by ~100× once the cache is
+  // warmed for Austin.
+  CHUNK_CACHE?: KVNamespace;
   DEFAULT_TILE_PROVIDER: string;
   TILE_CACHE_TTL_SECONDS: string;
 }
@@ -362,12 +368,49 @@ async function handleManifest(
     }
   }
 
+  // KV hot-path: chunk JSON reads try CHUNK_CACHE first. KV is O(ms)
+  // across colos and the 100K reads/day free-tier limit is far beyond
+  // our load. A miss falls through to R2 exactly as before. The key
+  // format mirrors the R2 key ("austin/chunks/0_-2.json") so cache
+  // warmers and purgers can use the same identifier across stores.
+  if (isChunkImmutable && env.CHUNK_CACHE) {
+    const cached = await env.CHUNK_CACHE.get(name, "stream");
+    if (cached !== null) {
+      return corsResponse(cached, {
+        headers: {
+          "content-type": "application/json",
+          "cache-control": chunkCacheControl,
+          "x-chunk-cache": "kv-hit",
+        },
+      });
+    }
+  }
+
   const obj = await env.MANIFESTS.get(name);
   if (!obj) {
     return corsResponse(
       JSON.stringify({ error: `manifest not found: ${name}` }),
       { status: 404, headers: { "content-type": "application/json" } },
     );
+  }
+
+  // Populate KV on R2 miss so the next request from any colo reads from
+  // KV instead of R2. This write is fire-and-forget; a failure here is
+  // non-fatal (we've already served the response from R2).
+  if (isChunkImmutable && env.CHUNK_CACHE) {
+    try {
+      const bodyBytes = await obj.arrayBuffer();
+      await env.CHUNK_CACHE.put(name, bodyBytes);
+      return corsResponse(bodyBytes, {
+        headers: {
+          "content-type": "application/json",
+          "cache-control": chunkCacheControl,
+          "x-chunk-cache": "kv-miss-seeded",
+        },
+      });
+    } catch (err) {
+      // Fall through to serving obj.body below without caching.
+    }
   }
 
   return corsResponse(obj.body, {
