@@ -4257,7 +4257,10 @@ function BuildingBuilder.MeshBuildAll(parent, buildings, originStuds, chunk, con
                 else
                     -- Merge opaque walls into EditableMesh accumulators
                     local acc = getAccumulator(mat, color)
-                    if building.shellMesh and building.shellMesh.vertices and #building.shellMesh.vertices >= 9 then
+                    local hasPrecomputedShellMesh =
+                        building.shellMesh and building.shellMesh.vertices and #building.shellMesh.vertices >= 9
+                    local shellMeshIncludesRoof = building.roofIncluded == true
+                    if hasPrecomputedShellMesh then
                         -- Fast path: load Rust pre-computed wall+roof mesh directly
                         acc:addPrecomputedMesh(building.shellMesh, originStuds)
                         buildStats.precomputedMeshCount += 1
@@ -4275,22 +4278,27 @@ function BuildingBuilder.MeshBuildAll(parent, buildings, originStuds, chunk, con
                     end
                 end
 
-                -- Roofs stay explicit even in shellMesh mode so visible roof truth
-                -- does not depend on merged shell evidence alone.
-                local roofBuildStartedAt = os.clock()
-                buildRoof(
-                    building,
-                    worldPts,
-                    footprintData,
-                    baseY,
-                    height,
-                    color,
-                    mat,
-                    shellFolder,
-                    buildStats,
-                    meshCollisionPolicy
-                )
-                recordBuildingDetailPhase(buildStats, "roofBuildMs", (os.clock() - roofBuildStartedAt) * 1000)
+                local hasPrecomputedShellMesh =
+                    building.shellMesh and building.shellMesh.vertices and #building.shellMesh.vertices >= 9
+                local shellMeshIncludesRoof = building.roofIncluded == true
+                if not (shellMeshIncludesRoof and hasPrecomputedShellMesh) then
+                    -- Older shellMesh manifests carry walls only, so keep the explicit roof
+                    -- path unless the manifest proves the precomputed mesh already contains it.
+                    local roofBuildStartedAt = os.clock()
+                    buildRoof(
+                        building,
+                        worldPts,
+                        footprintData,
+                        baseY,
+                        height,
+                        color,
+                        mat,
+                        shellFolder,
+                        buildStats,
+                        meshCollisionPolicy
+                    )
+                    recordBuildingDetailPhase(buildStats, "roofBuildMs", (os.clock() - roofBuildStartedAt) * 1000)
+                end
             end
         end
 

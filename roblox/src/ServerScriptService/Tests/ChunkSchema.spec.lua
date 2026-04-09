@@ -149,6 +149,52 @@ return function()
         "expected valid chunkRefs to pass"
     )
 
+    local manifestWithRoofIncluded = {
+        schemaVersion = "0.4.0",
+        meta = {
+            worldName = "Test",
+            generator = "test",
+            source = "test",
+            metersPerStud = 0.3,
+            chunkSizeStuds = 256,
+            bbox = { minLat = 0, minLon = 0, maxLat = 1, maxLon = 1 },
+            totalFeatures = 1,
+        },
+        chunks = {
+            {
+                id = "0_0",
+                originStuds = { x = 0, y = 0, z = 0 },
+                roads = {},
+                rails = {},
+                buildings = {
+                    {
+                        id = "bldg_1",
+                        material = "Concrete",
+                        footprint = {
+                            { x = 0, z = 0 },
+                            { x = 4, z = 0 },
+                            { x = 4, z = 4 },
+                        },
+                        baseY = 0,
+                        height = 12,
+                        roof = "gabled",
+                        roofIncluded = true,
+                    },
+                },
+                water = {},
+                props = {},
+                landuse = {},
+                barriers = {},
+            },
+        },
+    }
+    local validatedWithRoofIncluded = ChunkSchema.validateManifest(manifestWithRoofIncluded)
+    Assert.equal(
+        validatedWithRoofIncluded.chunks[1].buildings[1].roofIncluded,
+        true,
+        "expected optional roofIncluded flag to validate when present"
+    )
+
     local missingPartitionVersion = table.clone(manifestWithChunkRefs)
     missingPartitionVersion.chunkRefs = {
         table.clone(manifestWithChunkRefs.chunkRefs[1]),

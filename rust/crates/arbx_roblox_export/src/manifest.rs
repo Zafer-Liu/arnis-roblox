@@ -113,6 +113,9 @@ pub struct BuildingShell {
     /// Pre-computed shell mesh (walls + roof). When present the Lua importer
     /// loads this directly instead of generating geometry at runtime.
     pub shell_mesh: Option<PrecomputedMesh>,
+    /// True when `shell_mesh` already includes roof geometry and the runtime
+    /// importer must skip explicit roof generation.
+    pub roof_included: bool,
     /// UV rect inside the chunk's facade atlas (see `Chunk::building_atlas`).
     /// `None` when the building was excluded from the chunk atlas.
     pub atlas_uv: Option<AtlasUv>,
@@ -847,6 +850,12 @@ impl BuildingShell {
             out.push_str(",\n");
             write_key(out, indent + 2, "shellMesh");
             write_precomputed_mesh(out, mesh, indent + 2);
+        }
+
+        if self.roof_included {
+            out.push_str(",\n");
+            write_key(out, indent + 2, "roofIncluded");
+            out.push_str("true");
         }
 
         if let Some(ref uv) = self.atlas_uv {

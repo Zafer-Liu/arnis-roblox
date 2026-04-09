@@ -149,6 +149,8 @@ Shell-oriented footprints with:
 - shell height (in studs at canonical scale)
 - optional measured height and level counts
 - roof kind, shape, material, and color
+- optional `roofIncluded` flag when `shellMesh` already contains roof geometry and
+  the runtime importer must skip explicit roof generation
 - wall color (from OSM or satellite)
 - optional facade style hints
 - optional usage (OSM building tag)

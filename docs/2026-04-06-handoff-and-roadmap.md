@@ -11,6 +11,12 @@ It is intentionally not a replacement for the governing superpowers docs. It is 
 - what proof commands and artifacts are authoritative
 - what the next engineer should do next
 
+Historical note as of 2026-04-09:
+
+- the March 30 and April 6 superpowers stacks referenced in this handoff were fully implemented and deleted
+- `docs/superpowers/archive-index.md` is the historical breadcrumb surface for those archived tranches
+- the repo's sole active superpowers truth stack is now the April 9 osm2world building-geometry tranche
+
 ## Current State
 
 - Branch: `main`
@@ -37,26 +43,25 @@ The practical result is that the repo now has a stable, repeatable remote proof 
 
 ## Governing Docs
 
-### Completed tranche
+### Archived completed tranches
 
-- Design: [2026-03-30-outdoor-fidelity-and-source-truth-design.md](/Users/adpena/Projects/arnis-roblox/docs/superpowers/specs/2026-03-30-outdoor-fidelity-and-source-truth-design.md)
-- Plan: [2026-03-30-outdoor-fidelity-and-source-truth.md](/Users/adpena/Projects/arnis-roblox/docs/superpowers/plans/2026-03-30-outdoor-fidelity-and-source-truth.md)
-- Rolling status: [2026-03-30-outdoor-fidelity-and-source-truth-status.md](/Users/adpena/Projects/arnis-roblox/docs/superpowers/status/2026-03-30-outdoor-fidelity-and-source-truth-status.md)
+- Historical archive: [archive-index.md](/Users/adpena/Projects/arnis-roblox/docs/superpowers/archive-index.md)
+- Retained baseline handoff: [2026-03-28-canonical-baseline-status.md](/Users/adpena/Projects/arnis-roblox/docs/superpowers/status/2026-03-28-canonical-baseline-status.md)
 
 Status:
-- this tranche is effectively complete for the route-proof/harness lane
-- it produced the stable proof infrastructure the current sprint now relies on
+- the March 30 and April 6 superpowers docs were deleted after their outcomes were fully implemented
+- this archive and baseline pair is now the breadcrumb surface for those completed tranches
 
 ### Active tranche
 
-- Design: [2026-04-06-planetary-realism-sprint-design.md](/Users/adpena/Projects/arnis-roblox/docs/superpowers/specs/2026-04-06-planetary-realism-sprint-design.md)
-- Plan: [2026-04-06-planetary-realism-sprint.md](/Users/adpena/Projects/arnis-roblox/docs/superpowers/plans/2026-04-06-planetary-realism-sprint.md)
-- Rolling status: [2026-04-06-planetary-realism-sprint-status.md](/Users/adpena/Projects/arnis-roblox/docs/superpowers/status/2026-04-06-planetary-realism-sprint-status.md)
+- Design: [2026-04-09-osm2world-building-geometry-port-design.md](/Users/adpena/Projects/arnis-roblox/docs/superpowers/specs/2026-04-09-osm2world-building-geometry-port-design.md)
+- Plan: [2026-04-09-osm2world-building-geometry-port.md](/Users/adpena/Projects/arnis-roblox/docs/superpowers/plans/2026-04-09-osm2world-building-geometry-port.md)
+- Rolling status: [2026-04-09-osm2world-building-geometry-port-status.md](/Users/adpena/Projects/arnis-roblox/docs/superpowers/status/2026-04-09-osm2world-building-geometry-port-status.md)
 
 Status:
 - active
-- some builder/material work is already landed
-- proof widening and remaining visual-quality work are still open
+- this is now the sole live superpowers execution surface
+- the building-geometry port owns the remaining open building-fidelity follow-on
 
 ### OMX planning surfaces still worth reading
 

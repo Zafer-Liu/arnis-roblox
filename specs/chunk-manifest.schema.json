@@ -245,6 +245,7 @@
         "usage": { "type": "string" },
         "minHeight": { "type": "number" },
         "roofHeight": { "type": "number" },
+        "roofIncluded": { "type": "boolean" },
         "name": { "type": "string" },
         "footprint": {
           "type": "array",

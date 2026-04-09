@@ -6,9 +6,9 @@ Remote Studio validation is profile-based. On this workstation, `tertiary` is th
 
 Treat `tertiary` as the default remote proof lane when you need cross-machine Studio validation. If wrapper transport is unhealthy, direct SSH into a git-backed remote `tertiary` clone is the authoritative fallback for that lane. For current proof state and active follow-on work, use the single active rolling status file instead of duplicating volatile results here:
 
-- `docs/superpowers/status/2026-03-30-outdoor-fidelity-and-source-truth-status.md`
+- `docs/superpowers/status/2026-04-09-osm2world-building-geometry-port-status.md`
 
-The March 30 outdoor fidelity and source-truth tranche is the current rolling status surface. Keep `tertiary` as the proof lane, but avoid repeating fast-moving proof claims in this operator doc.
+The March 30 and April 6 superpowers tranches are archived in `docs/superpowers/archive-index.md`. Keep `tertiary` as the proof lane, but avoid repeating fast-moving proof claims in this operator doc.
 
 ## Rules
 

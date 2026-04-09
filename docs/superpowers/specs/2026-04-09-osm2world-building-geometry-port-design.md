@@ -3,6 +3,17 @@
 Date: 2026-04-09
 Status: Active
 
+This is the active design spec in the repo's sole superpowers truth stack.
+
+Use it with:
+
+- `docs/superpowers/plans/2026-04-09-osm2world-building-geometry-port.md`
+- `docs/superpowers/status/2026-04-09-osm2world-building-geometry-port-status.md`
+
+Historical superseded tranches are summarized in:
+
+- `docs/superpowers/archive-index.md`
+
 ## Goal
 
 Port osm2world's building geometry system (MIT license, Java) into our Rust `arbx_roblox_export` pipeline at full 1:1 algorithmic parity. Output flows into the existing `PrecomputedMesh` format (vertices/triangles/normals) consumed by the Lua `BuildingBuilder.lua` without any manifest or consumer format changes.

@@ -187,6 +187,7 @@ pub fn build_sample_multi_chunk(count_x: i32, count_z: i32) -> ChunkManifest {
                     roof_angle: None,
                     name: None,
                     shell_mesh: None,
+                    roof_included: false,
                     atlas_uv: None,
                 });
             }
@@ -440,6 +441,7 @@ mod tests {
                     roof_angle: None,
                     name: None,
                     shell_mesh: None,
+                    roof_included: false,
                     atlas_uv: None,
                 }],
                 water: vec![],
@@ -705,6 +707,49 @@ mod tests {
         let manifest = export_features(&features, &ExportConfig::default(), &elevation);
         assert_eq!(manifest.chunks.len(), 1);
         assert_eq!(manifest.chunks[0].buildings.len(), 1);
+    }
+
+    #[test]
+    fn building_export_marks_roof_included_when_shell_mesh_contains_roof_geometry() {
+        let features = vec![Feature::Building(BuildingFeature {
+            id: "roof_mesh_building".to_string(),
+            footprint: Footprint::new(vec![
+                Vec2::new(0.0, 0.0),
+                Vec2::new(12.0, 0.0),
+                Vec2::new(12.0, 12.0),
+                Vec2::new(0.0, 12.0),
+            ]),
+            holes: vec![],
+            indices: None,
+            base_y: 0.0,
+            height: 12.0,
+            height_m: None,
+            levels: Some(1),
+            roof_levels: None,
+            min_height: None,
+            usage: None,
+            roof: "gabled".to_string(),
+            colour: None,
+            material_tag: None,
+            roof_colour: None,
+            roof_material: None,
+            roof_height: Some(3.0),
+            roof_direction: None,
+            roof_angle: None,
+            name: None,
+            facade_style: None,
+            structure_type: None,
+        })];
+
+        let elevation = PerlinElevationProvider::default();
+        let manifest = export_features(&features, &ExportConfig::default(), &elevation);
+        let building = &manifest.chunks[0].buildings[0];
+
+        assert!(building.shell_mesh.is_some(), "expected exported building to carry shellMesh");
+        assert!(building.roof_included, "expected exported shellMesh to mark roofIncluded=true");
+
+        let json = manifest.to_json_pretty();
+        assert!(json.contains("\"roofIncluded\": true"));
     }
 
     #[test]

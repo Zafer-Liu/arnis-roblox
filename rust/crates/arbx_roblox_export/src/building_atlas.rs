@@ -360,6 +360,7 @@ mod tests {
             roof_angle: None,
             name: Some(format!("Hero {id}")),
             shell_mesh: None,
+            roof_included: false,
             atlas_uv: None,
         }
     }

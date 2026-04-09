@@ -5,15 +5,17 @@ Status: Completed
 
 This tranche is complete and now historical as the baseline handoff for March 28.
 
-The later outdoor fidelity and source-truth stack is:
+The current active stack is:
 
-- `docs/superpowers/specs/2026-03-30-outdoor-fidelity-and-source-truth-design.md`
-- `docs/superpowers/plans/2026-03-30-outdoor-fidelity-and-source-truth.md`
-- `docs/superpowers/status/2026-03-30-outdoor-fidelity-and-source-truth-status.md`
+- `docs/superpowers/specs/2026-04-09-osm2world-building-geometry-port-design.md`
+- `docs/superpowers/plans/2026-04-09-osm2world-building-geometry-port.md`
+- `docs/superpowers/status/2026-04-09-osm2world-building-geometry-port-status.md`
 
 ## Purpose
 
 This file preserves the completed status trail for the canonical baseline tranche. Do not use it for later execution or handoff.
+
+The later March 30 and April 6 tranches were fully implemented and are now summarized only in the archive index plus git history.
 
 The deleted paired plan/spec and other superseded tranches are summarized in:
 

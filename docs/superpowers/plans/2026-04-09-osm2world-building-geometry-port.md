@@ -1,5 +1,19 @@
 # osm2world Building Geometry Port — Implementation Plan
 
+Date: 2026-04-09
+Status: Active
+
+This is the active implementation plan in the repo's sole superpowers truth stack.
+
+Use it with:
+
+- `docs/superpowers/specs/2026-04-09-osm2world-building-geometry-port-design.md`
+- `docs/superpowers/status/2026-04-09-osm2world-building-geometry-port-status.md`
+
+Historical superseded tranches are summarized in:
+
+- `docs/superpowers/archive-index.md`
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Port osm2world's building geometry system (15 roof shapes, S3DB building parts, wall surfaces with windows, material mapping) into the Rust `arbx_roblox_export` crate, outputting into the existing `PrecomputedMesh` format for consumption by Roblox 2026's EditableMesh + SurfaceAppearance pipeline.

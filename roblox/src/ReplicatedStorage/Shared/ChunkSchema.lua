@@ -424,6 +424,13 @@ function ChunkSchema.validateManifest(manifest)
                     prefix .. ".buildings[].roofHeight must be a number"
                 )
             end
+            if building.roofIncluded ~= nil then
+                assertType(
+                    building.roofIncluded,
+                    "boolean",
+                    prefix .. ".buildings[].roofIncluded must be a boolean"
+                )
+            end
             if building.name ~= nil then
                 assertType(building.name, "string", prefix .. ".buildings[].name must be a string")
             end

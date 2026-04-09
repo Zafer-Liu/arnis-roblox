@@ -21,6 +21,7 @@ WORLD_PROBE_TERRAIN_SPEC_PATH = ROOT / "roblox" / "src" / "ServerScriptService" 
 WORLD_PROBE_FLAGS_SPEC_PATH = ROOT / "roblox" / "src" / "ServerScriptService" / "Tests" / "WorldProbeTelemetryFlags.spec.lua"
 WORLD_STATE_APPLIER_PATH = ROOT / "roblox" / "src" / "ServerScriptService" / "ImportService" / "WorldStateApplier.lua"
 MINIMAP_SERVICE_PATH = ROOT / "roblox" / "src" / "ServerScriptService" / "ImportService" / "MinimapService.lua"
+CHUNK_SCHEMA_PATH = ROOT / "roblox" / "src" / "ReplicatedStorage" / "Shared" / "ChunkSchema.lua"
 HARNESS_ROUTE_CONFIG_PATH = ROOT / "roblox" / "src" / "ServerScriptService" / "ImportService" / "HarnessRouteConfig.lua"
 PREVIEW_BUILDER_PATH = ROOT / "roblox" / "src" / "ServerScriptService" / "StudioPreview" / "AustinPreviewBuilder.lua"
 PREVIEW_REQUEST_PATH = ROOT / "roblox" / "src" / "ServerScriptService" / "StudioPreview" / "AustinPreviewRequest.lua"
@@ -75,6 +76,7 @@ class AustinRuntimeContractTests(unittest.TestCase):
         )
         cls.world_state_applier_text = WORLD_STATE_APPLIER_PATH.read_text(encoding="utf-8")
         cls.minimap_service_text = MINIMAP_SERVICE_PATH.read_text(encoding="utf-8")
+        cls.chunk_schema_text = CHUNK_SCHEMA_PATH.read_text(encoding="utf-8")
         cls.harness_route_config_text = HARNESS_ROUTE_CONFIG_PATH.read_text(encoding="utf-8")
         cls.preview_builder_text = PREVIEW_BUILDER_PATH.read_text(encoding="utf-8")
         cls.preview_request_text = PREVIEW_REQUEST_PATH.read_text(encoding="utf-8")
@@ -119,7 +121,7 @@ class AustinRuntimeContractTests(unittest.TestCase):
         self.assertIn('setBootstrapState("gameplay_ready")', self.bootstrap_text)
         self.assertIn("BootstrapStateMachine.fail(bootstrapMachine)", self.bootstrap_text)
         self.assertIn(
-            'Workspace:GetAttribute(BOOTSTRAP_ATTEMPT_ID_ATTR)',
+            "Workspace:SetAttribute(BOOTSTRAP_ATTEMPT_ID_ATTR, bootstrapAttemptId)",
             self.bootstrap_text,
         )
         self.assertIn('"[BootstrapAustin] Duplicate bootstrap attempt ignored. state="', self.bootstrap_text)
@@ -193,6 +195,14 @@ class AustinRuntimeContractTests(unittest.TestCase):
         # ImportService: telemetry counters wired
         self.assertIn("buildingPrecomputedMeshCount", self.import_service_text)
         self.assertIn("roadPrecomputedMeshCount", self.import_service_text)
+
+    def test_precomputed_building_mesh_contract_explicitly_marks_when_roof_is_included(self) -> None:
+        self.assertIn("building.roofIncluded", self.chunk_schema_text)
+        self.assertIn('prefix .. ".buildings[].roofIncluded must be a boolean"', self.chunk_schema_text)
+        self.assertIn("local shellMeshIncludesRoof = building.roofIncluded == true", self.building_builder_text)
+        self.assertIn("local hasPrecomputedShellMesh =", self.building_builder_text)
+        self.assertIn("if not (shellMeshIncludesRoof and hasPrecomputedShellMesh) then", self.building_builder_text)
+        self.assertIn("shellMeshIncludesRoof and hasPrecomputedShellMesh", self.building_builder_text)
 
     def test_streaming_service_publishes_startup_residency_telemetry(self) -> None:
         self.assertIn('Workspace:SetAttribute("ArnisStreamingLoadedChunkCount", 0)', self.streaming_text)
@@ -457,7 +467,11 @@ class AustinRuntimeContractTests(unittest.TestCase):
             self.run_austin_text,
         )
         self.assertIn(
-            "local result = RunAustin.run({",
+            "local runOk, runReturn1, runReturn2 = pcall(function()",
+            self.bootstrap_text,
+        )
+        self.assertIn(
+            "return RunAustin.run({",
             self.bootstrap_text,
         )
         self.assertIn(
@@ -495,7 +509,9 @@ class AustinRuntimeContractTests(unittest.TestCase):
         self.assertIn('routeSelectionOptions.routeCatalogName and "route_catalog" or "canonical_manifest"', self.run_austin_text)
         self.assertIn('setPerfAttribute("ManifestSourceName", resolvedManifestName or RunAustin.getManifestName())', self.run_austin_text)
         self.assertIn("resolvedManifestName = resolvedManifestName,", self.run_austin_text)
-        self.assertIn('manifestSourceKind = Workspace:GetAttribute("VertigoAustinManifestSourceKind"),', self.run_austin_text)
+        self.assertIn('local resolvedSourceKind = (type(manifestSource) == "table" and manifestSource.manifestSourceKind)', self.run_austin_text)
+        self.assertIn('or Workspace:GetAttribute("VertigoAustinManifestSourceKind")', self.run_austin_text)
+        self.assertIn("manifestSourceKind = resolvedSourceKind,", self.run_austin_text)
         self.assertIn('RouteCatalogName = normalizedRequest and normalizedRequest.routeCatalogName or ""', self.preview_builder_text)
         self.assertIn('RouteLane = normalizedRequest and normalizedRequest.routeLane or ""', self.preview_builder_text)
         self.assertIn('RouteStepIndex = normalizedRequest and normalizedRequest.routeStepIndex or -1', self.preview_builder_text)
@@ -1345,13 +1361,16 @@ class AustinRuntimeContractTests(unittest.TestCase):
         self.assertIn("AssetService:CreateEditableMesh()", src)
         self.assertIn("AssetService:CreateMeshPartAsync(Content.fromObject(mesh))", src)
         # Must convert 0-based Rust indices to 1-based
-        self.assertIn("tris[i] + 1", src)
-        self.assertIn("tris[i + 1] + 1", src)
-        self.assertIn("tris[i + 2] + 1", src)
+        self.assertIn("local a = tris[i]", src)
+        self.assertIn("local b = tris[i + 1]", src)
+        self.assertIn("local c = tris[i + 2]", src)
+        self.assertIn("local v1 = vertexIds[a + 1]", src)
+        self.assertIn("local v2 = vertexIds[b + 1]", src)
+        self.assertIn("local v3 = vertexIds[c + 1]", src)
         # Must offset vertices by originStuds
-        self.assertIn("verts[i] + ox", src)
-        self.assertIn("verts[i + 1] + oy", src)
-        self.assertIn("verts[i + 2] + oz", src)
+        self.assertIn("(verts[i] or 0) + ox", src)
+        self.assertIn("(verts[i + 1] or 0) + oy", src)
+        self.assertIn("(verts[i + 2] or 0) + oz", src)
         # Must have telemetry counters
         self.assertIn("precomputedMeshCount", src)
         self.assertIn("runtimeMeshCount", src)
