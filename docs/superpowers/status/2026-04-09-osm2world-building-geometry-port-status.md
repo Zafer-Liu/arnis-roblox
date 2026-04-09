@@ -284,3 +284,39 @@ The compact historical archive index is:
   - the next remote proof blocker is the play-marker / post-enter-play path on `tertiary`, not the client structure-scan contract
 - Verification:
   - `ARNIS_REMOTE_STUDIO_ARTIFACT_DIR=/tmp/arnis-remote-studio-proof-v12 bash scripts/run_studio_harness_remote.sh --swift-screenshot -- --small-place --takeover --skip-edit-tests --play-wait 130 --pattern-wait 240 --screenshot /tmp/arnis-studio-harness.png`
+
+### 2026-04-09: Manifest Loader Hardening + proof-v16 Recovery
+
+- `proof-v13` finally isolated the real runtime blocker after the wrapper cleanup work:
+  - the proof wrapper itself was healthy again and completed with `main harness flow complete; exiting`
+  - but the synced Studio log showed bootstrap failing inside `ManifestLoader` with `Number of requests exceeded limit`
+  - the failure mode was clear in the client markers: `bootstrapStateTrace=loading_manifest,importing_startup,failed`, `worldRootExists=false`
+- Landed three bounded fixes in the lazy external chunk path:
+  - `ManifestLoader.lua` now uses a bounded worker pool (`MAX_PARALLEL_CHUNK_REQUESTS = 4`) instead of spawning one task per chunk id
+  - rate-limited `RequestAsync` failures now retry with short backoff and skip immediate `GetAsync` fallback, so Roblox request-limit pressure is no longer doubled at the throttle boundary
+  - chunk fetch URL composition now inserts `chunkId.json` before any query suffix, fixing malformed fetches like `.../chunks/?v=210_-12.json`
+- Landed one matching startup-budget guard in `RunAustin.lua`:
+  - background outer-ring prefetch is now skipped if startup imported zero chunks or if startup already recorded fetch failures
+  - this prevents the prefetch hint from spending more HTTP budget during an already-degraded bootstrap
+- Added/expanded source-contract coverage:
+  - `test_manifest_loader_runtime_contract.py` now pins bounded worker-pool fetches, rate-limit-aware retry/skip behavior, and query-safe chunk URL construction
+  - `test_austin_runtime_contract.py` now pins the startup prefetch guard
+- Local verification after the manifest-loader hardening stayed green:
+  - `python3 -m unittest scripts.tests.test_manifest_loader_runtime_contract scripts.tests.test_austin_runtime_contract scripts.tests.test_ambient_soundscape_runtime_contract scripts.tests.test_minimap_runtime_contract scripts.tests.test_play_audio_assets scripts.tests.test_gui_session_capture scripts.tests.test_run_studio_harness scripts.tests.test_run_studio_harness_remote -v`
+  - `git diff --check`
+- Fresh `proof-v16` on `tertiary` is green on the runtime lane again:
+  - malformed 404 chunk URLs are gone
+  - startup chunk batches now complete successfully (for example `32/32`, `3/3`, `1/1`)
+  - bootstrap reaches `world_ready`, then `streaming_ready`, then `minimap_ready`, then `gameplay_ready`
+  - authoritative client world truth is back with real nearby structure signal, e.g. `worldRootExists=True nearbyBuildingModels=9 nearbyRoofParts=59 overheadRoofParts=32`
+  - authoritative play screenshot sidecar is present with `capture_method="rect"`
+  - wrapper completes cleanly enough to hit `main harness flow complete; exiting` and `cleanup starting exit_code=0`, then exits through the bounded tail guard
+- Fidelity/perf state after the fix bundle:
+  - startup/runtime fidelity is materially recovered relative to the failed `v13`/`v14` runs
+  - current perf is still above the eventual target, but remains within the prior stabilized band while rendering a denser nearby envelope than the earlier failing proofs
+- Next highest-value work after this recovery:
+  - deeper play-window frame pacing reduction now that bootstrap is healthy again
+  - if request pressure resurfaces under heavier worlds, the next likely hardening slice is manifest/chunk fetch coalescing (`inFlightByChunkId`) rather than more wrapper work
+- Verification:
+  - `ARNIS_REMOTE_STUDIO_ARTIFACT_DIR=/tmp/arnis-remote-studio-proof-v13 bash scripts/run_studio_harness_remote.sh --swift-screenshot -- --small-place --takeover --skip-edit-tests --play-wait 130 --pattern-wait 240 --screenshot /tmp/arnis-studio-harness.png`
+  - `ARNIS_REMOTE_STUDIO_ARTIFACT_DIR=/tmp/arnis-remote-studio-proof-v16 bash scripts/run_studio_harness_remote.sh --swift-screenshot -- --small-place --takeover --skip-edit-tests --play-wait 130 --pattern-wait 240 --screenshot /tmp/arnis-studio-harness.png`
