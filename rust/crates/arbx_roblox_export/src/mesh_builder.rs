@@ -345,6 +345,10 @@ pub fn build_building_mesh(
 
     // ---- Walls ----
     // Use resolved.base_y (accounts for min_height) instead of the raw base_y.
+    // Windowed walls for all multi-story buildings. Fidelity over speed —
+    // chunks are larger but the visual upgrade is worth the fetch latency.
+    // Cloudflare free tier handles the payload fine; the user accepts
+    // longer bootstrap times for extreme detail.
     let wall_mesh = if level_count >= 2 {
         // Multi-story buildings get windowed wall surfaces.
         use crate::wall_surface::generate_wall_mesh;

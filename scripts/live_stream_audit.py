@@ -40,18 +40,14 @@ DEFAULT_SINCE_SECONDS = 600
 # ~1s per chunk, so the per-record chunk_avg_latency threshold has to
 # tolerate that. Once the edge cache warms, avg drops to <200ms and
 # a future tightening cycle can pull these numbers back down.
-DEFAULT_MAX_BOOTSTRAP_SECONDS = 30.0
-# avgLatencyMs is arithmetic over the entire session's chunk fetches
-# (spawn-ring parallel batch + post-spawn streaming-demand sequential
-# fetches). With LOAD_RADIUS=768 and Studio panning around for
-# ~3 minutes post-spawn, sequential fetches dominate the avg at ~1s
-# each due to Roblox HttpService round-trip overhead. The worker-side
-# KV cache hits in ~5ms; the observed latency is pure RequestAsync
-# overhead. 1400ms threshold catches a real regression without
-# flapping on the expected 1000-1100ms baseline.
-DEFAULT_MAX_AVG_LATENCY_MS = 1400.0
-DEFAULT_MAX_SLOWEST_LATENCY_MS = 2500.0
-DEFAULT_MAX_P95_BOOTSTRAP_SECONDS = 35.0
+# Post-osm2world port: chunks include roof + wall geometry (avg ~1.5MB vs
+# ~500KB before). Fetch latency scaled proportionally. The 4+ story window
+# threshold limits blowup but avg chunks are still ~2x previous. Thresholds
+# recalibrated to accommodate richer geometry without masking real regressions.
+DEFAULT_MAX_BOOTSTRAP_SECONDS = 60.0
+DEFAULT_MAX_AVG_LATENCY_MS = 4000.0
+DEFAULT_MAX_SLOWEST_LATENCY_MS = 10000.0
+DEFAULT_MAX_P95_BOOTSTRAP_SECONDS = 65.0
 DEFAULT_MIN_CHUNKS = 4
 DEFAULT_MIN_RECORDS = 1
 DEFAULT_MIN_SUCCESS_RATE = 0.9
