@@ -749,6 +749,7 @@ impl Chunker {
                     None
                 };
 
+                let roof_included = shell_mesh.is_some();
                 chunk.buildings.push(BuildingShell {
                     id: f.id,
                     footprint: relative_footprint,
@@ -775,6 +776,7 @@ impl Chunker {
                     roof_angle: f.roof_angle,
                     name: f.name.clone(),
                     shell_mesh,
+                    roof_included,
                     atlas_uv: None,
                 });
             }

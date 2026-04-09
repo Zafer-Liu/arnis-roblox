@@ -703,6 +703,7 @@ mod tests {
             roof_angle: None,
             name: None,
             shell_mesh: Some(mesh),
+            roof_included: true,
             atlas_uv: None,
         };
 
