@@ -1225,16 +1225,56 @@ fn write_indent(out: &mut String, indent: usize) {
     }
 }
 
+/// Encode a slice of f32 values as little-endian binary, then base64.
+/// 4 bytes per float → base64 → ~1.33 bytes per float (vs 7-10 bytes in JSON).
+fn f32_slice_to_base64(data: &[f32]) -> String {
+    let bytes: Vec<u8> = data.iter().flat_map(|v| v.to_le_bytes()).collect();
+    use base64::Engine;
+    base64::engine::general_purpose::STANDARD.encode(&bytes)
+}
+
+/// Encode a slice of u32 values as little-endian binary, then base64.
+fn u32_slice_to_base64(data: &[u32]) -> String {
+    let bytes: Vec<u8> = data.iter().flat_map(|v| v.to_le_bytes()).collect();
+    use base64::Engine;
+    base64::engine::general_purpose::STANDARD.encode(&bytes)
+}
+
 fn write_precomputed_mesh(out: &mut String, mesh: &PrecomputedMesh, indent: usize) {
     out.push_str("{\n");
 
+    // Binary base64 encoding: ~60% smaller than JSON float arrays.
+    // Lua consumer decodes via EncodingService:Base64Decode() + buffer reads.
+    write_key(out, indent + 2, "verticesB64");
+    out.push('"');
+    out.push_str(&f32_slice_to_base64(&mesh.vertices));
+    out.push_str("\",\n");
+
+    write_key(out, indent + 2, "trianglesB64");
+    out.push('"');
+    out.push_str(&u32_slice_to_base64(&mesh.triangles));
+    out.push_str("\",\n");
+
+    write_key(out, indent + 2, "normalsB64");
+    out.push('"');
+    out.push_str(&f32_slice_to_base64(&mesh.normals));
+    out.push_str("\",\n");
+
+    // Also emit counts so Lua knows array sizes without decoding.
+    write_key(out, indent + 2, "vertexCount");
+    write!(out, "{}", mesh.vertices.len() / 3).unwrap();
+    out.push_str(",\n");
+    write_key(out, indent + 2, "triangleCount");
+    write!(out, "{}", mesh.triangles.len() / 3).unwrap();
+
+    // Legacy JSON arrays as fallback (can be removed once all consumers use B64).
+    out.push_str(",\n");
     write_key(out, indent + 2, "vertices");
     out.push('[');
     for (i, v) in mesh.vertices.iter().enumerate() {
         if i > 0 {
             out.push(',');
         }
-        // Compact float: drop trailing zeros
         if v.fract() == 0.0 {
             write!(out, "{:.0}", v).unwrap();
         } else {

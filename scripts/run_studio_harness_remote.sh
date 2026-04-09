@@ -175,6 +175,7 @@ LOCAL_ARTIFACT_DIR="${ARNIS_REMOTE_STUDIO_ARTIFACT_DIR:-/tmp/arnis-remote-studio
 LOCAL_MANIFEST_SUMMARY_PATH="$LOCAL_ARNIS_DIR/rust/out/austin-manifest.scene-index.json"
 PROOF_SYNC_TAIL_TIMEOUT_SECONDS="${ARNIS_REMOTE_STUDIO_TAIL_TIMEOUT_SECONDS:-20}"
 REMOTE_SESSION_OUTPUT_LOG="$(mktemp -t arnis-remote-harness-output)"
+LOCAL_REMOTE_SESSION_OUTPUT_PATH="$LOCAL_ARTIFACT_DIR/arnis-remote-harness.stdout.log"
 SYNC_STAGE=1
 SWIFT_SCREENSHOT=0
 SWIFT_SCREENSHOT_WAIT_SECONDS=8
@@ -250,6 +251,7 @@ cleanup_remote_harness() {
 
 reset_local_artifacts() {
   local artifact_path=""
+  rm -f "$LOCAL_REMOTE_SESSION_OUTPUT_PATH"
   for artifact_path in "${REMOTE_VOLATILE_ARTIFACTS[@]}"; do
     rm -f "$LOCAL_ARTIFACT_DIR/$(basename "$artifact_path")"
   done
@@ -280,6 +282,30 @@ sync_remote_artifacts() {
 
 sync_remote_session_output() {
   rsync -a "$REMOTE_HOST:$(render_rsync_remote_path "$REMOTE_HARNESS_STDOUT_LOG")" "$REMOTE_SESSION_OUTPUT_LOG" >/dev/null 2>&1 || true
+  if [[ -f "$REMOTE_SESSION_OUTPUT_LOG" ]]; then
+    cp "$REMOTE_SESSION_OUTPUT_LOG" "$LOCAL_REMOTE_SESSION_OUTPUT_PATH"
+  fi
+}
+
+authoritative_play_screenshot_present() {
+  local capture_png="$LOCAL_ARTIFACT_DIR/arnis-studio-harness-play.png"
+  local capture_metadata="$LOCAL_ARTIFACT_DIR/arnis-studio-harness-play.capture.json"
+  [[ -f "$capture_png" ]] && [[ -f "$capture_metadata" ]] || return 1
+  CAPTURE_METADATA_PATH="$capture_metadata" python3 - <<'PY'
+import json
+import os
+import sys
+from pathlib import Path
+
+metadata_path = Path(os.environ["CAPTURE_METADATA_PATH"])
+try:
+    payload = json.loads(metadata_path.read_text(encoding="utf-8"))
+except Exception:
+    sys.exit(1)
+
+success = payload.get("success") is True and payload.get("capture_method") in {"window", "rect"}
+sys.exit(0 if success else 1)
+PY
 }
 
 remote_harness_status() {
@@ -935,7 +961,7 @@ fi
 REMOTE_HARNESS_ACTIVE=0
 sync_remote_artifacts
 
-if [[ $SWIFT_SCREENSHOT -eq 1 && $play_screenshot_fired -eq 0 ]]; then
+if [[ $SWIFT_SCREENSHOT -eq 1 && $play_screenshot_fired -eq 0 ]] && ! authoritative_play_screenshot_present; then
   # Fallback: Play-mode capture never fired (e.g. proof_signal was never
   # detected, or --swift-screenshot came through a path that never hit the
   # in-loop branch). Capture post-harness so we at least get the Edit

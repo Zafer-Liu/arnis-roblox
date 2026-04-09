@@ -418,7 +418,15 @@ holdingPad.Size = Vector3.new(64, 1, 64)
 holdingPad.CFrame = CFrame.new(0, 300, 0)
 holdingPad.Parent = Workspace
 
-local runtimeWorldConfig = StreamingRuntimeConfig.Resolve(WorldConfig)
+local runtimeConfigSource = WorldConfig
+if not RunService:IsStudio() then
+    local configuredProfile = WorldConfig.StreamingProfile
+    if type(configuredProfile) ~= "string" or configuredProfile == "" or configuredProfile == "local_dev" then
+        runtimeConfigSource = table.clone(WorldConfig)
+        runtimeConfigSource.StreamingProfile = "production_server"
+    end
+end
+local runtimeWorldConfig = StreamingRuntimeConfig.Resolve(runtimeConfigSource)
 if harnessRouteSelection.routeCatalogName then
     Workspace:SetAttribute("VertigoRouteCatalogName", harnessRouteSelection.routeCatalogName)
     Workspace:SetAttribute("VertigoRouteLane", harnessRouteSelection.routeLane)
@@ -457,6 +465,7 @@ else
 end
 if result == nil then
     BootstrapStateMachine.fail(bootstrapMachine)
+    local bootstrapFailureKind = if runOk then "manifest_unavailable" else "import_failed"
     local manifestSourceConfig = WorldConfig.ManifestSource or {}
     local sourceDescription
     if manifestSourceConfig.mode == "external_url" then
@@ -466,7 +475,9 @@ if result == nil then
     else
         sourceDescription = ("mode=%s"):format(tostring(manifestSourceConfig.mode or "embedded"))
     end
-    local errMessage = "Austin manifest unavailable — bootstrap halted."
+    local errMessage = if bootstrapFailureKind == "import_failed"
+        then "Austin import failed — bootstrap halted."
+        else "Austin manifest unavailable — bootstrap halted."
     local errDetail = ("source: %s\nerror: %s"):format(
         sourceDescription,
         tostring(runError or "(no error returned)")

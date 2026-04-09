@@ -1272,6 +1272,10 @@ class RunStudioHarnessTests(unittest.TestCase):
             play_block.index('run_probe_best_effort "play" 8'),
             play_block.rindex('capture_studio_screenshot "play"'),
         )
+        self.assertLess(
+            play_block.rindex('capture_studio_screenshot "play"'),
+            play_block.rindex('validate_play_bootstrap_trace "$ACTIVE_LOG"'),
+        )
 
     def test_play_transition_stops_live_vsync_before_entering_play(self) -> None:
         play_block = self.text.split("elif [[ $DO_PLAY -eq 1 ]]; then", 1)[1]
@@ -1408,6 +1412,18 @@ class RunStudioHarnessTests(unittest.TestCase):
         self.assertIsNotNone(play_probe_block, "run_play_probe_via_mcp function not found")
         body = play_probe_block.group("body")
         self.assertIn('print(f"[harness-mcp] phase=play error={exc!r}")', body)
+
+    def test_play_probe_captures_wait_exit_code_without_tripping_set_e(self) -> None:
+        play_probe_block = re.search(
+            r"run_play_probe_via_mcp\(\) \{\n(?P<body>.*?)\n\}\n\nlog_effective_play_camera_state",
+            self.text,
+            re.DOTALL,
+        )
+        self.assertIsNotNone(play_probe_block, "run_play_probe_via_mcp function not found")
+        body = play_probe_block.group("body")
+        self.assertIn('if wait "$probe_pid"; then', body)
+        self.assertIn("local probe_status=$?", body)
+        self.assertNotIn('\n  wait "$probe_pid"\n', body)
 
     def test_play_probe_rejects_edit_context_false_positive_before_claiming_success(self) -> None:
         play_probe_block = re.search(
@@ -1574,6 +1590,22 @@ class RunStudioHarnessTests(unittest.TestCase):
         self.assertIn('mcp_wall_timeout=150', self.text)
         self.assertIn('wall_clock_timeout = max(wait_seconds + 45, 90)', self.text)
         self.assertIn('timeout_seconds=max(wait_seconds + 35, 70)', self.text)
+
+    def test_summarize_log_uses_active_log_for_authoritative_play_verdicts(self) -> None:
+        block = re.search(
+            r"summarize_log\(\) \{\n(?P<body>.*?)\n\}\n\nresolve_route_runtime_index_for_audits",
+            self.text,
+            re.DOTALL,
+        )
+        self.assertIsNotNone(block, "summarize_log function not found")
+        body = block.group("body")
+        self.assertIn('local authoritative_source="$ACTIVE_LOG"', body)
+        self.assertIn('log_effective_play_camera_state "$authoritative_source"', body)
+        self.assertIn('log_effective_play_minimap_state "$authoritative_source"', body)
+        self.assertIn('log_effective_play_world_state "$authoritative_source"', body)
+        self.assertIn('log_effective_play_local_experience_state "$authoritative_source"', body)
+        self.assertIn('log_effective_play_perf_state "$authoritative_source"', body)
+        self.assertIn('summary_source="$LOG_SLICE_FILE"', body)
 
     def test_auto_built_clean_place_uses_one_canonical_output_path(self) -> None:
         self.assertIn('local output_place="$roblox_dir/out/arnis-test-clean-$output_suffix.rbxlx"', self.text)

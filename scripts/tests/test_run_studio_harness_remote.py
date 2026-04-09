@@ -103,12 +103,18 @@ class RunStudioHarnessRemoteTests(unittest.TestCase):
 
     def test_fetches_remote_logs_and_screenshots_back_locally(self) -> None:
         self.assertIn('LOCAL_ARTIFACT_DIR="${ARNIS_REMOTE_STUDIO_ARTIFACT_DIR:-/tmp/arnis-remote-studio}"', self.text)
+        self.assertIn('LOCAL_REMOTE_SESSION_OUTPUT_PATH="$LOCAL_ARTIFACT_DIR/arnis-remote-harness.stdout.log"', self.text)
         self.assertIn("sync_remote_artifacts()", self.text)
         self.assertIn('remote_latest_log="$(ssh "$REMOTE_HOST" ', self.text)
         self.assertIn('rsync -a "$REMOTE_HOST:$remote_latest_log" "$LOCAL_ARTIFACT_DIR/"', self.text)
         self.assertIn('/tmp/arnis-studio-harness-edit.png', self.text)
         self.assertIn('/tmp/arnis-studio-harness-play.png', self.text)
         self.assertIn('/tmp/arnis-preview-plugin-state.json', self.text)
+        self.assertIn('cp "$REMOTE_SESSION_OUTPUT_LOG" "$LOCAL_REMOTE_SESSION_OUTPUT_PATH"', self.text)
+        self.assertIn("authoritative_play_screenshot_present()", self.text)
+        self.assertIn('if [[ $SWIFT_SCREENSHOT -eq 1 && $play_screenshot_fired -eq 0 ]] && ! authoritative_play_screenshot_present; then', self.text)
+        self.assertIn('local capture_metadata="$LOCAL_ARTIFACT_DIR/arnis-studio-harness-play.capture.json"', self.text)
+        self.assertIn('payload.get("success") is True and payload.get("capture_method") in {"window", "rect"}', self.text)
 
     def test_clears_volatile_remote_tmp_artifacts_before_each_run(self) -> None:
         self.assertIn("reset_remote_proof_artifacts()", self.text)
@@ -166,7 +172,7 @@ class RunStudioHarnessRemoteTests(unittest.TestCase):
         self.assertIn('sync_optional_dir "$LOCAL_ROUTE_BUNDLE_DIR" "$REMOTE_ROUTE_BUNDLE_DIR"', self.text)
         self.assertIn('"$REMOTE_ROUTE_BUNDLE_DIR"', self.text)
         self.assertIn('"$ARNIS_TELEMETRY_FAMILIES"', self.text)
-        self.assertIn('remote_telemetry_families="$1"', self.text)
+        self.assertIn('remote_telemetry_families="$(decode_positional "$1")"', self.text)
         self.assertIn('ARNIS_ROUTE_BUNDLE_DIR="$remote_route_bundle_dir"', self.text)
         self.assertIn('ARNIS_TELEMETRY_FAMILIES="$remote_telemetry_families"', self.text)
         self.assertIn('ARNIS_GUI_SESSION_CAPTURE="\\${ARNIS_GUI_SESSION_CAPTURE:-1}"', self.text)

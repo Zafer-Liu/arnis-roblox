@@ -137,7 +137,7 @@ For every meaningful code change:
   - edit-only screenshot: add `--edit-only`
   - isolated repro: add `--spec-filter <SpecName>`
 - Screenshot artifacts now include a sibling `*.capture.json` sidecar with the capture method, stderr, and window/session diagnostics. Treat that sidecar as the first source of truth when a screenshot is missing or blank.
-- On `tertiary`, remote screenshot capture is now expected to fall back to a GUI-session relay through the logged-in `Terminal` app when direct display capture is blocked. A healthy remote visual proof may therefore report `capture_method="gui_terminal_display"` and `guiSessionRelay.method="terminal.command"` in the sibling `*.capture.json`.
+- On `tertiary`, remote screenshot capture may fall back to a GUI-session relay through the logged-in `Terminal` app when direct host capture is blocked. That relay should preserve `guiSessionRelay.method="terminal.command"` in the sibling `*.capture.json`, but only `capture_method="window"` or `capture_method="rect"` counts as authoritative visual proof. Whole-display fallback is diagnostic only.
 - Keep screenshot ownership on `tertiary`. `primary` should remain a thin control/sync node only; do not move GUI automation or long-running capture loops onto `primary`.
 - For programmatic Studio viewport screenshots from SSH on `tertiary`:
   - Use `scripts/capture_studio_sck.swift` (ScreenCaptureKit, macOS 14+)

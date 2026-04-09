@@ -18,7 +18,7 @@ Historical superseded tranches are summarized in:
 
 **Goal:** Port osm2world's building geometry system (15 roof shapes, S3DB building parts, wall surfaces with windows, material mapping) into the Rust `arbx_roblox_export` crate, outputting into the existing `PrecomputedMesh` format for consumption by Roblox 2026's EditableMesh + SurfaceAppearance pipeline.
 
-**Architecture:** Heightfield roof system — each roof shape defines constraint segments + a scalar height function; a shared CDT triangulation base lifts 2D polygons to 3D meshes. Wall surfaces are parameterized faces with punched window/door openings. All geometry flows into `PrecomputedMesh` (flat f32/u32 arrays) consumed unchanged by the Lua `BuildingBuilder.lua` EditableMesh consumer. Designed for Roblox 2026: EditableMesh for geometry, SurfaceAppearance for PBR materials, MaterialVariant for diversity without unique textures.
+**Architecture:** Heightfield roof system — each roof shape defines constraint segments + a scalar height function; a shared CDT triangulation base lifts 2D polygons to 3D meshes. Wall surfaces are parameterized faces with punched window/door openings. All geometry flows into `PrecomputedMesh` (flat f32/u32 arrays) consumed by the Lua `BuildingBuilder.lua` EditableMesh consumer, with one explicit manifest handshake field: `building.roofIncluded` tells Lua when a precomputed `shellMesh` already contains roof geometry and the runtime roof path must be skipped. Designed for Roblox 2026: EditableMesh for geometry, SurfaceAppearance for PBR materials, MaterialVariant for diversity without unique textures.
 
 **Tech Stack:** Rust, `spade` (CDT), `geo`/`geo-types` (polygon ops), existing `arbx_roblox_export` crate structure.
 

@@ -11,6 +11,7 @@ RUN_AUSTIN_PATH = ROOT / "roblox" / "src" / "ServerScriptService" / "ImportServi
 STREAMING_SERVICE_PATH = ROOT / "roblox" / "src" / "ServerScriptService" / "ImportService" / "StreamingService.lua"
 CHUNK_PRIORITY_PATH = ROOT / "roblox" / "src" / "ServerScriptService" / "ImportService" / "ChunkPriority.lua"
 IMPORT_SERVICE_PATH = ROOT / "roblox" / "src" / "ServerScriptService" / "ImportService" / "init.lua"
+AUSTIN_SPAWN_PATH = ROOT / "roblox" / "src" / "ServerScriptService" / "ImportService" / "AustinSpawn.lua"
 SIGNATURES_PATH = ROOT / "roblox" / "src" / "ServerScriptService" / "ImportService" / "ImportSignatures.lua"
 CANONICAL_WORLD_CONTRACT_PATH = ROOT / "roblox" / "src" / "ServerScriptService" / "ImportService" / "CanonicalWorldContract.lua"
 WORLD_PROBE_PATH = ROOT / "roblox" / "src" / "StarterPlayer" / "StarterPlayerScripts" / "WorldProbe.client.lua"
@@ -46,6 +47,9 @@ PROP_BUILDER_PATH = (
 RAIL_BUILDER_PATH = (
     ROOT / "roblox" / "src" / "ServerScriptService" / "ImportService" / "Builders" / "RailBuilder.lua"
 )
+TRAVERSAL_SHARED_STATE_PATH = (
+    ROOT / "roblox" / "src" / "StarterPlayer" / "StarterPlayerScripts" / "Traversal" / "SharedState.lua"
+)
 
 
 class AustinRuntimeContractTests(unittest.TestCase):
@@ -56,6 +60,7 @@ class AustinRuntimeContractTests(unittest.TestCase):
         cls.streaming_text = STREAMING_SERVICE_PATH.read_text(encoding="utf-8")
         cls.chunk_priority_text = CHUNK_PRIORITY_PATH.read_text(encoding="utf-8")
         cls.import_service_text = IMPORT_SERVICE_PATH.read_text(encoding="utf-8")
+        cls.austin_spawn_text = AUSTIN_SPAWN_PATH.read_text(encoding="utf-8")
         cls.canonical_world_contract_text = CANONICAL_WORLD_CONTRACT_PATH.read_text(encoding="utf-8")
         cls.signatures_text = SIGNATURES_PATH.read_text(encoding="utf-8") if SIGNATURES_PATH.exists() else ""
         cls.world_probe_text = WORLD_PROBE_PATH.read_text(encoding="utf-8") if WORLD_PROBE_PATH.exists() else ""
@@ -89,6 +94,7 @@ class AustinRuntimeContractTests(unittest.TestCase):
         cls.water_builder_text = WATER_BUILDER_PATH.read_text(encoding="utf-8")
         cls.prop_builder_text = PROP_BUILDER_PATH.read_text(encoding="utf-8")
         cls.rail_builder_text = RAIL_BUILDER_PATH.read_text(encoding="utf-8")
+        cls.traversal_shared_state_text = TRAVERSAL_SHARED_STATE_PATH.read_text(encoding="utf-8")
 
     def test_bootstrap_guards_against_duplicate_runtime_execution(self) -> None:
         self.assertIn(
@@ -147,7 +153,7 @@ class AustinRuntimeContractTests(unittest.TestCase):
         self.assertIn("spawnCFrame = CFrame.lookAt(Vector3.new(spawnPoint.X, spawnSurfaceY, spawnPoint.Z), lookTarget)", self.bootstrap_text)
 
     def test_bootstrap_waits_for_near_ring_streaming_settlement_before_gameplay_ready(self) -> None:
-        self.assertIn('local STARTUP_STREAMING_TIMEOUT_SECONDS = 10', self.bootstrap_text)
+        self.assertIn('local STARTUP_STREAMING_TIMEOUT_SECONDS = 60', self.bootstrap_text)
         self.assertIn("local function waitForStartupStreamingReady(spawnPoint)", self.bootstrap_text)
         self.assertIn(
             'local startupResidency = StreamingService.GetStartupResidencySnapshot(spawnPoint, "GeneratedWorld_Austin")',
@@ -179,7 +185,10 @@ class AustinRuntimeContractTests(unittest.TestCase):
         self.assertIn("if boundedHoleLoopCount > 1 then", self.building_builder_text)
         self.assertIn("levels > 8 or height > 40 or footprintPointCount > 12", self.building_builder_text)
         self.assertIn("preferPlayVisibleShellWalls", self.building_builder_text)
-        self.assertIn("if preferPlayVisibleShellWalls then", self.building_builder_text)
+        self.assertIn(
+            "if preferPlayVisibleShellWalls and not (shellMeshIncludesRoof and hasPrecomputedShellMesh) then",
+            self.building_builder_text,
+        )
 
     def test_precomputed_mesh_fast_path_wired_in_building_and_road_builders(self) -> None:
         # BuildingBuilder: shellMesh fast path in MeshBuildAll
@@ -203,6 +212,41 @@ class AustinRuntimeContractTests(unittest.TestCase):
         self.assertIn("local hasPrecomputedShellMesh =", self.building_builder_text)
         self.assertIn("if not (shellMeshIncludesRoof and hasPrecomputedShellMesh) then", self.building_builder_text)
         self.assertIn("shellMeshIncludesRoof and hasPrecomputedShellMesh", self.building_builder_text)
+
+    def test_mesh_builders_guard_doublesided_property_for_non_plugin_runtime_threads(self) -> None:
+        self.assertIn("local doubleSidedCapabilityWarningIssued = false", self.building_builder_text)
+        self.assertIn("local function tryEnableDoubleSided(part, builderLabel)", self.building_builder_text)
+        self.assertIn("part.DoubleSided = true", self.building_builder_text)
+        self.assertIn('warn(("[%s] DoubleSided unavailable in this runtime: %s")', self.building_builder_text)
+        self.assertIn("tryEnableDoubleSided(part, \"MeshAccumulator\")", self.building_builder_text)
+        self.assertIn("tryEnableDoubleSided(part, \"RoadMeshAccumulator\")", self.road_builder_text)
+        self.assertIn("part.DoubleSided = true", self.road_builder_text)
+
+    def test_bootstrap_preserves_import_failure_signal_instead_of_misclassifying_as_manifest_missing(self) -> None:
+        self.assertIn("local bootstrapFailureKind = if runOk then \"manifest_unavailable\" else \"import_failed\"", self.bootstrap_text)
+        self.assertIn("local errMessage = if bootstrapFailureKind == \"import_failed\"", self.bootstrap_text)
+        self.assertIn('"Austin import failed — bootstrap halted."', self.bootstrap_text)
+        self.assertIn('"Austin manifest unavailable — bootstrap halted."', self.bootstrap_text)
+        self.assertIn("error: %s", self.bootstrap_text)
+
+    def test_vehicle_controller_camera_telemetry_is_change_driven_instead_of_per_frame_attribute_churn(self) -> None:
+        self.assertIn('S.setPlayerAttributeIfChanged("ArnisVehicleControllerReady", true)', self.traversal_shared_state_text)
+        self.assertIn("local subjectChanged = S.lastPublishedClientTelemetrySubject ~= subject", self.traversal_shared_state_text)
+        self.assertIn("local cameraTelemetryChanged = subjectChanged", self.traversal_shared_state_text)
+        self.assertIn("or S.lastPublishedClientTelemetry.ArnisClientCameraMode ~= cameraMode", self.traversal_shared_state_text)
+        self.assertIn("local cameraSubjectName = S.lastPublishedClientTelemetry.ArnisClientCameraSubject", self.traversal_shared_state_text)
+        self.assertIn("if subjectChanged then", self.traversal_shared_state_text)
+        self.assertIn("cameraSubjectName = subject and subject:GetFullName() or nil", self.traversal_shared_state_text)
+        self.assertIn("if not (cameraTelemetryChanged or humanoidStateChanged) then", self.traversal_shared_state_text)
+        self.assertIn("S.lastPublishedClientTelemetrySubject = subject", self.traversal_shared_state_text)
+
+    def test_startup_streaming_probe_recognizes_roofincluded_merged_shells_as_roof_evidence(self) -> None:
+        self.assertIn('model:SetAttribute("ArnisImportRoofIncluded", building.roofIncluded == true)', self.building_builder_text)
+        self.assertIn('local roofIncludedByShellMesh = model:GetAttribute("ArnisImportRoofIncluded") == true', self.streaming_text)
+        self.assertIn("if roofIncludedByShellMesh and not countedMergedRoofEvidence then", self.streaming_text)
+        self.assertIn("structureTelemetry.nearbyRoofParts += 1", self.streaming_text)
+        self.assertIn("envelopeTelemetry.nearbyRoofParts += 1", self.streaming_text)
+        self.assertIn("structureTelemetry.overheadRoofParts += 1", self.streaming_text)
 
     def test_streaming_service_publishes_startup_residency_telemetry(self) -> None:
         self.assertIn('Workspace:SetAttribute("ArnisStreamingLoadedChunkCount", 0)', self.streaming_text)
@@ -343,6 +387,15 @@ class AustinRuntimeContractTests(unittest.TestCase):
         self.assertIn("EstimatedBudgetBytes", self.world_config_text)
         self.assertIn("MaxChunkCount", self.world_config_text)
 
+    def test_live_runtime_uses_production_streaming_profile_outside_studio(self) -> None:
+        self.assertIn("if not RunService:IsStudio() then", self.bootstrap_text)
+        self.assertIn('runtimeConfigSource.StreamingProfile = "production_server"', self.bootstrap_text)
+        self.assertIn("local runtimeWorldConfig = StreamingRuntimeConfig.Resolve(runtimeConfigSource)", self.bootstrap_text)
+        self.assertIn("if not RunService:IsStudio() then", self.run_austin_text)
+        self.assertIn('runtimeConfigSource.StreamingProfile = "production_server"', self.run_austin_text)
+        self.assertIn("runtimeWorldConfig = StreamingRuntimeConfig.Resolve(runtimeConfigSource)", self.run_austin_text)
+        self.assertIn("local previewWorldConfig = StreamingRuntimeConfig.Resolve(DefaultWorldConfig)", self.preview_builder_text)
+
     def test_streaming_service_treats_estimated_memory_cost_as_authoritative_ring_budget(self) -> None:
         self.assertIn("local function resolveStreamingRings(config)", self.streaming_text)
         self.assertIn("EstimatedBudgetBytes", self.streaming_text)
@@ -373,6 +426,31 @@ class AustinRuntimeContractTests(unittest.TestCase):
         self.assertIn("function ImportSignatures.GetConfigSignature(config)", self.signatures_text)
         self.assertIn("function ImportSignatures.GetLayerSignatures(config)", self.signatures_text)
 
+    def test_streaming_service_only_reimports_resident_chunks_for_building_lod_upgrades(self) -> None:
+        self.assertIn("local previousRank = BUILDING_LOD_DETAIL_RANK[previousBuildingLod] or 0", self.streaming_text)
+        self.assertIn("local targetRank = BUILDING_LOD_DETAIL_RANK[chunkBuildingLodLevel] or 0", self.streaming_text)
+        self.assertIn("local needsLodUpgrade = enableLodReimport", self.streaming_text)
+        self.assertIn("and targetRank > previousRank", self.streaming_text)
+        self.assertIn("-- Downgrades are handled by ordinary eviction instead of in-place re-import", self.streaming_text)
+
+    def test_streaming_service_derives_ring_and_building_lod_from_actual_distance_not_lookahead(self) -> None:
+        self.assertIn("local actualDistSq = getChunkDistanceSqToPoint(chunkEntry, playerPos)", self.streaming_text)
+        self.assertIn("local ringName = getChunkRingName(actualDistSq, resolvedRings)", self.streaming_text)
+        self.assertIn("local distSq = getChunkDistanceSqToPoint(chunkEntry, predicted)", self.streaming_text)
+        self.assertIn("local ringName = getChunkRingName(distSq, resolvedRings)", self.streaming_text)
+
+    def test_streaming_service_defers_resident_eviction_to_cooldown_when_chunk_limit_or_ring_nil_hits(self) -> None:
+        import re
+        match = re.search(
+            r"if ring == nil or exceedsRingChunkLimit then\n(?P<body>.*?)\n\s*continue",
+            self.streaming_text,
+            re.DOTALL,
+        )
+        self.assertIsNotNone(match, "expected ring/chunk-limit branch in streaming loop")
+        body = match.group("body")  # type: ignore[union-attr]
+        self.assertIn("Let the cooldown-based not-desired sweep handle resident chunks", body)
+        self.assertNotIn("ChunkLoader.UnloadChunk(chunkRef.id", body)
+
     def test_runtime_startup_import_registers_canonical_chunk_refs(self) -> None:
         self.assertIn("local startupChunkRefsById = {}", self.run_austin_text)
         self.assertIn("startupChunkRefsById[chunkId] = manifestSource:ResolveChunkRef(chunkId)", self.run_austin_text)
@@ -384,6 +462,13 @@ class AustinRuntimeContractTests(unittest.TestCase):
         self.assertIn("setImportAuditAttributes(layerFolder, chunk.id, options.importRunId)", self.import_service_text)
         self.assertIn("setImportAuditAttributes(subplanFolder, chunk.id, options.importRunId)", self.import_service_text)
         self.assertIn("setImportAuditAttributes(folder, chunk.id, options.importRunId)", self.import_service_text)
+
+    def test_austin_spawn_has_canonical_anchor_fallback_for_live_austin_manifests(self) -> None:
+        self.assertIn("local AUSTIN_FALLBACK_CANONICAL_ANCHOR = table.freeze({", self.austin_spawn_text)
+        self.assertIn('positionStuds = { x = -6.0854, y = -0.4639, z = -208.371 }', self.austin_spawn_text)
+        self.assertIn('lookDirectionStuds = { x = 0, y = 0, z = 1 }', self.austin_spawn_text)
+        self.assertIn('if meta and meta.worldName == "Austin" then', self.austin_spawn_text)
+        self.assertIn("return AUSTIN_FALLBACK_CANONICAL_ANCHOR", self.austin_spawn_text)
 
     def test_client_world_probe_publishes_nearby_building_and_overhead_roof_telemetry(self) -> None:
         self.assertIn('local payloadJson = HttpService:JSONEncode(payload)', self.world_probe_text)
@@ -735,6 +820,22 @@ class AustinRuntimeContractTests(unittest.TestCase):
         self.assertIn('nearestNamedBuildingSourceIds = {}', self.world_probe_text)
         self.assertIn('nearestNamedBuildingNames = {}', self.world_probe_text)
         self.assertIn('"ArnisClientNearbyNamedBuildingNames"', self.world_probe_text)
+
+    def test_client_world_probe_avoids_vector2_allocation_in_structure_scan(self) -> None:
+        self.assertIn("local NEARBY_BUILDING_RADIUS_SQ = NEARBY_BUILDING_RADIUS * NEARBY_BUILDING_RADIUS", self.world_probe_text)
+        self.assertIn(
+            "local NEARBY_NAMED_BUILDING_RADIUS_SQ = NEARBY_NAMED_BUILDING_RADIUS * NEARBY_NAMED_BUILDING_RADIUS",
+            self.world_probe_text,
+        )
+        self.assertIn("local OVERHEAD_ROOF_RADIUS_SQ = OVERHEAD_ROOF_RADIUS * OVERHEAD_ROOF_RADIUS", self.world_probe_text)
+        self.assertIn("local NEARBY_WALL_RADIUS_SQ = NEARBY_WALL_RADIUS * NEARBY_WALL_RADIUS", self.world_probe_text)
+        self.assertIn("local horizontalDistanceSq = partOffset.X * partOffset.X + partOffset.Z * partOffset.Z", self.world_probe_text)
+        self.assertIn("local horizontalDistanceSq = offset.X * offset.X + offset.Z * offset.Z", self.world_probe_text)
+        self.assertIn("if horizontalDistanceSq <= NEARBY_BUILDING_RADIUS_SQ then", self.world_probe_text)
+        self.assertIn("if horizontalDistanceSq > NEARBY_NAMED_BUILDING_RADIUS_SQ then", self.world_probe_text)
+        self.assertIn("local horizontalDistance = math.sqrt(horizontalDistanceSq)", self.world_probe_text)
+        self.assertNotIn("Vector2.new(partOffset.X, partOffset.Z).Magnitude", self.world_probe_text)
+        self.assertNotIn("Vector2.new(offset.X, offset.Z).Magnitude", self.world_probe_text)
 
     def test_client_world_probe_resamples_moving_players_more_aggressively(self) -> None:
         self.assertIn("local IDLE_SAMPLE_INTERVAL = 1.5", self.world_probe_text)

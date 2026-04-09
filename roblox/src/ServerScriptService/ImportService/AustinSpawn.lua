@@ -55,6 +55,11 @@ local AUSTIN_CANONICAL_WORLD_NAMES = table.freeze({
     AustinPreviewDowntown = true,
 })
 
+local AUSTIN_FALLBACK_CANONICAL_ANCHOR = table.freeze({
+    positionStuds = { x = -6.0854, y = -0.4639, z = -208.371 },
+    lookDirectionStuds = { x = 0, y = 0, z = 1 },
+})
+
 local AUSTIN_SOUTH_OF_CAPITOL_OFFSET_STUDS = -256
 local RUNTIME_BUILDING_CLEARANCE_STUDS = 72
 local RUNTIME_BUILDING_CLEARANCE_SCORE_SCALE = 1000
@@ -254,10 +259,13 @@ end
 local function getCanonicalAnchor(manifest)
     local meta = manifest and manifest.meta
     local canonicalAnchor = meta and meta.canonicalAnchor
-    if type(canonicalAnchor) ~= "table" then
-        return nil
+    if type(canonicalAnchor) == "table" then
+        return canonicalAnchor
     end
-    return canonicalAnchor
+    if meta and meta.worldName == "Austin" then
+        return AUSTIN_FALLBACK_CANONICAL_ANCHOR
+    end
+    return nil
 end
 
 local function getExplicitCanonicalAnchorPosition(manifest)

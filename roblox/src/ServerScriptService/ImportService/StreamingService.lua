@@ -1360,6 +1360,9 @@ local function buildStartupStructureTelemetry(spawnPoint, worldRootName)
                 envelopeTelemetryBySourceId[sourceId] = envelopeTelemetry
             end
             envelopeTelemetry.nearbyBuildingModels += 1
+            local roofIncludedByShellMesh = model:GetAttribute("ArnisImportRoofIncluded") == true
+            local buildingTopY = model:GetAttribute("ArnisImportBuildingTopY")
+            local countedMergedRoofEvidence = false
 
             local shellFolder = model:FindFirstChild("Shell")
             if not shellFolder then
@@ -1385,6 +1388,21 @@ local function buildStartupStructureTelemetry(spawnPoint, worldRootName)
                 then
                     structureTelemetry.nearbyMergedBuildingMeshParts += 1
                     envelopeTelemetry.nearbyMergedBuildingMeshParts += 1
+                    if roofIncludedByShellMesh and not countedMergedRoofEvidence then
+                        countedMergedRoofEvidence = true
+                        structureTelemetry.nearbyRoofParts += 1
+                        envelopeTelemetry.nearbyRoofParts += 1
+                        local overheadDeltaY = if type(buildingTopY) == "number"
+                            then buildingTopY - spawnPoint.Y
+                            else partOffset.Y
+                        if
+                            horizontalPartDistance <= STARTUP_OVERHEAD_ROOF_RADIUS
+                            and overheadDeltaY >= STARTUP_OVERHEAD_MIN_DELTA_Y
+                        then
+                            structureTelemetry.overheadRoofParts += 1
+                            envelopeTelemetry.overheadRoofParts += 1
+                        end
+                    end
                 end
 
                 if roofPart then
@@ -2874,7 +2892,7 @@ function StreamingService.Update(focalPoint)
                 targetRadiusSq,
                 targetExitRadiusSq
             )
-            local ringName = getChunkRingName(schedulerDistSq, resolvedRings)
+            local ringName = getChunkRingName(actualDistSq, resolvedRings)
             local chunkBuildingLodLevel = resolveBuildingLodLevel(ringName, streamingOptions.config)
 
             -- High-velocity prefetch: when the player is moving fast (jetpack,
@@ -2908,21 +2926,10 @@ function StreamingService.Update(focalPoint)
                         currentLod ~= nil
                         or ChunkLoader.GetChunkEntry(chunkRef.id, streamingOptions.worldRootName) ~= nil
                     then
-                        local residentCost = getResidentEstimatedCostForChunkId(chunkRef.id)
-                        if residentCost <= 0 then
-                            residentCost = estimatedChunkCost
-                        end
-                        ChunkLoader.UnloadChunk(chunkRef.id, nil, streamingOptions.worldRootName)
-                        ImportService.ResetSubplanState(chunkRef.id, streamingOptions.worldRootName)
-                        clearResidentEstimatedCostForChunk(chunkRef.id)
-                        loadedChunkLods[chunkRef.id] = nil
-                        loadedChunkRings[chunkRef.id] = nil
-                        importedBuildingLodById[chunkRef.id] = nil
-                        evictedEstimatedCost += residentCost
-                        evictedChunkCount += 1
-                        lastEvictionReason = if ring == nil
-                            then "outside_target_radius"
-                            else ringName .. "_chunk_limit_exceeded"
+                        -- Let the cooldown-based not-desired sweep handle resident chunks.
+                        -- Immediate unload here causes visible add/remove churn before the
+                        -- existing hysteresis window has a chance to absorb the bounce.
+                        continue
                     end
                     if ring ~= nil then
                         queuedEstimatedCost += estimatedChunkCost
@@ -2995,11 +3002,17 @@ function StreamingService.Update(focalPoint)
                     -- when the player moves away from a full-detail chunk.
                     local enableLodReimport = config.EnableLodReimport ~= false
                     local previousBuildingLod = importedBuildingLodById[chunkRef.id]
-                    local needsLodChange = enableLodReimport
+                    local previousRank = BUILDING_LOD_DETAIL_RANK[previousBuildingLod] or 0
+                    local targetRank = BUILDING_LOD_DETAIL_RANK[chunkBuildingLodLevel] or 0
+                    -- Downgrades are handled by ordinary eviction instead of in-place re-import.
+                    -- Re-importing a resident chunk downward in detail tears out visible geometry
+                    -- even when the chunk is still desired, which shows up as parity/fidelity loss
+                    -- and near-part-count churn in live client_flicker telemetry.
+                    local needsLodUpgrade = enableLodReimport
                         and previousBuildingLod ~= nil
                         and chunkBuildingLodLevel ~= nil
-                        and previousBuildingLod ~= chunkBuildingLodLevel
-                    if needsLodChange then
+                        and targetRank > previousRank
+                    if needsLodUpgrade then
                         -- Clear existing geometry IN PLACE and re-queue at the
                         -- new building LOD. Critical: pass preserveFolder=true
                         -- so the chunk's Folder Instance stays parented to
@@ -3395,7 +3408,7 @@ function StreamingService.Update(focalPoint)
                     if not targetLod then
                         continue
                     end
-                    local ringName = getChunkRingName(schedulerDistSq, resolvedRings)
+                    local ringName = getChunkRingName(distSq, resolvedRings)
                     local chunkBuildingLodLevel = resolveBuildingLodLevel(ringName, streamingOptions.config)
                     if inflightChunkImports[chunkRef.id] then
                         continue

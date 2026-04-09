@@ -8,6 +8,7 @@ local WorldConfig = require(game:GetService("ReplicatedStorage").Shared.WorldCon
 
 local RoadBuilder = {}
 local editableMeshSetVertexNormalSupported = nil
+local doubleSidedCapabilityWarningIssued = false
 
 local function trySetVertexNormal(mesh, vertexId, normal)
     if editableMeshSetVertexNormalSupported == false then
@@ -22,6 +23,18 @@ local function trySetVertexNormal(mesh, vertexId, normal)
     else
         editableMeshSetVertexNormalSupported = false
     end
+end
+
+local function tryEnableDoubleSided(part, builderLabel)
+    local ok, err = pcall(function()
+        part.DoubleSided = true
+    end)
+    if ok or doubleSidedCapabilityWarningIssued then
+        return ok
+    end
+    doubleSidedCapabilityWarningIssued = true
+    warn(("[%s] DoubleSided unavailable in this runtime: %s"):format(builderLabel, tostring(err)))
+    return false
 end
 
 -- Maps OSM surface tag → physical properties for road Parts and MeshParts.
@@ -1406,7 +1419,7 @@ function RoadMeshAccumulator:flush()
     part.CanCollide = self.canCollide
     part.CanQuery = self.canQuery
     part.CastShadow = true
-    part.DoubleSided = true
+    tryEnableDoubleSided(part, "RoadMeshAccumulator")
     part.CustomPhysicalProperties = self.physicsProps
     if self.role then
         part:SetAttribute("ArnisRoadSurfaceRole", self.role)
@@ -1458,7 +1471,7 @@ function RoadMeshAccumulator:flushAsParts(meshOrigin, minBound, maxBound)
     part.CanCollide = self.canCollide
     part.CanQuery = self.canQuery
     part.CastShadow = true
-    part.DoubleSided = true
+    tryEnableDoubleSided(part, "RoadMeshAccumulator")
     part.CustomPhysicalProperties = self.physicsProps
     if self.role then
         part:SetAttribute("ArnisRoadSurfaceRole", self.role)

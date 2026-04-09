@@ -1,7 +1,31 @@
 local AssetService = game:GetService("AssetService")
+local EncodingService = game:GetService("EncodingService")
 local Workspace = game:GetService("Workspace")
 
 local TerrainBuilder = {}
+
+-- Binary base64 mesh decode (shared with BuildingBuilder).
+local function decodeF32Array(b64str)
+    if type(b64str) ~= "string" or #b64str == 0 then return nil end
+    local ok, raw = pcall(function() return EncodingService:Base64Decode(b64str) end)
+    if not ok or not raw then return nil end
+    local buf = buffer.fromstring(raw)
+    local count = math.floor(buffer.len(buf) / 4)
+    local result = table.create(count)
+    for i = 0, count - 1 do result[i + 1] = buffer.readf32(buf, i * 4) end
+    return result
+end
+
+local function decodeU32Array(b64str)
+    if type(b64str) ~= "string" or #b64str == 0 then return nil end
+    local ok, raw = pcall(function() return EncodingService:Base64Decode(b64str) end)
+    if not ok or not raw then return nil end
+    local buf = buffer.fromstring(raw)
+    local count = math.floor(buffer.len(buf) / 4)
+    local result = table.create(count)
+    for i = 0, count - 1 do result[i + 1] = buffer.readu32(buf, i * 4) end
+    return result
+end
 local BUILD_PLAN_CACHE_KEY = "__terrainBuildPlan"
 local TERRAIN_WRITE_RESOLUTION = 4
 
@@ -1221,9 +1245,9 @@ function TerrainBuilder.BuildPrecomputedMesh(parent, chunk)
         return false
     end
 
-    local verts = terrainMesh.vertices
-    local tris = terrainMesh.triangles
-    local norms = terrainMesh.normals
+    local verts = decodeF32Array(terrainMesh.verticesB64) or terrainMesh.vertices
+    local tris = decodeU32Array(terrainMesh.trianglesB64) or terrainMesh.triangles
+    local norms = decodeF32Array(terrainMesh.normalsB64) or terrainMesh.normals
     if not verts or not tris or #verts < 9 or #tris < 3 then
         return false
     end

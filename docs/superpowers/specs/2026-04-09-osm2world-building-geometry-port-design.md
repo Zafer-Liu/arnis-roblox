@@ -16,7 +16,7 @@ Historical superseded tranches are summarized in:
 
 ## Goal
 
-Port osm2world's building geometry system (MIT license, Java) into our Rust `arbx_roblox_export` pipeline at full 1:1 algorithmic parity. Output flows into the existing `PrecomputedMesh` format (vertices/triangles/normals) consumed by the Lua `BuildingBuilder.lua` without any manifest or consumer format changes.
+Port osm2world's building geometry system (MIT license, Java) into our Rust `arbx_roblox_export` pipeline at full 1:1 algorithmic parity. Output flows into the existing `PrecomputedMesh` format (vertices/triangles/normals) consumed by the Lua `BuildingBuilder.lua` with one narrow manifest contract extension: `building.roofIncluded` marks when a precomputed `shellMesh` already contains roof geometry.
 
 ## Ethos
 
@@ -171,9 +171,8 @@ BuildingShell.shell_mesh = Some(combined)
 ## Backwards Compatibility
 
 - `PrecomputedMesh` struct unchanged
-- Manifest JSON schema unchanged
-- Lua `BuildingBuilder.lua` loads the same `shell_mesh` field
-- When `shell_mesh` includes roof geometry, Lua's `buildRoof()` becomes a no-op (detect via a `roofIncluded` flag or vertex count heuristic)
+- Manifest JSON schema extends only by an optional `building.roofIncluded: boolean`
+- Lua `BuildingBuilder.lua` still loads the same `shellMesh` field and now uses `roofIncluded` as the explicit contract for skipping duplicate runtime roof generation
 - When `shell_mesh` is absent (old manifests), Lua falls back to runtime generation
 
 ## Testing

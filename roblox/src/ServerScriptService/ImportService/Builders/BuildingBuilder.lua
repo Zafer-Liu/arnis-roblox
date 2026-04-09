@@ -1,12 +1,58 @@
 local AssetService = game:GetService("AssetService")
+local EncodingService = game:GetService("EncodingService")
 local Workspace = game:GetService("Workspace")
 local CollectionService = game:GetService("CollectionService")
 
 local WorldConfig = require(game:GetService("ReplicatedStorage").Shared.WorldConfig)
 local GeoUtils = require(script.Parent.Parent.GeoUtils)
 
+-- Binary mesh decode: base64 → buffer → Lua table.
+-- ~60% smaller than JSON float arrays over the wire. The Rust pipeline
+-- emits `verticesB64`, `trianglesB64`, `normalsB64` as base64-encoded
+-- little-endian binary alongside the legacy JSON arrays.
+local function decodeF32Array(b64str)
+    if type(b64str) ~= "string" or #b64str == 0 then
+        return nil
+    end
+    local ok, raw = pcall(function()
+        return EncodingService:Base64Decode(b64str)
+    end)
+    if not ok or not raw then
+        return nil
+    end
+    local buf = buffer.fromstring(raw)
+    local len = buffer.len(buf)
+    local count = math.floor(len / 4)
+    local result = table.create(count)
+    for i = 0, count - 1 do
+        result[i + 1] = buffer.readf32(buf, i * 4)
+    end
+    return result
+end
+
+local function decodeU32Array(b64str)
+    if type(b64str) ~= "string" or #b64str == 0 then
+        return nil
+    end
+    local ok, raw = pcall(function()
+        return EncodingService:Base64Decode(b64str)
+    end)
+    if not ok or not raw then
+        return nil
+    end
+    local buf = buffer.fromstring(raw)
+    local len = buffer.len(buf)
+    local count = math.floor(len / 4)
+    local result = table.create(count)
+    for i = 0, count - 1 do
+        result[i + 1] = buffer.readu32(buf, i * 4)
+    end
+    return result
+end
+
 local BuildingBuilder = {}
 local editableMeshSetVertexNormalSupported = nil
+local doubleSidedCapabilityWarningIssued = false
 
 local function markShellWallEvidence(part)
     part:SetAttribute("ArnisShellWallEvidence", true)
@@ -23,6 +69,18 @@ local function trySetModelLevelOfDetail(model, levelOfDetail)
     pcall(function()
         model.LevelOfDetail = levelOfDetail
     end)
+end
+
+local function tryEnableDoubleSided(part, builderLabel)
+    local ok, err = pcall(function()
+        part.DoubleSided = true
+    end)
+    if ok or doubleSidedCapabilityWarningIssued then
+        return ok
+    end
+    doubleSidedCapabilityWarningIssued = true
+    warn(("[%s] DoubleSided unavailable in this runtime: %s"):format(builderLabel, tostring(err)))
+    return false
 end
 
 BuildingBuilder._fillTerrainBlock = function(cf, size, material)
@@ -146,9 +204,11 @@ end
 --- originStuds = Vector3 chunk origin to convert from chunk-local to world space.
 --- Rust triangle indices are 0-based; accumulator vertex refs are 1-based.
 function MeshAccumulator:addPrecomputedMesh(meshData, originStuds)
-    local verts = meshData.vertices
-    local tris = meshData.triangles
-    local norms = meshData.normals
+    -- Prefer binary base64 encoding (60% smaller over the wire).
+    -- Falls back to legacy JSON arrays for old manifests.
+    local verts = decodeF32Array(meshData.verticesB64) or meshData.vertices
+    local tris = decodeU32Array(meshData.trianglesB64) or meshData.triangles
+    local norms = decodeF32Array(meshData.normalsB64) or meshData.normals
     if not verts or not tris or #verts < 3 or #tris < 3 then
         return
     end
@@ -381,7 +441,7 @@ function MeshAccumulator:flush()
     part.CanCollide = if self.canCollide == nil then true else self.canCollide
     part.CanQuery = if self.canQuery == nil then true else self.canQuery
     part.CastShadow = if self.castShadow == nil then true else self.castShadow
-    part.DoubleSided = true
+    tryEnableDoubleSided(part, "MeshAccumulator")
     if self.transparency ~= nil then
         part.Transparency = self.transparency
     end
@@ -451,7 +511,7 @@ function MeshAccumulator:flushAsParts()
     part.CanCollide = if self.canCollide == nil then true else self.canCollide
     part.CanQuery = if self.canQuery == nil then true else self.canQuery
     part.CastShadow = if self.castShadow == nil then true else self.castShadow
-    part.DoubleSided = true
+    tryEnableDoubleSided(part, "MeshAccumulator")
     if self.transparency ~= nil then
         part.Transparency = self.transparency
     end

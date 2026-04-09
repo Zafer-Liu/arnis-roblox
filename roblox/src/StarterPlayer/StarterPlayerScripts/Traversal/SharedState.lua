@@ -287,6 +287,7 @@ S.transitionLock = false
 -- Shared per-frame cached input
 S.frameGamepad = nil
 S.lastPublishedClientTelemetry = {}
+S.lastPublishedClientTelemetrySubject = nil
 
 S.camTargetFOV = S.DEFAULT_FOV
 
@@ -380,41 +381,50 @@ end
 function S.publishClientCameraTelemetry(humanoid)
     local camera = S.getCamera()
     local subject = camera and camera.CameraSubject or nil
-    local telemetry = {
-        ArnisClientCameraType = camera and tostring(camera.CameraType) or nil,
-        ArnisClientCameraSubject = subject and subject:GetFullName() or nil,
-        ArnisClientCameraSubjectClass = subject and subject.ClassName or nil,
-        ArnisClientCameraMode = S.mode,
-    }
-    local telemetryChanged = false
+    local cameraType = camera and tostring(camera.CameraType) or nil
+    local cameraSubjectClass = subject and subject.ClassName or nil
+    local cameraMode = S.mode
+    local humanoidState = humanoid and tostring(humanoid:GetState()) or nil
+    local subjectChanged = S.lastPublishedClientTelemetrySubject ~= subject
+    local cameraTelemetryChanged = subjectChanged
+        or S.lastPublishedClientTelemetry.ArnisClientCameraType ~= cameraType
+        or S.lastPublishedClientTelemetry.ArnisClientCameraSubjectClass ~= cameraSubjectClass
+        or S.lastPublishedClientTelemetry.ArnisClientCameraMode ~= cameraMode
+    local humanoidStateChanged = S.lastPublishedClientTelemetry.ArnisClientHumanoidState ~= humanoidState
 
-    player:SetAttribute("ArnisVehicleControllerReady", true)
+    S.setPlayerAttributeIfChanged("ArnisVehicleControllerReady", true)
+
+    if not (cameraTelemetryChanged or humanoidStateChanged) then
+        return
+    end
+
+    local cameraSubjectName = S.lastPublishedClientTelemetry.ArnisClientCameraSubject
+    if subjectChanged then
+        cameraSubjectName = subject and subject:GetFullName() or nil
+    end
+
+    local telemetry = {
+        ArnisClientCameraType = cameraType,
+        ArnisClientCameraSubject = cameraSubjectName,
+        ArnisClientCameraSubjectClass = cameraSubjectClass,
+        ArnisClientCameraMode = cameraMode,
+    }
 
     for attributeName, nextValue in pairs(telemetry) do
-        if S.lastPublishedClientTelemetry[attributeName] ~= nextValue then
-            S.setPlayerAttributeIfChanged(attributeName, nextValue)
-            S.lastPublishedClientTelemetry[attributeName] = nextValue
-            telemetryChanged = true
-        end
+        S.setPlayerAttributeIfChanged(attributeName, nextValue)
+        S.lastPublishedClientTelemetry[attributeName] = nextValue
     end
+    S.setPlayerAttributeIfChanged("ArnisClientHumanoidState", humanoidState)
+    S.lastPublishedClientTelemetry.ArnisClientHumanoidState = humanoidState
+    S.lastPublishedClientTelemetrySubject = subject
 
-    local humanoidState = humanoid and tostring(humanoid:GetState()) or nil
-    if S.lastPublishedClientTelemetry.ArnisClientHumanoidState ~= humanoidState then
-        local nextValue = humanoidState
-        S.setPlayerAttributeIfChanged("ArnisClientHumanoidState", nextValue)
-        S.lastPublishedClientTelemetry.ArnisClientHumanoidState = nextValue
-        telemetryChanged = true
-    end
-
-    if telemetryChanged then
-        print("ARNIS_CLIENT_CAMERA " .. HttpService:JSONEncode({
-            mode = telemetry.ArnisClientCameraMode,
-            cameraType = telemetry.ArnisClientCameraType,
-            cameraSubject = telemetry.ArnisClientCameraSubject,
-            cameraSubjectClass = telemetry.ArnisClientCameraSubjectClass,
-            humanoidState = humanoidState,
-        }))
-    end
+    print("ARNIS_CLIENT_CAMERA " .. HttpService:JSONEncode({
+        mode = cameraMode,
+        cameraType = cameraType,
+        cameraSubject = cameraSubjectName,
+        cameraSubjectClass = cameraSubjectClass,
+        humanoidState = humanoidState,
+    }))
 end
 
 -- Sound assets from Roblox library

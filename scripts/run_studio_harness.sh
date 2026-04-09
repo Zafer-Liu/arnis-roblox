@@ -4327,7 +4327,10 @@ PY
     waited=$((waited + 1))
   done
 
-  wait "$probe_pid"
+  if wait "$probe_pid"; then
+    PLAY_PROBE_MCP_LAST_RESULT="authoritative"
+    return 0
+  fi
   local probe_status=$?
   if [[ $probe_status -eq 0 ]]; then
     PLAY_PROBE_MCP_LAST_RESULT="authoritative"
@@ -4815,15 +4818,16 @@ PY
 }
 
 summarize_log() {
+  local authoritative_source="$ACTIVE_LOG"
   local summary_source="$ACTIVE_LOG"
   if [[ -n "$LOG_SLICE_FILE" && -f "$LOG_SLICE_FILE" ]]; then
     summary_source="$LOG_SLICE_FILE"
   fi
-  log_effective_play_camera_state "$summary_source"
-  log_effective_play_minimap_state "$summary_source"
-  log_effective_play_world_state "$summary_source"
-  log_effective_play_local_experience_state "$summary_source"
-  log_effective_play_perf_state "$summary_source"
+  log_effective_play_camera_state "$authoritative_source"
+  log_effective_play_minimap_state "$authoritative_source"
+  log_effective_play_world_state "$authoritative_source"
+  log_effective_play_local_experience_state "$authoritative_source"
+  log_effective_play_perf_state "$authoritative_source"
   log "summary from $(basename "$ACTIVE_LOG")"
   grep -E "TestEZ tests complete|PASS |FAIL |Tests failed|BootstrapAustin|RunAustin|AustinPreviewBuilder|ArnisRoblox|VertigoSync|RunAll|Austin anchor|anchor resolved|ARNIS_CLIENT_BOOTSTRAP|ARNIS_CLIENT_WORLD_COMPACT|ARNIS_CLIENT_WORLD|ARNIS_CLIENT_LOCAL_EXPERIENCE|ARNIS_CLIENT_CAMERA|ARNIS_CLIENT_MINIMAP|ARNIS_CLIENT_PERF|ARNIS_MCP_PLAY|ARNIS_MCP_PLAY_LATE|ARNIS_MCP_PLAY_SCENE_VALIDATED|ARNIS_MCP_EDIT|ARNIS_SCENE_EDIT|ARNIS_SCENE_PLAY|\\[harness-mcp\\]" "$summary_source" | tail -n 260 || true
 }
@@ -5508,9 +5512,9 @@ run_filtered_play_only_non_preview_proof() {
 }
 
 if [[ $ATTACHED_TO_EXISTING_STUDIO -eq 1 && $ATTACHED_SESSION_ALREADY_PLAYING -eq 1 ]]; then
+  run_probe_best_effort "play" 8
   log "capturing attached play screenshot"
   capture_studio_screenshot "play"
-  run_probe_best_effort "play" 8
   validate_play_bootstrap_trace "$ACTIVE_LOG"
 elif [[ $DO_PLAY -eq 1 ]]; then
   play_probe_completed_via_mcp=0
@@ -5577,8 +5581,8 @@ elif [[ $DO_PLAY -eq 1 ]]; then
   else
     run_probe_best_effort "play" 8
   fi
-  validate_play_bootstrap_trace "$ACTIVE_LOG"
   capture_studio_screenshot "play"
+  validate_play_bootstrap_trace "$ACTIVE_LOG"
   stop_play_mode || true
 fi
 

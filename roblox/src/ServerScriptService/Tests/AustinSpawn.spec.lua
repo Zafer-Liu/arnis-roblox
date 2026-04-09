@@ -296,6 +296,67 @@ return function()
     )
     Assert.near(roofOnlyHazardSpawn.Z, 0, 0.001, "expected roof-only hazard avoidance to preserve the open-road midpoint Z")
 
+    local coherentEnvelopeManifest = {
+        meta = {
+            chunkSizeStuds = 256,
+        },
+        chunks = {
+            {
+                id = "0_0",
+                originStuds = { x = 0, y = 0, z = 0 },
+                roads = {
+                    {
+                        kind = "service",
+                        points = {
+                            { x = 0, y = 0, z = 0 },
+                            { x = 40, y = 0, z = 0 },
+                        },
+                    },
+                    {
+                        kind = "service",
+                        points = {
+                            { x = 120, y = 0, z = 0 },
+                            { x = 160, y = 0, z = 0 },
+                        },
+                    },
+                    {
+                        kind = "service",
+                        points = {
+                            { x = 240, y = 0, z = 0 },
+                            { x = 280, y = 0, z = 0 },
+                        },
+                    },
+                },
+                buildings = {
+                    {
+                        baseY = 0,
+                        height = 24,
+                        footprint = {
+                            { x = 70, z = 96 },
+                            { x = 150, z = 96 },
+                            { x = 150, z = 144 },
+                            { x = 70, z = 144 },
+                        },
+                    },
+                },
+            },
+        },
+    }
+
+    local coherentEnvelopeSpawn = AustinSpawn.findSpawnPoint(coherentEnvelopeManifest, 500, Vector3.new(20, 0, 0))
+    Assert.near(
+        coherentEnvelopeSpawn.X,
+        140,
+        0.001,
+        "expected runtime spawn to prefer a road that stays clear of the building footprint while remaining close enough to the surrounding building envelope"
+    )
+    Assert.near(
+        coherentEnvelopeSpawn.Z,
+        0,
+        0.001,
+        "expected coherent-envelope preference to keep the mid-road spawn Z"
+    )
+
     local tallBuildingManifest = {
         meta = {
             chunkSizeStuds = 256,
@@ -490,6 +551,32 @@ return function()
 
     local defaultLookTarget = AustinSpawn.getPreferredLookTarget(canonicalAustinManifest, canonicalSpawn, canonicalSpawn)
     Assert.truthy(defaultLookTarget.Z > canonicalSpawn.Z, "expected canonical Austin default facing direction to point south")
+
+    local liveAustinManifest = {
+        meta = {
+            chunkSizeStuds = 256,
+            worldName = "Austin",
+        },
+        chunks = canonicalAustinManifest.chunks,
+    }
+
+    local liveAustinAnchor = AustinSpawn.resolveRuntimeAnchor(liveAustinManifest, 500)
+    Assert.near(
+        liveAustinAnchor.focusPoint.X,
+        -6.0854,
+        0.001,
+        "expected live Austin manifest without explicit canonicalAnchor to fall back to the canonical downtown anchor X"
+    )
+    Assert.near(
+        liveAustinAnchor.focusPoint.Z,
+        -208.371,
+        0.001,
+        "expected live Austin manifest without explicit canonicalAnchor to fall back to the canonical downtown anchor Z"
+    )
+    Assert.truthy(
+        liveAustinAnchor.lookTarget.Z > liveAustinAnchor.spawnPoint.Z,
+        "expected live Austin fallback anchor to preserve the canonical south-facing look direction"
+    )
 
     local canonicalAustinWithNearbyBuildings = {
         meta = canonicalAustinManifest.meta,

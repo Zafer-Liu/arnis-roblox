@@ -3,6 +3,7 @@ local AustinSpawn = require(script.Parent.AustinSpawn)
 local CanonicalWorldContract = require(script.Parent.CanonicalWorldContract)
 local Profiler = require(script.Parent.Profiler)
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local RunService = game:GetService("RunService")
 local Workspace = game:GetService("Workspace")
 local DefaultWorldConfig = require(ReplicatedStorage.Shared.WorldConfig)
 local StreamingRuntimeConfig = require(ReplicatedStorage.Shared.StreamingRuntimeConfig)
@@ -156,7 +157,15 @@ function RunAustin.run(options)
     options = options or {}
     local runtimeWorldConfig = options.config
     if type(runtimeWorldConfig) ~= "table" then
-        runtimeWorldConfig = StreamingRuntimeConfig.Resolve(DefaultWorldConfig)
+        local runtimeConfigSource = DefaultWorldConfig
+        if not RunService:IsStudio() then
+            local configuredProfile = DefaultWorldConfig.StreamingProfile
+            if type(configuredProfile) ~= "string" or configuredProfile == "" or configuredProfile == "local_dev" then
+                runtimeConfigSource = table.clone(DefaultWorldConfig)
+                runtimeConfigSource.StreamingProfile = "production_server"
+            end
+        end
+        runtimeWorldConfig = StreamingRuntimeConfig.Resolve(runtimeConfigSource)
     end
     setPerfAttribute("Status", "loading")
     reportPhase(options, "loading_manifest")

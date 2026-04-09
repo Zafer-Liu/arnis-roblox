@@ -245,10 +245,33 @@ pub fn build_terrain_mesh(
 
 impl TerrainMesh {
     /// Write this mesh as a JSON object into the manifest serialiser.
+    /// Emits both base64 binary (compact) and legacy JSON arrays (backwards compat).
     pub fn write_json(&self, out: &mut String, indent: usize) {
+        use base64::Engine;
+
         write_indent(out, indent);
         out.push_str("{\n");
 
+        // Base64 binary encoding (60% smaller than JSON arrays).
+        let vert_bytes: Vec<u8> = self.vertices.iter().flat_map(|v| v.to_le_bytes()).collect();
+        write_indent(out, indent + 2);
+        out.push_str("\"verticesB64\": \"");
+        out.push_str(&base64::engine::general_purpose::STANDARD.encode(&vert_bytes));
+        out.push_str("\",\n");
+
+        let tri_bytes: Vec<u8> = self.triangles.iter().flat_map(|v| v.to_le_bytes()).collect();
+        write_indent(out, indent + 2);
+        out.push_str("\"trianglesB64\": \"");
+        out.push_str(&base64::engine::general_purpose::STANDARD.encode(&tri_bytes));
+        out.push_str("\",\n");
+
+        let norm_bytes: Vec<u8> = self.normals.iter().flat_map(|v| v.to_le_bytes()).collect();
+        write_indent(out, indent + 2);
+        out.push_str("\"normalsB64\": \"");
+        out.push_str(&base64::engine::general_purpose::STANDARD.encode(&norm_bytes));
+        out.push_str("\",\n");
+
+        // Legacy JSON arrays (backwards compat — remove once all consumers use B64).
         write_indent(out, indent + 2);
         out.push_str("\"vertices\": [");
         for (i, v) in self.vertices.iter().enumerate() {
