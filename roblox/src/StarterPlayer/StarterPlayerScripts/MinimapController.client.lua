@@ -30,11 +30,24 @@ local COLORS = table.freeze({
     background = { 30, 35, 45, 255 },
     road = { 255, 255, 255, 255 },
     road_minor = { 220, 220, 220, 255 },
+    rail = { 120, 90, 70, 255 },
     building = { 210, 200, 185, 255 },
+    building_residential = { 220, 190, 170, 255 },
+    building_commercial = { 200, 205, 215, 255 },
+    building_industrial = { 170, 165, 155, 255 },
+    building_civic = { 225, 210, 180, 255 },
     water = { 170, 210, 240, 255 },
     park = { 180, 220, 170, 255 },
+    grass = { 200, 225, 175, 255 },
     forest = { 140, 190, 140, 255 },
+    farmland = { 225, 215, 170, 255 },
     parking = { 230, 225, 215, 255 },
+    cemetery = { 175, 190, 175, 255 },
+    residential_zone = { 240, 230, 215, 255 },
+    commercial_zone = { 225, 220, 235, 255 },
+    industrial_zone = { 210, 205, 195, 255 },
+    sand = { 240, 225, 180, 255 },
+    barrier = { 120, 115, 110, 255 },
     player = { 65, 130, 240, 255 },
     player_dir = { 65, 130, 240, 200 },
     border = { 50, 55, 65, 255 },
@@ -350,11 +363,66 @@ end
 local LANDUSE_COLOR_BY_KIND = table.freeze({
     forest = COLORS.forest,
     wood = COLORS.forest,
+    tree = COLORS.forest,
+    grass = COLORS.grass,
+    meadow = COLORS.grass,
+    recreation_ground = COLORS.grass,
+    village_green = COLORS.grass,
+    garden = COLORS.grass,
+    park = COLORS.park,
+    nature_reserve = COLORS.park,
+    farmland = COLORS.farmland,
+    farmyard = COLORS.farmland,
+    orchard = COLORS.farmland,
+    vineyard = COLORS.farmland,
+    cemetery = COLORS.cemetery,
+    graveyard = COLORS.cemetery,
     parking = COLORS.parking,
+    sand = COLORS.sand,
+    beach = COLORS.sand,
+    residential = COLORS.residential_zone,
+    commercial = COLORS.commercial_zone,
+    retail = COLORS.commercial_zone,
+    industrial = COLORS.industrial_zone,
+    construction = COLORS.industrial_zone,
+    brownfield = COLORS.industrial_zone,
+})
+
+local BUILDING_COLOR_BY_KIND = table.freeze({
+    residential = COLORS.building_residential,
+    house = COLORS.building_residential,
+    apartments = COLORS.building_residential,
+    dormitory = COLORS.building_residential,
+    commercial = COLORS.building_commercial,
+    retail = COLORS.building_commercial,
+    office = COLORS.building_commercial,
+    hotel = COLORS.building_commercial,
+    industrial = COLORS.building_industrial,
+    warehouse = COLORS.building_industrial,
+    factory = COLORS.building_industrial,
+    civic = COLORS.building_civic,
+    public = COLORS.building_civic,
+    government = COLORS.building_civic,
+    school = COLORS.building_civic,
+    university = COLORS.building_civic,
+    hospital = COLORS.building_civic,
+    church = COLORS.building_civic,
+    religious = COLORS.building_civic,
 })
 
 local function landuseColor(kind)
     return LANDUSE_COLOR_BY_KIND[kind] or COLORS.park
+end
+
+local function buildingColor(building)
+    -- Prefer server-provided wallColor (quantized RGB from the OSM
+    -- material) if present; fall back to kind → color; final fallback
+    -- is the flat building hue.
+    local wall = building.wallColor
+    if wall and wall.r and wall.g and wall.b then
+        return { wall.r, wall.g, wall.b, 255 }
+    end
+    return BUILDING_COLOR_BY_KIND[building.kind] or COLORS.building
 end
 
 local function drawChunkLanduse(chunk, ox, oz, camX, camZ)
@@ -399,7 +467,44 @@ local function drawChunkBuildings(chunk, ox, oz, camX, camZ)
     for _, building in ipairs(chunk.buildings or {}) do
         local fp = building.footprint
         if fp and #fp >= 3 then
-            drawFilledPolygon(footprintToPixelPoints(fp, ox, oz, camX, camZ), COLORS.building)
+            drawFilledPolygon(
+                footprintToPixelPoints(fp, ox, oz, camX, camZ),
+                buildingColor(building)
+            )
+        end
+    end
+end
+
+-- Railway tracks: drawn as 2px wide brown lines so the minimap shows
+-- the transit grid clearly. Same polyline shape as roads.
+local function drawChunkRails(chunk, ox, oz, camX, camZ)
+    for _, rail in ipairs(chunk.rails or {}) do
+        local points = rail.points
+        if points then
+            for i = 1, #points - 1 do
+                local p1 = points[i]
+                local p2 = points[i + 1]
+                local px1, py1 = worldToPixel(p1.x + ox, p1.z + oz, camX, camZ)
+                local px2, py2 = worldToPixel(p2.x + ox, p2.z + oz, camX, camZ)
+                drawLine(px1, py1, px2, py2, COLORS.rail, 2)
+            end
+        end
+    end
+end
+
+-- Walls, fences, and linear barriers. Draw as 1px dark grey lines so
+-- they're visible but don't dominate the map.
+local function drawChunkBarriers(chunk, ox, oz, camX, camZ)
+    for _, barrier in ipairs(chunk.barriers or {}) do
+        local points = barrier.points
+        if points then
+            for i = 1, #points - 1 do
+                local p1 = points[i]
+                local p2 = points[i + 1]
+                local px1, py1 = worldToPixel(p1.x + ox, p1.z + oz, camX, camZ)
+                local px2, py2 = worldToPixel(p2.x + ox, p2.z + oz, camX, camZ)
+                drawLine(px1, py1, px2, py2, COLORS.barrier, 1)
+            end
         end
     end
 end
@@ -438,8 +543,9 @@ local function drawChunkRoads(chunk, ox, oz, camX, camZ, activeRadius)
     end
 end
 
--- Painter's order preserved: landuse -> water -> buildings -> roads, matching
--- the pre-split rendering loop exactly.
+-- Painter's order: landuse (ground fills) → water → buildings →
+-- barriers (drawn BEFORE roads so walls don't overlap road ink) →
+-- rails → roads (roads on top for navigation clarity).
 local function drawChunk(chunk, camX, camZ, activeRadius)
     local origin = chunk.originStuds
     local ox = (origin and origin.x) or 0
@@ -447,6 +553,8 @@ local function drawChunk(chunk, camX, camZ, activeRadius)
     drawChunkLanduse(chunk, ox, oz, camX, camZ)
     drawChunkWater(chunk, ox, oz, camX, camZ, activeRadius)
     drawChunkBuildings(chunk, ox, oz, camX, camZ)
+    drawChunkBarriers(chunk, ox, oz, camX, camZ)
+    drawChunkRails(chunk, ox, oz, camX, camZ)
     drawChunkRoads(chunk, ox, oz, camX, camZ, activeRadius)
 end
 

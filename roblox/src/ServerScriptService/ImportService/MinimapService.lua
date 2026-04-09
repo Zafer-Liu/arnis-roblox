@@ -46,8 +46,19 @@ end
 local function copyBuildings(buildings)
     local result = table.create(#(buildings or {}))
     for index, building in ipairs(buildings or {}) do
+        -- Building metadata beyond footprint lets the minimap colour
+        -- buildings by kind / wall color / height rather than a single
+        -- flat "building" hue. Previously the feed was footprint-only,
+        -- so every building rendered identically and the minimap
+        -- looked jagged and unvaried.
+        local wallColor = building.wallColor
         result[index] = {
             footprint = copyPoints(building.footprint),
+            kind = building.kind or building.usage or nil,
+            height = building.height or nil,
+            wallColor = type(wallColor) == "table"
+                and { r = wallColor.r, g = wallColor.g, b = wallColor.b }
+                or nil,
         }
     end
     return result
@@ -57,9 +68,39 @@ local function copyWater(water)
     local result = table.create(#(water or {}))
     for index, entry in ipairs(water or {}) do
         result[index] = {
+            kind = entry.kind,
             footprint = copyPoints(entry.footprint),
             points = copyPoints(entry.points),
             widthStuds = entry.widthStuds,
+        }
+    end
+    return result
+end
+
+-- Railway tracks as a first-class minimap layer. The chunk data
+-- carries `rails[]` with the same point-list shape as roads; publishing
+-- them here lets the controller draw a distinct color so transit maps
+-- actually show the rail network.
+local function copyRails(rails)
+    local result = table.create(#(rails or {}))
+    for index, rail in ipairs(rails or {}) do
+        result[index] = {
+            kind = rail.kind,
+            widthStuds = rail.widthStuds,
+            points = copyPoints(rail.points),
+        }
+    end
+    return result
+end
+
+-- Walls, fences, and other linear barriers. Same shape as roads.
+local function copyBarriers(barriers)
+    local result = table.create(#(barriers or {}))
+    for index, barrier in ipairs(barriers or {}) do
+        result[index] = {
+            kind = barrier.kind,
+            widthStuds = barrier.widthStuds,
+            points = copyPoints(barrier.points),
         }
     end
     return result
@@ -75,8 +116,10 @@ local function buildChunkSnapshot(chunkData)
         },
         landuse = copyLanduse(chunkData.landuse),
         roads = copyRoads(chunkData.roads),
+        rails = copyRails(chunkData.rails),
         buildings = copyBuildings(chunkData.buildings),
         water = copyWater(chunkData.water),
+        barriers = copyBarriers(chunkData.barriers),
     }
 end
 

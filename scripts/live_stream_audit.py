@@ -153,11 +153,24 @@ class AssertionFailure:
 PerRecordCheck = Callable[[Dict[str, Any], AuditConfig], Optional[Tuple[str, str]]]
 
 
+# Status values that count as a successful bootstrap. "success" is the
+# canonical value; "success_post_walk" is emitted by HarnessWalkPath
+# after the scripted walk completes and re-reports the flicker
+# aggregates (see ServerScriptService/HarnessWalkPath.server.lua).
+SUCCESS_STATUSES = frozenset({"success", "success_post_walk"})
+
+# Status values that represent a re-report of a previously-successful
+# bootstrap (as opposed to a fresh bootstrap). These records carry a
+# chunksImported=0 by design because the re-report is just a telemetry
+# refresh, not a new import run. Skip min_chunks on these.
+POST_REPORT_STATUSES = frozenset({"success_post_walk"})
+
+
 def check_bootstrap_status(record: Dict[str, Any], cfg: AuditConfig) -> Optional[Tuple[str, str]]:
     if cfg.allow_failures:
         return None
     status = _safe_get(record, ("bootstrap", "status"))
-    if status != "success":
+    if status not in SUCCESS_STATUSES:
         err = _safe_get(record, ("bootstrap", "errorMessage")) or "<no errorMessage>"
         return ("bootstrap_status", f"status={status!r} errorMessage={err!r}")
     return None
@@ -229,6 +242,13 @@ def check_chunk_slowest_latency(
 
 
 def check_min_chunks(record: Dict[str, Any], cfg: AuditConfig) -> Optional[Tuple[str, str]]:
+    # Post-walk re-reports carry chunksImported=0 by design — the walk
+    # script only fires TelemetryReporter.Report to refresh the flicker
+    # aggregate, not to announce a new import run. Skip the min_chunks
+    # check on those records so the audit doesn't flag them as broken.
+    status = _safe_get(record, ("bootstrap", "status"))
+    if status in POST_REPORT_STATUSES:
+        return None
     chunks = _safe_get(record, ("import", "chunksImported"))
     if chunks is None:
         return ("min_chunks", "missing import.chunksImported")
@@ -389,7 +409,9 @@ def compute_stats(records: Sequence[Dict[str, Any]]) -> Dict[str, Any]:
         }
 
     success = sum(
-        1 for r in records if _safe_get(r, ("bootstrap", "status")) == "success"
+        1
+        for r in records
+        if _safe_get(r, ("bootstrap", "status")) in SUCCESS_STATUSES
     )
     total = len(records)
     failure = total - success

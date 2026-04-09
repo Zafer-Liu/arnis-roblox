@@ -71,6 +71,23 @@ local loadedChunkLods = {}
 -- LOD chunks must never be allowed to compete with near-ring full-detail
 -- chunks for the same memory dollars.
 local loadedChunkRings = {}
+-- Chunk not-desired hysteresis: chunkId -> os.clock() timestamp of the
+-- FIRST tick that chunk transitioned from desired to not-desired. While
+-- a chunk is still in the desired set the stamp is cleared. Only when
+-- the stamp age exceeds STREAMING_EVICTION_COOLDOWN_SECONDS does the
+-- not-desired sweep actually unload the chunk.
+--
+-- Why: a moving player crosses chunk boundaries repeatedly, and on each
+-- recompute the "just left" chunks flip to not-desired for one tick
+-- before the next recompute brings them back. Without hysteresis the
+-- sweep unloads them immediately → next tick re-imports them → visible
+-- flicker (admit/evict churn). The client_flicker telemetry family
+-- measures this as chunkThrashCount; the walk harness captured 88
+-- thrashes per 25s walk before this cooldown landed. A 3s window is
+-- enough to absorb the typical re-desire bounce without inflating
+-- steady-state memory use for a chunk that's truly left behind.
+local chunkFirstNotDesiredAt = {}
+local STREAMING_EVICTION_COOLDOWN_SECONDS = 3.0
 -- Registry of chunkId -> building LOD level at which chunk geometry was imported
 local importedBuildingLodById = {}
 -- Registry of chunkId -> true while an import work item is queued/in-flight.
@@ -2687,6 +2704,7 @@ function StreamingService.Stop()
     table.clear(streamingResidentEstimatedCostById)
     loadedChunkLods = {}
     loadedChunkRings = {}
+    chunkFirstNotDesiredAt = {}
     importedBuildingLodById = {}
     inflightChunkImports = {}
     lodUpgradeCount = 0
@@ -3458,27 +3476,49 @@ function StreamingService.Update(focalPoint)
             end
         end
 
+        local sweepNow = os.clock()
         for chunkId, _ in pairs(loadedChunkLods) do
-            if not desiredChunkIds[chunkId] then
-                local resolvedEvictionReason = "not_desired_for_ring_budget"
-                local chunkRef = streamingChunkRefsById and streamingChunkRefsById[chunkId] or nil
-                if chunkRef ~= nil then
-                    local chunkFootprintDistanceSq =
-                        ChunkPriority.GetChunkFootprintDistanceSq(chunkRef, playerPos, chunkSizeStuds)
-                    if chunkFootprintDistanceSq > targetExitRadiusSq then
-                        resolvedEvictionReason = "outside_target_radius"
-                    end
+            if desiredChunkIds[chunkId] then
+                -- Chunk is desired again (or still desired) — clear any
+                -- lingering not-desired stamp. This resets the cooldown
+                -- so a chunk that flaps in and out many times doesn't
+                -- accumulate credit toward eviction.
+                if chunkFirstNotDesiredAt[chunkId] ~= nil then
+                    chunkFirstNotDesiredAt[chunkId] = nil
                 end
-                ChunkLoader.UnloadChunk(chunkId, nil, streamingOptions.worldRootName)
-                ImportService.ResetSubplanState(chunkId, streamingOptions.worldRootName)
-                evictedEstimatedCost += getResidentEstimatedCostForChunkId(chunkId)
-                evictedChunkCount += 1
-                clearResidentEstimatedCostForChunk(chunkId)
-                loadedChunkLods[chunkId] = nil
-                loadedChunkRings[chunkId] = nil
-                importedBuildingLodById[chunkId] = nil
-                inflightChunkImports[chunkId] = nil
-                lastEvictionReason = resolvedEvictionReason
+            else
+                local firstSeenAt = chunkFirstNotDesiredAt[chunkId]
+                if firstSeenAt == nil then
+                    -- First tick this chunk dropped out of the desired
+                    -- set. Stamp it and DO NOT evict yet — give the
+                    -- player a chance to cross back over the boundary
+                    -- and re-desire it. Without this grace period, a
+                    -- moving player thrashes chunks at ~88 admits+evicts
+                    -- per 25s walk (captured via client_flicker telemetry).
+                    chunkFirstNotDesiredAt[chunkId] = sweepNow
+                elseif sweepNow - firstSeenAt >= STREAMING_EVICTION_COOLDOWN_SECONDS then
+                    local resolvedEvictionReason = "not_desired_for_ring_budget"
+                    local chunkRef = streamingChunkRefsById and streamingChunkRefsById[chunkId] or nil
+                    if chunkRef ~= nil then
+                        local chunkFootprintDistanceSq =
+                            ChunkPriority.GetChunkFootprintDistanceSq(chunkRef, playerPos, chunkSizeStuds)
+                        if chunkFootprintDistanceSq > targetExitRadiusSq then
+                            resolvedEvictionReason = "outside_target_radius"
+                        end
+                    end
+                    ChunkLoader.UnloadChunk(chunkId, nil, streamingOptions.worldRootName)
+                    ImportService.ResetSubplanState(chunkId, streamingOptions.worldRootName)
+                    evictedEstimatedCost += getResidentEstimatedCostForChunkId(chunkId)
+                    evictedChunkCount += 1
+                    clearResidentEstimatedCostForChunk(chunkId)
+                    loadedChunkLods[chunkId] = nil
+                    loadedChunkRings[chunkId] = nil
+                    importedBuildingLodById[chunkId] = nil
+                    inflightChunkImports[chunkId] = nil
+                    chunkFirstNotDesiredAt[chunkId] = nil
+                    lastEvictionReason = resolvedEvictionReason
+                end
+                -- else: still in cooldown window → skip eviction this tick
             end
         end
 
