@@ -351,26 +351,35 @@ impl StyleMapper {
         serde_json::from_str(json).map_err(|e| format!("Failed to parse palette: {}", e))
     }
 
-    fn get_entry<'a>(map: &'a HashMap<String, StyleEntry>, key: &str) -> &'a StyleEntry {
+    fn get_entry_material(map: &HashMap<String, StyleEntry>, key: &str) -> String {
         map.get(key)
             .or_else(|| map.get("default"))
-            .unwrap_or_else(|| map.values().next().expect("empty style map"))
+            .or_else(|| map.values().next())
+            .map(|e| e.material.clone())
+            .unwrap_or_else(|| "Concrete".to_string())
+    }
+
+    fn get_entry_color(map: &HashMap<String, StyleEntry>, key: &str) -> Option<Color> {
+        map.get(key)
+            .or_else(|| map.get("default"))
+            .or_else(|| map.values().next())
+            .and_then(|e| parse_hex(&e.color))
     }
 
     pub fn get_terrain_material(&self, tag: &str) -> String {
-        Self::get_entry(&self.terrain, tag).material.clone()
+        Self::get_entry_material(&self.terrain, tag)
     }
 
     pub fn get_terrain_color(&self, tag: &str) -> Option<Color> {
-        parse_hex(&Self::get_entry(&self.terrain, tag).color)
+        Self::get_entry_color(&self.terrain, tag)
     }
 
     pub fn get_road_material(&self, kind: &str) -> String {
-        Self::get_entry(&self.roads, kind).material.clone()
+        Self::get_entry_material(&self.roads, kind)
     }
 
     pub fn get_road_color(&self, kind: &str) -> Option<Color> {
-        parse_hex(&Self::get_entry(&self.roads, kind).color)
+        Self::get_entry_color(&self.roads, kind)
     }
 
     pub fn get_building_material(&self, kind: &str) -> String {
@@ -379,7 +388,7 @@ impl StyleMapper {
                 return mat.to_string();
             }
         }
-        Self::get_entry(&self.buildings, kind).material.clone()
+        Self::get_entry_material(&self.buildings, kind)
     }
 
     pub fn get_building_color(&self, kind: &str) -> Option<Color> {
@@ -388,7 +397,7 @@ impl StyleMapper {
                 return Some(color);
             }
         }
-        parse_hex(&Self::get_entry(&self.buildings, kind).color)
+        Self::get_entry_color(&self.buildings, kind)
     }
 
     /// Returns the regional style's preferred roof material, if any.
@@ -410,11 +419,11 @@ impl StyleMapper {
     }
 
     pub fn get_prop_material(&self, kind: &str) -> String {
-        Self::get_entry(&self.props, kind).material.clone()
+        Self::get_entry_material(&self.props, kind)
     }
 
     pub fn get_prop_color(&self, kind: &str) -> Option<Color> {
-        parse_hex(&Self::get_entry(&self.props, kind).color)
+        Self::get_entry_color(&self.props, kind)
     }
 }
 

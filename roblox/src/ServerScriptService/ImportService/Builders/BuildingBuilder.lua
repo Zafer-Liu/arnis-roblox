@@ -229,17 +229,15 @@ function MeshAccumulator:addPrecomputedMesh(meshData, originStuds)
     -- present when the building has an atlas_uv and multi-story windowed walls.
     local meshUvs = meshData.uvs
     local meshUvsLen = if meshUvs then #meshUvs else 0
+    -- Accept both JSON-decoded manifest origins (lowercase {x,y,z}) and
+    -- Roblox Vector3 origins (uppercase {X,Y,Z}). Declared once before
+    -- the fast/oversized branch so both paths share the same values.
+    local ox = originStuds.X or originStuds.x or 0
+    local oy = originStuds.Y or originStuds.y or 0
+    local oz = originStuds.Z or originStuds.z or 0
     -- If the entire precomputed mesh fits alongside existing buffered data, fast path.
     if self.triangleCount + triCount <= self.MAX_TRIANGLES then
         local base = self.vertexCount
-        -- Accept both JSON-decoded manifest origins (lowercase {x,y,z}) and
--- Roblox Vector3 origins (uppercase {X,Y,Z}). The external_url lazy
--- fetcher passes chunk.originStuds through from the manifest JSON
--- without going through the Vector3 conversion step that the legacy
--- embedded SampleData path used to do.
-local ox = originStuds.X or originStuds.x or 0
-local oy = originStuds.Y or originStuds.y or 0
-local oz = originStuds.Z or originStuds.z or 0
         local vertices = self.vertices
         local normalsArr = self.normals
         local triangles = self.triangles
@@ -294,12 +292,7 @@ local oz = originStuds.Z or originStuds.z or 0
     self:flush()
     -- Accept both JSON-decoded manifest origins (lowercase {x,y,z}) and
 -- Roblox Vector3 origins (uppercase {X,Y,Z}). The external_url lazy
--- fetcher passes chunk.originStuds through from the manifest JSON
--- without going through the Vector3 conversion step that the legacy
--- embedded SampleData path used to do.
-local ox = originStuds.X or originStuds.x or 0
-local oy = originStuds.Y or originStuds.y or 0
-local oz = originStuds.Z or originStuds.z or 0
+    -- ox/oy/oz already declared above the branch — reuse them here.
     local maxTrisPerBatch = self.MAX_TRIANGLES
     for batchStart = 1, trisLen, maxTrisPerBatch * 3 do
         local batchEnd = math.min(batchStart + maxTrisPerBatch * 3 - 1, trisLen)

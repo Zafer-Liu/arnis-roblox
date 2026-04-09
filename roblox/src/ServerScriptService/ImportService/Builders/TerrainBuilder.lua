@@ -31,7 +31,21 @@ local TERRAIN_WRITE_RESOLUTION = 4
 
 -- Budget tracker for satellite overlay EditableImages.
 -- 512x512 RGBA = 1MB each; 10 chunks = ~10MB well within 32MB limit.
-local satelliteOverlayBudget = { used = 0, max = 10 }
+-- Dynamically computed from active chunk count rather than a monotonic
+-- counter, so evicted chunks free their budget automatically.
+local satelliteOverlayBudget = { max = 10 }
+
+function TerrainBuilder.GetActiveSatelliteOverlayCount()
+    -- Count EditableImage-backed SurfaceAppearance instances in Workspace.
+    -- This is O(n) over tagged parts but runs only at allocation time.
+    local count = 0
+    for _, tagged in ipairs(game:GetService("CollectionService"):GetTagged("ArnisTerrainSatelliteOverlay")) do
+        if tagged.Parent ~= nil then
+            count += 1
+        end
+    end
+    return count
+end
 
 -- Satellite-derived material palette: material names the Rust pipeline may emit
 -- via ESRI satellite classification into terrainGrid.materials[].
@@ -78,10 +92,14 @@ function TerrainBuilder.Clear(chunk, plan)
     TerrainBuilder._fillBlock(terrain, clearCFrame, clearSize, Enum.Material.Air)
 end
 
--- Configurable via WorldConfig; defaults favor maximum fidelity
+-- Read at call time, not module load time, so runtime config changes apply.
 local WorldConfig = require(game:GetService("ReplicatedStorage").Shared.WorldConfig)
-local REQUESTED_SAMPLE_RESOLUTION = WorldConfig.VoxelSize or 1
-local TERRAIN_THICKNESS = WorldConfig.TerrainThickness or 8
+local function getRequestedSampleResolution()
+    return WorldConfig.VoxelSize or 1
+end
+local function getTerrainThickness()
+    return WorldConfig.TerrainThickness or 8
+end
 
 local function snap(v, down)
     if down then
@@ -502,8 +520,8 @@ local function sampleVoxelColumnProfile(plan, ix, globalIz)
         * isolatedPeakSupportDamping
     local surfaceHeight = averageHeight + (maxHeight - averageHeight) * surfaceHeightBias
     local surfaceFillDepth = if heightRange > 0
-        then math.max(1, TERRAIN_THICKNESS * math.clamp(normalizedPeakCoverage + peakCoverageBias * 0.25, 0, 1))
-        else TERRAIN_THICKNESS
+        then math.max(1, getTerrainThickness() * math.clamp(normalizedPeakCoverage + peakCoverageBias * 0.25, 0, 1))
+        else getTerrainThickness()
     local edgeOccupancyScale = if heightRange > 0
         then math.clamp(1 - heightRangeFactor * (1 - peakCoverageBias) * 0.5, 0.35, 1)
         else 1
@@ -516,7 +534,7 @@ local function sampleVoxelColumnProfile(plan, ix, globalIz)
     if heightRange > 0 then
         local ridgeCoverageBias = peakCoverageBias * peakCoverageBias
         local ridgeFillDepth =
-            math.max(1, TERRAIN_THICKNESS * math.clamp(normalizedPeakCoverage * 0.5 + ridgeCoverageBias * 0.5, 0, 1))
+            math.max(1, getTerrainThickness() * math.clamp(normalizedPeakCoverage * 0.5 + ridgeCoverageBias * 0.5, 0, 1))
         surfaceFillDepth = math.min(surfaceFillDepth, ridgeFillDepth)
     end
 
@@ -563,7 +581,7 @@ local function buildChunkPlan(chunk, options)
     end
 
     local rMinX = snap(origin.x, true)
-    local rMinY = snap(origin.y + minH - TERRAIN_THICKNESS, true)
+    local rMinY = snap(origin.y + minH - getTerrainThickness(), true)
     local rMinZ = snap(origin.z, true)
     local rMaxX = snap(origin.x + totalWidth, false)
     local rMaxY = snap(origin.y + maxH + TERRAIN_WRITE_RESOLUTION, false)
@@ -667,7 +685,7 @@ local function buildChunkPlan(chunk, options)
     end
 
     local terrainStats = summarizeTerrainMaterials(cellMaterials, gridW, gridD)
-    local voxelSubsampleOffsets = buildSubsampleOffsets(TERRAIN_WRITE_RESOLUTION, REQUESTED_SAMPLE_RESOLUTION)
+    local voxelSubsampleOffsets = buildSubsampleOffsets(TERRAIN_WRITE_RESOLUTION, getRequestedSampleResolution())
 
     plan = {
         terrainGrid = terrainGrid,
@@ -690,7 +708,7 @@ local function buildChunkPlan(chunk, options)
         dimY = dimY,
         dimZ = dimZ,
         writeResolution = TERRAIN_WRITE_RESOLUTION,
-        requestedSampleResolution = REQUESTED_SAMPLE_RESOLUTION,
+        requestedSampleResolution = getRequestedSampleResolution(),
         cellMaterials = cellMaterials,
         terrainStats = terrainStats,
         voxelSubsampleOffsets = voxelSubsampleOffsets,
@@ -1070,14 +1088,15 @@ function TerrainBuilder.BuildSatelliteOverlay(parent, chunk, plan, textureData)
         return false
     end
 
-    -- Gate: budget
-    if satelliteOverlayBudget.used >= satelliteOverlayBudget.max then
+    -- Gate: budget (dynamically computed from active overlays, not monotonic counter)
+    local activeOverlays = TerrainBuilder.GetActiveSatelliteOverlayCount()
+    if activeOverlays >= satelliteOverlayBudget.max then
         warn(
             "[TerrainBuilder] Satellite overlay budget exhausted ("
-                .. tostring(satelliteOverlayBudget.used)
+                .. tostring(activeOverlays)
                 .. "/"
                 .. tostring(satelliteOverlayBudget.max)
-                .. ")"
+                .. "); evict older chunks to free budget"
         )
         return false
     end
@@ -1180,9 +1199,8 @@ function TerrainBuilder.BuildSatelliteOverlay(parent, chunk, plan, textureData)
         surfaceAppearance.ColorMap = Content.fromEditableImage(editImage)
         surfaceAppearance.Parent = meshPart
 
+        game:GetService("CollectionService"):AddTag(meshPart, "ArnisTerrainSatelliteOverlay")
         meshPart.Parent = parent
-
-        satelliteOverlayBudget.used += 1
     end)
 
     if not ok then
@@ -1199,7 +1217,9 @@ end
     Resets the budget counter. Useful when unloading chunks frees overlay slots.
 ]]
 function TerrainBuilder.ResetSatelliteOverlayBudget()
-    satelliteOverlayBudget.used = 0
+    -- No-op: budget is now computed dynamically from tagged parts.
+    -- Evicted chunks automatically free their overlay slot when
+    -- their MeshPart is destroyed (tag removed from CollectionService).
 end
 
 -- ═══════════════════════════════════════════════════════════════════

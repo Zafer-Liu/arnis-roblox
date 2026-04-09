@@ -1291,7 +1291,12 @@ class RunStudioHarnessTests(unittest.TestCase):
         play_block = self.text.split("elif [[ $DO_PLAY -eq 1 ]]; then", 1)[1]
         self.assertIn("play_probe_completed_via_mcp=0", play_block)
         self.assertIn("play_probe_completed_via_mcp=1", play_block)
-        self.assertIn('if [[ $play_probe_completed_via_mcp -eq 1 ]]; then', play_block)
+        self.assertIn("authoritative_client_play_proof_already_present=0", play_block)
+        self.assertIn("authoritative_client_play_proof_already_present=1", play_block)
+        self.assertIn(
+            'if [[ $play_probe_completed_via_mcp -eq 1 || $authoritative_client_play_proof_already_present -eq 1 ]]; then',
+            play_block,
+        )
         self.assertIn('log "skipping redundant play MCP probe after successful authoritative play proof"', play_block)
         self.assertIn('run_probe_best_effort "play" 8', play_block)
 

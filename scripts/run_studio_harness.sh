@@ -5551,6 +5551,7 @@ if [[ $ATTACHED_TO_EXISTING_STUDIO -eq 1 && $ATTACHED_SESSION_ALREADY_PLAYING -e
   validate_play_bootstrap_trace "$ACTIVE_LOG"
 elif [[ $DO_PLAY -eq 1 ]]; then
   play_probe_completed_via_mcp=0
+  authoritative_client_play_proof_already_present=0
   if [[ $KEEP_RUNALL_ENABLED -eq 0 ]]; then
     if should_run_filtered_play_tests_without_edit_phase; then
       log "preserving RunAll before play for filtered play-only non-preview proof"
@@ -5580,6 +5581,7 @@ elif [[ $DO_PLAY -eq 1 ]]; then
       log "play-mode Austin markers not observed before timeout; continuing"
     fi
     if authoritative_client_play_proof_present "$ACTIVE_LOG"; then
+      authoritative_client_play_proof_already_present=1
       log "skipping play-mode MCP probe because authoritative client proof is already present"
     elif run_play_probe_via_mcp; then
       play_probe_completed_via_mcp=1
@@ -5609,7 +5611,7 @@ elif [[ $DO_PLAY -eq 1 ]]; then
       log "play-mode Austin markers not observed before timeout; continuing"
     fi
   fi
-  if [[ $play_probe_completed_via_mcp -eq 1 ]]; then
+  if [[ $play_probe_completed_via_mcp -eq 1 || $authoritative_client_play_proof_already_present -eq 1 ]]; then
     log "skipping redundant play MCP probe after successful authoritative play proof"
   else
     run_probe_best_effort "play" 8

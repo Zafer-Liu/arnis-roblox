@@ -198,14 +198,36 @@ pub fn build_terrain_mesh(
             normals.push(n[1] as f32);
             normals.push(n[2] as f32);
 
-            // Vertex material: pick the material of the most common adjacent
-            // cell.  For simplicity use the cell to the upper-left when it
-            // exists, else the nearest available cell.
-            let cr = if vy > 0 { vy - 1 } else { 0 };
-            let cc = if vx > 0 { vx - 1 } else { 0 };
-            let cr = cr.min(depth - 1);
-            let cc = cc.min(width - 1);
-            vert_material_indices.push(cell_mat_indices[cr * width + cc]);
+            // Vertex material: average of adjacent cells to eliminate the
+            // systematic one-cell north-west bias. A corner vertex touches
+            // up to 4 cells; we pick the most frequent material among them.
+            let mut adj_mats: [u32; 4] = [0; 4];
+            let mut adj_count = 0;
+            for dy in [vy.saturating_sub(1), vy.min(depth - 1)] {
+                for dx in [vx.saturating_sub(1), vx.min(width - 1)] {
+                    if dy < depth && dx < width {
+                        adj_mats[adj_count] = cell_mat_indices[dy * width + dx];
+                        adj_count += 1;
+                    }
+                }
+            }
+            // Most frequent: simple majority from up to 4 cells
+            let best = if adj_count > 0 {
+                let mut counts = [0u8; 32]; // max 32 palette entries
+                for i in 0..adj_count {
+                    let idx = adj_mats[i] as usize;
+                    if idx < 32 { counts[idx] += 1; }
+                }
+                let mut best_idx = adj_mats[0] as usize;
+                let mut best_count = 0;
+                for (i, &c) in counts.iter().enumerate() {
+                    if c > best_count { best_count = c; best_idx = i; }
+                }
+                best_idx as u32
+            } else {
+                0
+            };
+            vert_material_indices.push(best);
         }
     }
 
