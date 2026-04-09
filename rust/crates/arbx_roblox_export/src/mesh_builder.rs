@@ -223,24 +223,54 @@ fn build_walls(footprint: &[(f64, f64)], base_y: f64, height: f64, wall_t: f64) 
     acc.into_mesh()
 }
 
+/// Compute the maximum distance from any footprint point to the centroid,
+/// projected onto the shorter bounding-box axis. Used as `max_dist_to_ridge`
+/// for `resolve_heights`.
+fn footprint_max_dist_to_ridge(footprint: &[(f64, f64)]) -> f64 {
+    if footprint.is_empty() {
+        return 5.0; // sensible fallback
+    }
+    let (mut min_x, mut max_x) = (f64::MAX, f64::MIN);
+    let (mut min_z, mut max_z) = (f64::MAX, f64::MIN);
+    for &(x, z) in footprint {
+        if x < min_x { min_x = x; }
+        if x > max_x { max_x = x; }
+        if z < min_z { min_z = z; }
+        if z > max_z { max_z = z; }
+    }
+    let dx = max_x - min_x;
+    let dz = max_z - min_z;
+    // Half of the shorter bounding-box dimension ≈ half-width perpendicular to ridge.
+    (dx.min(dz) / 2.0).max(1.0)
+}
+
 /// Build the complete building mesh: walls + roof geometry merged into a single
 /// `PrecomputedMesh`.
 ///
+/// Uses `resolve_heights` to compute wall/roof/floor intervals from OSM tags,
+/// then selects wall geometry:
+/// - `level_count >= 2`: windowed walls via `generate_wall_mesh` (osm2world port).
+/// - `level_count < 2`: simple oriented-box walls (sheds, garages, single-story).
+///
 /// The roof shape is created from the `roof_shape` tag and triangulated via the
-/// `roof::heightfield` engine. The roof sits on top of the walls at
-/// `base_y + height`.
+/// `roof::heightfield` engine.
 ///
 /// # Arguments
 /// * `footprint` — 2D polygon points as (x, z) pairs in stud space.
 /// * `base_y` — Y coordinate of the building base (ground level).
-/// * `height` — Total building height in studs (wall height, not including roof).
+/// * `height` — Total building height in studs (wall + roof).
 /// * `wall_thickness` — Wall thickness in studs (use 0.0 for default 0.6).
 /// * `roof_shape` — OSM `roof:shape` tag value (e.g. "flat", "gabled", "hipped").
 /// * `roof_height` — Explicit roof height in studs, if known.
 /// * `roof_direction` — Roof ridge direction in degrees, if known.
 /// * `roof_angle` — Roof pitch angle in degrees, if known.
 /// * `roof_orientation` — "along" or "across", if known.
-/// * `levels` — Number of building levels (used for default roof height estimation).
+/// * `levels` — Number of building levels.
+/// * `roof_levels` — Number of roof levels.
+/// * `min_height` — Minimum height / ground offset in studs.
+/// * `material_tag` — OSM `building:material` tag (stored for future SurfaceAppearance).
+/// * `usage` — OSM `building` usage tag (stored for future SurfaceAppearance).
+/// * `building_id` — Stable building identifier (stored for future material seeding).
 pub fn build_building_mesh(
     footprint: &[(f64, f64)],
     base_y: f64,
@@ -252,6 +282,12 @@ pub fn build_building_mesh(
     roof_angle: Option<f64>,
     roof_orientation: Option<&str>,
     levels: Option<u32>,
+    roof_levels: Option<u32>,
+    min_height: Option<f64>,
+    // Material fields — not yet used for geometry but threaded for future SurfaceAppearance
+    _material_tag: Option<&str>,
+    _usage: Option<&str>,
+    _building_id: &str,
 ) -> PrecomputedMesh {
     let wall_t = if wall_thickness <= 0.0 {
         DEFAULT_WALL_THICKNESS
@@ -268,8 +304,42 @@ pub fn build_building_mesh(
         };
     }
 
+    // ---- Resolve heights via level_height module ----
+    use crate::level_height::resolve_heights;
+
+    let max_dist = footprint_max_dist_to_ridge(footprint);
+    let resolved = resolve_heights(
+        base_y,
+        Some(height),
+        levels,
+        roof_height,
+        roof_angle,
+        roof_levels,
+        min_height,
+        max_dist,
+    );
+
+    let effective_wall_height = resolved.wall_height;
+    let effective_roof_height = resolved.roof_height;
+    let level_count = resolved.level_count;
+    let floor_height = resolved.floor_height;
+
     // ---- Walls ----
-    let wall_mesh = build_walls(footprint, base_y, height, wall_t);
+    let wall_mesh = if level_count >= 2 {
+        // Multi-story buildings get windowed wall surfaces.
+        use crate::wall_surface::generate_wall_mesh;
+        generate_wall_mesh(
+            footprint,
+            base_y,
+            effective_wall_height,
+            level_count,
+            floor_height,
+            wall_t,
+        )
+    } else {
+        // Single-story buildings keep the simpler oriented-box walls for performance.
+        build_walls(footprint, base_y, effective_wall_height, wall_t)
+    };
 
     // ---- Roof ----
     use crate::roof::{self, Point2D, Polygon2D, RoofTags};
@@ -282,17 +352,17 @@ pub fn build_building_mesh(
 
     let tags = RoofTags {
         shape: roof_shape.to_string(),
-        height: roof_height,
+        height: if effective_roof_height > 0.0 { Some(effective_roof_height) } else { roof_height },
         angle: roof_angle,
         direction: roof_direction,
         orientation: roof_orientation.map(|s| s.to_string()),
-        levels,
+        levels: levels,
         material: None,
         colour: None,
     };
 
     let roof_obj = roof::create_roof(roof_shape, polygon, &tags);
-    let wall_top_y = base_y + height;
+    let wall_top_y = base_y + effective_wall_height;
     let roof_mesh = triangulate_roof(roof_obj.as_ref(), wall_top_y);
 
     // ---- Merge ----
@@ -468,32 +538,40 @@ mod tests {
     // -----------------------------------------------------------------------
 
     #[test]
-    fn building_mesh_flat_same_walls_as_shell() {
+    fn building_mesh_flat_single_story_uses_oriented_box_walls() {
         let fp = rect_footprint();
-        let shell = build_shell_mesh(&fp, 0.0, 12.0, 0.6);
-        let building = build_building_mesh(&fp, 0.0, 12.0, 0.6, "flat", None, None, None, None, None);
-        // Flat roof adds a cap (CDT triangles) on top of the wall geometry.
-        // The building mesh must have at least as many vertices as the shell.
+        let shell = build_shell_mesh(&fp, 0.0, 5.0, 0.6);
+        // levels=1 forces level_count=1 → oriented-box walls (same as shell).
+        let building = build_building_mesh(
+            &fp, 0.0, 5.0, 0.6, "flat", None, None, None, None,
+            Some(1), None, None, None, None, "test",
+        );
+        // Flat roof adds a cap on top; building mesh has at least as many verts.
         assert!(
             building.vertex_count() >= shell.vertex_count(),
             "building mesh ({} verts) should have >= shell mesh ({} verts)",
             building.vertex_count(),
             shell.vertex_count()
         );
-        // The first N vertices (wall geometry) should be identical.
+        // The first N vertices (wall geometry) should be identical to shell.
         assert_eq!(
             &building.vertices[..shell.vertices.len()],
             &shell.vertices[..],
-            "wall vertices should be identical between shell and building mesh"
+            "single-story wall vertices should be identical between shell and building mesh"
         );
     }
 
     #[test]
     fn building_mesh_gabled_more_verts_than_flat() {
         let fp = rect_footprint();
-        let flat = build_building_mesh(&fp, 0.0, 12.0, 0.6, "flat", None, None, None, None, None);
+        // Use levels=1 to isolate roof geometry comparison (both use oriented-box walls).
+        let flat = build_building_mesh(
+            &fp, 0.0, 12.0, 0.6, "flat", None, None, None, None,
+            Some(1), None, None, None, None, "test",
+        );
         let gabled = build_building_mesh(
-            &fp, 0.0, 12.0, 0.6, "gabled", Some(4.0), None, None, None, None,
+            &fp, 0.0, 12.0, 0.6, "gabled", Some(4.0), None, None, None,
+            Some(1), None, None, None, None, "test",
         );
         assert!(
             gabled.vertex_count() > flat.vertex_count(),
@@ -506,9 +584,14 @@ mod tests {
     #[test]
     fn building_mesh_hipped_more_verts_than_flat() {
         let fp = rect_footprint();
-        let flat = build_building_mesh(&fp, 0.0, 12.0, 0.6, "flat", None, None, None, None, None);
+        // Use levels=1 to isolate roof geometry comparison (both use oriented-box walls).
+        let flat = build_building_mesh(
+            &fp, 0.0, 12.0, 0.6, "flat", None, None, None, None,
+            Some(1), None, None, None, None, "test",
+        );
         let hipped = build_building_mesh(
-            &fp, 0.0, 12.0, 0.6, "hipped", Some(4.0), None, None, None, None,
+            &fp, 0.0, 12.0, 0.6, "hipped", Some(4.0), None, None, None,
+            Some(1), None, None, None, None, "test",
         );
         assert!(
             hipped.vertex_count() > flat.vertex_count(),
@@ -522,7 +605,7 @@ mod tests {
     fn building_mesh_normals_unit_length() {
         let fp = rect_footprint();
         let mesh = build_building_mesh(
-            &fp, 0.0, 12.0, 0.6, "gabled", Some(4.0), None, None, None, None,
+            &fp, 0.0, 12.0, 0.6, "gabled", Some(4.0), None, None, None, None, None, None, None, None, "test",
         );
         for i in 0..mesh.vertex_count() {
             let nx = mesh.normals[i * 3] as f64;
@@ -542,7 +625,7 @@ mod tests {
     fn building_mesh_triangles_valid() {
         let fp = rect_footprint();
         let mesh = build_building_mesh(
-            &fp, 0.0, 12.0, 0.6, "hipped", Some(3.0), None, None, None, None,
+            &fp, 0.0, 12.0, 0.6, "hipped", Some(3.0), None, None, None, None, None, None, None, None, "test",
         );
         let vc = mesh.vertex_count() as u32;
         for (ti, &idx) in mesh.triangles.iter().enumerate() {
@@ -704,6 +787,86 @@ mod tests {
             norm_count, expected_norm_floats,
             "normals array element count mismatch (expected {} floats)",
             expected_norm_floats
+        );
+    }
+
+    // -----------------------------------------------------------------------
+    // Integration tests: wall_surface + level_height wiring
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn three_story_building_has_more_vertices_than_single_story() {
+        let fp = rect_footprint();
+        // 1-story: oriented-box walls (simple)
+        let one_story = build_building_mesh(
+            &fp, 0.0, 5.0, 0.6, "flat", None, None, None, None,
+            Some(1), None, None, None, None, "bldg-1",
+        );
+        // 3-story: windowed wall surfaces (more geometry)
+        let three_story = build_building_mesh(
+            &fp, 0.0, 12.0, 0.6, "flat", None, None, None, None,
+            Some(3), None, None, None, None, "bldg-3",
+        );
+        assert!(
+            three_story.vertex_count() > one_story.vertex_count(),
+            "3-story ({} verts) should have more vertices than 1-story ({} verts) \
+             due to windowed wall geometry",
+            three_story.vertex_count(),
+            one_story.vertex_count()
+        );
+    }
+
+    #[test]
+    fn single_story_uses_oriented_box_walls_same_vertex_count() {
+        let fp = rect_footprint();
+        // Shell mesh (oriented-box walls only, no roof).
+        let shell = build_shell_mesh(&fp, 0.0, 5.0, 0.6);
+        // 1-story building mesh with flat roof — wall portion should use oriented-box.
+        let building = build_building_mesh(
+            &fp, 0.0, 5.0, 0.6, "flat", None, None, None, None,
+            Some(1), None, None, None, None, "bldg-1story",
+        );
+        // Wall vertex count should match shell exactly.
+        // Building has shell vertices + roof vertices, so total >= shell.
+        assert!(
+            building.vertex_count() >= shell.vertex_count(),
+            "1-story building ({}) should have >= shell verts ({})",
+            building.vertex_count(),
+            shell.vertex_count()
+        );
+        // First N verts should be identical oriented-box walls.
+        assert_eq!(
+            &building.vertices[..shell.vertices.len()],
+            &shell.vertices[..],
+            "1-story building wall vertices must match shell oriented-box walls"
+        );
+    }
+
+    #[test]
+    fn resolve_heights_integration_levels_3_no_explicit_height() {
+        // levels=3 with no explicit height → height computed as 3*3.5+2.0 = 12.5
+        // resolve_heights should compute wall_height=12.5, level_count=3, floor_height≈4.17
+        use crate::level_height::resolve_heights;
+        let r = resolve_heights(0.0, None, Some(3), None, None, None, None, 5.0);
+        assert_eq!(r.level_count, 3);
+        assert!((r.wall_height - 12.5).abs() < 0.1,
+            "wall_height should be ~12.5, got {}", r.wall_height);
+        assert!((r.floor_height - 4.167).abs() < 0.1,
+            "floor_height should be ~4.17, got {}", r.floor_height);
+
+        // Now build a mesh with those resolved values and confirm it uses windowed walls
+        let fp = rect_footprint();
+        let total_h = r.wall_height + r.roof_height;
+        let mesh = build_building_mesh(
+            &fp, 0.0, total_h, 0.6, "flat", None, None, None, None,
+            Some(3), None, None, None, None, "bldg-resolve-test",
+        );
+        // Windowed walls for level_count=3 should produce more geometry than
+        // 4 oriented-box walls (4×24=96 verts).
+        assert!(
+            mesh.vertex_count() > 96,
+            "3-level resolved mesh should have > 96 wall verts (got {})",
+            mesh.vertex_count()
         );
     }
 }
