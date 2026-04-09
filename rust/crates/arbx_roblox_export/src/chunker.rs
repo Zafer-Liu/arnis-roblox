@@ -756,26 +756,25 @@ impl Chunker {
                 })
                 .collect();
 
-            let style_key = part.usage.as_deref().unwrap_or("default");
-            let material = style.get_building_material(style_key);
-            let color = if let Some(css) = part.colour.as_deref().and_then(|c| parse_css_color(c)) {
-                Some(css)
+            // Use the material_map module for diverse, deterministic material
+            // resolution. Each building gets a unique material based on its OSM
+            // tags + a per-building-id hash for variety (no cookie-cutter).
+            use crate::material_map;
+            let resolved_wall = material_map::resolve_wall_material(
+                part.material_tag.as_deref(),
+                source_feature.facade_style.as_deref(),
+                None, // cladding (already folded into material_tag)
+                part.colour.as_deref(),
+                part.usage.as_deref(),
+                &part.id,
+            );
+            let material = resolved_wall.material.clone();
+            let color = if let Some((r, g, b)) = resolved_wall.color {
+                Some(crate::manifest::Color { r, g, b })
             } else {
+                let style_key = part.usage.as_deref().unwrap_or("default");
                 style.get_building_color(style_key)
             };
-            let material_override = part.material_tag.as_deref().map(|m| match m {
-                "brick" => "Brick",
-                "masonry" => "Brick",
-                "concrete" => "Concrete",
-                "glass" => "Glass",
-                "metal" | "steel" => "Metal",
-                "wood" => "WoodPlanks",
-                "stone" | "granite" | "limestone" => "Limestone",
-                "sandstone" => "Sandstone",
-                "marble" => "Marble",
-                _ => "Concrete",
-            });
-            let material = material_override.map(|s| s.to_string()).unwrap_or(material);
 
             let roof_color = part.roof_colour.as_deref().and_then(|c| parse_css_color(c));
 
