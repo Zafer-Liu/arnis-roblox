@@ -1,9 +1,9 @@
 pub mod building_atlas;
 pub mod chunker;
+pub mod level_height;
 pub mod lua_runtime_shards;
 pub mod manifest;
 pub mod manifest_store;
-pub mod material_map;
 pub mod materials;
 pub mod mesh_builder;
 pub mod prop_mesh;
@@ -12,6 +12,7 @@ pub mod road_mesh;
 pub mod roof;
 pub mod subplans;
 pub mod terrain_mesh;
+pub mod wall_surface;
 pub mod water_mesh;
 
 use arbx_geo::{
