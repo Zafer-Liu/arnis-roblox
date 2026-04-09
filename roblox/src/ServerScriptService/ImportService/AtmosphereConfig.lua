@@ -35,7 +35,12 @@ end
 --- service. Safe to call multiple times; idempotent.
 function AtmosphereConfig.Apply()
     -- ── Lighting service properties ──────────────────────────────────
-    Lighting.Technology = Enum.Technology.Future
+    -- Lighting.Technology is a protected property in Roblox 2026 —
+    -- server scripts lack RobloxScript capability to write it. Must be
+    -- set in Studio place settings or via the rbxlx XML patcher.
+    pcall(function()
+        Lighting.Technology = Enum.Technology.Future
+    end)
     Lighting.GlobalShadows = true
     Lighting.Brightness = 2
     Lighting.EnvironmentDiffuseScale = 0.5
