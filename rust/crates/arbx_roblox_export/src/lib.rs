@@ -8,6 +8,7 @@ pub mod mesh_builder;
 pub mod prop_mesh;
 pub mod regional_styles;
 pub mod road_mesh;
+pub mod roof;
 pub mod subplans;
 pub mod terrain_mesh;
 pub mod water_mesh;
@@ -46,6 +47,7 @@ pub use road_mesh::{
 };
 pub use terrain_mesh::{build_terrain_mesh, TerrainMesh};
 pub use water_mesh::{build_water_polygon_mesh, build_water_river_mesh, WaterMesh};
+pub use roof::{create_roof, RoofShape, RoofTags, Polygon2D, Point2D, Segment2D};
 pub use manifest_store::{
     read_manifest_sqlite_all, read_manifest_sqlite_subset, stream_manifest_sqlite_all,
     write_manifest_sqlite, ManifestStoreResult, StoredChunkRecord, StoredManifestMeta,
