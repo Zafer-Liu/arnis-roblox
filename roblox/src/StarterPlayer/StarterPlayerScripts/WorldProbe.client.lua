@@ -110,6 +110,16 @@ local flickerLastSampleAt = 0
 local flickerLastEmitAt = 0
 local flickerLastFetchFailures = nil
 
+-- Stationary-vs-moving classification. We stamp the HRP position on each
+-- flicker sample tick and accumulate per-window displacement so the server
+-- aggregate can split thrash into stationary vs moving buckets. "Stationary"
+-- is defined as <4 studs of cumulative movement across the emit window — a
+-- threshold tuned to the humanoid's natural anchoring jitter while idle.
+local FLICKER_STATIONARY_STUDS = 4
+local flickerLastSamplePosition = nil
+local flickerWindowMovementStuds = 0
+local flickerWindowMovementPeak = 0
+
 -- Chunk id -> timestamp maps for thrash detection. We keep the last
 -- add/remove wall-clock time for each chunk id seen, and on every emit we
 -- count ids that had BOTH an add and a remove within the active window.
@@ -800,6 +810,43 @@ local function pushNearPartSample(count, ringNear, ringMid, ringFar)
     end
 end
 
+-- Count direction reversals in the near-part-count ring. This is the key
+-- signal to distinguish "steady chunk admission" (monotonic growth, all
+-- deltas same sign → zero reversals) from "thrash" (adds interleaved
+-- with removes → many reversals). stdDev alone can't tell these apart:
+-- a ring that reads [10, 20, 30, 40, 50] has the same stdDev ≈ 14 as
+-- [10, 50, 10, 50, 10] but the first is healthy import progress and the
+-- second is visible flicker. We want both metrics on the wire.
+local NEAR_PART_REVERSAL_DELTA = 2  -- ignore noise below this part delta
+local function countNearPartReversals()
+    if nearPartRingCount < 3 then
+        return 0, 0, 0
+    end
+    local reversals = 0
+    local upSteps = 0
+    local downSteps = 0
+    local prevDir = 0
+    local prevValue = nearPartRing[1]
+    for i = 2, nearPartRingCount do
+        local v = nearPartRing[i]
+        local diff = v - prevValue
+        if math.abs(diff) >= NEAR_PART_REVERSAL_DELTA then
+            local dir = if diff > 0 then 1 else -1
+            if dir == 1 then
+                upSteps = upSteps + 1
+            else
+                downSteps = downSteps + 1
+            end
+            if prevDir ~= 0 and dir ~= prevDir then
+                reversals = reversals + 1
+            end
+            prevDir = dir
+            prevValue = v
+        end
+    end
+    return reversals, upSteps, downSteps
+end
+
 local function summarizeNearPartRing()
     if nearPartRingCount == 0 then
         return 0, 0, 0, 0, 0
@@ -916,6 +963,21 @@ local function sampleFlickerDetector(now)
     if rootPart and worldRoot then
         nearCount = countNearPartsAround(rootPart)
     end
+    -- Accumulate per-sample HRP displacement. The next emit will classify
+    -- the window as stationary or moving based on flickerWindowMovementStuds
+    -- and then reset the counter. We track the peak single-sample step so we
+    -- can distinguish "teleport" thrash (walk path) from "continuous walk".
+    if rootPart then
+        local pos = rootPart.Position
+        if flickerLastSamplePosition ~= nil then
+            local step = (pos - flickerLastSamplePosition).Magnitude
+            flickerWindowMovementStuds = flickerWindowMovementStuds + step
+            if step > flickerWindowMovementPeak then
+                flickerWindowMovementPeak = step
+            end
+        end
+        flickerLastSamplePosition = pos
+    end
     local ringNear = tonumber(Workspace:GetAttribute("ArnisStreamingRingNearResidentBytes")) or 0
     local ringMid = tonumber(Workspace:GetAttribute("ArnisStreamingRingMidResidentBytes")) or 0
     local ringFar = tonumber(Workspace:GetAttribute("ArnisStreamingRingFarResidentBytes")) or 0
@@ -957,6 +1019,7 @@ local function publishFlickerTelemetry()
     end
 
     local avgNear, stdDevNear, minNear, maxNear, sampleCount = summarizeNearPartRing()
+    local nearPartReversals, nearPartUpSteps, nearPartDownSteps = countNearPartReversals()
     local ringDeltaNear = summarizeRingResidentDelta(ringResidentNearRing)
     local ringDeltaMid = summarizeRingResidentDelta(ringResidentMidRing)
     local ringDeltaFar = summarizeRingResidentDelta(ringResidentFarRing)
@@ -979,11 +1042,23 @@ local function publishFlickerTelemetry()
         currentNearCount = nearPartRing[nearPartRingHead] or 0
     end
 
+    local windowMovementStuds = flickerWindowMovementStuds
+    local windowMovementPeak = flickerWindowMovementPeak
+    flickerWindowMovementStuds = 0
+    flickerWindowMovementPeak = 0
+    local isStationary = windowMovementStuds < FLICKER_STATIONARY_STUDS
+
     local flickerPayload = {
         windowSeconds = FLICKER_WINDOW_SECONDS,
         sampleCount = sampleCount,
         chunkThrashCount = chunkThrashCount,
         thrashyChunkIds = topThrashy,
+        hrpMovementStuds = math.round(windowMovementStuds * 10) / 10,
+        hrpMovementPeakStuds = math.round(windowMovementPeak * 10) / 10,
+        isStationary = isStationary,
+        nearPartReversals = nearPartReversals,
+        nearPartUpSteps = nearPartUpSteps,
+        nearPartDownSteps = nearPartDownSteps,
         nearPartCount = currentNearCount,
         nearPartCountAvg = math.round(avgNear * 10) / 10,
         nearPartCountStdDev = math.round(stdDevNear * 10) / 10,

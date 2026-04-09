@@ -206,10 +206,10 @@ if [[ "$SKIP_HARNESS" -eq 1 ]]; then
   echo "[skip] --skip-harness set"
   PHASE_RESULT_HARNESS="skip"
 elif [[ "$DRY_RUN" -eq 1 ]]; then
-  echo "[dry-run] bash scripts/run_studio_harness_remote.sh -- --small-place --play-wait 180 --takeover"
+  echo "[dry-run] bash scripts/run_studio_harness_remote.sh --swift-screenshot -- --small-place --play-wait 180 --takeover"
   PHASE_RESULT_HARNESS="dry"
 else
-  if bash scripts/run_studio_harness_remote.sh -- --small-place --play-wait 180 --takeover; then
+  if bash scripts/run_studio_harness_remote.sh --swift-screenshot -- --small-place --play-wait 180 --takeover; then
     PHASE_RESULT_HARNESS="ok"
   else
     HARNESS_FAILED=1

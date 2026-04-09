@@ -609,12 +609,54 @@ local telemetryFeatureTotal = (telemetryStats.roadsImported or 0)
     + (telemetryStats.propsImported or 0)
     + (telemetryStats.landuseImported or 0)
     + (telemetryStats.barriersImported or 0)
+-- Initial success report — fires immediately so the auto-loop audit has a
+-- bootstrap record to anchor on. Subsequent reports give us actual flicker
+-- data:
+--   * stationary_baseline fires at T+20s with a clean 20s window of
+--     stand-still samples. This is the diagnosis signal for "the world
+--     flickers even when I'm not moving" — if stationaryThrashCount > 0 or
+--     stationaryStdDevAvg > epsilon we have a reproducer.
+--   * heartbeat fires every 30s thereafter for the rest of the session,
+--     letting us watch flicker state evolve as the user plays.
 TelemetryReporter.Report({
     status = "success",
     chunksImported = telemetryStats.chunksImported or 0,
     totalInstances = telemetryStats.totalInstances or 0,
     totalFeatures = telemetryFeatureTotal,
 })
+
+local BASELINE_WINDOW_SECONDS = 20
+local HEARTBEAT_INTERVAL_SECONDS = 30
+-- Cap the heartbeat loop so a runaway (or harness session that never
+-- naturally exits) can't fire telemetry forever. 240 heartbeats at 30s
+-- each = 2 hours of continuous observation — more than enough for any
+-- interactive session, and bounded for the harness which runs ~3 minutes
+-- of play-wait. After the cap the session falls silent on telemetry but
+-- continues normally otherwise.
+local HEARTBEAT_MAX_ITERATIONS = 240
+task.spawn(function()
+    -- Fresh aggregate so the baseline window starts from zero, not
+    -- whatever was captured during the first 2-3s post-gameplay_ready.
+    TelemetryReporter.ResetFlickerAggregate()
+    task.wait(BASELINE_WINDOW_SECONDS)
+    TelemetryReporter.Report({
+        status = "stationary_baseline",
+        chunksImported = telemetryStats.chunksImported or 0,
+        totalInstances = telemetryStats.totalInstances or 0,
+        totalFeatures = telemetryFeatureTotal,
+    })
+    TelemetryReporter.ResetFlickerAggregate()
+    for _ = 1, HEARTBEAT_MAX_ITERATIONS do
+        task.wait(HEARTBEAT_INTERVAL_SECONDS)
+        TelemetryReporter.Report({
+            status = "heartbeat",
+            chunksImported = telemetryStats.chunksImported or 0,
+            totalInstances = telemetryStats.totalInstances or 0,
+            totalFeatures = telemetryFeatureTotal,
+        })
+        TelemetryReporter.ResetFlickerAggregate()
+    end
+end)
 
 task.defer(function()
     if not worldRoot or worldRoot.Parent ~= Workspace then

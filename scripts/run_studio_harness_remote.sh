@@ -865,6 +865,13 @@ printf '%s\n' "$remote_harness_pgid" > "$remote_harness_pgid_file"
 printf 'launched:%s\n' "$remote_harness_pid"
 SH
 proof_signal_seen=0
+proof_signal_seen_at=0
+play_screenshot_fired=0
+# Delay between proof_signal detection (Studio rendered world in Play mode)
+# and firing the ScreenCaptureKit relay. Gives the world a few extra seconds
+# to actually import visible geometry before we snap, so the artifact shows
+# buildings/terrain instead of a blank sky.
+PLAY_SCREENSHOT_DELAY_SECONDS=8
 completion_signal_seen_at=0
 wrapper_wait_bounded=0
 
@@ -872,7 +879,21 @@ while true; do
   sync_remote_session_output || true
   if [[ $proof_signal_seen -eq 0 ]] && remote_proof_signal_detected; then
     proof_signal_seen=1
+    proof_signal_seen_at="$(date +%s)"
     sync_remote_artifacts || true
+  fi
+
+  # Fire the Swift/ScreenCaptureKit relay mid-Play instead of after the
+  # harness shuts down. Previously we ran it post-completion, by which
+  # point Studio had already exited Play and the artifact was an empty
+  # Edit viewport. We only do this when --swift-screenshot was requested.
+  if [[ $SWIFT_SCREENSHOT -eq 1 && $proof_signal_seen -eq 1 && $play_screenshot_fired -eq 0 && $completion_signal_seen_at -eq 0 ]]; then
+    now_epoch="$(date +%s)"
+    if (( now_epoch - proof_signal_seen_at >= PLAY_SCREENSHOT_DELAY_SECONDS )); then
+      echo "[remote-harness] firing play-mode screenshot relay (proof+${PLAY_SCREENSHOT_DELAY_SECONDS}s)"
+      run_swift_screenshot_capture || true
+      play_screenshot_fired=1
+    fi
   fi
 
   if [[ $completion_signal_seen_at -eq 0 ]] && remote_completion_signal_detected; then
@@ -914,7 +935,11 @@ fi
 REMOTE_HARNESS_ACTIVE=0
 sync_remote_artifacts
 
-if [[ $SWIFT_SCREENSHOT -eq 1 ]]; then
+if [[ $SWIFT_SCREENSHOT -eq 1 && $play_screenshot_fired -eq 0 ]]; then
+  # Fallback: Play-mode capture never fired (e.g. proof_signal was never
+  # detected, or --swift-screenshot came through a path that never hit the
+  # in-loop branch). Capture post-harness so we at least get the Edit
+  # viewport rather than nothing at all.
   run_swift_screenshot_capture || true
 fi
 

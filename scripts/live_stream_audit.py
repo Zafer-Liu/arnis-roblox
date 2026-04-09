@@ -157,13 +157,35 @@ PerRecordCheck = Callable[[Dict[str, Any], AuditConfig], Optional[Tuple[str, str
 # canonical value; "success_post_walk" is emitted by HarnessWalkPath
 # after the scripted walk completes and re-reports the flicker
 # aggregates (see ServerScriptService/HarnessWalkPath.server.lua).
-SUCCESS_STATUSES = frozenset({"success", "success_post_walk"})
+SUCCESS_STATUSES = frozenset(
+    {
+        "success",
+        "success_post_walk",
+        # stationary_baseline is the T+20s clean-window re-report fired
+        # from BootstrapAustin.server.lua after gameplay_ready. It carries
+        # the bootstrap phase timings verbatim but its flicker block is a
+        # pure 20s stationary observation window — the diagnosis signal
+        # for "the world flickers while I'm not moving".
+        "stationary_baseline",
+        # heartbeat fires every 30s for the lifetime of the session so we
+        # get continuous flicker visibility rather than a single bootstrap
+        # snapshot. The audit treats it as a success so a long-running
+        # session doesn't fail the loop.
+        "heartbeat",
+    }
+)
 
 # Status values that represent a re-report of a previously-successful
 # bootstrap (as opposed to a fresh bootstrap). These records carry a
 # chunksImported=0 by design because the re-report is just a telemetry
 # refresh, not a new import run. Skip min_chunks on these.
-POST_REPORT_STATUSES = frozenset({"success_post_walk"})
+POST_REPORT_STATUSES = frozenset(
+    {
+        "success_post_walk",
+        "stationary_baseline",
+        "heartbeat",
+    }
+)
 
 
 def check_bootstrap_status(record: Dict[str, Any], cfg: AuditConfig) -> Optional[Tuple[str, str]]:

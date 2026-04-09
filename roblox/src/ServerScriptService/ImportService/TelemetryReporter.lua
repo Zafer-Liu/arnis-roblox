@@ -45,31 +45,25 @@ local PRESSURE_LEVEL_ORDER = {
 }
 local PRESSURE_LEVEL_LABELS = { [0] = "ok", [1] = "elevated", [2] = "high", [3] = "critical" }
 
-local flickerAggregate = {
-    sampleCount = 0,
-    chunkThrashCountTotal = 0,
-    chunkThrashCountPeak = 0,
-    nearPartCountStdDevSum = 0,
-    nearPartCountStdDevPeak = 0,
-    ringBouncesNearTotal = 0,
-    ringBouncesMidTotal = 0,
-    ringBouncesFarTotal = 0,
-    ringDeltaNearPeak = 0,
-    ringDeltaMidPeak = 0,
-    ringDeltaFarPeak = 0,
-    chunkFetchFailuresDeltaTotal = 0,
-    peakMemoryPressureLevel = 0,
-    thrashyChunkIdsSeen = {},
-    lastSampleTimestamp = 0,
-}
-
-function TelemetryReporter.ResetFlickerAggregate()
-    flickerAggregate = {
+local function freshAggregate()
+    return {
         sampleCount = 0,
+        stationarySampleCount = 0,
+        movingSampleCount = 0,
         chunkThrashCountTotal = 0,
         chunkThrashCountPeak = 0,
+        stationaryThrashTotal = 0,
+        movingThrashTotal = 0,
+        hrpMovementStudsTotal = 0,
+        hrpMovementPeakStuds = 0,
+        nearPartReversalsTotal = 0,
+        nearPartUpStepsTotal = 0,
+        nearPartDownStepsTotal = 0,
+        stationaryReversalsTotal = 0,
         nearPartCountStdDevSum = 0,
         nearPartCountStdDevPeak = 0,
+        stationaryStdDevSum = 0,
+        stationaryStdDevPeak = 0,
         ringBouncesNearTotal = 0,
         ringBouncesMidTotal = 0,
         ringBouncesFarTotal = 0,
@@ -79,8 +73,15 @@ function TelemetryReporter.ResetFlickerAggregate()
         chunkFetchFailuresDeltaTotal = 0,
         peakMemoryPressureLevel = 0,
         thrashyChunkIdsSeen = {},
+        stationaryThrashyChunkIdsSeen = {},
         lastSampleTimestamp = 0,
     }
+end
+
+local flickerAggregate = freshAggregate()
+
+function TelemetryReporter.ResetFlickerAggregate()
+    flickerAggregate = freshAggregate()
 end
 
 function TelemetryReporter.RecordFlickerSample(sample)
@@ -90,16 +91,57 @@ function TelemetryReporter.RecordFlickerSample(sample)
     flickerAggregate.sampleCount = flickerAggregate.sampleCount + 1
     flickerAggregate.lastSampleTimestamp = os.time()
 
+    local isStationary = sample.isStationary == true
+    if isStationary then
+        flickerAggregate.stationarySampleCount = flickerAggregate.stationarySampleCount + 1
+    else
+        flickerAggregate.movingSampleCount = flickerAggregate.movingSampleCount + 1
+    end
+
+    local movement = tonumber(sample.hrpMovementStuds) or 0
+    flickerAggregate.hrpMovementStudsTotal = flickerAggregate.hrpMovementStudsTotal + movement
+    local movementPeak = tonumber(sample.hrpMovementPeakStuds) or 0
+    if movementPeak > flickerAggregate.hrpMovementPeakStuds then
+        flickerAggregate.hrpMovementPeakStuds = movementPeak
+    end
+
+    -- Near-part-count direction-change metrics. `reversals` is the signal
+    -- we actually care about — it's the number of times the part count
+    -- switched direction within the sample's rolling ring. upSteps and
+    -- downSteps let us compute an up-vs-down ratio to distinguish import
+    -- progress (lots of up, few down, few reversals) from flicker
+    -- (up ≈ down, many reversals).
+    local reversals = tonumber(sample.nearPartReversals) or 0
+    local upSteps = tonumber(sample.nearPartUpSteps) or 0
+    local downSteps = tonumber(sample.nearPartDownSteps) or 0
+    flickerAggregate.nearPartReversalsTotal = flickerAggregate.nearPartReversalsTotal + reversals
+    flickerAggregate.nearPartUpStepsTotal = flickerAggregate.nearPartUpStepsTotal + upSteps
+    flickerAggregate.nearPartDownStepsTotal = flickerAggregate.nearPartDownStepsTotal + downSteps
+    if isStationary then
+        flickerAggregate.stationaryReversalsTotal = flickerAggregate.stationaryReversalsTotal + reversals
+    end
+
     local thrash = tonumber(sample.chunkThrashCount) or 0
     flickerAggregate.chunkThrashCountTotal = flickerAggregate.chunkThrashCountTotal + thrash
     if thrash > flickerAggregate.chunkThrashCountPeak then
         flickerAggregate.chunkThrashCountPeak = thrash
+    end
+    if isStationary then
+        flickerAggregate.stationaryThrashTotal = flickerAggregate.stationaryThrashTotal + thrash
+    else
+        flickerAggregate.movingThrashTotal = flickerAggregate.movingThrashTotal + thrash
     end
 
     local stdDev = tonumber(sample.nearPartCountStdDev) or 0
     flickerAggregate.nearPartCountStdDevSum = flickerAggregate.nearPartCountStdDevSum + stdDev
     if stdDev > flickerAggregate.nearPartCountStdDevPeak then
         flickerAggregate.nearPartCountStdDevPeak = stdDev
+    end
+    if isStationary then
+        flickerAggregate.stationaryStdDevSum = flickerAggregate.stationaryStdDevSum + stdDev
+        if stdDev > flickerAggregate.stationaryStdDevPeak then
+            flickerAggregate.stationaryStdDevPeak = stdDev
+        end
     end
 
     flickerAggregate.ringBouncesNearTotal = flickerAggregate.ringBouncesNearTotal
@@ -136,6 +178,10 @@ function TelemetryReporter.RecordFlickerSample(sample)
             if type(id) == "string" and id ~= "" then
                 flickerAggregate.thrashyChunkIdsSeen[id] =
                     (flickerAggregate.thrashyChunkIdsSeen[id] or 0) + 1
+                if isStationary then
+                    flickerAggregate.stationaryThrashyChunkIdsSeen[id] =
+                        (flickerAggregate.stationaryThrashyChunkIdsSeen[id] or 0) + 1
+                end
             end
         end
     end
@@ -146,23 +192,42 @@ local function buildFlickerBlock()
         return nil
     end
     local avgStdDev = flickerAggregate.nearPartCountStdDevSum / flickerAggregate.sampleCount
-    local topThrashy = {}
-    for id, count in pairs(flickerAggregate.thrashyChunkIdsSeen) do
-        topThrashy[#topThrashy + 1] = { id = id, count = count }
+    local stationaryAvgStdDev = 0
+    if flickerAggregate.stationarySampleCount > 0 then
+        stationaryAvgStdDev = flickerAggregate.stationaryStdDevSum / flickerAggregate.stationarySampleCount
     end
-    table.sort(topThrashy, function(a, b)
-        return a.count > b.count
-    end)
-    local topIds = {}
-    for i = 1, math.min(5, #topThrashy) do
-        topIds[i] = topThrashy[i].id
+    local function topKIds(map, k)
+        local list = {}
+        for id, count in pairs(map) do
+            list[#list + 1] = { id = id, count = count }
+        end
+        table.sort(list, function(a, b)
+            return a.count > b.count
+        end)
+        local ids = {}
+        for i = 1, math.min(k, #list) do
+            ids[i] = list[i].id
+        end
+        return ids
     end
     return {
         sampleCount = flickerAggregate.sampleCount,
+        stationarySampleCount = flickerAggregate.stationarySampleCount,
+        movingSampleCount = flickerAggregate.movingSampleCount,
+        hrpMovementStudsTotal = math.round(flickerAggregate.hrpMovementStudsTotal * 10) / 10,
+        hrpMovementPeakStuds = flickerAggregate.hrpMovementPeakStuds,
+        nearPartReversals = flickerAggregate.nearPartReversalsTotal,
+        nearPartUpSteps = flickerAggregate.nearPartUpStepsTotal,
+        nearPartDownSteps = flickerAggregate.nearPartDownStepsTotal,
+        stationaryReversals = flickerAggregate.stationaryReversalsTotal,
         chunkThrashCount = flickerAggregate.chunkThrashCountTotal,
         chunkThrashCountPeak = flickerAggregate.chunkThrashCountPeak,
+        stationaryThrashCount = flickerAggregate.stationaryThrashTotal,
+        movingThrashCount = flickerAggregate.movingThrashTotal,
         nearPartCountStdDevAvg = math.round(avgStdDev * 10) / 10,
         nearPartCountStdDevPeak = flickerAggregate.nearPartCountStdDevPeak,
+        stationaryStdDevAvg = math.round(stationaryAvgStdDev * 10) / 10,
+        stationaryStdDevPeak = flickerAggregate.stationaryStdDevPeak,
         ringBouncesNear = flickerAggregate.ringBouncesNearTotal,
         ringBouncesMid = flickerAggregate.ringBouncesMidTotal,
         ringBouncesFar = flickerAggregate.ringBouncesFarTotal,
@@ -171,7 +236,8 @@ local function buildFlickerBlock()
         ringDeltaFarPeak = flickerAggregate.ringDeltaFarPeak,
         chunkFetchFailuresDelta = flickerAggregate.chunkFetchFailuresDeltaTotal,
         peakMemoryPressure = PRESSURE_LEVEL_LABELS[flickerAggregate.peakMemoryPressureLevel] or "ok",
-        topThrashyChunkIds = topIds,
+        topThrashyChunkIds = topKIds(flickerAggregate.thrashyChunkIdsSeen, 5),
+        topStationaryThrashyChunkIds = topKIds(flickerAggregate.stationaryThrashyChunkIdsSeen, 5),
         lastSampleTimestamp = flickerAggregate.lastSampleTimestamp,
     }
 end

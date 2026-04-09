@@ -139,10 +139,18 @@ task.spawn(function()
         return
     end
 
-    -- Extra settle delay after gameplay_ready so the first LoadingScreen
-    -- fade completes and the character physics stabilize before we
-    -- start teleporting.
-    task.wait(1.5)
+    -- Extra settle delay after gameplay_ready. Two purposes:
+    --   1. Let the first LoadingScreen fade complete and character physics
+    --      stabilize before we start teleporting.
+    --   2. Hold off until the T+20s stationary_baseline Report() has
+    --      fired from BootstrapAustin so that baseline captures a clean
+    --      20-second stand-still window — NOT a window contaminated by
+    --      the walk path's teleports. Without this wait, the baseline
+    --      window sees hrpMovement=~1800 studs and reports a meaningless
+    --      "stationary" classification that's half-moving.
+    -- 22s = 20s baseline window + 2s safety margin for BootstrapAustin
+    -- to complete its Report() POST before we start the walk.
+    task.wait(22)
 
     -- Anchor + lift the character into invincible flight mode for the
     -- duration of the walk. Teleporting a gravity-bound character across
@@ -254,6 +262,13 @@ task.spawn(function()
                 .. tostring(err))
         else
             print("[HarnessWalkPath] post-walk telemetry report fired")
+        end
+        -- Clear the aggregate so the next BootstrapAustin heartbeat (which
+        -- fires ~30s after baseline, i.e. potentially during or just after
+        -- the walk) captures a clean post-walk window rather than
+        -- re-counting the walk-induced thrash.
+        if type(TelemetryReporter.ResetFlickerAggregate) == "function" then
+            pcall(TelemetryReporter.ResetFlickerAggregate)
         end
     end
 end)
