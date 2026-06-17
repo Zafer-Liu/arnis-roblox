@@ -1,7 +1,10 @@
 name: Build Windows CLI
 
 on:
-  workflow_dispatch:  # 手动触发
+  workflow_dispatch:
+
+env:
+  RUSTFLAGS: "-A unused -A dead_code"
 
 jobs:
   build:
